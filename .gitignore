@@ -1,0 +1,12 @@
+node_modules/
+dist/
+release/
+playwright-report/
+test-results/
+.env*
+!.env.example
+design/snapshots/
+*.log
+bootstrap.ps1
+transfer*.json
+transfer*.b64

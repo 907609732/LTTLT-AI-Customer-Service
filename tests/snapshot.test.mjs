@@ -1,0 +1,12 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {parseSnapshot} from '../shared/snapshot.mjs';
+const fixture=()=>({schema:'lingtu.design-snapshot',version:1,fileName:'测试设计',nodes:[{id:'20:2',name:'UX01 店铺首页',width:1920,height:1080,document:{type:'FRAME'},preview:''}]});
+test('accepts a valid local snapshot',()=>assert.equal(parseSnapshot(JSON.stringify(fixture())).nodes[0].id,'20:2'));
+test('rejects invalid JSON',()=>assert.throws(()=>parseSnapshot('broken'),/JSON/));
+test('rejects foreign schema',()=>assert.throws(()=>parseSnapshot('{}'),/快照/));
+test('rejects path traversal IDs',()=>{const f=fixture();f.nodes[0].id='../../secret';assert.throws(()=>parseSnapshot(JSON.stringify(f)),/ID/);});
+test('rejects remote preview URLs',()=>{const f=fixture();f.nodes[0].preview='https://example.com/image.png';assert.throws(()=>parseSnapshot(JSON.stringify(f)),/PNG/);});
+test('rejects SVG previews',()=>{const f=fixture();f.nodes[0].preview='data:image/svg+xml,<svg onload="alert(1)"/>';assert.throws(()=>parseSnapshot(JSON.stringify(f)),/PNG/);});
+test('rejects duplicate nodes',()=>{const f=fixture();f.nodes.push({...f.nodes[0]});assert.throws(()=>parseSnapshot(JSON.stringify(f)),/重复/);});
+test('rejects invalid dimensions',()=>{const f=fixture();f.nodes[0].width=-1;assert.throws(()=>parseSnapshot(JSON.stringify(f)),/尺寸/);});
+test('caps node count',()=>{const f=fixture();f.nodes=Array.from({length:21},(_,i)=>({...f.nodes[0],id:String(i)}));assert.throws(()=>parseSnapshot(JSON.stringify(f)),/20/);});
+test('enforces byte limit before parsing',()=>assert.throws(()=>parseSnapshot('x'.repeat(20*1024*1024+1)),/20 MB/));
