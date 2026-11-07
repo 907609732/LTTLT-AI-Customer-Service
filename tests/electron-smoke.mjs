@@ -51,7 +51,10 @@ try{
  await aux.getByRole('button',{name:'取消',exact:true}).click();
  await aux.locator('[data-figma-node="2:177"]').waitFor();
  await aux.getByRole('button',{name:'关闭',exact:true}).click();
- await aux.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).click();
+ await Promise.all([
+  aux.waitForEvent('close',{timeout:5000}),
+  aux.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).click().catch(error=>{if(!aux.isClosed())throw error;})
+ ]);
  await page.waitForTimeout(300);
  if(app.windows().length!==1)throw Error('Confirm close did not close only the auxiliary window');
  console.log('Electron frontend PASS: 1440x900 main, 300x900 auxiliary, UX01 -> UX04, preload IPC, cancel/confirm close');
