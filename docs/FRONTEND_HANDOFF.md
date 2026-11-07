@@ -41,3 +41,11 @@ Figma文件`CR9QYrjZfTfMf6CIBj5yrb`，Canvas`2:129`，右侧可编辑画板。UX
 已建立：当前32来源尺寸/节点及导航目标完整性检查、草稿与状态模型测试、32页资源与运行错误检查，以及首页导航、接待菜单、欢迎语保存恢复、图片提示、禁用词和定时任务关键交互检查。
 
 逐页视觉、辅助独立窗口、云端产物及合并提交验收结果会在交付完成时追加。本文件当前不宣称这些尚未执行的检查已通过。
+
+## 本轮交付验证和限制（2026-11-08）
+
+已完成32页Figma导出对照、训练/偏好页面修正复核、53项浏览器检查及29项单元检查；Electron开发预览的主窗口、独立侧栏、导航、IPC和取消/确认关闭通过。视觉核对范围见IMPLEMENTATION.md。
+
+搜索限制：店铺、意图包、工单、质检和成员搜索目前为可编辑输入，尚未绑定业务列表过滤/分页；只有禁用词搜索在当前演示数据上实际过滤。详情、新增等未在Figma设计的业务流程由接收方补齐。以上不列为业务功能验收通过。
+
+设计与交互说明：[钉钉文档](https://alidocs.dingtalk.com/i/nodes/QPGYqjpJYrjrOeLBc9grbY6K8akx1Z5N)。[当前Figma](https://www.figma.com/design/CR9QYrjZfTfMf6CIBj5yrb/AI%E5%AE%A2%E6%9C%8D?node-id=2-129)。[交付PR](https://github.com/907609732/LTTLT-AI-Customer-Service/pull/2)。云端构建及产物以PR检查和[Actions列表](https://github.com/907609732/LTTLT-AI-Customer-Service/actions)为准；未取得成功产物前不视为完成打包验收。
