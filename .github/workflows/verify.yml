@@ -1,0 +1,47 @@
+name: Build and verify Electron frontend
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Configure Windows desktop for 1440x900 application checks
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx playwright install chromium
+      - run: npm run build
+      - run: npm run test:e2e
+      - run: npm run test:electron
+      - run: npx electron-builder --win --dir --publish never
+      - run: npm run test:packaged
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lingtu-windows-frontend-${{ github.sha }}
+          path: release/win-unpacked/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-verification-${{ github.sha }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
