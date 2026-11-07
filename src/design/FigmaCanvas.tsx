@@ -41,7 +41,7 @@ function Layer(props:LayerProps){
  const binding=onUIAction?controlBinding(layer):undefined;
  if(binding){
   const fieldStyle:CSSProperties={...base};
-  if(layer.type==='TEXT'){fieldStyle.height=44;fieldStyle.top=Number(fieldStyle.top)-14;}
+  if(layer.type==='TEXT'){fieldStyle.height=44;fieldStyle.top=Number(fieldStyle.top)-14;fieldStyle.backgroundColor='transparent';fieldStyle.backgroundImage='none';fieldStyle.border=0;}
   return <div style={fieldStyle} data-figma-node={runtimeId} className="bound-control" onClick={e=>e.stopPropagation()}><BoundControl binding={binding} screenId={screenId} onClose={()=>onInteraction?.({type:'CLOSE'},nextHosts)}/></div>;
  }
  if(layer.type==='TEXT'){
