@@ -1,5 +1,9 @@
 import {readFileSync,writeFileSync,mkdirSync,readdirSync,copyFileSync,existsSync} from 'node:fs';
 import {resolve,join,extname} from 'node:path';
+if(process.argv[2]==='--current'){
+ await import('./prepare-current-design.mjs');
+ process.exit(0);
+}
 const map=JSON.parse(readFileSync(resolve('docs/figma-map.json'),'utf8'));
 const hash=map.sourceSnapshotHash;
 if(!hash)throw Error('Run npm run design:decode -- your.fig first');

@@ -12,7 +12,8 @@ function assetUrl(hash?:Record<string,number>){
 function paintStyle(paint:FigmaPaint):CSSProperties{
  if(paint.type==='SOLID'&&paint.color)return{backgroundColor:rgba(paint.color,paint.opacity??1)};
  if(paint.type==='GRADIENT_LINEAR'&&paint.stops?.length){
-  const angle=paint.transform?.m00===0&&paint.transform?.m01===1?'90deg':'130deg';
+  const handles=paint.gradientHandles;
+  const angle=handles?.length?Math.atan2(handles[1].x-handles[0].x,-(handles[1].y-handles[0].y))*180/Math.PI+'deg':paint.transform?.m00===0&&paint.transform?.m01===1?'90deg':'130deg';
   const stops=paint.stops.map(s=>rgba(s.color,paint.opacity??1)+' '+Math.round(s.position*100)+'%').join(', ');
   return{backgroundImage:'linear-gradient('+angle+', '+stops+')'};
  }
@@ -21,7 +22,7 @@ function paintStyle(paint:FigmaPaint):CSSProperties{
   return{backgroundImage:'radial-gradient(circle, '+stops+')'};
  }
  if(paint.type==='IMAGE'){
-  const url=assetUrl(paint.image?.hash);
+  const url=paint.imageRef?imageAssets[paint.imageRef]:assetUrl(paint.image?.hash);
   if(url)return {backgroundImage:'url("'+url+'")',backgroundRepeat:'no-repeat',
    backgroundPosition:'center',backgroundSize:paint.imageScaleMode==='FIT'?'contain':'cover'};
  }
@@ -51,18 +52,21 @@ export function styleOf(p:FigmaProperties,root=false):CSSProperties{
  if(stroke?.color)s.border=(p.strokeWeight??1)+'px solid '+rgba(stroke.color,stroke.opacity??1);
  if(p.clipsContent===true)s.overflow='hidden';
  const effects=Array.isArray(p.effects)?p.effects as {type:string;radius?:number;offset?:{x:number;y:number};color?:FigmaRGB;visible?:boolean;spread?:number}[]:[];
- const blur=effects.find(effect=>effect.visible!==false&&effect.type==='FOREGROUND_BLUR');
+ const blur=effects.find(effect=>effect.visible!==false&&['FOREGROUND_BLUR','LAYER_BLUR'].includes(effect.type));
  if(blur?.radius)s.filter='blur('+blur.radius+'px)';
  const shadows=effects.filter(effect=>effect.visible!==false&&(effect.type==='DROP_SHADOW'||effect.type==='INNER_SHADOW'));
  if(shadows.length)s.boxShadow=shadows.map(effect=>(effect.type==='INNER_SHADOW'?'inset ':'')+(effect.offset?.x||0)+'px '+(effect.offset?.y||0)+'px '+(effect.radius||0)+'px '+(effect.spread||0)+'px '+rgba(effect.color||{r:0,g:0,b:0,a:.15})).join(',');
  if(p.fontSize){s.fontFamily='"'+(p.fontName?.family||'Noto Sans SC')+'","Microsoft YaHei",sans-serif';s.fontSize=p.fontSize;
   const fs=(p.fontName?.style||'').toLowerCase();
-  s.fontWeight=fs.includes('black')?900:fs.includes('bold')?700:fs.includes('semibold')?600:fs.includes('medium')?500:400;
+  s.fontWeight=typeof p.fontWeight==='number'?p.fontWeight:fs.includes('black')?900:fs.includes('semibold')?600:fs.includes('bold')?700:fs.includes('medium')?500:400;
   s.lineHeight=p.lineHeight?.units==='PIXELS'?(p.lineHeight.value+'px'):'normal';
   if(p.letterSpacing?.units==='PIXELS')s.letterSpacing=p.letterSpacing.value+'px';
-  s.whiteSpace='pre-wrap';s.overflowWrap='anywhere';s.display='flex';
+  s.whiteSpace=p.textAutoResize==='WIDTH_AND_HEIGHT'?'pre':'pre-wrap';s.overflowWrap=p.textAutoResize==='WIDTH_AND_HEIGHT'?'normal':'anywhere';s.display='flex';
   s.alignItems=p.textAlignVertical==='CENTER'?'center':p.textAlignVertical==='BOTTOM'?'flex-end':'flex-start';
   s.justifyContent=p.textAlignHorizontal==='CENTER'?'center':p.textAlignHorizontal==='RIGHT'?'flex-end':'flex-start';
  }
+ if(p.overflow==='VERTICAL'){s.overflowY='auto';s.overflowX='hidden';}
+ if(p.overflow==='HORIZONTAL'){s.overflowX='auto';s.overflowY='hidden';}
+ if(p.overflow==='BOTH')s.overflow='auto';
  return s;
 }

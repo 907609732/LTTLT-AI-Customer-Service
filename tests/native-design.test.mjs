@@ -14,9 +14,19 @@ test('all 32 editable Figma UX sources exist and have non-empty trees',()=>{
   assert.ok(design.children.length>0,entry.uxId);
  }
 });
-test('116 reusable Figma symbol definitions are available as components',()=>{
- assert.equal(Object.keys(components).length,116);
- assert.equal(components['8801:339'].type,'SYMBOL');
+
+test('current desktop and auxiliary sources follow the approved viewport specification',()=>{
+ assert.equal(manifest.fileKey,'CR9QYrjZfTfMf6CIBj5yrb');
+ for(const entry of manifest.files){
+  const auxiliary=Number(entry.uxId.slice(2))>=26;
+  assert.deepEqual([entry.width,entry.height],[auxiliary?300:1440,900],entry.uxId);
+ }
+ assert.equal(manifest.files.find(x=>x.uxId==='UX01').nodeId,'8836:4283');
+ assert.equal(manifest.files.find(x=>x.uxId==='UX03').nodeId,'8836:4284');
+});
+test('shared Figma component definitions and their actual child layers remain available',()=>{
+ assert.ok(Object.keys(components).length>=116);
+ assert.ok(['SYMBOL','COMPONENT'].includes(components['8801:339'].type));
  assert.ok(components['8801:418'].children.length>0);
 });
 test('legacy reference screenshot is no longer a frontend dependency',()=>{

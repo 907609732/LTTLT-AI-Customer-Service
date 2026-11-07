@@ -15,9 +15,9 @@ const byName:Record<string,string>={
 export function resolveAction(node:FigmaLayer,screenId:string,ancestors:string[]):DesignAction|null{
  if(screenId==='UX01'&&home[node.id])return{kind:'navigate',to:home[node.id]};
  if(screenId==='UX01'){
-  if(node.id==='11:59')return{kind:'window',action:'minimize'};
-  if(node.id==='11:61')return{kind:'window',action:'maximize'};
-  if(node.id==='11:63')return{kind:'window',action:'close'};
+  if(node.id==='11:59'||node.id.endsWith(';11:59'))return{kind:'window',action:'minimize'};
+  if(node.id==='11:61'||node.id.endsWith(';11:61'))return{kind:'window',action:'maximize'};
+  if(node.id==='11:63'||node.id.endsWith(';11:63'))return{kind:'window',action:'close'};
  }
  const name=node.name.trim();
  if(!['FRAME','INSTANCE','SYMBOL'].includes(node.type))return null;
