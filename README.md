@@ -78,6 +78,8 @@ npm run build
 $env:PLAYWRIGHT_CHROMIUM_EXECUTABLE="C:\Program Files\Google\Chrome\Application\chrome.exe"
 npm run test:e2e
 npm run test:electron
+npm run dist:win
+npm run test:packaged
 ```
 
 ### 当前还没完成的工作
