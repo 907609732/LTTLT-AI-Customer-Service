@@ -1,70 +1,91 @@
-# 灵兔 AI 电商客服 · Electron 客户端
+# 灵兔 AI 电商客服 — Figma 可编辑画板重构
 
-![本地前端首页预览](docs/preview-home.png)
+本仓库已停止使用早期基于参考图/旧 HTML 的页面实现。新前端的视觉数据只从用户自己的 **Figma 原生可编辑 `.fig` 文件**离线提取，React 组件复用原始 Figma Symbol/Instance 层级。
 
-> v0.1.0 本地前端预览。此工程独立于 Figma MCP、ChatGPT Figma 连接器；**没有接入电商平台，也没有发送真实消息的能力**。
+![基于 Figma 原生可编辑节点生成的 UX01 首页预览](docs/figma-ux01-native-preview.png)
 
-## 已有功能
+> 当前是 **v0.2.0 开发预览**。32 个 UX 画板能够在 Electron 中加载和浏览，部分画板导航可点击；真实平台授权、会话发送、订单操作和 AI 客服业务接口尚未连接。不能视作商业可用客户端，也不能宣称所有页面像素还原验收完成。
 
-Electron + React + TypeScript + Vite；店铺首页、公共顶部栏/侧栏、配置导航、看板空状态、本地演示店铺管理、进店欢迎语编辑/保存/恢复、离开草稿确认、Figma 设计快照导入（只读）。另外建立 UX01–UX32 路由索引；大部分业务页目前仍为待实现占位页面。
+## 设计输入
 
-## 本地运行（Windows）
+源文件：本机 `Downloads/AI客服-可编辑图层.fig`（用户持有，未上传 Git）。
 
-要求 Node.js 22.12+。
+离线解析结果：
+- 3,351 个原生图层节点；496 个 Frame；
+- 146 个 Figma Symbol 定义，其中 30 个是画板根组件，116 个为其余可复用组件；
+- 907 个组件实例；
+- 映射到 UX01–UX32 的 32 个可编辑画板；
+- 导出 149 个被可编辑画板与其组件引用的原始图片资源。
+
+**无需 Figma MCP、Figma REST API 或 ChatGPT Figma 连接器调用。** 解析器使用 [openfig-core](https://github.com/OpenFig-org/openfig-core) 读取本机 `.fig` / `fig-kiwi` 文件。注意它是社区解析库，格式兼容性不保证永久稳定。
+
+页面有两个 Canvas：`原软件`（图片参考）和 `我们的设计方案`（可编辑图层，ID `2:129`）；**只使用后一者作为视觉依据**。
+
+## 安装和运行（Windows）
+
+要求 Node.js 22.12+：
 
 ```powershell
-npm install
+npm ci
 npm run build
 npm start
 ```
 
-也可直接双击 `start-preview.cmd`（首次需要安装依赖）。开发热更新用 `npm run dev`。
-
-如果 Electron npm 包存在但 `node_modules/electron/dist/electron.exe` 缺失，可以运行：
+开发热更新：
 
 ```powershell
-$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
-node .\node_modules\electron\install.js
+npm run dev
 ```
 
-## 验证
+### 重新从 Figma 可编辑源文件同步（不消耗 MCP 额度）
+
+先在 Figma 中将最新设计另存或导出为本地 `.fig` 文件，然后：
+
+```powershell
+npm run design:decode -- "C:\Users\90760\Downloads\AI客服-可编辑图层.fig"
+npm run design:prepare
+npm run build
+```
+
+命令会重新解析每个 UX 原生可编辑节点、组件/样式、文字尺寸和资源。`design/snapshots/<hash>/` 是完整的本地私有数据，默认不提交 Git；`src/design/generated` 是用于前端开发的结构化组件和页面数据。新设计文件更新后，仍须进行视觉及功能验收，不代表代码可以自动理解所有交互。
+
+## 项目结构
+
+```text
+electron/                 安全 Electron 主进程 / 受控 IPC
+src/
+  App.tsx                 全新 UX01–UX32 设计画板浏览器
+  design/
+    actions.ts            已验证的部分画板点击与导航映射
+    FigmaCanvas.tsx       组件实例复用 / 原生图层 React 渲染
+    style.ts              从 Figma 节点转换颜色、字体、边框、渐变、模糊
+    generated/
+      screens/UX01.json…  32 份真实可编辑画板结构
+      components.json     116 个 Symbol 定义
+      assets.json         原生资源 hash 映射
+public/figma-assets/      149 个当前画板引用的本地图片
+docs/figma-map.json       UX 页面、真实 Figma Node ID、文件 SHA 映射
+scripts/decode-fig.mjs    读取 .fig / fig-kiwi，提取原生图层与组件
+scripts/prepare-design.mjs 生成运行时层级与图片资源
+```
+
+## 测试
 
 ```powershell
 npm run typecheck
 npm test
 npm run build
-```
-
-端到端测试默认使用 Playwright 自带 Chromium；如未安装，可以在本机临时指定 Chrome：
-
-```powershell
 $env:PLAYWRIGHT_CHROMIUM_EXECUTABLE="C:\Program Files\Google\Chrome\Application\chrome.exe"
 npm run test:e2e
+npm run test:electron
 ```
 
-## Figma 不占 MCP 额度的交付流程
+### 当前还没完成的工作
 
-1. 首次安装需要在 Figma 桌面端 **Plugins → Development → New Plugin...** 创建一个空白开发插件，让 Figma 分配真实插件 ID。不要复用 NGR 锻造台的 ID。将生成的 ID 填入 `plugins/figma-local-export/manifest.json` 的 `id` 字段，然后在 **Plugins → Development → Import new plugin from manifest...** 选择该文件。后续更新代码无需重复申请 ID。
-2. 运行「灵兔 · 本地设计交付」，选中正式画板，点击导出，并保存 `lingtu-design-*.json`。可以拆批次导出 1–20 个节点，不建议超过 20 MB。
-3. 在客户端「本地设计交付」页导入 JSON，预览画板与节点数据；或使用 `npm run design:import -- "路径\快照.json"` 将画板结构和 PNG 预览保存到 `design/snapshots/`。
-4. 按 `docs/figma-map.json` 为 UX 编号建立本地设计节点 ID，逐个实现 React 页面和交互，复用顶部栏/侧栏，不直接使用截图充当交互界面。
-5. 图片素材、图标 SVG 要从 Figma 另行导出；JSON 中的 PNG 是用于对比的预览图。
+当前设计浏览器使用 React 布局节点渲染器，**不是截图贴图**。Figma 的字号、颜色、位置、渐变、图片、组件层级已转成网页属性；但是复杂矢量轮廓、嵌套组件覆盖、全部 Auto Layout 响应规则以及真实交互仍需逐页还原与测试。顶栏、侧栏、按钮、弹窗等通用组件已经在可编辑资源中索引，下一步将提炼为业务 React 组件。
 
-这个插件为**本地只读导出**，不调用云端 API、不需要 Figma MCP 或 ChatGPT 连接器额度；但仍需能正常打开 Figma 文件。它不具备批量修改 Figma 画板、双向实时同步能力。原始 `.fig` 文件不能直接导入本客户端。
+早期视觉组件代码已从此重构分支删除，旧版本仍可从 Git 历史及 `backup/pre-figma-rebuild-20261107` 本地分支恢复。原始 `.fig` 文件、Electron 安全框架、项目和 Git 历史没有删除。
 
-## 设计与 UX
+## 安全
 
-- 设计关联：`docs/figma-map.json`（32 个 UX 号；尚无正式节点 ID）
-- 产品功能定义：`docs/IMPLEMENTATION.md`
-- 平台示意图标：`public/assets`（来源于已有离线 HTML 前端原型）
-- 历史参考：本机下载目录 `AI客服-可编辑图层.fig`；不是已解析的工程数据
-
-
-
-## 视觉开发准入标准
-
-目前首页及部分配置页只是可运行交互原型，**尚未按真实 Figma 可编辑画板完成视觉还原**。后续开发必须先导入对应 Frame 的 JSON_REST_V1 图层树、组件/样式引用及 Node ID，再实现 React 页面。PNG 只作视觉对照，不得用截图替代图层，也不得依据截图或 UX 文字猜测最终布局。UX20–UX23、UX25 等未导入正式画板的页面保持待实现。
-
-## 安全边界
-
-仅演示本地数据；没有联网登录店铺/真实 AI 回复。Electron 的 Renderer 关闭 Node 集成，启用 contextIsolation 和 sandbox；preload 只暴露允许的 IPC 方法。店铺 Token、客户信息、密钥及设计原始文件不要提交到 Git。
+该应用当前只能浏览本地设计和做有限路由演示。不要把真实店铺 Token、顾客消息、订单数据、API 密钥或完整 `.fig` 文件提交到 GitHub。未开启任何真实客服自动回复或订单处理。

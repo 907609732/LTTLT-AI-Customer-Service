@@ -1,30 +1,77 @@
-import {useCallback,useEffect,useState} from 'react';
-import {Plus,ArrowRight,MessagesSquare,Construction,Trash2} from 'lucide-react';
-import Topbar from './components/Topbar';import Sidebar from './components/Sidebar';import Modal from './components/Modal';
-import Home from './pages/Home';import Dashboard from './pages/Dashboard';import Design from './pages/Design';import Welcome from './pages/Welcome';import ConfigDetail from './pages/ConfigDetail';
-import {platforms,sections,defaultSettings} from './data';
-import type {Store,AppSettings} from './types';
-const STORAGE='lingtu.preview.v1';
-type State={stores:Store[];selected:string;settings:AppSettings;welcomeByStore:Record<string,string>};
-function load():State{try{const v=JSON.parse(localStorage.getItem(STORAGE)||'null');if(v&&Array.isArray(v.stores)&&v.stores.every((s:Store)=>typeof s.id==='string'&&typeof s.name==='string'&&platforms.some(p=>p.id===s.platform)&&['online','offline'].includes(s.status))&&typeof v.settings?.welcome==='string')return {...v,settings:{...defaultSettings,...v.settings},welcomeByStore:v.welcomeByStore||{}};}catch{}return {stores:[],selected:'',settings:{...defaultSettings},welcomeByStore:{}};}
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
+import {ChevronLeft,ChevronRight,Layers3,Maximize,Search,PanelLeftClose,PanelLeftOpen,RotateCcw,ShieldCheck} from 'lucide-react';
+import manifest from './design/generated/manifest.json';
+import FigmaCanvas from './design/FigmaCanvas';
+import type {FigmaLayer} from './design/types';
+import type {DesignAction} from './design/actions';
+const screens=manifest.files;
+const screenModules=import.meta.glob<{default:FigmaLayer}>('./design/generated/screens/UX*.json');
+type ScaleMode='fit'|'actual';
 export default function App(){
- const [state,setState]=useState(load);const [route,setRoute]=useState('home');const [dialog,setDialog]=useState('');const [dirty,setDirty]=useState(false);const [pending,setPending]=useState<(()=>void)|null>(null);const [toast,setToast]=useState('');const [name,setName]=useState('');const [platform,setPlatform]=useState('pdd');const [formError,setFormError]=useState('');
- const area=route==='home'?'home':route==='assistant'?'assistant':'config';const store=state.stores.find(s=>s.id===state.selected);
- const settings={...state.settings,welcome:(store&&state.welcomeByStore[store.id])??state.settings.welcome};
- function persist(next:State){try{localStorage.setItem(STORAGE,JSON.stringify(next));setState(next);return true;}catch{setToast('本地保存失败，请检查可用空间；本次修改未提交。');return false;}}
- const onDirty=useCallback((v:boolean)=>setDirty(v),[]);
- function guarded(action:()=>void){if(dirty){setPending(()=>action);setDialog('unsaved');}else action();}
- function navigate(next:string){if(route!==next)guarded(()=>{setRoute(next);setDirty(false);});}
- function add(){setFormError('');setName('');setDialog('add');}
- function saveSettings(next:AppSettings){const welcomeByStore={...state.welcomeByStore};if(store)welcomeByStore[store.id]=next.welcome;return persist({...state,settings:{...next,welcome:state.settings.welcome},welcomeByStore});}
- useEffect(()=>{const handler=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',handler);return()=>window.removeEventListener('beforeunload',handler);},[dirty]);
- useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(''),4500);return()=>clearTimeout(t);}},[toast]);
- const item=sections.flatMap(s=>s.items).find(i=>i[0]===route);
- return <div className={`app ${area==='config'?'config-layout':''}`}><Topbar area={area} navigate={navigate} settings={state.settings} onMode={()=>setDialog('mode')} onBatch={()=>setDialog('batch')}/><Sidebar area={area} route={route} stores={state.stores} selected={state.selected} onSelect={id=>guarded(()=>{persist({...state,selected:id});setDirty(false);})} navigate={navigate} onAdd={add}/><main className="main-content" id="main-content">{route==='home'?<Home store={store} onAdd={add} navigate={navigate}/>:route==='dashboard'?<Dashboard stores={state.stores} navigate={navigate}/>:route==='design'?<Design/>:route==='welcome'?<Welcome store={store} settings={settings} onSave={saveSettings} onDirty={onDirty}/>:[ 'transfer','automation','vision','intents','training','model','sizes','blocked' ].includes(route)?<ConfigDetail route={route} store={store} onBack={()=>navigate('stores')}/>:route==='stores'?<div className="page-content"><div className="page-heading"><div><div className="eyebrow">UX07 · STORES</div><h1>店铺与商品</h1><p>本页只管理演示店铺，不执行真实授权或商品学习。</p></div><button className="primary" onClick={add}><Plus size={16}/>添加演示店铺</button></div><section className="panel"><table><thead><tr><th>店铺</th><th>平台</th><th>连接状态</th><th>操作</th></tr></thead><tbody>{state.stores.map(s=><tr key={s.id}><td>{s.name}</td><td>{platforms.find(p=>p.id===s.platform)?.name}</td><td><span className="tag">本地演示</span></td><td><button className="text-button" onClick={()=>{persist({...state,selected:s.id});navigate('welcome');}}>配置欢迎语 <ArrowRight size={14}/></button></td></tr>)}</tbody></table>{!state.stores.length&&<div className="empty-state"><p>还没有演示店铺</p><button className="secondary" onClick={add}>添加演示店铺</button></div>}</section></div>:route==='assistant'?<div className="page-content"><div className="page-heading"><div><div className="eyebrow">UX26–UX32 · ASSISTANT</div><h1>AI 辅助中心</h1><p>会话模块预留入口，不模拟成已经接入真实消息。</p></div></div><div className="assistant-tabs">{['待回复','人工预警','平台工单','售后','已回复会话','客服工单'].map(n=><button key={n} className="secondary" onClick={()=>setToast(`${n}：真实队列接口尚未接入`)}>{n}<span>0</span></button>)}</div><section className="panel empty-state"><MessagesSquare size={42}/><h3>尚未接入会话服务</h3><p>当前版本没有模型调用，也不会向任何顾客发送消息。</p></section></div>:route==='preferences'?<div className="page-content"><div className="page-heading"><div><div className="eyebrow">UX24 · PREFERENCES</div><h1>软件偏好</h1><p>当前仅提供本地预览数据管理。</p></div></div><section className="panel"><header><h2>本地演示数据</h2></header><p>清理只影响本预览的演示店铺与配置，不会清理真实平台账号。</p><button className="secondary danger" onClick={()=>setDialog('clear')}><Trash2 size={16}/>清空演示数据</button></section></div>:<div className="page-content"><div className="page-heading"><div><div className="eyebrow">{item?.[2]} · IMPLEMENTATION QUEUE</div><h1>{item?.[1]||'配置中心'}</h1><p>已建立路由与 UX 映射，页面功能尚未实现。</p></div></div><section className="panel empty-state"><Construction size={38}/><h3>等待逐页实现</h3><p>导入该页的正式 Figma 快照后，复用现有布局和组件继续开发。</p><button className="secondary" onClick={()=>navigate('design')}>前往本地设计交付</button></section></div>}</main>{toast&&<div className="toast" role="status">{toast}</div>}
- {dialog==='add'&&<Modal title="添加演示店铺" onClose={()=>setDialog('')}><form onSubmit={e=>{e.preventDefault();const trimmed=name.trim();if(!trimmed)return setFormError('请输入店铺名称');if(state.stores.some(s=>s.name===trimmed&&s.platform===platform))return setFormError('该平台已有同名演示店铺');const nextStore:Store={id:crypto.randomUUID(),name:trimmed,platform,status:'online'};if(persist({...state,stores:[...state.stores,nextStore],selected:nextStore.id})){setDialog('');setToast('演示店铺已添加，未连接真实平台');}}}><p className="info-strip">仅用于前端联调，不进行平台登录或账号授权。</p><label>平台</label><div className="platform-picker">{platforms.map(p=><button type="button" key={p.id} className={platform===p.id?'active':''} onClick={()=>setPlatform(p.id)}><img src={`./assets/${p.id}.png`} alt=""/>{p.name}</button>)}</div><label htmlFor="store-name">店铺名称</label><input id="store-name" autoFocus maxLength={40} placeholder="例如：灵兔演示店" value={name} onChange={e=>setName(e.target.value)}/>{formError&&<p className="error-text" role="alert">{formError}</p>}<footer><button type="button" className="secondary" onClick={()=>setDialog('')}>取消</button><button type="submit" className="primary">添加到本地预览</button></footer></form></Modal>}
- {dialog==='mode'&&<Modal title="接待模式（本地配置）" onClose={()=>setDialog('')}><p className="muted">修改仅保存本地偏好，不会启动 AI 接待。</p><div className="mode-list">{['全自动接待','半辅助接待','场景库接待'].map(mode=><button key={mode} className={state.settings.mode===mode?'active':''} onClick={()=>{if(persist({...state,settings:{...state.settings,mode}}))setDialog('');}}><span>{mode}</span><span>{state.settings.mode===mode?'已选择':'选择'}</span></button>)}</div><label className="checkbox"><input type="checkbox" checked={state.settings.lastSentence} onChange={e=>persist({...state,settings:{...state.settings,lastSentence:e.target.checked}})}/>发送最后一句话（规则待接入）</label></Modal>}
- {dialog==='batch'&&<Modal title="一键操作尚未接入" onClose={()=>setDialog('')}><p>当前只运行本地前端。上线、小休、离线和 AI 启停需要真实平台服务，暂不执行。</p><footer><button className="primary" onClick={()=>setDialog('')}>知道了</button></footer></Modal>}
- {dialog==='unsaved'&&<Modal title="当前页面有未保存修改" onClose={()=>{setDialog('');setPending(null);}}><p>继续编辑以保存草稿，或放弃修改后离开。</p><footer><button className="secondary" onClick={()=>{setDialog('');setPending(null);}}>继续编辑</button><button className="primary" onClick={()=>{setDirty(false);setDialog('');pending?.();setPending(null);}}>放弃修改并继续</button></footer></Modal>}
- {dialog==='clear'&&<Modal title="清空本地演示数据？" onClose={()=>setDialog('')}><p>将删除此预览创建的演示店铺和欢迎语配置，此操作不能撤销。</p><footer><button className="secondary" onClick={()=>setDialog('')}>取消</button><button className="primary" onClick={()=>{const next={stores:[],selected:'',settings:{...defaultSettings},welcomeByStore:{}};if(persist(next)){setDialog('');setRoute('home');setToast('已清空本地演示数据');}}}>确认清空</button></footer></Modal>}
+ const [screenId,setScreenId]=useState('UX01');
+ const [design,setDesign]=useState<FigmaLayer|null>(null);
+ const [query,setQuery]=useState('');
+ const [showIndex,setShowIndex]=useState(true);
+ const [scaleMode,setScaleMode]=useState<ScaleMode>('fit');
+ const [viewport,setViewport]=useState({width:1150,height:840});
+ const [error,setError]=useState('');
+ const [notice,setNotice]=useState('');
+ const [loading,setLoading]=useState(false);
+ const stageRef=useRef<HTMLDivElement>(null);
+ const current=screens.find(s=>s.uxId===screenId);
+ const selection=screens.filter(s=>s.uxId.toLowerCase().includes(query.toLowerCase())||(s.source||'').toLowerCase().includes(query.toLowerCase()));
+ const index=screens.findIndex(s=>s.uxId===screenId);
+ const navigate=useCallback((id:string)=>{if(screens.some(s=>s.uxId===id)){setScreenId(id);setNotice('');}},[]);
+ useEffect(()=>{let active=true;const loader=screenModules['./design/generated/screens/'+screenId+'.json'];setLoading(true);setError('');
+  if(!loader){setDesign(null);setError('找不到对应可编辑画板');setLoading(false);return;}
+  loader().then(m=>{if(active){setDesign(m.default);setLoading(false);}}).catch(e=>{if(active){setError(String(e));setLoading(false);}});
+  return()=>{active=false;};
+ },[screenId]);
+ useEffect(()=>{const el=stageRef.current;if(!el)return;const ob=new ResizeObserver(entries=>{const e=entries[0];if(e){setViewport({width:e.contentRect.width,height:e.contentRect.height});}});ob.observe(el);return()=>ob.disconnect();},[]);
+ useEffect(()=>{if(notice){const timer=setTimeout(()=>setNotice(''),6000);return()=>clearTimeout(timer);}},[notice]);
+ const scale=useMemo(()=>{
+  if(scaleMode==='actual')return 1;
+  const w=current?.width||1440,h=current?.height||900;
+  return Math.min(1,Math.max(.1,(viewport.width-44)/w),Math.max(.1,(viewport.height-44)/h));
+ },[scaleMode,current?.width,current?.height,viewport]);
+ const onAction=(action:DesignAction)=>{
+  if(action.kind==='navigate')navigate(action.to);
+  else if(action.kind==='notice')setNotice(action.message);
+  else if(action.kind==='window'){if(window.lingtu)void window.lingtu.windowAction(action.action);else setNotice('该窗口按钮仅在 Electron 客户端内生效。');}
+ };
+ return <div className="rebuild-app">
+  <aside className={'inspector '+(showIndex?'':'inspector-collapsed')} aria-label="设计画板索引">
+   {showIndex&&<>
+    <header className="inspector-head"><span className="inspector-logo"><Layers3 size={17}/></span><div><b>灵兔 · 设计重构</b><small>源文件：可编辑 Figma 画板</small></div></header>
+    <div className="source-facts"><ShieldCheck size={14}/><span>已读取 32 个真实 UX 画板与 116 个通用组件</span></div>
+    <label className="screen-search"><Search size={15}/><input type="search" placeholder="按 UX 编号或画板名称搜索" value={query} onChange={e=>setQuery(e.target.value)}/></label>
+    <nav className="screen-list" aria-label="可编辑画板">
+     {selection.map(s=><button className={screenId===s.uxId?'active':''} key={s.uxId} onClick={()=>navigate(s.uxId)}>
+       <span>{s.uxId}</span><b>{s.source?.replace(' · 可编辑','')||'未命名画板'}</b><small>{s.width}×{s.height}</small>
+     </button>)}
+     {selection.length===0&&<p className="no-match">没有匹配的可编辑画板</p>}
+    </nav>
+    <footer className="inspector-foot">本地原生 .fig 解析 · 不调用 Figma MCP</footer>
+   </>}
+  </aside>
+  <section className="rebuild-workspace">
+   <header className="dev-toolbar">
+    <button className="tool-icon" onClick={()=>setShowIndex(x=>!x)} aria-label={showIndex?'隐藏画板索引':'显示画板索引'}>{showIndex?<PanelLeftClose size={18}/>:<PanelLeftOpen size={18}/>}</button>
+    <div className="current-screen"><strong>{screenId}</strong><span>{current?.source||'可编辑设计'}</span></div>
+    <div className="dev-toolbar-actions">
+     <button className="tool-icon" aria-label="上一画板" disabled={index<=0} onClick={()=>navigate(screens[index-1].uxId)}><ChevronLeft size={18}/></button>
+     <button className="tool-icon" aria-label="下一画板" disabled={index===screens.length-1} onClick={()=>navigate(screens[index+1].uxId)}><ChevronRight size={18}/></button>
+     <button className="zoom-button" onClick={()=>setScaleMode(s=>s==='fit'?'actual':'fit')}><Maximize size={15}/>{scaleMode==='fit'?'适合窗口':'原始尺寸'}</button>
+     <button className="tool-icon" aria-label="返回首页画板" onClick={()=>navigate('UX01')}><RotateCcw size={16}/></button>
+    </div>
+   </header>
+   <main className="stage-host" ref={stageRef} aria-label="Figma 可编辑节点渲染预览">
+    {error&&<div className="stage-error">{error}</div>}
+    {loading&&<div className="stage-loading">正在加载 {screenId} 的可编辑图层结构…</div>}
+    {!loading&&design&&<FigmaCanvas key={screenId} design={design} screenId={screenId} scale={scale} onAction={onAction}/>}
+   </main>
+   <footer className="statusbar"><span>{manifest.hash.slice(0,12)} · Figma 组件化重构预览</span><span>{design?.children.length??0} 顶层图层 · 当前缩放 {Math.round(scale*100)}%</span><span>真实业务接口未接入，部分矢量和实例变体仍需核对</span></footer>
+  </section>
+  {notice&&<div role="status" className="dev-toast">{notice}</div>}
  </div>;
 }

@@ -1,52 +1,31 @@
-# Electron 前端实施状态
+# Figma 可编辑设计重构 — 实施记录
 
-## 当前阶段：建立可编辑画板的无额度交付链路
+## 源设计已解析
 
-**设计基线尚未导入。** 目前的首页、欢迎语及 UX08–UX19 是可运行的交互原型，部分依据旧 HTML 原型和 UX 交互文档实现；它们不是最终视觉稿，也未通过真实 Figma Frame 的像素/图层对照。不能把这些原型当成设计验收完成。
+- 采用原始 `.fig` 的 `我们的设计方案` Canvas（ID 2:129），不采用 `原软件` Canvas 中的参考截图。
+- 本地离线提取共 3,351 节点、146 个 Figma Symbol、907 实例、32 个 UX 画板根节点和 149 个引用图片资源。
+- `docs/figma-map.json` 中全部 32 个画板有真实 Node ID、尺寸和 SHA 来源，`visualVerified=false`，待与 Figma 原画板逐项核对。
+- `src/design/generated/components.json` 存放 116 个通用 Symbol，运行时按 `symbolData.symbolID` 复用层级。PNG 截图不参与界面渲染。
 
-## 设计源规则
+## 已删除旧前端
 
-- 视觉唯一来源：Figma 原生可编辑 Frame / Component。
-- 行为唯一来源：UX01–UX32 交互功能文档。
-- PNG 仅作视觉对照，不可代替图层结构。
-- 每页进入正式开发前必须导入对应 JSON_REST_V1 节点树、组件/样式引用、Figma Node ID 和快照 SHA-256。
-- 未匹配到正式画板的页面继续保持待实现/原型状态，不根据截图猜测布局。
+原 `src/App.tsx`、旧 Sidebar/Topbar/Modal、旧 Home/Dashboard/ConfigDetail/Welcome/Design 页面、旧 CSS、参考平台图片和旧版截图均已清理，重新建立新的设计渲染工程。重构分支为 `feature/figma-editable-rebuild`，备份分支为 `backup/pre-figma-rebuild-20261107`。
 
-## 页面实施状态
+## 第一版可操作内容
 
-| 范围 | 当前代码状态 | 正式视觉状态 |
-| --- | --- | --- |
-| UX01–UX04 首页/看板 | 第一版交互原型 | 等待可编辑画板导入 |
-| UX05–UX06 看板续页 | 现有看板示例内容 | 等待可编辑画板导入 |
-| UX07 店铺与商品 | 本地演示店铺管理 | 等待可编辑画板导入 |
-| UX08–UX10 转接人工 | 本地配置交互原型 | 等待可编辑画板导入 |
-| UX11 进店欢迎 | 本地编辑/保存/预览原型 | 等待可编辑画板导入 |
-| UX12–UX19 配置页面 | 本地配置交互原型 | 等待可编辑画板导入 |
-| UX20–UX23、UX25 | 保持待实现占位 | 必须先导入可编辑画板 |
-| UX24 软件偏好 | 本地演示数据偏好 | 等待可编辑画板导入 |
-| UX26–UX32 AI 辅助中心 | 导航与状态占位 | 必须先导入可编辑画板 |
+- 32 个可编辑页面按真实图层 JSON 懒加载，可搜索/切换，支持缩放和折叠索引。
+- 已依据真实 Figma 源节点配置首页导航（UX01 → UX04/UX26）、未登录店铺及添加店铺入口。
+- 设计节点的尺寸、位置、文字、填充色、渐变、图片、圆角、模糊、阴影与基础复用组件可以由原始数据绘制。
+- Electron 原生安全进程、IPC 桥接和本地运行保留，未连接真实电商平台。
 
-## 本地 Figma 导出流程（不消耗 MCP / ChatGPT 连接器额度）
+## 未完成与验收门槛
 
-1. Figma Desktop → Plugins → Development → New Plugin...，创建一个独立空白开发插件，让 Figma 生成真实 numeric ID。不要使用 NGR 插件 ID。
-2. 将新 ID 填入 `plugins/figma-local-export/manifest.json` 的 `id`，再用 Import new plugin from manifest 导入。
-3. 在 Figma 文件中按 UX 编号选中真实 Frame / Component，运行「灵兔 · 可编辑画板交付」，导出 JSON。建议每批 1–5 个画板，文件上限 20 MB。
-4. Electron「本地设计交付」导入快照；应用会将最近快照保存在 Electron userData。也可运行 `npm run design:import -- "快照.json"`，生成 `design/snapshots/<hash>/` 的本地结构文件和映射表。
-5. 核对 UX 编号、Node ID、画板尺寸、子图层数量、组件和样式引用。未映射项先补映射，不能猜。
-6. 根据正式画板实现 React 页面；用 PNG 仅作视觉对比，并以实际可编辑节点树还原组件和布局。
+1. 复杂矢量图形的 SVG 准确还原和实例属性覆盖，避免以默认方块替代图标。
+2. 把 Figma 中的通用组件收敛为可维护的 React Topbar/Sidebar/Button/Dialog/Table，并接入真正的组件变体与状态。
+3. UX04–UX06、UX08–UX10、UX12–UX13 按 UX 文档组合为三个可滚动长页（避免重复头部）。
+4. 使用 Figma 导出的对应页面 PNG，与 Electron 同尺寸截图对比进行像素级验收；当前尚未完成。
+5. 业务接口、权限、持久化、工单、模型、消息发送等按 UX 文档逐项开发，未获授权前禁止真实平台操作。
 
-插件只读、不联网、不修改 Figma 文件；不使用 Figma MCP、ChatGPT Figma 连接器或 Figma REST API。原始 `.fig` 文件不直接解析。
+## 数据保护
 
-## 代码结构
-
-- `electron/main.cjs`、`electron/preload.cjs`：安全 Electron Shell
-- `src/components/Topbar.tsx`、`Sidebar.tsx`：公共应用布局
-- `src/pages/*`：客户端页面
-- `shared/snapshot.mjs`：本地设计快照校验（v1/v2）
-- `plugins/figma-local-export/`：只读导出插件
-- `scripts/import-design.mjs`：快照导入、组件/样式拆分和 UX 映射
-- `docs/figma-map.json`：UX 编号与待填 Figma Node ID
-
-## 安全边界
-
-仅演示本地数据；没有真实店铺登录、AI 模型回复或平台消息发送。Electron Renderer 关闭 Node 集成，启用 contextIsolation 和 sandbox，preload 只暴露允许的 IPC 方法。店铺 Token、客户信息、密钥和完整设计快照不得推送 Git。
+`design/snapshots` 包含完整私有设计数据，仅保留 Windows 本地并被 Git 忽略。`src/design/generated` 仅包含用于客户端的屏幕结构化数据与组件定义。请保持 GitHub 仓库为私有；发布成开源仓库之前需要另外审查图片和设计文案。
