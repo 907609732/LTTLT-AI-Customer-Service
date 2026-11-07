@@ -12,6 +12,8 @@ try{
  await page.screenshot({path:'docs/preview-home.png'});
  const info=await page.evaluate(()=>window.lingtu?.info());
  if(!info || info.mode!=='local-preview' || info.platform!=='win32') throw new Error('Electron preload IPC 未正常响应');
+ const latest=await page.evaluate(()=>window.lingtu?.latestDesignSnapshot());
+ if(!latest || !Object.hasOwn(latest,'snapshot')) throw new Error('本地设计快照持久化 IPC 未正常响应');
  await page.getByRole('navigation',{name:'主导航'}).getByRole('button',{name:'配置中心'}).click();
  await page.getByRole('heading',{name:'数据看板',exact:true}).waitFor();
  const broken=await page.locator('img').evaluateAll(list=>list.filter(img=>img.complete && img.naturalWidth===0).map(img=>img.src));

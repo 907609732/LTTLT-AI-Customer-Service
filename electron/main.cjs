@@ -42,6 +42,22 @@ app.whenReady().then(()=>{
   await fs.writeFile(path.join(folder,name),JSON.stringify(snapshot,null,2),{flag:'wx'});
   return {canceled:false,snapshot};
  });
+ ipcMain.handle('design:latest',async event=>{
+  guard(event);
+  const {parseSnapshot,MAX_SNAPSHOT_BYTES}=await import('../shared/snapshot.mjs');
+  const folder=path.join(app.getPath('userData'),'design-snapshots');
+  try{
+   const files=(await fs.readdir(folder)).filter(name=>name.endsWith('.json'));
+   const candidates=await Promise.all(files.map(async name=>({name,stat:await fs.stat(path.join(folder,name))})));
+   candidates.sort((a,b)=>b.stat.mtimeMs-a.stat.mtimeMs);
+   for(const item of candidates){
+    if(item.stat.size>MAX_SNAPSHOT_BYTES)continue;
+    const raw=await fs.readFile(path.join(folder,item.name),'utf8');
+    return {snapshot:parseSnapshot(raw)};
+   }
+  }catch(error){if(error.code!=='ENOENT')throw error;}
+  return {snapshot:null};
+ });
  createWindow();
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
 });

@@ -44,7 +44,7 @@ npm run test:e2e
 
 ## Figma 不占 MCP 额度的交付流程
 
-1. Figma 桌面端打开目标文件，在 **Plugins → Development → Import plugin from manifest** 导入 `plugins/figma-local-export/manifest.json`。如 Figma 要求有效插件 ID，先通过 Figma 的 Create new plugin 获取开发 ID，再更新本地 manifest。
+1. 首次安装需要在 Figma 桌面端 **Plugins → Development → New Plugin...** 创建一个空白开发插件，让 Figma 分配真实插件 ID。不要复用 NGR 锻造台的 ID。将生成的 ID 填入 `plugins/figma-local-export/manifest.json` 的 `id` 字段，然后在 **Plugins → Development → Import new plugin from manifest...** 选择该文件。后续更新代码无需重复申请 ID。
 2. 运行「灵兔 · 本地设计交付」，选中正式画板，点击导出，并保存 `lingtu-design-*.json`。可以拆批次导出 1–20 个节点，不建议超过 20 MB。
 3. 在客户端「本地设计交付」页导入 JSON，预览画板与节点数据；或使用 `npm run design:import -- "路径\快照.json"` 将画板结构和 PNG 预览保存到 `design/snapshots/`。
 4. 按 `docs/figma-map.json` 为 UX 编号建立本地设计节点 ID，逐个实现 React 页面和交互，复用顶部栏/侧栏，不直接使用截图充当交互界面。
@@ -58,6 +58,12 @@ npm run test:e2e
 - 产品功能定义：`docs/IMPLEMENTATION.md`
 - 平台示意图标：`public/assets`（来源于已有离线 HTML 前端原型）
 - 历史参考：本机下载目录 `AI客服-可编辑图层.fig`；不是已解析的工程数据
+
+
+
+## 视觉开发准入标准
+
+目前首页及部分配置页只是可运行交互原型，**尚未按真实 Figma 可编辑画板完成视觉还原**。后续开发必须先导入对应 Frame 的 JSON_REST_V1 图层树、组件/样式引用及 Node ID，再实现 React 页面。PNG 只作视觉对照，不得用截图替代图层，也不得依据截图或 UX 文字猜测最终布局。UX20–UX23、UX25 等未导入正式画板的页面保持待实现。
 
 ## 安全边界
 

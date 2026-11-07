@@ -1,0 +1,52 @@
+import {test,expect,type Page} from '@playwright/test';
+async function openConfig(page:Page){await page.goto('/');await page.getByRole('navigation',{name:'主导航'}).getByRole('button',{name:'配置中心'}).click();return page.getByRole('navigation',{name:'配置导航'});}
+test('transfer settings edit, save and restore by store scope',async({page})=>{
+ const nav=await openConfig(page);await nav.getByRole('button',{name:'转接人工'}).click();
+ await expect(page.getByRole('heading',{name:'转接人工',exact:true})).toBeVisible();
+ const enabled=page.getByRole('checkbox',{name:/开启 AI 转人工/});const collect=page.getByRole('checkbox',{name:/自动收藏重要会话/});
+ await expect(enabled).toBeChecked();await expect(collect).toBeDisabled();
+ await enabled.uncheck();await expect(collect).toBeEnabled();await collect.uncheck();
+ await page.getByPlaceholder('输入关键词，最多 10 字').fill('物流异常');await page.getByRole('button',{name:'添加',exact:true}).click();
+ await page.getByRole('button',{name:'保存设置'}).click();await expect(page.getByRole('status')).toContainText('已保存到本地演示配置');
+ await page.reload();const nav2=await openConfig(page);await nav2.getByRole('button',{name:'转接人工'}).click();
+ await expect(page.getByRole('checkbox',{name:/开启 AI 转人工/})).not.toBeChecked();
+ await expect(page.getByRole('button',{name:'物流异常 ×'})).toBeVisible();
+});
+test('automation controls are mutually exclusive and persist locally',async({page})=>{
+ const nav=await openConfig(page);await nav.getByRole('button',{name:'自动操作'}).click();
+ await expect(page.getByRole('heading',{name:'自动操作',exact:true})).toBeVisible();
+ await page.getByRole('radio',{name:'有备注则跳过'}).check();
+ await page.getByRole('checkbox',{name:'启用此项自动操作'}).uncheck();
+ await page.getByRole('button',{name:'保存设置'}).click();
+ await expect(page.getByRole('status')).toContainText('已保存');
+});
+test('vision, intent, training, model, size and blocked-word pages work locally',async({page})=>{
+ const nav=await openConfig(page);
+ await nav.getByRole('button',{name:'图片识别'}).click();
+ await page.getByLabel('识别提示词').fill('检查包装破损，无法判断时请追问。');
+ await page.getByRole('button',{name:'保存设置'}).click();
+ await expect(page.getByRole('status')).toContainText('已保存');
+ await nav.getByRole('button',{name:'意图问法配置'}).click();
+ await page.getByRole('button',{name:'新建意图包'}).click();
+ await page.getByLabel('意图包名称').fill('物流咨询');
+ await page.getByLabel('买家问法').fill('我的订单什么时候发货？');
+ await page.getByLabel('建议回复').fill('请查看订单物流状态。');
+ await page.getByRole('button',{name:'保存设置'}).click();
+ await nav.getByRole('button',{name:'AI 训练场'}).click();
+ await page.getByPlaceholder(/输入买家问题/).fill('什么时候发货？');
+ await page.getByPlaceholder(/输入买家问题/).press('Enter');
+ await expect(page.getByText(/本地交互演示/)).toBeVisible();
+ await nav.getByRole('button',{name:'模型定制'}).click();
+ await page.getByRole('button',{name:'采用女装模板'}).click();
+ await expect(page.getByLabel('模型表达规则')).toContainText('身高');
+ await page.getByRole('button',{name:'保存设置'}).click();
+ await nav.getByRole('button',{name:'尺码规格表'}).click();
+ await page.getByRole('button',{name:'女装示例'}).click();
+ await expect(page.locator('.rule-card input')).toHaveValue('女装示例');
+ await page.getByRole('button',{name:'保存设置'}).click();
+ await nav.getByRole('button',{name:'AI 回复禁用词'}).click();
+ await page.getByPlaceholder(/禁用词=替换词/).fill('傻瓜=您好');
+ await page.getByRole('button',{name:'添加',exact:true}).click();
+ await expect(page.getByText('傻瓜',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'保存设置'}).click();
+});

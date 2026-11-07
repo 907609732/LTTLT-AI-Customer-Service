@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "designSource": "Figma desktop read-only exporter; no Figma MCP",
+  "designSource": "Figma Plugin API JSON_REST_V1 local export; no MCP or REST API",
   "baseViewport": {
     "width": 1920,
     "height": 1080
@@ -28,7 +28,7 @@
       "uxId": "UX01",
       "title": "店铺首页",
       "route": "home",
-      "status": "partial",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -36,7 +36,7 @@
       "uxId": "UX02",
       "title": "未登录店铺",
       "route": "home",
-      "status": "partial",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -44,7 +44,7 @@
       "uxId": "UX03",
       "title": "添加店铺平台选择",
       "route": "home:add-store",
-      "status": "partial",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -52,7 +52,7 @@
       "uxId": "UX04",
       "title": "数据看板实时值守",
       "route": "dashboard",
-      "status": "partial",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -60,7 +60,7 @@
       "uxId": "UX05",
       "title": "数据看板周期经营续页",
       "route": "dashboard#period",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -68,7 +68,7 @@
       "uxId": "UX06",
       "title": "分时回复与平台分布续页",
       "route": "dashboard#hourly",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -76,7 +76,7 @@
       "uxId": "UX07",
       "title": "店铺与商品",
       "route": "stores",
-      "status": "partial",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -84,7 +84,7 @@
       "uxId": "UX08",
       "title": "转接人工总开关",
       "route": "transfer",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -92,7 +92,7 @@
       "uxId": "UX09",
       "title": "转接人工触发条件续页",
       "route": "transfer#rules",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -100,7 +100,7 @@
       "uxId": "UX10",
       "title": "兜底回复与话术续页",
       "route": "transfer#fallback",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -108,7 +108,7 @@
       "uxId": "UX11",
       "title": "进店欢迎",
       "route": "welcome",
-      "status": "partial",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -116,7 +116,7 @@
       "uxId": "UX12",
       "title": "自动操作",
       "route": "automation",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -124,7 +124,7 @@
       "uxId": "UX13",
       "title": "自动操作规则续屏",
       "route": "automation#rules",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -132,7 +132,7 @@
       "uxId": "UX14",
       "title": "图片识别",
       "route": "vision",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -140,7 +140,7 @@
       "uxId": "UX15",
       "title": "意图问法配置",
       "route": "intents",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -148,7 +148,7 @@
       "uxId": "UX16",
       "title": "AI训练场",
       "route": "training",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -156,7 +156,7 @@
       "uxId": "UX17",
       "title": "模型定制",
       "route": "model",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -164,7 +164,7 @@
       "uxId": "UX18",
       "title": "尺码规格表",
       "route": "sizes",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -172,7 +172,7 @@
       "uxId": "UX19",
       "title": "AI回复禁用词",
       "route": "blocked",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -180,7 +180,7 @@
       "uxId": "UX20",
       "title": "工单登记",
       "route": "tickets",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -188,7 +188,7 @@
       "uxId": "UX21",
       "title": "客服质检",
       "route": "quality",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -196,7 +196,7 @@
       "uxId": "UX22",
       "title": "我的订单",
       "route": "orders",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -204,7 +204,7 @@
       "uxId": "UX23",
       "title": "算力消耗",
       "route": "usage",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -212,7 +212,7 @@
       "uxId": "UX24",
       "title": "软件偏好",
       "route": "preferences",
-      "status": "partial",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -220,7 +220,7 @@
       "uxId": "UX25",
       "title": "登录账号与团队成员",
       "route": "team",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -228,7 +228,7 @@
       "uxId": "UX26",
       "title": "辅助中心待回复",
       "route": "assistant:pending",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -236,7 +236,7 @@
       "uxId": "UX27",
       "title": "辅助中心人工预警",
       "route": "assistant:alert",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -244,7 +244,7 @@
       "uxId": "UX28",
       "title": "辅助中心平台工单",
       "route": "assistant:platform-tickets",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -252,7 +252,7 @@
       "uxId": "UX29",
       "title": "辅助中心售后",
       "route": "assistant:after-sales",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -260,7 +260,7 @@
       "uxId": "UX30",
       "title": "辅助中心已回复会话",
       "route": "assistant:replied",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -268,7 +268,7 @@
       "uxId": "UX31",
       "title": "辅助中心客服工单",
       "route": "assistant:service-tickets",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     },
@@ -276,7 +276,7 @@
       "uxId": "UX32",
       "title": "辅助中心关闭确认",
       "route": "assistant:close-dialog",
-      "status": "pending",
+      "status": "awaiting-editable-frame",
       "figmaNodeId": null,
       "snapshotHash": null
     }
