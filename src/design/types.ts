@@ -4,4 +4,4 @@ export type FigmaProperties={size?:{x:number;y:number};transform?:{m00:number;m0
 export type FigmaLayer={id:string;name:string;type:string;props:FigmaProperties;children:FigmaLayer[]};
 export type FigmaRegistry=Record<string,FigmaLayer>;
 export type FigmaScreen={uxId:string;source?:string;nodeId?:string;width?:number;height?:number};
-declare global{interface Window{lingtu?:{info:()=>Promise<{version:string;platform:string;mode:string}>;importDesign:()=>Promise<unknown>;latestDesignSnapshot:()=>Promise<unknown>;windowAction:(action:'minimize'|'maximize'|'close')=>Promise<void>}}}
+declare global{interface Window{lingtu?:{role:'main'|'auxiliary';info:()=>Promise<{version:string;platform:string;mode:string;role:string}>;importDesign:()=>Promise<unknown>;latestDesignSnapshot:()=>Promise<unknown>;windowAction:(action:'minimize'|'maximize'|'close')=>Promise<void>;openAuxiliary:(screenId:string)=>Promise<unknown>;openMain:(screenId:string)=>Promise<unknown>;onNavigate:(callback:(screenId:string)=>void)=>()=>void;onConfirmClose:(callback:()=>void)=>()=>void}}}

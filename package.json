@@ -55,6 +55,10 @@
       "dist/**/*",
       "electron/**/*",
       "shared/**/*",
+      "LICENSE",
+      "LICENSING.md",
+      "THIRD_PARTY_NOTICES.md",
+      "docs/FRONTEND_HANDOFF.md",
       "package.json"
     ],
     "win": {

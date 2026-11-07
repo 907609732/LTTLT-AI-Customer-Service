@@ -52,3 +52,13 @@ test('custom task fields survive closing and reopening and deletion requires con
  await page.getByRole('button',{name:'确认删除',exact:true}).click();
  await expect(page.getByText('晚班离线任务',{exact:true})).toHaveCount(0);
 });
+
+test('empty conversation cannot send and training Enter retains text when backend is not connected',async({page})=>{
+ await page.goto('/?screen=UX26');
+ await expect(page.getByRole('textbox',{name:'回复内容',exact:true})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'发送',exact:true})).toHaveAttribute('aria-disabled','true');
+ await page.goto('/?screen=UX16');
+ const input=page.getByRole('textbox',{name:'训练问题',exact:true});await input.fill('这个商品是什么规格？');await input.dispatchEvent('keydown',{key:'Enter',code:'Enter',isComposing:true});await expect(page.getByRole('status')).toHaveCount(0);await expect(input).toHaveValue('这个商品是什么规格？');await input.press('Enter');
+ await expect(page.getByRole('status')).toContainText('尚未接入');
+ await expect(input).toHaveValue('这个商品是什么规格？');
+});

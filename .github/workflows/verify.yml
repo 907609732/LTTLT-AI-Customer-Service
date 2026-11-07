@@ -19,6 +19,8 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - name: Configure Windows desktop for 1440x900 application checks
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
       - run: npm ci
       - run: npm run typecheck
       - run: npm test

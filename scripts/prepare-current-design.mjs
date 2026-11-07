@@ -17,16 +17,18 @@ function paint(p){
  out.imageScaleMode=p.scaleMode;
  return out;
 }
-function layer(n,parentBounds){
+function overlaps(a,b){return a.x+a.width>=b.x&&a.x<=b.x+b.width&&a.y+a.height>=b.y&&a.y<=b.y+b.height;}
+function layer(n,parentBounds,inheritedCrop){
  const g=snapshot.geometry[n.id]||{};
  const box=n.absoluteBoundingBox||{x:0,y:0,width:0,height:0};
+ const crop=n.name.startsWith('原型滚动补充')?box:inheritedCrop;
  const m=g.relativeTransform;
  const style=n.style||{};
  return {id:n.id,name:n.name,type:n.type,props:{
   size:{x:g.width??box.width,y:g.height??box.height},
   transform:{m00:m?.[0]?.[0]??1,m01:m?.[0]?.[1]??0,m02:g.x??box.x-(parentBounds?.x??box.x),
    m10:m?.[1]?.[0]??0,m11:m?.[1]?.[1]??1,m12:g.y??box.y-(parentBounds?.y??box.y)},
-  visible:n.visible!==false,opacity:n.opacity??1,clipsContent:n.clipsContent,overflow:g.overflow,
+  visible:n.visible!==false,opacity:n.opacity??1,clipsContent:n.clipsContent,overflow:inheritedCrop?'NONE':g.overflow,
   constraints:n.constraints,layoutMode:g.layoutMode,
   fillPaints:(n.fills||[]).map(paint),strokePaints:(n.strokes||[]).map(paint),strokeWeight:n.strokeWeight,
   strokeAlign:n.strokeAlign,cornerRadius:n.cornerRadius,rectangleTopLeftCornerRadius:n.rectangleCornerRadii?.[0],
@@ -36,7 +38,7 @@ function layer(n,parentBounds){
    fontWeight:style.fontWeight,lineHeight:{value:style.lineHeightPx,units:'PIXELS'},letterSpacing:{value:style.letterSpacing||0,units:'PIXELS'},
    textAlignHorizontal:style.textAlignHorizontal,textAlignVertical:style.textAlignVertical}:{}),
   componentId:n.componentId||g.componentId,componentSetId:g.componentSetId,parentId:g.parentId,expanded:true,interactions:n.interactions||[],vectorPaths:g.vectorPaths
- },children:(n.children||[]).map(c=>layer(c,box))};
+ },children:(n.children||[]).filter(c=>!crop||!c.absoluteBoundingBox||overlaps(c.absoluteBoundingBox,crop)).map(c=>layer(c,box,crop))};
 }
 const generated='src/design/generated';
 fs.mkdirSync(generated+'/screens',{recursive:true});

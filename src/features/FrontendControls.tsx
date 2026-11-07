@@ -14,7 +14,7 @@ const fields:Record<string,Omit<ControlBinding,'kind'>&{kind?:ControlBinding['ki
  '8801:1646':{field:'packageQuery2',label:'搜索意图包分组'},'8801:1649':{field:'intentQuery',label:'搜索意图'},
  '8801:1820':{kind:'textarea',field:'message',label:'训练问题',placeholder:'以买家身份输入问题',max:2000},
  '8801:1894':{kind:'textarea',field:'prompt',label:'模型规则',max:1400},'8801:1964':{field:'storeQuery',label:'搜索店铺 / 平台'},
- '8801:2127':{field:'word',label:'禁用词',placeholder:'禁用词，如：微信',max:1000},'8801:2125':{field:'replacement',label:'替换成',placeholder:'替换成（空=删除）',max:200},
+ '8801:2127':{kind:'textarea',field:'word',label:'禁用词',placeholder:'禁用词，如：微信',max:1000},'8801:2125':{field:'replacement',label:'替换成',placeholder:'替换成（空=删除）',max:200},
  '8801:2129':{field:'search',label:'搜索禁用词',placeholder:'搜索禁用词…'},'8801:2140':{kind:'tags',field:'items',label:'禁用词列表'},
  '8801:2205':{field:'search',label:'搜索订单、买家或负责人'},'8801:2372':{field:'storeQuery',label:'搜索质检店铺'},
  '8801:2752':{field:'memberQuery',label:'搜索手机号或备注名'},
@@ -22,11 +22,11 @@ const fields:Record<string,Omit<ControlBinding,'kind'>&{kind?:ControlBinding['ki
  '8801:2854':{field:'reply',label:'预警回复',placeholder:'选择预警后可输入回复',disabled:true},
  '8801:2945':{field:'reply',label:'回复内容',placeholder:'输入回复内容',max:2000},
  '8801:2640':{kind:'switch',field:'filterLinks',label:'AI回复链接过滤',initial:true},
- '8801:2645':{kind:'switch',field:'dockClient',label:'客户端版本吸附',initial:false},
+ '8801:2645':{kind:'switch',field:'dockClient',label:'客户端版本吸附',initial:true},
  'I8801:2637;8801:2632':{kind:'switch',field:'includeHumanHistory',label:'使用人工客服对话历史',initial:false},
  'I8801:2643;8801:2632':{kind:'switch',field:'reasoning',label:'是否推理',initial:false},
 };
-function texts(n:FigmaLayer):string[]{return n.type==='TEXT'?[String(n.props.text||'')]:n.children.flatMap(texts);}
+function texts(n:FigmaLayer):string[]{if(n.props.visible===false)return [];return n.type==='TEXT'?[String(n.props.text||'')]:n.children.flatMap(texts);}
 export function controlBinding(n:FigmaLayer):ControlBinding|undefined{
  if(n.name==='欢迎语 / 输入框')return {kind:'textarea',field:'welcome',label:'欢迎语',max:200,initial:texts(n).find(x=>x.startsWith('亲'))||'亲亲您好，欢迎光临本店，请问有什么可以帮您~'};
  if(n.props.size?.x===520&&n.props.size?.y===410&&n.props.componentId)return {kind:'tasks',field:'tasks',label:'定时任务'};
@@ -40,7 +40,8 @@ export function buttonLabel(n:FigmaLayer):string{
  if((n.props.size?.y||0)>60||(n.props.size?.x||0)>350)return '';
  return text.length<35?text:'';
 }
-export function isFrontendAction(n:FigmaLayer){const label=buttonLabel(n);return /^(保存设置|保存本页|保存偏好|保存|放弃|还原|恢复已保存内容|添加|清空|默认问候|热情问候|发送|刷新|同步到其他店铺|同步他店|同步其他店铺)$/.test(label);}
+export function isFrontendAction(n:FigmaLayer){const label=buttonLabel(n);return /^保存/.test(label)||/^(放弃|放弃更改|还原|恢复已保存内容|添加|清空|默认问候|热情问候|发送|刷新|同步到其他店铺|同步他店|同步其他店铺)$/.test(label);}
+export function isFrontendDisabled(n:FigmaLayer,screen:string){return ['UX26','UX27'].includes(screen)&&buttonLabel(n)==='发送';}
 
 type Controller={drafts:ReturnType<typeof createDraftStore>;scope:(screen:string)=>string;handle:(n:FigmaLayer,screen:string)=>boolean;notice:(text:string)=>void;submit:(command:Omit<FrontendCommand,'storeId'|'requestId'>)=>Promise<FrontendResult>};
 const Context=createContext<Controller|null>(null);
@@ -57,7 +58,7 @@ export function FrontendProvider({children,onNotice,services=frontendServices}:{
    const toggles:Record<string,[string,boolean]>={'切换转人工总开关':['enabled',true],'切换自动收藏重要会话':['autoCollect',true],'切换智能转接':['smartTransfer',true],'切换无人在线兜底':['offlineFallback',true]};
    if(toggles[n.name]){const [field,initial]=toggles[n.name];drafts.edit(key,{[field]:!(drafts.get(key).draft[field]??initial)});}
    if(label==='默认问候'||label==='热情问候')drafts.edit(key,{welcome:label==='默认问候'?'亲亲您好，欢迎光临本店，请问有什么可以帮您~':'亲亲您好，欢迎来到本店！看中的商品可直接发给我，为您介绍~'});
-   if(/^(放弃|还原|恢复已保存内容)$/.test(label)){drafts.restore(key);onNotice('已恢复最近保存的前端配置。');return false;}
+   if(/^(放弃|放弃更改|还原|恢复已保存内容)$/.test(label)){drafts.restore(key);onNotice('已恢复最近保存的前端配置。');return false;}
    if(screen==='UX19'&&label==='添加'){
     const v=drafts.get(key).draft;const input=String(v.word||'');if(!input.trim()){onNotice('请先输入禁用词。');return true;}
     const parsed=parseBannedWords(input);if(parsed.length===1&&v.replacement)parsed[0].replacement=String(v.replacement);
@@ -66,6 +67,7 @@ export function FrontendProvider({children,onNotice,services=frontendServices}:{
    }
    if(screen==='UX19'&&label==='清空'){drafts.edit(key,{items:[]});return true;}
    const save=/^保存/.test(label);const serviceAction=save?'save-config':label==='发送'?(screen==='UX16'?'start-training':'send-reply'):label==='刷新'?'refresh':/^同步/.test(label)?'sync-config':'';
+   if(label==='发送'&&!String(drafts.get(key).draft[screen==='UX16'?'message':'reply']||'').trim()){onNotice('请先输入发送内容。');return true;}
    if(serviceAction){
     const execute=async(values:Record<string,unknown>)=>{
      const result=await submit({action:serviceAction,screenId:screen,sourceNodeId:n.id,values});
@@ -80,7 +82,7 @@ export function FrontendProvider({children,onNotice,services=frontendServices}:{
 }
 export function useFrontendActions(){return useController().handle;}
 
-export function BoundControl({binding,screenId,onClose}:{binding:ControlBinding;screenId:string;onClose?:()=>void}){
+export function BoundControl({binding,screenId,sourceNodeId,onClose}:{binding:ControlBinding;screenId:string;sourceNodeId:string;onClose?:()=>void}){
  const {controller:c,key,entry}=useDraft(screenId);const initial=binding.initial??'';
  useEffect(()=>{if(binding.kind!=='tags'&&binding.kind!=='tasks')c.drafts.seed(key,{[binding.field]:initial});},[c,key,binding.field,initial,binding.kind]);
  const value=entry.draft[binding.field]??initial;
@@ -91,8 +93,12 @@ export function BoundControl({binding,screenId,onClose}:{binding:ControlBinding;
   return <div className="banned-tags">{!items.length?<div className="banned-empty"><b>还没有禁用词</b><p>在上方输入后点添加，或直接粘贴一批词</p></div>:visible.length?visible.map(x=><span className="banned-tag" key={x.word}>{x.word}{x.replacement?' → '+x.replacement:''}<button aria-label={'删除禁用词 '+x.word} onClick={()=>edit(items.filter(y=>y.word!==x.word))}>×</button></span>):<p className="banned-empty">没有匹配的禁用词</p>}</div>;
  }
  if(binding.kind==='switch')return <button type="button" className={'bound-switch '+(value?'is-on':'')} role="switch" aria-label={binding.label} aria-checked={Boolean(value)} onClick={e=>{e.stopPropagation();edit(!value)}}><span/></button>;
- const common={value:String(value),maxLength:binding.max,disabled:binding.disabled,'aria-label':binding.label,placeholder:binding.placeholder,onChange:(e:React.ChangeEvent<HTMLInputElement|HTMLTextAreaElement>)=>edit(e.target.value),onClick:(e:React.MouseEvent)=>e.stopPropagation()};
- return binding.kind==='textarea'?<textarea {...common} className="bound-field bound-textarea"/>:<input {...common} type="text" className="bound-field"/>;
+ const common={value:String(value),disabled:binding.disabled,'aria-label':binding.label,placeholder:binding.placeholder,onChange:(e:React.ChangeEvent<HTMLInputElement|HTMLTextAreaElement>)=>edit(binding.max?Array.from(e.target.value).slice(0,binding.max).join(''):e.target.value),onClick:(e:React.MouseEvent)=>e.stopPropagation(),onKeyDown:(e:React.KeyboardEvent<HTMLInputElement|HTMLTextAreaElement>)=>{
+  if(e.nativeEvent.isComposing||e.nativeEvent.keyCode===229||e.key!=='Enter'||e.shiftKey||!['message','reply'].includes(binding.field))return;e.preventDefault();e.stopPropagation();
+  if(!String(value).trim()){c.notice('请先输入发送内容。');return;}
+  void c.submit({action:screenId==='UX16'?'start-training':'send-reply',screenId,sourceNodeId,values:entry.draft}).then(result=>{c.notice(result.message||'请求完成。');if(result.status==='ok'&&c.drafts.get(key).draft[binding.field]===value)edit('');}).catch(error=>c.notice(error.message));
+ }};
+ return binding.kind==='textarea'?<textarea {...common} className={'bound-field bound-textarea '+(binding.field==='word'?'bound-compact-textarea':'')}/>:<input {...common} type="text" className="bound-field"/>;
 }
 
 export function BoundText({text,screenId}:{text:string;screenId:string}){

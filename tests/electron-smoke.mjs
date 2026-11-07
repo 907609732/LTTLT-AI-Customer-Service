@@ -2,12 +2,15 @@ import { _electron as electron } from 'playwright';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import {electronExecutable} from '../shared/electron-runtime.mjs';
+import {createServer} from 'vite';
 const exe=await electronExecutable();
 if(!existsSync(exe))throw Error('Electron Runtime is missing');
 const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
-let app;
+let app,server;
 try{
- app=await electron.launch({executablePath:exe,cwd:process.cwd(),args:['.'],env,timeout:30000});
+ const dev=process.env.LINGTU_ELECTRON_TEST_DEV==='1';
+ if(dev){server=await createServer();await server.listen();}
+ app=await electron.launch({executablePath:exe,cwd:process.cwd(),args:['.',...(dev?['--dev']:[])],env,timeout:30000});
  const page=await app.firstWindow();
  await page.locator('[data-figma-node="8836:4283"]').waitFor({timeout:15000});
  const size=await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].getContentSize());
@@ -29,5 +32,22 @@ try{
  await page.locator('[data-figma-node="2:140"]').waitFor({timeout:15000});
  const bad=await page.evaluate(()=>[...document.querySelectorAll('[style]')].filter(el=>el.getAttribute('style')?.includes('figma.com')).length);
  if(bad)throw Error('Found remote Figma image in native renderer');
- console.log('Electron native Figma rebuild smoke PASS: UX01 -> UX04, preload IPC');
-}finally{if(app)await app.close();}
+ await page.getByRole('button',{name:'返回店铺首页',exact:true}).last().click();
+ await page.locator('[data-figma-node="8836:4283"]').waitFor();
+ await page.locator('[data-figma-node="11:230"]').click();
+ await page.waitForTimeout(500);
+ const windows=app.windows();
+ if(windows.length!==2)throw Error('Auxiliary must open its own 300x900 window; windows='+windows.length);
+ const aux=windows.find(w=>w!==page);
+ await aux.locator('[data-figma-node="2:177"]').waitFor();
+ const sizes=await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().map(w=>w.getContentSize()));
+ if(!sizes.some(s=>s[0]===300&&s[1]===900))throw Error('Auxiliary content viewport is wrong: '+JSON.stringify(sizes));
+ await aux.getByRole('button',{name:'关闭',exact:true}).click();
+ await aux.getByRole('button',{name:'取消',exact:true}).click();
+ await aux.locator('[data-figma-node="2:177"]').waitFor();
+ await aux.getByRole('button',{name:'关闭',exact:true}).click();
+ await aux.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).click();
+ await page.waitForTimeout(300);
+ if(app.windows().length!==1)throw Error('Confirm close did not close only the auxiliary window');
+ console.log('Electron frontend PASS: 1440x900 main, 300x900 auxiliary, UX01 -> UX04, preload IPC, cancel/confirm close');
+}finally{if(app)await app.close();if(server)await server.close();}

@@ -10,6 +10,9 @@ export function applyInteraction(state,action,context){
  }
  const destination=action.destinationId;
  if(!destination||!context.targets.has(destination))return state;
+ const closedMap=context.receptionClosed||{};
+ const shared=action.navigation==='CHANGE_TO'?closedMap[destination]:action.navigation==='NAVIGATE'?state.variants['@reception']:undefined;
+ if(shared){const variants={...state.variants};for(const [id,value] of Object.entries(variants))if(closedMap[value])variants[id]=shared;variants['@reception']=shared;state={...state,variants};}
  if(action.navigation==='NAVIGATE'){
   const screenId=context.routes[destination];
   return screenId?{...state,screenId,history:[...state.history,state.screenId],overlays:[]}:state;

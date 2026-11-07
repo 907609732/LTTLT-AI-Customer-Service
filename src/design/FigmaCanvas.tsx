@@ -5,7 +5,7 @@ import type {FigmaLayer,FigmaRegistry} from './types';
 import {rgba,styleOf} from './style';
 import {resolveAction,type DesignAction} from './actions';
 import type {InteractionAction,InteractionHost,InteractionState} from './interaction.mjs';
-import {BoundControl,BoundText,controlBinding,buttonLabel,isFrontendAction} from '../features/FrontendControls';
+import {BoundControl,BoundText,controlBinding,buttonLabel,isFrontendAction,isFrontendDisabled} from '../features/FrontendControls';
 const registry=components as unknown as FigmaRegistry;
 const symbolId=(s?:{sessionID:number;localID:number})=>s?s.sessionID+':'+s.localID:'';
 type Reaction={trigger:{type:string;timeout?:number};actions:InteractionAction[]};
@@ -18,7 +18,9 @@ export default function FigmaCanvas(props:Props){
 function Layer(props:LayerProps){
  const {layer,root=false,screenId,names,hosts,depth,state,onInteraction,onAction,onUIAction,instancePrefix}=props;
  const runtimeId=instancePrefix?instancePrefix+';'+layer.id:layer.id;
- const selected=state?.variants[runtimeId];const variant=selected?registry[selected]:undefined;const shown=variant||layer;
+ const shared=state?.variants['@reception'];
+ const sharedForInstance=shared&&layer.props.componentId&&registry[String(layer.props.componentId)]?.props.componentSetId===registry[shared]?.props.componentSetId?shared:undefined;
+ const selected=state?.variants[runtimeId]||sharedForInstance;const variant=selected?registry[selected]:undefined;const shown=variant||layer;
  const currentComponentId=variant?.id||String(layer.props.componentId||'');
  const nextHosts=layer.type==='INSTANCE'?[...hosts,{id:runtimeId,componentId:currentComponentId}]:hosts;
  const reactions=(shown.props.interactions||[]) as Reaction[];
@@ -30,27 +32,28 @@ function Layer(props:LayerProps){
   return()=>clearTimeout(timer);
  },[selected,layer.id,Boolean(onInteraction)]);
  if(layer.props.visible===false||depth>55)return null;
- const base=styleOf({...shown.props,size:layer.props.size,transform:layer.props.transform},root);
+ const base=styleOf({...shown.props,size:layer.props.size,transform:layer.props.transform,overflow:layer.props.overflow,clipsContent:layer.props.clipsContent},root);
  const definition=!layer.props.expanded&&layer.type==='INSTANCE'?registry[symbolId(layer.props.symbolData?.symbolID)]:undefined;
  const children=variant?.children||definition?.children||layer.children;
  const businessAction=Boolean(onUIAction&&isFrontendAction(layer));
+ const disabled=Boolean(onUIAction&&isFrontendDisabled(layer,screenId));
  const interactive=!props.blockedByButton&&(Boolean(onInteraction&&clickReaction)||Boolean(action)||businessAction);
- const activate=()=>{if(onUIAction?.(layer,screenId))return;if(onInteraction&&clickReaction){for(const a of clickReaction.actions)onInteraction(a,nextHosts);}else if(action)onAction(action);};
+ const activate=()=>{if(disabled)return;if(window.lingtu?.role==='auxiliary'&&layer.name==='最小化'){onAction({kind:'window',action:'minimize'});return;}if(onUIAction?.(layer,screenId))return;if(onInteraction&&clickReaction){for(const a of clickReaction.actions)onInteraction(a,nextHosts);}else if(action)onAction(action);};
  const onClick=(event:MouseEvent)=>{if(interactive){event.stopPropagation();activate();}};
  const onKeyDown=(event:KeyboardEvent)=>{if(interactive&&(event.key==='Enter'||event.key===' ')){event.preventDefault();event.stopPropagation();activate();}};
  const binding=onUIAction?controlBinding(layer):undefined;
  if(binding){
   const fieldStyle:CSSProperties={...base};
   if(layer.type==='TEXT'){fieldStyle.height=44;fieldStyle.top=Number(fieldStyle.top)-14;fieldStyle.backgroundColor='transparent';fieldStyle.backgroundImage='none';fieldStyle.border=0;}
-  return <div style={fieldStyle} data-figma-node={runtimeId} className="bound-control" onClick={e=>e.stopPropagation()}><BoundControl binding={binding} screenId={screenId} onClose={()=>onInteraction?.({type:'CLOSE'},nextHosts)}/></div>;
+  return <div style={fieldStyle} data-figma-node={runtimeId} className="bound-control" onClick={e=>e.stopPropagation()}><BoundControl binding={binding} screenId={screenId} sourceNodeId={layer.id} onClose={()=>onInteraction?.({type:'CLOSE'},nextHosts)}/></div>;
  }
  if(layer.type==='TEXT'){
   const paint=shown.props.fillPaints?.find(p=>p.visible!==false&&p.type==='SOLID'&&p.color);
-  const style:CSSProperties={...base,backgroundColor:'transparent',backgroundImage:'none',border:'none',color:paint?.color?rgba(paint.color,paint.opacity??1):'#23334d',pointerEvents:'none'};
+  const style:CSSProperties={...base,backgroundColor:'transparent',backgroundImage:'none',border:'none',color:paint?.color?rgba(paint.color,paint.opacity??1):'#23334d',pointerEvents:interactive?'auto':'none',cursor:interactive?'pointer':undefined};
   const text=String(shown.props.text??shown.name);
-  return <div style={style} className="native-text" data-figma-node={runtimeId}>{onUIAction?<BoundText text={text} screenId={screenId}/>:text}</div>;
+  return <div style={style} className="native-text" data-figma-node={runtimeId} role={interactive?'button':undefined} tabIndex={interactive?0:undefined} aria-label={interactive?layer.name==='×'?'返回店铺首页':layer.name:undefined} onClick={interactive?onClick:undefined} onKeyDown={interactive?onKeyDown:undefined}>{onUIAction?<BoundText text={text} screenId={screenId}/>:text}</div>;
  }
- const style:CSSProperties={...base};if(layer.type==='ELLIPSE')style.borderRadius='50%';if(interactive)style.cursor='pointer';
+ const style:CSSProperties={...base};if(layer.type==='ELLIPSE')style.borderRadius='50%';if(interactive)style.cursor=disabled?'not-allowed':'pointer';
  const paths=shown.props.vectorPaths as {data:string;windingRule?:string}[]|undefined;
  const paint=shown.props.fillPaints?.find(p=>p.visible!==false&&p.type==='SOLID'&&p.color);const stroke=shown.props.strokePaints?.find(p=>p.visible!==false&&p.type==='SOLID'&&p.color);
  let inner;
@@ -61,5 +64,5 @@ function Layer(props:LayerProps){
   const childPrefix=variant?runtimeId:instancePrefix;
   inner=children.map(c=><Layer {...props} key={c.id} layer={c} root={false} names={[...names,layer.name]} hosts={nextHosts} depth={depth+1} instancePrefix={childPrefix} blockedByButton={props.blockedByButton||interactive}/>);
  }
- return <div data-figma-node={runtimeId} data-source-node={layer.id} data-figma-type={layer.type} role={interactive?'button':undefined} tabIndex={interactive?0:undefined} aria-label={interactive?businessAction?buttonLabel(layer):layer.name:undefined} onClick={interactive?onClick:undefined} onKeyDown={interactive?onKeyDown:undefined} style={style} className={['native-layer',interactive?'native-action':'',root?'native-root':''].join(' ')}>{inner}</div>;
+ return <div data-figma-node={runtimeId} data-source-node={layer.id} data-figma-type={layer.type} role={interactive?'button':undefined} tabIndex={interactive&&!disabled?0:undefined} aria-disabled={disabled||undefined} aria-label={interactive?businessAction?buttonLabel(layer):layer.name:undefined} onClick={interactive?onClick:undefined} onKeyDown={interactive?onKeyDown:undefined} style={style} className={['native-layer',interactive?'native-action':'',root?'native-root':'',/标题栏|顶部 \/ 导航与账户/.test(layer.name)?'native-titlebar':''].join(' ')}>{inner}</div>;
 }
