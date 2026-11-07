@@ -46,6 +46,7 @@
   "build": {
     "appId": "top.lttlt.customer.service",
     "productName": "灵兔客服",
+    "executableName": "LingtuCustomerService",
     "asar": true,
     "directories": {
       "output": "release"

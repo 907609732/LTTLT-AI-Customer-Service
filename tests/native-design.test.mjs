@@ -33,3 +33,14 @@ test('legacy reference screenshot is no longer a frontend dependency',()=>{
  assert.equal(existsSync(new URL('../public/assets/',import.meta.url)),false);
  assert.equal(existsSync(new URL('../src/pages/Home.tsx',import.meta.url)),false);
 });
+
+test('every exported navigation, component and overlay target has a runtime definition',()=>{
+ const roots=new Set(manifest.files.map(s=>s.nodeId));const missing=new Set();
+ function walk(n){for(const r of n.props.interactions||[])for(const a of r.actions||[]){
+  if(a.type!=='NODE'||!a.destinationId)continue;
+  if(a.navigation==='NAVIGATE'?!roots.has(a.destinationId):!components[a.destinationId])missing.add(a.navigation+':'+a.destinationId);
+ }for(const c of n.children)walk(c);}
+ for(const n of Object.values(components))walk(n);
+ for(const s of manifest.files)walk(JSON.parse(readFileSync(new URL('screens/'+s.uxId+'.json',base),'utf8')));
+ assert.deepEqual([...missing],[]);
+});

@@ -1,7 +1,7 @@
 const {app,BrowserWindow,ipcMain,dialog,session}=require('electron');
 const path=require('node:path');
 const fs=require('node:fs/promises');
-const {pathToFileURL}=require('node:url');
+const {pathToFileURL,fileURLToPath}=require('node:url');
 const crypto=require('node:crypto');
 let win;
 const DEV_URL='http://127.0.0.1:5173/';
@@ -9,11 +9,16 @@ const isDev=!app.isPackaged&&process.argv.includes('--dev');
 const entry=pathToFileURL(path.join(__dirname,'../dist/index.html')).href;
 function trusted(event){
  const url=event.senderFrame?.url||'';
- return !!win&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame&&(isDev?url.startsWith(DEV_URL):url.split('#')[0]===entry);
+ if(!win||event.sender!==win.webContents||event.senderFrame!==win.webContents.mainFrame)return false;
+ try{
+  const actual=new URL(url);
+  if(isDev)return actual.origin===new URL(DEV_URL).origin;
+  return actual.protocol==='file:'&&actual.hostname===''&&path.resolve(fileURLToPath(actual)).toLowerCase()===path.resolve(fileURLToPath(entry)).toLowerCase();
+ }catch{return false;}
 }
 function guard(event){if(!trusted(event))throw new Error('不允许的调用来源');}
 function createWindow(){
- win=new BrowserWindow({width:1440,height:960,minWidth:1100,minHeight:720,title:'灵兔客服 · 本地开发预览',backgroundColor:'#e9f3ff',show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
+ win=new BrowserWindow({width:1440,height:900,useContentSize:true,frame:false,minWidth:1100,minHeight:720,title:'灵兔客服',backgroundColor:'#e9f3ff',show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
  win.removeMenu();
  win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
  win.webContents.on('will-navigate',event=>event.preventDefault());

@@ -47,6 +47,7 @@ export function styleOf(p:FigmaProperties,root=false):CSSProperties{
   opacity:p.opacity??1,
   borderRadius:radius(p),
  };
+ if(!root&&p.transform){const m=p.transform;if(m.m00!==1||m.m01!==0||m.m10!==0||m.m11!==1){s.transform='matrix('+[m.m00,m.m10,m.m01,m.m11,0,0].join(',')+')';s.transformOrigin='top left';}}
  const fill=firstPaint(p.fillPaints);if(fill)Object.assign(s,paintStyle(fill));
  const stroke=firstPaint(p.strokePaints);
  if(stroke?.color)s.border=(p.strokeWeight??1)+'px solid '+rgba(stroke.color,stroke.opacity??1);

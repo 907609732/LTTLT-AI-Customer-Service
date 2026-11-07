@@ -18,6 +18,10 @@
 
 项目名称和标识的商标权与代码著作权分别处理。描述项目来源等法律允许的合理使用不受本声明限制。对来源或授权范围尚不明确的素材，正式再分发或商业交付前应核实授权，必要时取得许可或使用有权使用的替代素材。
 
+## 随附字体
+
+`public/fonts/NotoSansSC.ttf` 为 Google Fonts 分发的未修改 Noto Sans SC 可变字体，来源：https://github.com/google/fonts/tree/main/ofl/notosanssc 。字体采用 SIL Open Font License 1.1，完整版权与许可随附于 `public/fonts/OFL.txt`，必须随应用产物保留。字体家族名保持 Noto Sans SC，供离线客户端与云端验收使用。
+
 ## 外部贡献与商业交付
 
 商业许可只能覆盖授权方拥有或取得有效再许可权的材料。贡献者保留其合法权利；仅按 AGPL 获得的贡献不得直接推定为可闭源再许可。维护者须按 [CONTRIBUTING.md](CONTRIBUTING.md) 核实相应授权。

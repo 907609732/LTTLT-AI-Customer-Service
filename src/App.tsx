@@ -7,6 +7,7 @@ import {initialInteractionState,applyInteraction} from './design/interaction.mjs
 import type {InteractionAction,InteractionHost} from './design/interaction.mjs';
 import type {FigmaLayer,FigmaRegistry} from './design/types';
 import type {DesignAction} from './design/actions';
+import {FrontendProvider,useFrontendActions} from './features/FrontendControls';
 const registry=definitions as unknown as FigmaRegistry;
 const routes=Object.fromEntries(manifest.files.map(s=>[s.nodeId,s.uxId]));const targets=new Set([...Object.keys(registry),...Object.keys(routes)]);
 const sets=Object.fromEntries(Object.values(registry).filter(n=>n.props.componentSetId).map(n=>[n.id,String(n.props.componentSetId)]));
@@ -24,9 +25,10 @@ function Product(){
   if(action.kind==='notice')setNotice(action.message);if(action.kind==='window'&&window.lingtu)void window.lingtu.windowAction(action.action);
  };
  const auxiliary=Number(state.screenId.slice(2))>=26;
- return <main className={'product-app '+(auxiliary?'product-auxiliary':'')} aria-label="灵兔客服">
-  {error?<div role="alert" className="stage-error">{error}<button onClick={()=>location.reload()}>重新加载</button></div>:!design?<div role="status" className="stage-loading">正在加载界面…</div>:<FigmaCanvas design={design} screenId={state.screenId} scale={1} state={state} onInteraction={dispatch} onAction={onAction}/>}
-  {state.overlays.map((id,index)=>registry[id]&&<div key={index+':'+id} className="product-overlay" role="dialog" aria-modal="true" aria-label={registry[id].name}><FigmaCanvas design={registry[id]} screenId={state.screenId} scale={1} state={state} onInteraction={dispatch} onAction={onAction}/></div>)}
+ return <FrontendProvider onNotice={setNotice}><main className={'product-app '+(auxiliary?'product-auxiliary':'')} aria-label="灵兔客服">
+  {error?<div role="alert" className="stage-error">{error}<button onClick={()=>location.reload()}>重新加载</button></div>:!design?<div role="status" className="stage-loading">正在加载界面…</div>:<ProductCanvas design={design} screenId={state.screenId} scale={1} state={state} onInteraction={dispatch} onAction={onAction}/>}
+  {state.overlays.map((id,index)=>registry[id]&&<div key={index+':'+id} className="product-overlay" role="dialog" aria-modal="true" aria-label={registry[id].name}><ProductCanvas design={registry[id]} screenId={state.screenId} scale={1} state={state} onInteraction={dispatch} onAction={onAction}/></div>)}
   {notice&&<div role="status" className="dev-toast">{notice}</div>}
- </main>;
+ </main></FrontendProvider>;
 }
+function ProductCanvas(props:React.ComponentProps<typeof FigmaCanvas>){const onUIAction=useFrontendActions();return <FigmaCanvas {...props} onUIAction={onUIAction}/>;}
