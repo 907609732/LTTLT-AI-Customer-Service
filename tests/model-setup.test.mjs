@@ -19,7 +19,7 @@ test('provider presets identify official endpoints only',async()=>{
 test('test-and-save trims key, uses selected model, and persists only after success',async()=>{
  let call;const b=make({fetchImpl:async(url,options)=>{call={url,options};return new Response(JSON.stringify({choices:[{message:{content:'OK'}}]}));}});
  try{await b.execute({action:'save-model-settings',values:{baseUrl:'https://api.deepseek.com',model:'deepseek-flash',apiKey:'  test-secret  ',testConnection:true}});
- assert.equal(call.url,'https://api.deepseek.com/chat/completions');assert.equal(call.options.headers.authorization,'Bearer test-secret');assert.equal(JSON.parse(call.options.body).model,'deepseek-flash');
+ assert.equal(call.url,'https://api.deepseek.com/chat/completions');assert.equal(call.options.headers.authorization,'Bearer test-secret');assert.equal(JSON.parse(call.options.body).model,'deepseek-flash');assert.deepEqual(JSON.parse(call.options.body).thinking,{type:'disabled'});
  assert.equal(b.snapshot().capabilities.apiKeyConfigured,true);assert.equal(JSON.stringify(b.snapshot()).includes('test-secret'),false);
  await assert.rejects(()=>b.execute({action:'save-model-settings',values:{baseUrl:'https://dashscope.aliyuncs.com/compatible-mode/v1',model:'qwen-plus',testConnection:true}}),/粘贴/);
  }finally{b.dispose();}

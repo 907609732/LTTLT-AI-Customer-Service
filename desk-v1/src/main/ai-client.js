@@ -163,6 +163,9 @@ class AiClient {
           temperature: settings.temperature ?? 0.4,
           max_tokens: settings.maxTokens ?? 512,
           stream: false,
+          // The quick-setup Flash preset needs a direct answer within the reply token budget.
+          ...(new URL(url).hostname === 'api.deepseek.com' && settings.model === 'deepseek-flash'
+            ? { thinking: { type: 'disabled' } } : {}),
         }),
         signal: controller.signal,
       });
