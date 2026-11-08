@@ -20,6 +20,7 @@ jobs:
           test "$(jq -r .head_sha <<< "$run")" = b3fc5f84a4eb43faad4f438037b610617ae27098
           release=$(gh api repos/$REPO/releases/438321789)
           test "$(jq -r .draft <<< "$release")" = true
+          test "$(jq -r .tag_name <<< "$release")" = v0.4.0
           test "$(jq -r .target_commitish <<< "$release")" = a82c6a9be86bc3eca5aa584e5b30114760504126
           verified=$(gh api repos/$REPO/git/commits/b3fc5f84a4eb43faad4f438037b610617ae27098 --jq .tree.sha)
           target=$(gh api repos/$REPO/git/commits/a82c6a9be86bc3eca5aa584e5b30114760504126 --jq .tree.sha)
