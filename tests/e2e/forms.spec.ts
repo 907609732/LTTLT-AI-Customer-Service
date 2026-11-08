@@ -35,11 +35,11 @@ test('custom task fields survive closing and reopening and deletion requires con
  await page.goto('/');
  const open=async()=>{const task=page.getByRole('button',{name:'一键操作 · 定时任务',exact:true});if(!await task.isVisible())await page.getByRole('button',{name:'切换一键操作菜单',exact:true}).click();await task.click();};
  await open();await page.getByRole('button',{name:'新建任务',exact:true}).click();
- await page.getByRole('button',{name:'保存',exact:true}).click();
+ await page.getByRole('button',{name:'保存任务',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('请填写任务名称');
  await page.getByRole('textbox',{name:'任务名称',exact:true}).fill('晚班离线任务');
  await page.getByLabel('操作类型',{exact:true}).selectOption('一键离线');
- await page.getByRole('button',{name:'保存',exact:true}).click();
+ await page.getByRole('button',{name:'保存任务',exact:true}).click();
  await expect(page.getByText('晚班离线任务',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'关闭定时任务',exact:true}).click();
  await open();

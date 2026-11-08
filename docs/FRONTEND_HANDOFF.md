@@ -51,3 +51,5 @@ Figma文件`CR9QYrjZfTfMf6CIBj5yrb`，Canvas`2:129`，右侧可编辑画板。UX
 设计与交互说明：[钉钉文档](https://alidocs.dingtalk.com/i/nodes/QPGYqjpJYrjrOeLBc9grbY6K8akx1Z5N)。[当前Figma](https://www.figma.com/design/CR9QYrjZfTfMf6CIBj5yrb/AI%E5%AE%A2%E6%9C%8D?node-id=2-129)。[交付PR](https://github.com/907609732/LTTLT-AI-Customer-Service/pull/2)。云端构建及产物以PR检查和[Actions列表](https://github.com/907609732/LTTLT-AI-Customer-Service/actions)为准；未取得成功产物前不视为完成打包验收。
 
 窗口适配：主界面以1440×900为基准，放大窗口后按Figma约束扩展内容，不整体放大文字；辅助侧栏保持300宽。详见IMPLEMENTATION.md的自适应修复记录。
+
+v0.2.3全界面对照修复详见IMPLEMENTATION.md。覆盖32源界面、16浮层，重点修复共用描边位置、原设计输入框呈现、单行文字、欢迎语预览和任务/关闭确认窗口。保持Electron+React及1440×900/300×900基准和窗口自适应；后端接入边界不变。
