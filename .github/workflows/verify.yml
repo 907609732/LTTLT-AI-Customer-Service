@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 concurrency:
@@ -10,6 +11,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   verify:
+    # Explicit UI-only requests run their focused acceptance job; release tags/manual runs retain full regression.
+    if: >-
+      github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || (!contains(github.event.pull_request.title, 'UI-only: UX03') && !contains(github.event.head_commit.message, 'UI-only: UX03'))
     runs-on: windows-latest
     timeout-minutes: 15
     permissions:
@@ -80,4 +84,44 @@ jobs:
             test-results/
             playwright-report/
           if-no-files-found: ignore
+          retention-days: 14
+
+  ux03:
+    if: >-
+      github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/v') && (contains(github.event.pull_request.title, 'UI-only: UX03') || contains(github.event.head_commit.message, 'UI-only: UX03'))
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - run: npm ci
+      - name: Install verified Electron runtime with mirror fallback
+        run: |
+          node node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0) {
+            $env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+            node node_modules/electron/install.js
+            if ($LASTEXITCODE -ne 0) { throw 'Electron runtime download failed from both sources' }
+          }
+      - run: npx playwright install chromium
+      - run: npm run build
+      - run: npx playwright test tests/e2e/ux03-readability.spec.ts
+      - run: npx electron-builder --win --dir --publish never --config.electronDist=node_modules/electron/dist
+      - run: node tests/ux03-electron.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lingtu-ux03-windows-${{ github.sha }}
+          path: release/win-unpacked/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ux03-verification-${{ github.sha }}
+          path: test-results/
           retention-days: 14
