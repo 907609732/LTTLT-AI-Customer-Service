@@ -3,16 +3,17 @@ import type {CSSProperties,KeyboardEvent,MouseEvent} from 'react';
 import components from './generated/components.json';
 import type {FigmaLayer,FigmaRegistry} from './types';
 import {rgba,styleOf} from './style';
+import {constrainProperties} from './layout.mjs';
 import {resolveAction,type DesignAction} from './actions';
 import type {InteractionAction,InteractionHost,InteractionState} from './interaction.mjs';
 import {BoundControl,BoundText,controlBinding,buttonLabel,isFrontendAction,isFrontendDisabled} from '../features/FrontendControls';
 const registry=components as unknown as FigmaRegistry;
 const symbolId=(s?:{sessionID:number;localID:number})=>s?s.sessionID+':'+s.localID:'';
 type Reaction={trigger:{type:string;timeout?:number};actions:InteractionAction[]};
-type Props={screenId:string;design:FigmaLayer;scale:number;onAction:(action:DesignAction)=>void;state?:InteractionState;onInteraction?:(action:InteractionAction,ancestors:InteractionHost[])=>void;onUIAction?:(layer:FigmaLayer,screen:string)=>boolean};
-type LayerProps=Props&{layer:FigmaLayer;root?:boolean;names:string[];hosts:InteractionHost[];depth:number;instancePrefix?:string;blockedByButton?:boolean};
+type Props={screenId:string;design:FigmaLayer;scale:number;viewport?:{width:number;height:number};onAction:(action:DesignAction)=>void;state?:InteractionState;onInteraction?:(action:InteractionAction,ancestors:InteractionHost[])=>void;onUIAction?:(layer:FigmaLayer,screen:string)=>boolean};
+type LayerProps=Props&{layer:FigmaLayer;root?:boolean;names:string[];hosts:InteractionHost[];depth:number;instancePrefix?:string;blockedByButton?:boolean;originalParent?:{x:number;y:number};renderedParent?:{x:number;y:number}};
 export default function FigmaCanvas(props:Props){
- const width=props.design.props.size?.x||1440,height=props.design.props.size?.y||900;
+ const width=props.viewport?.width||props.design.props.size?.x||1440,height=props.viewport?.height||props.design.props.size?.y||900;
  return <div className="canvas-viewport" style={{width:width*props.scale,height:height*props.scale}}><div className="canvas-scaled" style={{width,height,transform:'scale('+props.scale+')'}}><Layer {...props} layer={props.design} root names={[]} hosts={[]} depth={0}/></div><span className="sr-only">{props.screenId} 可编辑Figma图层 {width}×{height}</span></div>;
 }
 function Layer(props:LayerProps){
@@ -32,7 +33,8 @@ function Layer(props:LayerProps){
   return()=>clearTimeout(timer);
  },[selected,layer.id,Boolean(onInteraction)]);
  if(layer.props.visible===false||depth>55)return null;
- const base=styleOf({...shown.props,size:layer.props.size,transform:layer.props.transform,overflow:layer.props.overflow,clipsContent:layer.props.clipsContent},root);
+ const geometry=root&&props.viewport?{...layer.props,size:{x:props.viewport.width,y:props.viewport.height}}:constrainProperties(layer.props,props.originalParent,props.renderedParent);
+ const base=styleOf({...shown.props,size:geometry.size,transform:geometry.transform,overflow:layer.props.overflow,clipsContent:layer.props.clipsContent},root);
  const definition=!layer.props.expanded&&layer.type==='INSTANCE'?registry[symbolId(layer.props.symbolData?.symbolID)]:undefined;
  const children=variant?.children||definition?.children||layer.children;
  const businessAction=Boolean(onUIAction&&isFrontendAction(layer));
@@ -62,7 +64,7 @@ function Layer(props:LayerProps){
   inner=<svg width="100%" height="100%" viewBox={'0 0 '+(shown.props.size?.x||1)+' '+(shown.props.size?.y||1)} style={{overflow:'visible',display:'block'}} aria-hidden="true">{paths.map((p,i)=><path key={i} d={p.data} fillRule={p.windingRule==='EVENODD'?'evenodd':'nonzero'} fill={paint?.color?rgba(paint.color,paint.opacity??1):'none'} stroke={stroke?.color?rgba(stroke.color,stroke.opacity??1):undefined} strokeWidth={shown.props.strokeWeight}/>)}</svg>;
  }else{
   const childPrefix=variant?runtimeId:instancePrefix;
-  inner=children.map(c=><Layer {...props} key={c.id} layer={c} root={false} names={[...names,layer.name]} hosts={nextHosts} depth={depth+1} instancePrefix={childPrefix} blockedByButton={props.blockedByButton||interactive}/>);
+  inner=children.map(c=><Layer {...props} key={c.id} layer={c} root={false} originalParent={shown.props.size} renderedParent={geometry.size} names={[...names,layer.name]} hosts={nextHosts} depth={depth+1} instancePrefix={childPrefix} blockedByButton={props.blockedByButton||interactive}/>);
  }
  return <div data-figma-node={runtimeId} data-source-node={layer.id} data-figma-type={layer.type} role={interactive?'button':undefined} tabIndex={interactive&&!disabled?0:undefined} aria-disabled={disabled||undefined} aria-label={interactive?businessAction?buttonLabel(layer):layer.name:undefined} onClick={interactive?onClick:undefined} onKeyDown={interactive?onKeyDown:undefined} style={style} className={['native-layer',interactive?'native-action':'',root?'native-root':'',/标题栏|顶部 \/ 导航与账户/.test(layer.name)?'native-titlebar':''].join(' ')}>{inner}</div>;
 }
