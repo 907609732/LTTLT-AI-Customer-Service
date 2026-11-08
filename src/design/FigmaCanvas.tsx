@@ -63,7 +63,7 @@ function Layer(props:LayerProps){
   const paint=shown.props.fillPaints?.find(p=>p.visible!==false&&p.type==='SOLID'&&p.color);
   const style:CSSProperties={...base,backgroundColor:'transparent',backgroundImage:'none',border:'none',outline:'none',color:paint?.color?rgba(paint.color,paint.opacity??1):'#23334d',pointerEvents:interactive?'auto':'none',cursor:interactive?'pointer':undefined};
   const text=String(shown.props.text??shown.name);
-  return <div style={style} className="native-text" data-figma-node={runtimeId} role={interactive?'button':undefined} tabIndex={interactive?0:undefined} aria-label={interactive?props.actionLabel?.(layer)||(layer.name==='×'?'返回店铺首页':layer.name):undefined} onClick={interactive?onClick:undefined} onKeyDown={interactive?onKeyDown:undefined}>{onUIAction?<BoundText text={text} screenId={screenId}/>:text}</div>;
+  return <div style={style} className={'native-text'+(interactive?' native-action':'')} data-figma-node={runtimeId} role={interactive?'button':undefined} tabIndex={interactive?0:undefined} aria-label={interactive?props.actionLabel?.(layer)||(layer.name==='×'?'返回店铺首页':layer.name):undefined} onClick={interactive?onClick:undefined} onKeyDown={interactive?onKeyDown:undefined}>{onUIAction?<BoundText text={text} screenId={screenId}/>:text}</div>;
  }
  const style:CSSProperties={...base};if(layer.type==='ELLIPSE')style.borderRadius='50%';if(interactive)style.cursor=disabled?'not-allowed':'pointer';
  const paths=shown.props.vectorPaths as {data:string;windingRule?:string}[]|undefined;

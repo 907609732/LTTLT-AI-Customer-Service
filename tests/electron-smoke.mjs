@@ -44,7 +44,9 @@ try{
  await page.locator('[data-figma-node="2:140"]').waitFor({timeout:15000});
  const bad=await page.evaluate(()=>[...document.querySelectorAll('[style]')].filter(el=>el.getAttribute('style')?.includes('figma.com')).length);
  if(bad)throw Error('Found remote Figma image in native renderer');
- await page.getByRole('button',{name:'返回店铺首页',exact:true}).last().click();
+ const configClose=page.getByRole('button',{name:'返回店铺首页',exact:true}).last();
+ if(await configClose.evaluate(e=>getComputedStyle(e).getPropertyValue('-webkit-app-region'))!=='no-drag')throw Error('Configuration close is covered by native titlebar dragging');
+ await configClose.click();
  await page.locator('[data-figma-node="8836:4283"]').waitFor();
  await page.locator('[data-figma-node="11:230"]').click();
  await page.waitForTimeout(500);
