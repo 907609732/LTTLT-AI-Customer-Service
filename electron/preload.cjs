@@ -3,6 +3,7 @@ contextBridge.exposeInMainWorld('lingtu',Object.freeze({
  role:process.argv.includes('--lingtu-auxiliary')?'auxiliary':'main',
  updateSnapshot:()=>ipcRenderer.invoke('update:snapshot'),
  checkForUpdates:()=>ipcRenderer.invoke('update:check'),
+ downloadAndInstallUpdate:()=>ipcRenderer.invoke('update:download-install'),
  openUpdateRelease:()=>ipcRenderer.invoke('update:open-release'),
  onUpdateState:callback=>{const listener=(_event,value)=>callback(value);ipcRenderer.on('update:state',listener);return()=>ipcRenderer.removeListener('update:state',listener);},
  info:()=>ipcRenderer.invoke('app:info'),

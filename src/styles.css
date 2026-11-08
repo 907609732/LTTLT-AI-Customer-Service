@@ -20,3 +20,5 @@
 .source-platform-picker .platform-source-card.is-compact .platform-unavailable{top:0;bottom:auto;left:auto;right:0;width:76px;border-bottom-left-radius:6px}
 
 .model-provider-settings{width:min(460px,calc(100vw - 32px));max-height:calc(100vh - 40px);overflow:auto}.model-provider-settings fieldset{padding:0;border:0;min-width:0}.model-provider-settings select{display:block;width:100%;margin-top:6px;padding:10px;border:1px solid #c8dafa;border-radius:7px;background:#f9fbff;color:#254160;font:inherit}.model-provider-settings details{margin:18px 0;border-top:1px solid #e3ecfa;padding-top:14px}.model-provider-settings summary{cursor:pointer;font-size:13px;color:#52769d}.model-key-help{font-size:11px;color:#7b8fa8;display:inline-block}.model-provider-settings .model-preset-note{padding:10px;background:#f2f7ff;border-radius:7px;color:#345f91}.model-provider-settings footer{margin-top:18px}
+
+.update-progress{display:flex;flex-direction:column;gap:7px;margin:12px 0;color:#587699}.update-progress progress{width:100%;height:12px;accent-color:#347fff}.update-notice button:disabled{opacity:.5;cursor:wait}.update-notice footer{flex-wrap:wrap}

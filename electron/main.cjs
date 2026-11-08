@@ -51,6 +51,7 @@ app.whenReady().then(async()=>{
  updates=require('./updates.cjs').createUpdateService({updater:require('electron-updater').autoUpdater,currentVersion:app.getVersion(),enabled:app.isPackaged,openExternal:url=>shell.openExternal(url),onChange:state=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('update:state',state);}});
  ipcMain.handle('update:snapshot',event=>{guard(event);return updates.snapshot();});
  ipcMain.handle('update:check',event=>{guard(event);return updates.check(true);});
+ ipcMain.handle('update:download-install',event=>{guard(event);return updates.downloadAndInstall();});
  ipcMain.handle('update:open-release',event=>{guard(event);return updates.openReleasePage();});
  const dataDir=path.join(process.env.LINGTU_DATA_DIR||app.getPath('userData'),'backend');
  process.env.DESK_DATA_DIR=dataDir;
@@ -101,6 +102,7 @@ app.whenReady().then(async()=>{
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
+require('electron').autoUpdater.on('before-quit-for-update',()=>{closingMain=true;closeAuxApproved=true;});
 app.on('before-quit',()=>{closingMain=true;clearTimeout(updateTimer);updates?.dispose();backend?.dispose();platformHost?.close();});
 
 if(process.env.LINGTU_INTEGRATION_TEST==='1')module.exports.getBackend=()=>backend;
