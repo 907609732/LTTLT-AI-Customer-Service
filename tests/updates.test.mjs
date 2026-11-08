@@ -26,7 +26,7 @@ test('failed or unconfirmed downloads never install and retry uses the same adve
  }
 });
 test('install errors can retry the verified installer without downloading again',async()=>{
- let installs=0,downloads=0;const u=fake(async()=>({isUpdateAvailable:true,updateInfo:{version:'0.4.3'}}));u.downloadUpdate=async()=>{downloads++;u.emit('update-downloaded',{version:'0.4.3'});return ['/cache/file.exe'];};u.quitAndInstall=()=>{if(++installs===1)u.emit('error',Error('private path'));};
+ let installs=0,downloads=0;const u=fake(async()=>({isUpdateAvailable:true,updateInfo:{version:'0.4.3'}}));u.downloadUpdate=async()=>{downloads++;u.emit('update-downloaded',{version:'0.4.3'});return ['/cache/file.exe'];};u.quitAndInstallCalled=false;u.quitAndInstall=()=>{if(u.quitAndInstallCalled)return;u.quitAndInstallCalled=true;if(++installs===1)u.emit('error',Error('private path'));};
  const s=make()({updater:u,currentVersion:'0.4.2'});await s.check(true);await s.downloadAndInstall();assert.equal(s.snapshot().failureStage,'install');await s.downloadAndInstall();assert.equal(s.snapshot().status,'installing');assert.equal(downloads,1);assert.equal(installs,2);s.dispose();
 });
 test('disabled, unchecked and disposed services never download or install',async()=>{

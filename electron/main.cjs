@@ -3,7 +3,7 @@ const path=require('node:path');
 const fs=require('node:fs/promises');
 const {pathToFileURL,fileURLToPath}=require('node:url');
 const crypto=require('node:crypto');
-let win,auxWin,backend,platformHost,updates,updateTimer;let closingMain=false,closeAuxApproved=false;
+let win,auxWin,backend,platformHost,updates,updateTimer;let closingMain=false,closeAuxApproved=false,updateQuitPending=false;
 const DEV_URL='http://127.0.0.1:5173/';
 const isDev=!app.isPackaged&&process.argv.includes('--dev');
 const entry=pathToFileURL(path.join(__dirname,'../dist/index.html')).href;
@@ -48,7 +48,7 @@ function openAuxiliary(screenId){
  loadWindow(auxWin,screenId);
 }
 app.whenReady().then(async()=>{
- updates=require('./updates.cjs').createUpdateService({updater:require('electron-updater').autoUpdater,currentVersion:app.getVersion(),enabled:app.isPackaged,openExternal:url=>shell.openExternal(url),onChange:state=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('update:state',state);}});
+ updates=require('./updates.cjs').createUpdateService({updater:require('electron-updater').autoUpdater,currentVersion:app.getVersion(),enabled:app.isPackaged||process.env.LINGTU_INTEGRATION_TEST==='1',openExternal:url=>shell.openExternal(url),onChange:state=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('update:state',state);}});
  ipcMain.handle('update:snapshot',event=>{guard(event);return updates.snapshot();});
  ipcMain.handle('update:check',event=>{guard(event);return updates.check(true);});
  ipcMain.handle('update:download-install',event=>{guard(event);return updates.downloadAndInstall();});
@@ -102,7 +102,7 @@ app.whenReady().then(async()=>{
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
-require('electron').autoUpdater.on('before-quit-for-update',()=>{closingMain=true;closeAuxApproved=true;});
-app.on('before-quit',()=>{closingMain=true;clearTimeout(updateTimer);updates?.dispose();backend?.dispose();platformHost?.close();});
+require('electron').autoUpdater.on('before-quit-for-update',()=>{updateQuitPending=true;});
+app.on('before-quit',event=>{if(updateQuitPending){updateQuitPending=false;const state=updates?.snapshot();if(state?.status==='error'&&state.failureStage==='install'){event.preventDefault();return;}}closingMain=true;closeAuxApproved=true;clearTimeout(updateTimer);updates?.dispose();backend?.dispose();platformHost?.close();});
 
-if(process.env.LINGTU_INTEGRATION_TEST==='1')module.exports.getBackend=()=>backend;
+if(process.env.LINGTU_INTEGRATION_TEST==='1'){module.exports.getBackend=()=>backend;module.exports.getUpdates=()=>updates;}

@@ -3,7 +3,11 @@ function createUpdateService({updater,currentVersion,openExternal=async()=>{},on
  let state={status:'idle',currentVersion,availableVersion:'',manual:false,checkedAt:null,message:'',revision:0,progress:{percent:0,transferred:0,total:0,bytesPerSecond:0},failureStage:null};
  let flight=null,downloadFlight=null,timer,disposed=false,generation=0,verified=false;
  updater.autoDownload=false;updater.autoInstallOnAppQuit=false;updater.allowPrerelease=false;updater.allowDowngrade=false;updater.logger=null;
- const swallow=()=>{if(!disposed&&state.status==='installing')publish({status:'error',failureStage:'install',message:'安装未能启动，请重试安装，或使用备用下载。'});};updater.on('error',swallow);
+ const swallow=()=>{if(!disposed&&state.status==='installing'){
+  // electron-updater 6.x leaves this latch set when an installer spawn rejects asynchronously.
+  if(typeof updater.quitAndInstallCalled==='boolean')updater.quitAndInstallCalled=false;
+  publish({status:'error',failureStage:'install',message:'安装未能启动，请重试安装，或使用备用下载。'});
+ }};updater.on('error',swallow);
  const snapshot=()=>structuredClone(state);
  function publish(patch){if(disposed)return;state={...state,...patch,revision:state.revision+1};onChange(snapshot());}
  function check(manual=false){
