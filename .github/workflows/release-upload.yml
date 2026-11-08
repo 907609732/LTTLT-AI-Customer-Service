@@ -60,6 +60,7 @@ jobs:
           done
           mkdir installer
           unzip -q installer.zip -d installer
+          sed -i 's/\r$//' installer/SHA256SUMS.txt
           (cd installer && sha256sum --check SHA256SUMS.txt)
           test "$(grep '^version: ' installer/latest.yml | tr -d '\r' | cut -d' ' -f2)" = "${TAG#v}"
           cp frontend.zip "installer/LingtuCustomerService-${TAG#v}-win-x64.zip"
