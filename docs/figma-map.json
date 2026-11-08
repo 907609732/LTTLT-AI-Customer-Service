@@ -30,7 +30,7 @@
       "route": "home",
       "status": "current-editable-source-imported",
       "figmaNodeId": "8836:4283",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX01 · 店铺首页 · 可编辑",
       "sourceNodeType": "FRAME",
       "sourceSize": [
@@ -39,7 +39,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX02",
@@ -47,7 +47,7 @@
       "route": "home",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:134",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX02 · 店铺首页 · 未登录店铺 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -56,7 +56,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX03",
@@ -64,7 +64,7 @@
       "route": "home:add-store",
       "status": "current-editable-source-imported",
       "figmaNodeId": "8836:4284",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX03 · 添加店铺 · 平台选择 · 可编辑",
       "sourceNodeType": "FRAME",
       "sourceSize": [
@@ -73,7 +73,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX04",
@@ -81,7 +81,7 @@
       "route": "dashboard",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:140",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX04 · 数据看板 · 实时值守 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -90,7 +90,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX05",
@@ -98,7 +98,7 @@
       "route": "dashboard#period",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:141",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX05 · 数据看板 · 周期经营 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -107,7 +107,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX06",
@@ -115,7 +115,7 @@
       "route": "dashboard#hourly",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:142",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX06 · 数据看板 · 分时回复与平台分布 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -124,7 +124,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX07",
@@ -132,7 +132,7 @@
       "route": "stores",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:135",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX07 · 开店准备 · 店铺与商品 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -141,7 +141,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX08",
@@ -149,7 +149,7 @@
       "route": "transfer",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:143",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX08 · 转接人工 · 总开关 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -158,7 +158,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX09",
@@ -166,7 +166,7 @@
       "route": "transfer#rules",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:144",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX09 · 转接人工 · 触发条件 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -175,7 +175,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX10",
@@ -183,7 +183,7 @@
       "route": "transfer#fallback",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:145",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX10 · 转接人工 · 接待次数与关键词 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -192,7 +192,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX11",
@@ -200,7 +200,7 @@
       "route": "welcome",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:146",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX11 · 进店欢迎 · 欢迎内容 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -209,7 +209,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX12",
@@ -217,7 +217,7 @@
       "route": "automation",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:162",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX12 · 自动操作 · 功能配置 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -226,7 +226,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX13",
@@ -234,7 +234,7 @@
       "route": "automation#rules",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:163",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX13 · 自动操作 · 规则设置 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -243,7 +243,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX14",
@@ -251,7 +251,7 @@
       "route": "vision",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:164",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX14 · 图片识别 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -260,7 +260,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX15",
@@ -268,7 +268,7 @@
       "route": "intents",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:165",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX15 · 意图问法配置 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -277,7 +277,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX16",
@@ -285,7 +285,7 @@
       "route": "training",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:166",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX16 · AI 训练场 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -294,7 +294,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX17",
@@ -302,7 +302,7 @@
       "route": "model",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:167",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX17 · 模型定制 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -311,7 +311,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX18",
@@ -319,7 +319,7 @@
       "route": "sizes",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:168",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX18 · 尺码规格表 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -328,7 +328,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX19",
@@ -336,7 +336,7 @@
       "route": "blocked",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:169",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX19 · AI 回复禁用词 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -345,7 +345,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX20",
@@ -353,7 +353,7 @@
       "route": "tickets",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:170",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX20 · 工单登记 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -362,7 +362,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX21",
@@ -370,7 +370,7 @@
       "route": "quality",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:171",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX21 · 客服质检 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -379,7 +379,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX22",
@@ -387,7 +387,7 @@
       "route": "orders",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:172",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX22 · 我的订单 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -396,7 +396,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX23",
@@ -404,7 +404,7 @@
       "route": "usage",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:173",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX23 · 算力消耗 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -413,7 +413,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX24",
@@ -421,7 +421,7 @@
       "route": "preferences",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:174",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX24 · 软件偏好 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -430,7 +430,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX25",
@@ -438,7 +438,7 @@
       "route": "team",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:175",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX25 · 登录账号 · 团队成员 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -447,7 +447,7 @@
       ],
       "prototypeStatus": "current-interactions-imported",
       "visualVerified": true,
-      "visualVerificationNote": "2026-11-08 responsive native Figma1920x1080 / client1920x1080 per-page comparison; baseline unchanged; docs/IMPLEMENTATION.md"
+      "visualVerificationNote": "2026-11-08 per-page1920px comparison, shared navigation Top anchor follow-up; docs/IMPLEMENTATION.md"
     },
     {
       "uxId": "UX26",
@@ -455,7 +455,7 @@
       "route": "assistant:pending",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:177",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX26 · AI 辅助中心 · 待回复 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -471,7 +471,7 @@
       "route": "assistant:alert",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:178",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX27 · AI 辅助中心 · 人工预警 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -487,7 +487,7 @@
       "route": "assistant:platform-tickets",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:179",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX28 · AI 辅助中心 · 平台工单 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -503,7 +503,7 @@
       "route": "assistant:after-sales",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:180",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX29 · AI 辅助中心 · 售后 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -519,7 +519,7 @@
       "route": "assistant:replied",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:181",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX30 · AI 辅助中心 · 已回复会话 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -535,7 +535,7 @@
       "route": "assistant:service-tickets",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:182",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX31 · AI 辅助中心 · 客服工单 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -551,7 +551,7 @@
       "route": "assistant:close-dialog",
       "status": "current-editable-source-imported",
       "figmaNodeId": "2:183",
-      "snapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+      "snapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
       "sourceName": "UX32 · AI 辅助中心 · 关闭确认 · 可编辑",
       "sourceNodeType": "SYMBOL",
       "sourceSize": [
@@ -563,7 +563,7 @@
     }
   ],
   "sourceFile": "AI客服-可编辑图层.fig",
-  "sourceSnapshotHash": "738728688b7dd88c8eecbe0042cb2dbc7eac199ba1907a29f596b0f5a6ff45d1",
+  "sourceSnapshotHash": "9d0a974600da9a477f4bfce4921f8c24b2d54920a1528cb311eac20097f72f27",
   "editableCanvasId": "2:129",
   "visualVerified": false,
   "fileKey": "CR9QYrjZfTfMf6CIBj5yrb",
