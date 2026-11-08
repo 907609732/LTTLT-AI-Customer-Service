@@ -24,3 +24,9 @@ for(const screen of manifest.files.filter(s=>s.width===1440)){
   await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:'test-results/responsive/'+screen.uxId+'-1920.png'});
  });
 }
+
+test('configuration navigation captions keep their row positions while height grows',async({page})=>{
+ await page.setViewportSize({width:1920,height:1080});await page.goto('/?screen=UX16');
+ const nav=page.locator('[data-figma-node="8835:25961"]');const caption=page.locator('[data-figma-node="I8835:25961;8835:25589"]');await expect(caption).toBeVisible();
+ const row=page.locator('[data-figma-node="I8835:25961;8835:25574"]');expect(Math.round((await row.boundingBox())!.y-(await caption.boundingBox())!.y)).toBe(24);
+});

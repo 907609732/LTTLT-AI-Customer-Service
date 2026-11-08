@@ -1,7 +1,7 @@
 {
   "name": "lingtu-ai-customer-service",
   "productName": "灵兔客服",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "Local-first Electron frontend foundation for Lingtu customer service",
