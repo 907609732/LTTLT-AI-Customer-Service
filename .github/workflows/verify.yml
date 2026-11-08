@@ -12,7 +12,8 @@ concurrency:
 jobs:
   verify:
     # Explicit UI-only requests run their focused acceptance job; release tags/manual runs retain full regression.
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || (!contains(github.event.pull_request.title, 'UI-only: UX03') && !contains(github.event.head_commit.message, 'UI-only: UX03'))
+    if: >-
+      github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || (!contains(github.event.pull_request.title, 'UI-only: UX03') && !contains(github.event.head_commit.message, 'UI-only: UX03'))
     runs-on: windows-latest
     timeout-minutes: 15
     permissions:
@@ -86,7 +87,8 @@ jobs:
           retention-days: 14
 
   ux03:
-    if: github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/v') && (contains(github.event.pull_request.title, 'UI-only: UX03') || contains(github.event.head_commit.message, 'UI-only: UX03'))
+    if: >-
+      github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/v') && (contains(github.event.pull_request.title, 'UI-only: UX03') || contains(github.event.head_commit.message, 'UI-only: UX03'))
     runs-on: windows-latest
     timeout-minutes: 10
     permissions:
