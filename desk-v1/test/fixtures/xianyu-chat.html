@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>xianyu fixture placeholder</title>
+  <meta name="desk-fixture" content="xianyu-hook-placeholder">
+</head>
+<body>
+  <!--
+    desk-v1 / platform-hooks 占位 fixture。
+
+    这里不是闲鱼真实 IM 页面，也不模拟可用的 React Fiber / IM SDK。
+
+    现有实现链路（两套独立 hook，不在同一页面共挂）：
+      - 网页版 www.goofish.com/im：yunduo-xy-im-list-hook.js
+        全局 __XY_IM_LIST__（兼容别名 __XY_KF__），状态 __XY_IM_LIST_STATE__
+      - 卖家工作台 seller.goofish.com/#/im：yunduo-xy-seller-im-hook.js
+        全局 __XY_SELLER_IM__，状态 __XY_SELLER_IM_STATE__
+      证据：现有实现主进程 main/index.js:10521、:10838、:11108、:11425；
+            seller-im 头注释 :2、:2514。
+
+    未来 fixture 应拆成两个文件并重建最小桩：
+      xianyu-web.html     —— 注入 __XY_IM_LIST__ 桩，验证 pending/pop/release/discard
+                             与 msgId 去重、20s→8s 自发送台账、reload 水位；
+      xianyu-seller.html  —— 注入 __XY_SELLER_IM__ 桩，验证同样队列语义 +
+                             pairFirst/pairSecond、handledUntil、DOM/Fiber 兜底。
+
+    在此之前，src/adapters/xianyu.js 只返回 hook_not_ready，不假装可用。
+  -->
+  <main data-desk-fixture="xianyu-hook-placeholder">
+    <h1>xianyu fixture placeholder</h1>
+    <p>No real IM SDK / hook bridge is wired in this placeholder.</p>
+  </main>
+</body>
+</html>
