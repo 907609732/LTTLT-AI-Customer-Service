@@ -6,7 +6,7 @@ async function launch(){return electron.launch({executablePath:packaged||await e
 try{
  if(dev){server=await createServer();await server.listen();}
  app=await launch();const page=await app.firstWindow();await page.getByText('尚未添加店铺',{exact:true}).waitFor();
- await page.getByRole('button',{name:'添加店铺',exact:true}).click();await page.getByLabel('店铺名称',{exact:true}).fill('集成验证店铺');await page.getByRole('button',{name:'确认添加',exact:true}).click();await page.getByRole('button',{name:'集成验证店铺 拼多多 · 未打开',exact:true}).waitFor();
+ await page.getByRole('button',{name:'添加店铺',exact:true}).click();await page.getByRole('button',{name:'多多店铺 · 网页',exact:true}).click();await page.getByRole('button',{name:'确认添加',exact:true}).click();await page.getByLabel('店铺名称',{exact:true}).fill('集成验证店铺');await page.getByRole('button',{name:'确认添加',exact:true}).click();await page.getByRole('button',{name:'集成验证店铺 拼多多 · 未打开',exact:true}).waitFor();
  let snap=await page.evaluate(()=>window.lingtu.backendSnapshot());assert.equal(snap.stores.length,1);assert.equal(snap.stores[0].aiEnabled,false);const id=snap.stores[0].id;
  await page.evaluate(()=>window.lingtu.openMain('UX17'));const rule=page.getByRole('textbox',{name:'模型规则',exact:true});await rule.waitFor();await rule.fill('持久化验收规则：简洁回答，不作未经确认的承诺。');await page.getByRole('button',{name:'保存本方案',exact:true}).click();await page.waitForFunction(async()=> (await window.lingtu.backendSnapshot()).config.ai.systemPrompt.startsWith('持久化验收规则'));
  await app.evaluate(async({app},storeId)=>{process.mainModule.require(app.getAppPath()+'/electron/main.cjs').getBackend().ingest({type:'message:in',storeId,uid:'fixture-buyer',username:'集成买家',from:'buyer',content:'受控消息，仅用于本地验收',msgId:'fixture-1',ts:Date.now()})},id);
