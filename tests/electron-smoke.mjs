@@ -6,7 +6,7 @@ import {electronExecutable} from '../shared/electron-runtime.mjs';
 import {createServer} from 'vite';
 const exe=await electronExecutable();
 if(!existsSync(exe))throw Error('Electron Runtime is missing');
-const env={...process.env,LINGTU_DATA_DIR:mkdtempSync(join(tmpdir(),'lingtu-acceptance-'))};delete env.ELECTRON_RUN_AS_NODE;
+const env={...process.env,LINGTU_DISABLE_UPDATE_CHECK:'1',LINGTU_DATA_DIR:mkdtempSync(join(tmpdir(),'lingtu-acceptance-'))};delete env.ELECTRON_RUN_AS_NODE;
 let app,server;
 try{
  const dev=process.env.LINGTU_ELECTRON_TEST_DEV==='1';

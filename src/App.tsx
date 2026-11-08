@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useState} from 'react';
 import {BackendProvider,useBackend} from './features/BackendProvider';
 import {BackendChrome,useBackendLayers} from './features/BackendLayers';
+import {UpdateProvider,UpdateNotice} from './features/Updates';
 import DesignPreview from './DesignPreview';
 import FigmaCanvas from './design/FigmaCanvas';
 import manifest from './design/generated/manifest.json';
@@ -16,7 +17,7 @@ const sets=Object.fromEntries(Object.values(registry).filter(n=>n.props.componen
 const receptionVariants=Object.values(registry).filter(n=>n.name.startsWith('菜单=')&&n.name.includes('接待模式='));
 const receptionClosed=Object.fromEntries(receptionVariants.map(n=>[n.id,receptionVariants.find(v=>v.name===n.name.replace(/菜单=[^,]+/,'菜单=关闭'))!.id]));
 const screenModules=import.meta.glob<{default:FigmaLayer}>('./design/generated/screens/UX*.json');
-export default function App(){return new URLSearchParams(location.search).get('design')==='1'?<DesignPreview/>:<BackendProvider><Product/></BackendProvider>;}
+export default function App(){return new URLSearchParams(location.search).get('design')==='1'?<DesignPreview/>:<BackendProvider><UpdateProvider><Product/></UpdateProvider></BackendProvider>;}
 function Product(){
  const backend=useBackend();
  const start=new URLSearchParams(location.search).get('screen');
@@ -54,7 +55,7 @@ function Product(){
  return <FrontendProvider onNotice={setNotice} onOverlay={requestOverlay}><main className={'product-app '+(auxiliary?'product-auxiliary':'')} aria-label="灵兔客服">
   <div inert={confirmClose||state.overlays.length>0} aria-hidden={confirmClose||state.overlays.length>0||undefined}>{error?<div role="alert" className="stage-error">{error}<button onClick={()=>location.reload()}>重新加载</button></div>:!design?<div role="status" className="stage-loading">正在加载界面…</div>:<ProductCanvas notice={setNotice} design={design} screenId={state.screenId} scale={1} viewport={canvasViewport} state={state} onInteraction={dispatch} onAction={onAction}/>}</div>
   {state.overlays.map((id,index)=>registry[id]&&<div key={index+':'+id} className="product-overlay" role="dialog" aria-modal="true" aria-label={registry[id].name}><ProductCanvas notice={setNotice} design={registry[id]} screenId={state.screenId} scale={1} state={state} onInteraction={dispatch} onAction={onAction}/></div>)}
-  <BackendChrome screen={state.screenId} notice={setNotice}/>{notice&&<div role="status" className="dev-toast">{notice}</div>}
+  <BackendChrome screen={state.screenId} notice={setNotice}/><UpdateNotice/>{notice&&<div role="status" className="dev-toast">{notice}</div>}
   {confirmClose&&<div className="aux-close-source-mask" role="dialog" aria-modal="true" aria-label="关闭 AI 辅助中心" onKeyDown={e=>{if(e.key==='Escape')setConfirmClose(false)}}>{closeDesign?<FigmaCanvas design={closeDesign} screenId="UX32" scale={1} onInteraction={closeInteraction} onAction={action=>{if(action.kind==='navigate'){if(action.to==='UX01')finishClose();else setConfirmClose(false);}}}/>:<div role="status">正在加载确认界面…</div>}</div>}
  </main></FrontendProvider>;
 }

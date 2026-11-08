@@ -1,7 +1,7 @@
 {
   "name": "lingtu-ai-customer-service",
   "productName": "灵兔客服",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Local-first Electron frontend foundation for Lingtu customer service",
@@ -29,6 +29,7 @@
     "test:integration": "node tests/backend-electron.mjs"
   },
   "dependencies": {
+    "electron-updater": "^6.8.12",
     "lucide-react": "^0.468.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
@@ -78,6 +79,13 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
     },
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "907609732",
+      "repo": "LTTLT-AI-Customer-Service",
+      "private": false,
+      "releaseType": "release"
+    },
+    "artifactName": "LingtuCustomerService-Setup-${version}.${ext}"
   }
 }

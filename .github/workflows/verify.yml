@@ -39,12 +39,34 @@ jobs:
       - run: npm run test:e2e
       - run: npm run test:electron
       - run: npm run test:integration
-      - run: npx electron-builder --win --dir --publish never --config.electronDist=node_modules/electron/dist
+      - run: npx electron-builder --win nsis --publish never --config.electronDist=node_modules/electron/dist
       - run: npm run test:packaged
       - name: Packaged frontend/backend integration
         run: |
           $env:LINGTU_PACKAGED_EXE = (Resolve-Path release/win-unpacked/LingtuCustomerService.exe).Path
           npm run test:integration
+      - name: Verify installer update metadata
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $name = "LingtuCustomerService-Setup-$version.exe"
+          $installer = Join-Path release $name
+          $manifest = Get-Content release/latest.yml -Raw
+          if (!(Test-Path $installer) -or !(Test-Path "$installer.blockmap")) { throw 'Missing installer or blockmap' }
+          if ($manifest -notmatch ('(?m)^version: ' + [regex]::Escape($version) + '\s*$')) { throw 'Update version mismatch' }
+          if ($manifest -notmatch ('(?m)^path: ' + [regex]::Escape($name) + '\s*$')) { throw 'Update installer path mismatch' }
+          $expected = [regex]::Match($manifest, '(?m)^sha512: (\S+)').Groups[1].Value
+          $actual = [Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $installer -Algorithm SHA512).Hash))
+          if ($expected -ne $actual) { throw 'Update installer SHA512 mismatch' }
+          Get-ChildItem release -File | Where-Object { $_.Name -match '\.(exe|blockmap|yml)$' } | ForEach-Object { $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); "$hash  $($_.Name)" } | Set-Content -Encoding ascii release/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lingtu-windows-installer-${{ github.sha }}
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+            release/SHA256SUMS.txt
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
           name: lingtu-windows-frontend-${{ github.sha }}

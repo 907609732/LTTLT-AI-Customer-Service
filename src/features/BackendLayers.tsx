@@ -1,9 +1,12 @@
-import {useState} from 'react';import type {FormEvent} from 'react';
+import {CheckUpdateLink} from './Updates';import {version as appVersion} from '../../package.json';
+import {useState} from 'react';import type {FormEvent} from 'react';import {AddStore} from './AddStorePlatform';
 import {useBackend} from './BackendProvider';import type {Store} from './BackendProvider';import type {FigmaLayer} from '../design/types';
 const status=(s:Store)=>s.runtime?.collectionError?'采集中断':s.runtime?.online?'已连接':s.runtime?.awaitingClient?'等待客户端':s.runtime?.lastError?'连接失败':s.runtime?.open?'请完成登录':'未打开';
 export function useBackendLayers(screen:string,notice:(s:string)=>void){
  const b=useBackend();return (n:FigmaLayer)=>{
   if(!b.available)return undefined;
+  if(n.type==='TEXT'&&n.props.text==='检测更新')return <CheckUpdateLink/>;
+  if(n.type==='TEXT'&&/^v\d+\.\d+\.\d+$/.test(String(n.props.text||'')))return 'v'+appVersion;
   if(n.name==='商品自动学习 / 标题栏/商品自动学习')return null;
   if(n.name==='顶部操作 · 接待与一键操作')return <LiveReception notice={notice}/>;
   if((screen==='UX01'&&n.id==='11:84')||(screen==='UX02'&&n.name==='平台店铺 / 9 个渠道'))return <StoreList notice={notice}/>;
@@ -16,7 +19,6 @@ export function useBackendLayers(screen:string,notice:(s:string)=>void){
    const tab=String(n.props.text||'').match(/^(咨询|预警|工单|售后)\s*\d+$/);if(tab)return tab[1]+' '+b.snapshot.conversations.filter(c=>tab[1]==='咨询'?c.status==='pending':tab[1]==='预警'?c.status==='handoff':false).length;
    if(n.id==='11:79')return String(b.snapshot.stores.filter(s=>s.runtime?.online).length);
    if(n.id==='11:83')return String(b.snapshot.stores.filter(s=>!s.runtime?.online).length);
-   if(n.id==='11:216')return 'v0.3.3';
    if(n.id==='11:297')return '已接入拼多多网页版、抖店客户端';
    if(screen==='UX17'&&['8801:1984','8801:1987','8801:1989','8801:1903','8801:1904'].includes(n.id))return n.id==='8801:1984'?'编辑全局模型规则':n.id==='8801:1987'?'保存后应用于全部店铺':'';
    const text=String(n.props.text||'');const selected=b.snapshot.stores.find(s=>s.id===b.snapshot.selection.storeId);
@@ -30,14 +32,9 @@ function StoreList({notice,wide=false}:{notice:(s:string)=>void;wide?:boolean}){
  const b=useBackend();const [query,setQuery]=useState('');const perform=(action:string,s:Store,values?:Record<string,unknown>)=>void b.execute({action,storeId:s.id,values}).then(r=>notice(r.message||'操作完成')).catch(e=>notice(e.message));
  return <section className={'live-stores '+(wide?'is-wide':'')} aria-label="真实店铺列表"><input aria-label="筛选已添加店铺" placeholder="搜索店铺 / 平台" value={query} onChange={e=>setQuery(e.target.value)}/>{b.loading?<p>正在读取店铺…</p>:b.error?<p role="alert">{b.error}</p>:!b.snapshot.stores.length?<p>尚未添加店铺</p>:b.snapshot.stores.filter(s=>(s.storeName+s.platform).toLowerCase().includes(query.toLowerCase())).map(s=><article key={s.id} className={b.snapshot.selection.storeId===s.id?'selected':''}><button className="store-select" onClick={()=>perform('select-store',s)}><b>{s.storeName}</b><span>{s.platform==='pdd-web'?'拼多多':'抖店'} · {status(s)}</span></button><div><button onClick={()=>perform('open-store',s)}>打开</button>{wide&&s.aiEnabled&&<button onClick={()=>perform(b.snapshot.engine[s.id]?.paused?'resume-ai':'pause-ai',s)}>{b.snapshot.engine[s.id]?.paused?'恢复AI':'暂停AI'}</button>}<button role="switch" aria-label={s.storeName+' AI'} aria-checked={s.aiEnabled} onClick={()=>perform('set-ai',s,{enabled:!s.aiEnabled})}>AI {s.aiEnabled?'开':'关'}</button>{s.platform==='doudian-client'&&s.runtime?.open&&<button onClick={()=>perform('restart-client',s)}>重启客户端</button>}{wide&&s.runtime?.open&&<button onClick={()=>perform('close-store',s)}>关闭平台</button>}</div>{(s.runtime?.lastError||s.runtime?.collectionError)&&<small>{s.runtime.collectionError||s.runtime.lastError}</small>}</article>)}</section>;
 }
-function AddStore({notice}:{notice:(s:string)=>void}){
- const b=useBackend();const [name,setName]=useState(''),[platform,setPlatform]=useState('pdd-web'),[pending,setPending]=useState(false),[error,setError]=useState('');
- const submit=async(e:FormEvent)=>{e.preventDefault();if(pending)return;setPending(true);setError('');try{const r=await b.execute({action:'add-store',values:{storeName:name,platform}});notice(r.message||'店铺已添加');setName('');await window.lingtu?.openMain('UX01');}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setPending(false)}};
- return <form className="live-add-store" onSubmit={submit}><h2>添加店铺<button type="button" aria-label="关闭添加店铺" onClick={()=>void window.lingtu?.openMain('UX01')}>×</button></h2><p>选择接入平台，添加后打开店铺完成登录。</p><label>店铺名称<input aria-label="店铺名称" value={name} maxLength={60} onChange={e=>setName(e.target.value)} required/></label><fieldset><legend>平台选择</legend>{b.snapshot.capabilities.platforms.map(p=><label key={p.id}><input type="radio" name="platform" value={p.id} checked={platform===p.id} onChange={()=>setPlatform(p.id)}/>{p.label}</label>)}</fieldset><p>新店铺默认关闭 AI 自动回复。</p>{error&&<p role="alert">{error}</p>}<button disabled={pending||b.loading}>{pending?'正在添加…':'确认添加'}</button></form>;
-}
 export function BackendChrome({screen,notice}:{screen:string;notice:(s:string)=>void}){
  const b=useBackend();if(!b.available)return null;
- return <>{!['UX01','UX02','UX03','UX07','UX17','UX26','UX27','UX30','UX32'].includes(screen)&&<div className="live-capability-note">{screen==='UX08'?'支持全局转人工关键词设置，其它转接规则尚未接入。':'此页面为设计预览，当前后端尚未提供该业务能力。'}</div>}{Number(screen.slice(2))<26&&<div className="live-toolbar"><label>当前店铺<select aria-label="当前店铺" value={b.snapshot.selection.storeId} onChange={e=>void b.execute({action:'select-store',storeId:e.target.value}).catch(e=>notice(e.message))}><option value="" disabled>请选择店铺</option>{b.snapshot.stores.map(s=><option key={s.id} value={s.id}>{s.storeName}</option>)}</select></label><button onClick={()=>b.setSettings(true)}>模型接口与转人工设置</button></div>}{b.error&&<div role="alert" className="live-service-error">服务读取失败：{b.error}</div>}{Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&<LiveConversations screen={screen} notice={notice}/>} {b.settings&&<ModelSettings notice={notice}/>}</>;
+ return <>{!['UX01','UX02','UX03','UX07','UX17','UX26','UX27','UX30','UX32'].includes(screen)&&<div className="live-capability-note">{screen==='UX08'?'支持全局转人工关键词设置，其它转接规则尚未接入。':'此页面为设计预览，当前后端尚未提供该业务能力。'}</div>}{Number(screen.slice(2))<26&&screen!=='UX03'&&<div className="live-toolbar"><label>当前店铺<select aria-label="当前店铺" value={b.snapshot.selection.storeId} onChange={e=>void b.execute({action:'select-store',storeId:e.target.value}).catch(e=>notice(e.message))}><option value="" disabled>请选择店铺</option>{b.snapshot.stores.map(s=><option key={s.id} value={s.id}>{s.storeName}</option>)}</select></label><button onClick={()=>b.setSettings(true)}>模型接口与转人工设置</button></div>}{b.error&&<div role="alert" className="live-service-error">服务读取失败：{b.error}</div>}{Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&<LiveConversations screen={screen} notice={notice}/>} {b.settings&&<ModelSettings notice={notice}/>}</>;
 }
 function LiveConversations({screen,notice}:{screen:string;notice:(s:string)=>void}){
  const b=useBackend();const selected=b.snapshot.conversations.find(c=>c.storeId===b.snapshot.selection.storeId&&c.uid===b.snapshot.selection.conversationId);const [drafts,setDrafts]=useState<Record<string,string>>({}),[pending,setPending]=useState(false);const key=selected?selected.storeId+':'+selected.uid:'none',reply=drafts[key]||'';
