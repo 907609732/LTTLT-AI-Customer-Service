@@ -1,9 +1,12 @@
+import {CheckUpdateLink} from './Updates';import {version as appVersion} from '../../package.json';
 import {useState} from 'react';import type {FormEvent} from 'react';
 import {useBackend} from './BackendProvider';import type {Store} from './BackendProvider';import type {FigmaLayer} from '../design/types';
 const status=(s:Store)=>s.runtime?.collectionError?'采集中断':s.runtime?.online?'已连接':s.runtime?.awaitingClient?'等待客户端':s.runtime?.lastError?'连接失败':s.runtime?.open?'请完成登录':'未打开';
 export function useBackendLayers(screen:string,notice:(s:string)=>void){
  const b=useBackend();return (n:FigmaLayer)=>{
   if(!b.available)return undefined;
+  if(n.type==='TEXT'&&n.props.text==='检测更新')return <CheckUpdateLink/>;
+  if(n.type==='TEXT'&&/^v\d+\.\d+\.\d+$/.test(String(n.props.text||'')))return 'v'+appVersion;
   if(n.name==='商品自动学习 / 标题栏/商品自动学习')return null;
   if(n.name==='顶部操作 · 接待与一键操作')return <LiveReception notice={notice}/>;
   if((screen==='UX01'&&n.id==='11:84')||(screen==='UX02'&&n.name==='平台店铺 / 9 个渠道'))return <StoreList notice={notice}/>;
@@ -16,7 +19,6 @@ export function useBackendLayers(screen:string,notice:(s:string)=>void){
    const tab=String(n.props.text||'').match(/^(咨询|预警|工单|售后)\s*\d+$/);if(tab)return tab[1]+' '+b.snapshot.conversations.filter(c=>tab[1]==='咨询'?c.status==='pending':tab[1]==='预警'?c.status==='handoff':false).length;
    if(n.id==='11:79')return String(b.snapshot.stores.filter(s=>s.runtime?.online).length);
    if(n.id==='11:83')return String(b.snapshot.stores.filter(s=>!s.runtime?.online).length);
-   if(n.id==='11:216')return 'v0.3.3';
    if(n.id==='11:297')return '已接入拼多多网页版、抖店客户端';
    if(screen==='UX17'&&['8801:1984','8801:1987','8801:1989','8801:1903','8801:1904'].includes(n.id))return n.id==='8801:1984'?'编辑全局模型规则':n.id==='8801:1987'?'保存后应用于全部店铺':'';
    const text=String(n.props.text||'');const selected=b.snapshot.stores.find(s=>s.id===b.snapshot.selection.storeId);

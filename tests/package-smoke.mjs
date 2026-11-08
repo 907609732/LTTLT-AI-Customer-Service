@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 const file = process.env.LINGTU_PACKAGED_EXE||resolve('release/win-unpacked/LingtuCustomerService.exe');
 if(!existsSync(file)) throw new Error('先运行 npm run dist:win 来构建打包程序');
-const env={...process.env,LINGTU_DATA_DIR:mkdtempSync(join(tmpdir(),'lingtu-acceptance-'))};delete env.ELECTRON_RUN_AS_NODE;
+const env={...process.env,LINGTU_DISABLE_UPDATE_CHECK:'1',LINGTU_DATA_DIR:mkdtempSync(join(tmpdir(),'lingtu-acceptance-'))};delete env.ELECTRON_RUN_AS_NODE;
 let app;
 try{
  app=await electron.launch({executablePath:file,args:[],env,timeout:30000});
