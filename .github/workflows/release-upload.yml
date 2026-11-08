@@ -1,0 +1,51 @@
+name: Upload verified release packages
+on:
+  workflow_dispatch:
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Validate verified run and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          run=$(gh api repos/$REPO/actions/runs/42492454043)
+          test "$(jq -r .conclusion <<< "$run")" = success
+          test "$(jq -r .head_sha <<< "$run")" = b3fc5f84a4eb43faad4f438037b610617ae27098
+          release=$(gh api repos/$REPO/releases/438321789)
+          test "$(jq -r .draft <<< "$release")" = true
+          test "$(jq -r .tag_name <<< "$release")" = v0.4.0
+          test "$(jq -r .target_commitish <<< "$release")" = a82c6a9be86bc3eca5aa584e5b30114760504126
+          verified=$(gh api repos/$REPO/git/commits/b3fc5f84a4eb43faad4f438037b610617ae27098 --jq .tree.sha)
+          target=$(gh api repos/$REPO/git/commits/a82c6a9be86bc3eca5aa584e5b30114760504126 --jq .tree.sha)
+          test "$verified" = "$target"
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 42492454043
+          name: lingtu-windows-installer-66bf6cd1213436b54538b448d356bab7d62aa105
+          path: installer
+      - name: Verify and upload installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo 'c67dadaef1792ce5a4956f4800db40ee3c1e6aa3a2277f797e4ef4fdd36ff887  installer/LingtuCustomerService-Setup-0.4.0.exe' | sha256sum --check
+          gh release upload v0.4.0 installer/LingtuCustomerService-Setup-0.4.0.exe --repo "$REPO"
+      - name: Download and verify exact portable artifact ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api repos/$REPO/actions/artifacts/13622610563/zip > LingtuCustomerService-0.4.0-win-x64.zip
+          echo '14ac5d196031b92806327667ba33a74e6fa31eafc187d1d54228b086ca9c0b24  LingtuCustomerService-0.4.0-win-x64.zip' | sha256sum --check
+          gh release upload v0.4.0 LingtuCustomerService-0.4.0-win-x64.zip --repo "$REPO"
+
