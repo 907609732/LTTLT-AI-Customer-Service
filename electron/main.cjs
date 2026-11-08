@@ -55,7 +55,7 @@ app.whenReady().then(async()=>{
  const dataDir=path.join(process.env.LINGTU_DATA_DIR||app.getPath('userData'),'backend');
  process.env.DESK_DATA_DIR=dataDir;
  platformHost=require('./platform-host.cjs').createPlatformHost({dataDir});
- backend=require('./backend.cjs').createBackend({dataDir,...platformHost,onEvent:event=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('backend:event',event);}});
+ backend=require('./backend.cjs').createBackend({dataDir,...platformHost,openExternal:url=>shell.openExternal(url),onEvent:event=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('backend:event',event);}});
  await platformHost.start();
  ipcMain.handle('backend:snapshot',event=>{guard(event);return backend.snapshot();});
  ipcMain.handle('backend:execute',(event,command)=>{guard(event);return backend.execute(command);});
