@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>抖店飞鸽 IM 页（desk-v1 离线 fixture）</title>
+  <style>
+    body { margin: 0; font: 14px/1.5 "Microsoft YaHei", sans-serif; background: #f5f6f8; }
+    #app { display: flex; height: 100vh; }
+    #sidebar { width: 220px; background: #fff; border-right: 1px solid #e6e8eb; padding: 8px; box-sizing: border-box; }
+    #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    #message-panel { flex: 1; overflow: auto; padding: 12px; background: #f5f6f8; }
+    .message-item { display: flex; margin: 8px 0; }
+    .message-item.right { justify-content: flex-end; }
+    .bubble { max-width: 62%; padding: 8px 12px; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.08); word-break: break-word; }
+    .message-item.right .bubble { background: #d8f3d0; }
+    .editor { border-top: 1px solid #e6e8eb; background: #fff; padding: 8px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">飞鸽客服（fixture）</aside>
+    <section id="main">
+      <div id="message-panel" class="message-list"></div>
+      <div class="editor"><input id="input" placeholder="输入回复（fixture 实际走 im.sendText）" style="width:100%"></div>
+    </section>
+  </div>
+
+  <script>
+    /*
+     * 抖店 IM 页 fixture。
+     *
+     * 模拟飞鸽页面契约：
+     *   - window.__workbench__.workbenchOptions.extra.im
+     *       .message$ / ._messagesUpsert$ 是 Observable（subscribe 即可），
+     *       首次订阅会回放一段历史（模拟页面重载重放，供水位测试）；
+     *       .sendText(uid, text, options) 返回 Promise，稍后把卖家消息回推到 message$；
+     *       .chatWithUid(uid)；.pigeonIM.coreIM.pullMessagesByConversation(...)
+     *   - window.ss.instance.conversationsInfo.currentConversation 提供当前会话
+     *   - window.__dyShopId 提供当前店铺 ID（发送时的店铺校验）
+     *
+     * 这不是真实飞鸽页面；字段名按现有实现 ej()/I0() 的归一化输入构造，
+     * 真实字段是否一致 UNVERIFIED。
+     */
+    window.__sent = [];
+    window.__blockSend = false;
+    window.__dyShopId = '10001';
+
+    const BUYER_UID = 'AQbuyer-fixture';
+    const SHOP_ID = '10001';
+    const CONV_ID = BUYER_UID + ':' + SHOP_ID + '::2:1:pigeon';
+    const now = () => Date.now();
+
+    const panel = document.getElementById('message-panel');
+    let seq = 0;
+
+    function appendDom(text, mine) {
+      const row = document.createElement('div');
+      row.className = 'message-item' + (mine ? ' right' : '');
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = String(text);
+      row.appendChild(bubble);
+      panel.appendChild(row);
+      panel.scrollTop = panel.scrollHeight;
+      return row;
+    }
+
+    const history = [
+      {
+        serverId: 'srv-hist-buyer-1',
+        conversationId: CONV_ID,
+        senderRole: '1',
+        isFromMe: false,
+        content: '老板，这件外套还有货吗？',
+        createTime: now() - 2000,
+        ext: { nickname: '小明', security_pigeon_uid: BUYER_UID, type: 'text' },
+      },
+      {
+        serverId: 'srv-hist-seller-1',
+        conversationId: CONV_ID,
+        senderRole: '2',
+        content: '亲，有货的哦，今天下单今天发',
+        createTime: now() - 1000,
+        ext: { security_receiver_id: BUYER_UID, nickname: '客服小美', type: 'text' },
+      },
+    ];
+    appendDom(history[0].content, false);
+    appendDom(history[1].content, true);
+
+    function makeSubject(name) {
+      const subs = [];
+      let replayed = false;
+      return {
+        name,
+        subscribe(fn) {
+          subs.push(fn);
+          if (name === 'message$' && !replayed) {
+            replayed = true;
+            // 模拟页面订阅时回放历史；hook 依赖持久化水位拦住这批消息。
+            setTimeout(() => {
+              history.forEach((m) => {
+                try { fn(m); } catch (e) {}
+              });
+            }, 120);
+          }
+          return {
+            unsubscribe() {
+              const i = subs.indexOf(fn);
+              if (i >= 0) subs.splice(i, 1);
+            },
+          };
+        },
+        next(value) {
+          subs.slice().forEach((fn) => {
+            try { fn(value); } catch (e) {}
+          });
+        },
+        get size() { return subs.length; },
+      };
+    }
+
+    const message$ = makeSubject('message$');
+    const upsert$ = makeSubject('_messagesUpsert$');
+
+    function emitMessage(msg) {
+      message$.next(msg);
+      upsert$.next(msg);
+    }
+
+    const im = {
+      message$,
+      _messagesUpsert$: upsert$,
+      sendText(uid, text, options) {
+        if (window.__blockSend) return Promise.reject(new Error('mock_send_blocked'));
+        window.__sent.push({ uid: String(uid), text: String(text), options: options || {} });
+        const msg = {
+          serverId: 'srv-out-' + ++seq,
+          conversationId: String(uid) + ':' + SHOP_ID + '::2:1:pigeon',
+          senderRole: '2',
+          content: String(text),
+          createTime: now(),
+          ext: { security_receiver_id: String(uid), nickname: '客服小美', type: 'text' },
+        };
+        setTimeout(() => {
+          appendDom(msg.content, true);
+          emitMessage(msg);
+        }, 30);
+        return Promise.resolve({ ok: true });
+      },
+      _sendMsg(uid, payload) {
+        window.__sent.push({ uid: String(uid), image: payload });
+        const msg = {
+          serverId: 'srv-img-' + ++seq,
+          conversationId: String(uid) + ':' + SHOP_ID + '::2:1:pigeon',
+          senderRole: '2',
+          content: '[图片]',
+          pigeonMsgType: 'file_image',
+          createTime: now(),
+          ext: { security_receiver_id: String(uid), imageUrl: 'https://example.invalid/fixture.png' },
+        };
+        setTimeout(() => emitMessage(msg), 30);
+        return Promise.resolve(true);
+      },
+      chatWithUid(uid) {
+        window.__openedUid = String(uid);
+        return Promise.resolve(true);
+      },
+      pigeonIM: {
+        coreIM: {
+          pullMessagesByConversation() {
+            return Promise.resolve(history.slice());
+          },
+        },
+      },
+    };
+
+    window.__workbench__ = { workbenchOptions: { extra: { im } } };
+    window.ss = {
+      instance: {
+        conversationsInfo: {
+          currentConversation: { conversationId: CONV_ID, buyerId: BUYER_UID },
+        },
+      },
+    };
+
+    // 测试辅助：追加一条买家消息（同时进 message$ 与 DOM）
+    window.__addBuyerMessage = function (text, opts) {
+      const o = opts || {};
+      const msg = {
+        serverId: o.serverId || 'srv-buyer-' + ++seq,
+        conversationId: CONV_ID,
+        senderRole: '1',
+        isFromMe: false,
+        content: String(text),
+        createTime: Number(o.ts) > 0 ? Number(o.ts) : now(),
+        ext: { nickname: '小明', security_pigeon_uid: BUYER_UID, type: 'text' },
+      };
+      emitMessage(msg);
+      appendDom(msg.content, false);
+      return msg.serverId;
+    };
+
+    // 测试辅助：只推事件，不改 DOM（验证 WebSocket/消息流通道单独工作）
+    window.__emitRaw = function (msg) {
+      emitMessage(msg);
+      return msg && msg.serverId;
+    };
+
+    window.__fixture = { BUYER_UID, SHOP_ID, CONV_ID, history, im, message$ };
+  </script>
+</body>
+</html>

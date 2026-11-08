@@ -2,6 +2,9 @@ const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('lingtu',Object.freeze({
  role:process.argv.includes('--lingtu-auxiliary')?'auxiliary':'main',
  info:()=>ipcRenderer.invoke('app:info'),
+ backendSnapshot:()=>ipcRenderer.invoke('backend:snapshot'),
+ backendExecute:command=>ipcRenderer.invoke('backend:execute',command),
+ onBackendEvent:callback=>{const listener=(_event,value)=>callback(value);ipcRenderer.on('backend:event',listener);return()=>ipcRenderer.removeListener('backend:event',listener);},
  importDesign:()=>ipcRenderer.invoke('design:import'),
  latestDesignSnapshot:()=>ipcRenderer.invoke('design:latest'),
  windowAction:(action)=>ipcRenderer.invoke('window:action',action),

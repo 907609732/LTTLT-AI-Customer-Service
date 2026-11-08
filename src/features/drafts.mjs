@@ -7,6 +7,7 @@ export function createDraftStore(){
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn)},
   get(key){return copy(entry(key))},
   seed(key,initial){const e=entry(key);let didChange=false;for(const [field,value] of Object.entries(initial))if(!(field in e.draft)){e.draft[field]=copy(value);e.saved[field]=copy(value);didChange=true;}if(didChange)changed();},
+  hydrate(key,values){const e=entry(key);if(e.saving)return;const clean=!e.dirty;e.saved={...e.saved,...copy(values)};if(clean)e.draft=copy(e.saved);e.dirty=JSON.stringify(e.draft)!==JSON.stringify(e.saved);e.revision++;changed();},
   edit(key,values){const e=entry(key);e.draft={...e.draft,...copy(values)};e.revision++;e.dirty=JSON.stringify(e.draft)!==JSON.stringify(e.saved);e.error='';changed();},
   restore(key){const e=entry(key);e.draft=copy(e.saved);e.revision++;e.dirty=false;e.error='';changed();},
   async save(key,writer){

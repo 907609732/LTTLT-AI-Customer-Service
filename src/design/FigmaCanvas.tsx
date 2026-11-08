@@ -38,6 +38,7 @@ function Layer(props:LayerProps){
  const definition=!layer.props.expanded&&layer.type==='INSTANCE'?registry[symbolId(layer.props.symbolData?.symbolID)]:undefined;
  const children=variant?.children||definition?.children||layer.children;
  const override=props.renderLayer?.(layer);
+ if(override===null)return null;
  if(override!==undefined){const paint=layer.props.fillPaints?.find(p=>p.visible!==false&&p.type==='SOLID'&&p.color);const style:CSSProperties=layer.type==='TEXT'?{...base,backgroundColor:'transparent',outline:'none',color:paint?.color?rgba(paint.color,paint.opacity??1):undefined}:base;return <div style={style} data-figma-node={runtimeId} onClick={e=>e.stopPropagation()}>{override}</div>;}
  const businessAction=Boolean(onUIAction&&isFrontendAction(layer));
  const disabled=Boolean(onUIAction&&isFrontendDisabled(layer,screenId));

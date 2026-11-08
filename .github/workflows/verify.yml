@@ -33,12 +33,18 @@ jobs:
           }
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:backend
       - run: npx playwright install chromium
       - run: npm run build
       - run: npm run test:e2e
       - run: npm run test:electron
+      - run: npm run test:integration
       - run: npx electron-builder --win --dir --publish never --config.electronDist=node_modules/electron/dist
       - run: npm run test:packaged
+      - name: Packaged frontend/backend integration
+        run: |
+          $env:LINGTU_PACKAGED_EXE = (Resolve-Path release/win-unpacked/LingtuCustomerService.exe).Path
+          npm run test:integration
       - uses: actions/upload-artifact@v4
         with:
           name: lingtu-windows-frontend-${{ github.sha }}
