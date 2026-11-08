@@ -61,7 +61,7 @@ jobs:
           $expected = [regex]::Match($manifest, '(?m)^sha512: (\S+)').Groups[1].Value
           $actual = [Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $installer -Algorithm SHA512).Hash))
           if ($expected -ne $actual) { throw 'Update installer SHA512 mismatch' }
-          Get-ChildItem release -File | Where-Object { $_.Name -match '\.(exe|blockmap|yml)$' } | ForEach-Object { $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); "$hash  $($_.Name)" } | Set-Content -Encoding ascii release/SHA256SUMS.txt
+          Get-ChildItem release -File | Where-Object { $_.Name -eq 'latest.yml' -or $_.Name -match '\.(exe|blockmap)$' } | ForEach-Object { $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); "$hash  $($_.Name)" } | Set-Content -Encoding ascii release/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: lingtu-windows-installer-${{ github.sha }}
