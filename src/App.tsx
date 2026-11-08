@@ -20,6 +20,9 @@ function Product(){
  const [state,setState]=useState(()=>initialInteractionState(manifest.files.some(s=>s.uxId===start)?start!:'UX01'));
  const [design,setDesign]=useState<FigmaLayer|null>(null);const [error,setError]=useState('');const [notice,setNotice]=useState('');
  const [confirmClose,setConfirmClose]=useState(false);
+ const [closeDesign,setCloseDesign]=useState<FigmaLayer|null>(null);
+ useEffect(()=>{if(confirmClose&&!closeDesign)void screenModules['./design/generated/screens/UX32.json']().then(m=>setCloseDesign(m.default));},[confirmClose,closeDesign]);
+ useEffect(()=>{if(!confirmClose||!closeDesign)return;const id=requestAnimationFrame(()=>document.querySelector<HTMLElement>('.aux-close-source-mask [role="button"][aria-label="取消"]')?.focus());return()=>cancelAnimationFrame(id);},[confirmClose,closeDesign]);
  const [viewport,setViewport]=useState(()=>({width:window.innerWidth,height:window.innerHeight}));
  useEffect(()=>{const resize=()=>setViewport({width:window.innerWidth,height:window.innerHeight});window.addEventListener('resize',resize);return()=>window.removeEventListener('resize',resize);},[]);
  const dispatch=useCallback((action:InteractionAction,ancestors:InteractionHost[])=>{
@@ -31,6 +34,7 @@ function Product(){
   }
   setState(previous=>applyInteraction(previous,action,{routes,targets,sets,ancestors,receptionClosed}));
  },[]);
+ const requestOverlay=useCallback((id:string)=>dispatch({type:'NODE',navigation:'OVERLAY',destinationId:id},[]),[dispatch]);
  useEffect(()=>window.lingtu?.onNavigate(screen=>{const destination=manifest.files.find(s=>s.uxId===screen);if(destination)setState(previous=>applyInteraction(previous,{type:'NODE',navigation:'NAVIGATE',destinationId:destination.nodeId},{routes,targets,sets,ancestors:[],receptionClosed}));}),[]);
  useEffect(()=>window.lingtu?.onConfirmClose(()=>setConfirmClose(true)),[]);
  useEffect(()=>{let active=true;setError('');setDesign(null);screenModules['./design/generated/screens/'+state.screenId+'.json']().then(m=>{if(active)setDesign(m.default)}).catch(()=>{if(active)setError('界面加载失败，请重试。')});return()=>{active=false};},[state.screenId]);
@@ -41,11 +45,13 @@ function Product(){
  };
  const auxiliary=Number(state.screenId.slice(2))>=26;
  const canvasViewport=auxiliary?{width:300,height:Math.max(900,viewport.height)}:{width:Math.max(1440,viewport.width),height:Math.max(900,viewport.height)};
- return <FrontendProvider onNotice={setNotice}><main className={'product-app '+(auxiliary?'product-auxiliary':'')} aria-label="灵兔客服">
+ const finishClose=()=>{setConfirmClose(false);if(window.lingtu?.role==='auxiliary')void window.lingtu.windowAction('close');else dispatch({type:'NODE',navigation:'NAVIGATE',destinationId:'8836:4283'},[]);};
+ const closeInteraction=(action:InteractionAction)=>{if(action.type==='BACK'||action.type==='CLOSE')setConfirmClose(false);else if(action.navigation==='NAVIGATE'&&action.destinationId==='8836:4283')finishClose();};
+ return <FrontendProvider onNotice={setNotice} onOverlay={requestOverlay}><main className={'product-app '+(auxiliary?'product-auxiliary':'')} aria-label="灵兔客服">
   <div inert={confirmClose||state.overlays.length>0} aria-hidden={confirmClose||state.overlays.length>0||undefined}>{error?<div role="alert" className="stage-error">{error}<button onClick={()=>location.reload()}>重新加载</button></div>:!design?<div role="status" className="stage-loading">正在加载界面…</div>:<ProductCanvas design={design} screenId={state.screenId} scale={1} viewport={canvasViewport} state={state} onInteraction={dispatch} onAction={onAction}/>}</div>
   {state.overlays.map((id,index)=>registry[id]&&<div key={index+':'+id} className="product-overlay" role="dialog" aria-modal="true" aria-label={registry[id].name}><ProductCanvas design={registry[id]} screenId={state.screenId} scale={1} state={state} onInteraction={dispatch} onAction={onAction}/></div>)}
   {notice&&<div role="status" className="dev-toast">{notice}</div>}
-  {confirmClose&&<div className="aux-close-mask" role="dialog" aria-modal="true" aria-label="关闭 AI 辅助中心" onKeyDown={e=>{if(e.key==='Escape')setConfirmClose(false)}}><section><h3>关闭 AI 辅助中心</h3><p>关闭后停止新消息聚合和人工预警。最小化可继续值守；关闭后可从主界面入口重新打开。</p><footer><button autoFocus onClick={()=>setConfirmClose(false)}>取消</button><button className="primary" onClick={()=>{setConfirmClose(false);if(window.lingtu?.role==='auxiliary')void window.lingtu.windowAction('close');else dispatch({type:'NODE',navigation:'NAVIGATE',destinationId:'8836:4283'},[]);}}>关闭</button></footer></section></div>}
+  {confirmClose&&<div className="aux-close-source-mask" role="dialog" aria-modal="true" aria-label="关闭 AI 辅助中心" onKeyDown={e=>{if(e.key==='Escape')setConfirmClose(false)}}>{closeDesign?<FigmaCanvas design={closeDesign} screenId="UX32" scale={1} onInteraction={closeInteraction} onAction={action=>{if(action.kind==='navigate'){if(action.to==='UX01')finishClose();else setConfirmClose(false);}}}/>:<div role="status">正在加载确认界面…</div>}</div>}
  </main></FrontendProvider>;
 }
 function ProductCanvas(props:React.ComponentProps<typeof FigmaCanvas>){const onUIAction=useFrontendActions();return <FigmaCanvas {...props} onUIAction={onUIAction}/>;}

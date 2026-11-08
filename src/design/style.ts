@@ -50,7 +50,7 @@ export function styleOf(p:FigmaProperties,root=false):CSSProperties{
  if(!root&&p.transform){const m=p.transform;if(m.m00!==1||m.m01!==0||m.m10!==0||m.m11!==1){s.transform='matrix('+[m.m00,m.m10,m.m01,m.m11,0,0].join(',')+')';s.transformOrigin='top left';}}
  const fill=firstPaint(p.fillPaints);if(fill)Object.assign(s,paintStyle(fill));
  const stroke=firstPaint(p.strokePaints);
- if(stroke?.color)s.border=(p.strokeWeight??1)+'px solid '+rgba(stroke.color,stroke.opacity??1);
+ if(stroke?.color){const width=p.strokeWeight??1;s.outline=width+'px solid '+rgba(stroke.color,stroke.opacity??1);s.outlineOffset=p.strokeAlign==='OUTSIDE'?0:p.strokeAlign==='CENTER'?-width/2:-width;}
  if(p.clipsContent===true)s.overflow='hidden';
  const effects=Array.isArray(p.effects)?p.effects as {type:string;radius?:number;offset?:{x:number;y:number};color?:FigmaRGB;visible?:boolean;spread?:number}[]:[];
  const blur=effects.find(effect=>effect.visible!==false&&['FOREGROUND_BLUR','LAYER_BLUR'].includes(effect.type));
@@ -62,9 +62,11 @@ export function styleOf(p:FigmaProperties,root=false):CSSProperties{
   s.fontWeight=typeof p.fontWeight==='number'?p.fontWeight:fs.includes('black')?900:fs.includes('semibold')?600:fs.includes('bold')?700:fs.includes('medium')?500:400;
   s.lineHeight=p.lineHeight?.units==='PIXELS'?(p.lineHeight.value+'px'):'normal';
   if(p.letterSpacing?.units==='PIXELS')s.letterSpacing=p.letterSpacing.value+'px';
-  s.whiteSpace=p.textAutoResize==='WIDTH_AND_HEIGHT'?'pre':'pre-wrap';s.overflowWrap=p.textAutoResize==='WIDTH_AND_HEIGHT'?'normal':'anywhere';s.display='flex';
+  const singleLine=p.textAutoResize==='WIDTH_AND_HEIGHT'||(p.textAutoResize!=='HEIGHT'&&!p.text?.includes('\n')&&p.lineHeight?.units==='PIXELS'&&(p.size?.y??Infinity)<=p.lineHeight.value+1);
+  s.whiteSpace=singleLine?'pre':'pre-wrap';s.overflowWrap=singleLine?'normal':'anywhere';s.display='flex';
   s.alignItems=p.textAlignVertical==='CENTER'?'center':p.textAlignVertical==='BOTTOM'?'flex-end':'flex-start';
   s.justifyContent=p.textAlignHorizontal==='CENTER'?'center':p.textAlignHorizontal==='RIGHT'?'flex-end':'flex-start';
+  s.textAlign=p.textAlignHorizontal==='CENTER'?'center':p.textAlignHorizontal==='RIGHT'?'right':'left';
  }
  if(p.overflow==='VERTICAL'){s.overflowY='auto';s.overflowX='hidden';}
  if(p.overflow==='HORIZONTAL'){s.overflowX='auto';s.overflowY='hidden';}
