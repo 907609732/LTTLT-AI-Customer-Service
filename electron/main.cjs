@@ -3,7 +3,7 @@ const path=require('node:path');
 const fs=require('node:fs/promises');
 const {pathToFileURL,fileURLToPath}=require('node:url');
 const crypto=require('node:crypto');
-let win,auxWin;let closingMain=false,closeAuxApproved=false;
+let win,auxWin,backend,platformHost;let closingMain=false,closeAuxApproved=false;
 const DEV_URL='http://127.0.0.1:5173/';
 const isDev=!app.isPackaged&&process.argv.includes('--dev');
 const entry=pathToFileURL(path.join(__dirname,'../dist/index.html')).href;
@@ -31,7 +31,7 @@ function createWindow(){
  closingMain=false;
  win=new BrowserWindow({width:1440,height:900,useContentSize:true,frame:false,minWidth:1100,minHeight:720,title:'灵兔客服',backgroundColor:'#e9f3ff',show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
  configureWindow(win);
- win.on('close',()=>{closingMain=true;auxWin?.close();});
+ win.on('close',()=>{closingMain=true;backend?.dispose();platformHost?.close();auxWin?.close();});
  win.on('closed',()=>{win=null;});
  loadWindow(win);
 }
@@ -47,7 +47,14 @@ function openAuxiliary(screenId){
  auxWin.on('closed',()=>{auxWin=null;closeAuxApproved=false;if(!closingMain){win?.show();win?.focus();}});
  loadWindow(auxWin,screenId);
 }
-app.whenReady().then(()=>{
+app.whenReady().then(async()=>{
+ const dataDir=path.join(process.env.LINGTU_DATA_DIR||app.getPath('userData'),'backend');
+ process.env.DESK_DATA_DIR=dataDir;
+ platformHost=require('./platform-host.cjs').createPlatformHost({dataDir});
+ backend=require('./backend.cjs').createBackend({dataDir,...platformHost,onEvent:event=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('backend:event',event);}});
+ await platformHost.start();
+ ipcMain.handle('backend:snapshot',event=>{guard(event);return backend.snapshot();});
+ ipcMain.handle('backend:execute',(event,command)=>{guard(event);return backend.execute(command);});
  session.defaultSession.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
  session.defaultSession.setPermissionCheckHandler(()=>false);
  ipcMain.handle('app:info',event=>{const owner=guard(event);return {version:app.getVersion(),platform:process.platform,mode:'frontend-handoff',role:owner===auxWin?'auxiliary':'main'};});
@@ -89,4 +96,6 @@ app.whenReady().then(()=>{
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
-app.on('before-quit',()=>{closingMain=true;});
+app.on('before-quit',()=>{closingMain=true;backend?.dispose();platformHost?.close();});
+
+if(process.env.LINGTU_INTEGRATION_TEST==='1')module.exports.getBackend=()=>backend;

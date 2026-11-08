@@ -2,6 +2,7 @@ import {createContext,useContext,useEffect,useLayoutEffect,useMemo,useReducer,us
 import type {ReactNode,CSSProperties} from 'react';
 import type {FigmaLayer} from '../design/types';
 import {createDraftStore,parseBannedWords} from './drafts.mjs';
+import {useBackend} from './BackendProvider';
 import {frontendServices} from '../services/demo';
 import type {FrontendServices,FrontendCommand,FrontendResult} from '../services/contracts';
 
@@ -41,7 +42,7 @@ export function buttonLabel(n:FigmaLayer):string{
  if((n.props.size?.y||0)>60||(n.props.size?.x||0)>350)return '';
  return text.length<35?text:'';
 }
-export function isFrontendAction(n:FigmaLayer){const label=buttonLabel(n);return /^保存/.test(label)||/^(放弃|放弃更改|还原|恢复已保存内容|添加|清空|默认问候|热情问候|预览效果|发送|刷新|同步到其他店铺|同步他店|同步其他店铺)$/.test(label);}
+export function isFrontendAction(n:FigmaLayer){const label=buttonLabel(n);return /^保存/.test(label)||/^(放弃|放弃更改|还原|恢复已保存内容|添加|清空|默认问候|热情问候|预览效果|发送|刷新|同步到其他店铺|同步他店|同步其他店铺|复制方案|删除方案|预览模板|重命名|AI 润化|纠错|\+新建方案)$/.test(label);}
 export function isFrontendDisabled(n:FigmaLayer,screen:string){return ['UX26','UX27'].includes(screen)&&buttonLabel(n)==='发送';}
 
 type Controller={drafts:ReturnType<typeof createDraftStore>;scope:(screen:string)=>string;handle:(n:FigmaLayer,screen:string)=>boolean;notice:(text:string)=>void;submit:(command:Omit<FrontendCommand,'storeId'|'requestId'>)=>Promise<FrontendResult>};
@@ -50,11 +51,22 @@ function useController(){const value=useContext(Context);if(!value)throw Error('
 function useDraft(screen:string){const c=useController();const [,tick]=useReducer(n=>n+1,0);useLayoutEffect(()=>c.drafts.subscribe(tick),[c]);return {controller:c,key:c.scope(screen),entry:c.drafts.get(c.scope(screen))};}
 
 export function FrontendProvider({children,onNotice,onOverlay,services=frontendServices}:{children:ReactNode;onNotice:(s:string)=>void;onOverlay?:(id:string)=>void;services?:FrontendServices}){
+ const backend=useBackend();const selectedStore=backend.snapshot.selection.storeId;
+ const [drafts]=useState(()=>{const d=createDraftStore();if(backend.available)d.seed('UX17:account',{prompt:backend.snapshot.config.ai.systemPrompt});d.seed('UX11:demo-store-001',{enabled:false,welcomeTemplate:'default'});return d});
+ useEffect(()=>{if(backend.available)drafts.hydrate('UX17:account',{prompt:backend.snapshot.config.ai.systemPrompt})},[backend.available,backend.snapshot.config.ai.systemPrompt,drafts]);
  const c=useMemo<Controller>(()=>{
-  const drafts=createDraftStore();drafts.seed('UX11:demo-store-001',{enabled:false,welcomeTemplate:'default'});const scope=(screen:string)=>screen+':'+(['UX19','UX24','tasks'].includes(screen)?'account':'demo-store-001');
-  const submit:Controller['submit']=async command=>{const result=await services.execute({...command,storeId:'demo-store-001',requestId:crypto.randomUUID()});if(result.status==='not-connected')throw Error(result.message||'服务尚未接入');return result;};
+  const scope=(screen:string)=>screen+':'+(['UX19','UX24','tasks',...(backend.available?['UX17']:[])].includes(screen)?'account':(backend.available?selectedStore:'demo-store-001'));
+  const submit:Controller['submit']=async command=>{const result=await (backend.available?backend.execute({...command,storeId:selectedStore,conversationId:backend.snapshot.selection.conversationId}):services.execute({...command,storeId:'demo-store-001',requestId:crypto.randomUUID()}));if(result.status==='not-connected')throw Error(result.message||'服务尚未接入');return result;};
   return {drafts,scope,submit,notice:onNotice,handle(n,screen){
    const label=buttonLabel(n),key=scope(screen);
+   if(backend.available){
+    if(/^(复制方案|删除方案|预览模板|重命名|AI 润化|纠错|\+新建方案)$/.test(label)){onNotice('该功能的后端能力尚未接入。');return true;}
+    const operations:Record<string,string>={'一键上线':'open','一键加载店铺':'open','一键离线':'close','一键小休':'pause','一键开启AI':'enable','一键关闭AI':'disable'};
+    const operation=Object.entries(operations).find(([name])=>label===name||n.name.endsWith(name))?.[1];
+    if(operation){void backend.execute({action:'batch',values:{operation}}).then(r=>onNotice(r.message||'操作完成')).catch(e=>onNotice(e.message));return true;}
+    if(screen==='UX08'&&/^保存/.test(label)){backend.setSettings(true);return true;}
+    if(/^同步/.test(label)){onNotice('当前模型与转人工配置为全局设置，其它页面的跨店同步尚未接入。');return true;}
+   }
    if(screen==='UX11'&&n.name==='欢迎开关 / 热区')drafts.edit(key,{enabled:!drafts.get(key).draft.enabled});
    const toggles:Record<string,[string,boolean]>={'切换转人工总开关':['enabled',true],'切换自动收藏重要会话':['autoCollect',true],'切换智能转接':['smartTransfer',true],'切换无人在线兜底':['offlineFallback',true]};
    if(toggles[n.name]){const [field,initial]=toggles[n.name];drafts.edit(key,{[field]:!(drafts.get(key).draft[field]??initial)});}
@@ -76,10 +88,11 @@ export function FrontendProvider({children,onNotice,onOverlay,services=frontendS
      onNotice(result.message||'操作完成。');return result;
     };
     if(save)void drafts.save(key,execute).catch(error=>onNotice(error.message));else void execute(drafts.get(key).draft).catch(error=>onNotice(error.message));
+    return backend.available;
    }
    return false;
   }};
- },[onNotice,onOverlay,services]);
+ },[onNotice,onOverlay,services,backend.available,backend.execute,selectedStore,backend.snapshot.selection.conversationId,drafts]);
  return <Context.Provider value={c}>{children}</Context.Provider>;
 }
 export function useFrontendActions(){return useController().handle;}

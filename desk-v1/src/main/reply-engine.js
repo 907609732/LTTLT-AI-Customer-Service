@@ -104,6 +104,7 @@ class StoreWorker {
     this.lastSentAt = new Map();
     this.sendWindow = [];
     this.manualSuppressed = new Set();
+    this.manualEpoch = new Map();
     this.degraded = false;
     this.recoveredAt = 0;
     this.stats = {
@@ -149,6 +150,10 @@ class StoreWorker {
   }
 
   /** D-07 的唯一恢复入口：显式清除后 AI 才会重新接管该会话。 */
+  takeOver(uid) {
+    uid=String(uid);this.manualEpoch.set(uid,(this.manualEpoch.get(uid)||0)+1);this.manualSuppressed.add(uid);
+  }
+
   clearManualSuppression(uid) {
     return this.manualSuppressed.delete(String(uid));
   }
@@ -302,10 +307,11 @@ class StoreWorker {
     return this.recoveredAt > 0 && this.now() - this.recoveredAt <= this.#recoverWindowMs();
   }
 
-  #active(generation) { return generation === this.generation && this.running && !this.paused && this.store.aiEnabled && this.cfg.enabled !== false; }
+  #active(generation) { return (typeof generation==='object'?generation.run===this.generation && generation.manualEpoch===(this.manualEpoch.get(generation.uid)||0):generation===this.generation) && this.running && !this.paused && this.store.aiEnabled && this.cfg.enabled !== false; }
 
   async #process(row, generation) {
     const uid = String(row.uid);
+    generation={run:generation,uid,manualEpoch:this.manualEpoch.get(uid)||0};
     let claimed = true;
     const dispose = async (fn) => {
       const result = await fn();
@@ -493,7 +499,7 @@ class StoreWorker {
    * 二者属于同一次应答，不能互相被 60s 间隔挡住；仍受单店分钟上限约束。
    */
   async #sendText(uid, text, { bypassUidInterval = false, jitter = true, generation } = {}) {
-    if (!this.#active(generation)) return {ok:false,throttled:true,reason:"cancelled"};
+    if (!this.#active(generation)||this.manualSuppressed.has(String(uid))) return {ok:false,throttled:true,reason:"cancelled"};
     const gate = this.#sendGate(uid, { bypassUidInterval });
     if (!gate.ok) {
       this.stats.throttled += 1;
@@ -515,7 +521,7 @@ class StoreWorker {
         /* 抖动等待被取消不阻塞发送 */
       }
     }
-    if (!this.#active(generation)) return {ok:false,throttled:true,reason:"cancelled"};
+    if (!this.#active(generation)||this.manualSuppressed.has(String(uid))) return {ok:false,throttled:true,reason:"cancelled"};
     const result = await this.adapter.sendText(uid, String(text));
     assertResult(result, 'sendText');
     if (result.ok || result.reason === 'send_unconfirmed') {

@@ -1,7 +1,7 @@
 {
   "name": "lingtu-ai-customer-service",
   "productName": "灵兔客服",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Local-first Electron frontend foundation for Lingtu customer service",
@@ -24,13 +24,15 @@
     "design:decode": "node scripts/decode-fig.mjs",
     "design:prepare": "node scripts/prepare-design.mjs",
     "pack:win": "npm run build && electron-builder --win --dir --publish never",
-    "dist:win": "npm run build && electron-builder --win nsis --publish never"
+    "dist:win": "npm run build && electron-builder --win nsis --publish never",
+    "test:backend": "node --test desk-v1/test/*.test.js",
+    "test:integration": "node tests/backend-electron.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "zod": "^3.23.8"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "latest",
@@ -60,7 +62,9 @@
       "LICENSING.md",
       "THIRD_PARTY_NOTICES.md",
       "docs/FRONTEND_HANDOFF.md",
-      "package.json"
+      "package.json",
+      "desk-v1/package.json",
+      "desk-v1/src/**/*"
     ],
     "win": {
       "target": [

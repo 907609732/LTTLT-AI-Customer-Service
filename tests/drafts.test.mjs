@@ -34,3 +34,4 @@ test('banned words accept newlines, commas and explicit replacement without dupl
   {word:'微信',replacement:'wx'},{word:'最强',replacement:''},{word:'最好',replacement:'较好'}
  ]);
 });
+test('remote hydration refreshes clean fields and preserves dirty drafts',()=>{const d=createDraftStore();d.seed('global',{prompt:'old'});assert.equal(typeof d.hydrate,'function');d.hydrate('global',{prompt:'remote'});assert.equal(d.get('global').draft.prompt,'remote');d.edit('global',{prompt:'local edit'});d.hydrate('global',{prompt:'new remote'});assert.equal(d.get('global').draft.prompt,'local edit');d.restore('global');assert.equal(d.get('global').draft.prompt,'new remote');});

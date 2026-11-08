@@ -633,3 +633,8 @@ test('stop during jitter cancels sending',async()=>{
  const pending=gate();const entered=gate();const {worker,state}=workerFor({rows:[buyerRow('jitter','m-jitter')],sleep:async()=>{entered.resolve();await pending.promise}});
  await worker.tick();await entered.promise;worker.stop();pending.resolve();await worker.settle();assert.equal(state.sent.length,0);
 });
+test('manual takeover blocks only that conversation in flight',async()=>{
+ const pending=gate();const {worker,state}=workerFor({rows:[buyerRow('manual','m1'),buyerRow('other','m2')],ai:makeAi({gate:pending})});
+ await worker.tick();worker.manualSuppressed.add('manual');pending.resolve();await worker.settle();
+ assert.deepEqual(state.sent.map(s=>s.uid),['other']);
+});

@@ -193,6 +193,7 @@ class ShopWindowManager {
    * 超过 clientWaitTimeoutMs 仍未连上只发一次错误事件（避免刷屏）。
    */
   #startClientWait(storeId, entry) {
+    if(this.views.get(storeId)!==entry)return;
     const store = this.registry.get(storeId) || entry.store;
     entry.awaitingClient = true;
     entry.online = false;
@@ -269,6 +270,7 @@ class ShopWindowManager {
       }
     }
 
+    if(this.views.get(storeId)!==entry)return false;
     if (result && result.ok) {
       entry.online = true;
       entry.lastError = '';
