@@ -16,7 +16,7 @@ export function useBackendLayers(screen:string,notice:(s:string)=>void){
    const tab=String(n.props.text||'').match(/^(咨询|预警|工单|售后)\s*\d+$/);if(tab)return tab[1]+' '+b.snapshot.conversations.filter(c=>tab[1]==='咨询'?c.status==='pending':tab[1]==='预警'?c.status==='handoff':false).length;
    if(n.id==='11:79')return String(b.snapshot.stores.filter(s=>s.runtime?.online).length);
    if(n.id==='11:83')return String(b.snapshot.stores.filter(s=>!s.runtime?.online).length);
-   if(n.id==='11:216')return 'v0.3.1';
+   if(n.id==='11:216')return 'v0.3.2';
    if(n.id==='11:297')return '已接入拼多多网页版、抖店客户端';
    if(screen==='UX17'&&['8801:1984','8801:1987','8801:1989','8801:1903','8801:1904'].includes(n.id))return n.id==='8801:1984'?'编辑全局模型规则':n.id==='8801:1987'?'保存后应用于全部店铺':'';
    const text=String(n.props.text||'');const selected=b.snapshot.stores.find(s=>s.id===b.snapshot.selection.storeId);

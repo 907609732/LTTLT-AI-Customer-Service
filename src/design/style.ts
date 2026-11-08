@@ -1,7 +1,7 @@
 import type {CSSProperties} from 'react';
 import type {FigmaRGB,FigmaPaint,FigmaProperties} from './types';
 import assets from './generated/assets.json';
-const imageAssets=assets as Record<string,string>;
+const imageAssets:Record<string,string>={...assets,'2624a5ee992916c90c6a6b2621058377b0a516c8':'./brand/logo.png'};
 const clamp=(n:number)=>Math.max(0,Math.min(1,n));
 export const rgba=(c:FigmaRGB,opacity=1)=>'rgba('+[c.r,c.g,c.b].map(n=>Math.round(clamp(n)*255)).join(',')+','+clamp((c.a??1)*opacity).toFixed(3)+')';
 function assetUrl(hash?:Record<string,number>){
