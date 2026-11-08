@@ -1,7 +1,7 @@
 import {createContext,useContext,useState,useEffect,useCallback,useRef} from 'react';
 import type {ReactNode} from 'react';
 import type {FrontendResult} from '../services/contracts';
-export type Store={id:string;storeName:string;platform:string;aiEnabled:boolean;runtime:{open:boolean;online:boolean;awaitingClient?:boolean;collectionError?:string;lastError?:string}};
+export type Store={id:string;storeName:string;platform:string;group?:string;aiEnabled:boolean;runtime:{open:boolean;online:boolean;awaitingClient?:boolean;collectionError?:string;lastError?:string}};
 export type Conversation={storeId:string;uid:string;name:string;status:string;messages:{from:string;content:string;ts:number}[];updatedAt?:number};
 export type BackendSnapshot={revision:number;stores:Store[];config:{ai:{systemPrompt:string;baseUrl:string;model:string};reply?:{enabled:boolean};safety:{handoffKeywords:string[]}};engine:Record<string,{running:boolean;paused:boolean}>;conversations:Conversation[];selection:{storeId:string;conversationId:string};capabilities:{platforms:{id:string;label:string}[];apiKeyConfigured:boolean}};
 export type BackendCommand={action:string;screenId?:string;storeId?:string;conversationId?:string;values?:Record<string,unknown>};

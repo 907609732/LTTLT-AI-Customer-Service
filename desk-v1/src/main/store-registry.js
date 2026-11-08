@@ -21,6 +21,7 @@ const StoreSchema = z.object({
   status: z.enum(['inactive', 'active', 'error']).default('inactive'),
   aiEnabled: z.boolean().default(true),
   note: z.string().max(200).default(''),
+  group: z.string().trim().max(30).default(''),
   createdAt: z.number().int().nonnegative(),
   lastOpenedAt: z.number().int().nonnegative().default(0),
   lastError: z.string().max(300).default(''),

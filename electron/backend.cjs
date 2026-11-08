@@ -65,6 +65,19 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   if(disposed)throw Error('服务已关闭');const command=Command.parse(raw);const v=command.values||{};let data={},message='操作完成。';
   switch(command.action){
    case 'add-store':if(!platforms.some(p=>p.id===v.platform))throw Error('该平台尚未接入');data=registry.add(v);selection={storeId:data.id,conversationId:''};message='店铺已添加，AI默认关闭。';break;
+   case 'set-store-group':storeOf(command.storeId);registry.update(command.storeId,{group:z.string().trim().max(30).parse(v.group)});message='店铺分组已保存。';break;
+   case 'remove-store':{
+    const store=storeOf(command.storeId),id=store.id;
+    if(v.confirmed!==true)throw Error('请先确认删除此店铺账号');
+    if(opening.has(id)||starting.has(id)||[...sending].some(key=>key.startsWith(id+':')))throw Error('店铺正在打开、切换AI或发送回复，请操作结束后再删除');
+    writeJson(path.join(dataDir,'removed-stores',encodeURIComponent(id)+'.json'),{removedAt:Date.now(),store,conversations:conversations.filter(c=>c.storeId===id)});
+    openEpoch.set(id,(openEpoch.get(id)||0)+1);aiEpoch.set(id,(aiEpoch.get(id)||0)+1);
+    engine.stopStore(id);monitor.stop(id);registry.setAi(id,false);manager.close?.(id);
+    registry.remove(id);adapters.delete(id);collectionErrors.delete(id);monitor.retainedSeen.delete(id);
+    conversations=conversations.filter(c=>c.storeId!==id);writeJson(archiveFile,conversations);
+    if(selection.storeId===id)selection={storeId:registry.list()[0]?.id||'',conversationId:''};
+    message='店铺账号已从本机移除。';break;
+   }
    case 'select-store':storeOf(command.storeId);selection={storeId:command.storeId,conversationId:''};break;
    case 'select-conversation':{storeOf(command.storeId);const c=conversations.find(c=>c.storeId===command.storeId&&c.uid===command.conversationId);if(!c)throw Error('会话不存在或尚未采集');selection={storeId:command.storeId,conversationId:c.uid};break;}
    case 'open-store':{const id=command.storeId;storeOf(id);if(!manager.open)throw Error('平台窗口尚未就绪');if(opening.has(id))throw Error('店铺正在打开，请稍候');const epoch=(openEpoch.get(id)||0)+1;openEpoch.set(id,epoch);opening.add(id);try{await manager.open(id);if(disposed||openEpoch.get(id)!==epoch){manager.close(id);throw Error('打开店铺操作已取消');}await monitor.start(id);if(disposed||openEpoch.get(id)!==epoch){monitor.stop(id);manager.close(id);throw Error('打开店铺操作已取消');}message='已打开店铺，请完成平台登录。';}finally{opening.delete(id);}break;}

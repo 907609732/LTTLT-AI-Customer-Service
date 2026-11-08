@@ -1,3 +1,4 @@
+import {StoreManagement} from './StoreManagement';
 import {ModelSettings} from './ModelSettings';
 import {CheckUpdateLink} from './Updates';import {version as appVersion} from '../../package.json';
 import {useState} from 'react';import {AddStore} from './AddStorePlatform';
@@ -8,11 +9,13 @@ export function useBackendLayers(screen:string,notice:(s:string)=>void){
   if(!b.available)return undefined;
   if(n.type==='TEXT'&&n.props.text==='检测更新')return <CheckUpdateLink/>;
   if(n.type==='TEXT'&&/^v\d+\.\d+\.\d+$/.test(String(n.props.text||'')))return 'v'+appVersion;
-  if(n.name==='商品自动学习 / 标题栏/商品自动学习')return null;
+  if(n.name==='商品自动学习 / 标题栏/商品自动学习')return screen==='UX07'?<div className="source-auto-learning" title="商品自动学习尚未接入"><span>商品自动学习</span><button role="switch" aria-label="商品自动学习" aria-checked={false} disabled><i/></button></div>:null;
   if(n.name==='顶部操作 · 接待与一键操作')return <LiveReception notice={notice}/>;
   if((screen==='UX01'&&n.id==='11:84')||(screen==='UX02'&&n.name==='平台店铺 / 9 个渠道'))return <StoreList notice={notice}/>;
   if(screen==='UX03'&&n.id==='8801:3075')return <AddStore notice={notice}/>;
-  if(screen==='UX07'&&n.id==='8801:245')return <StoreList wide notice={notice}/>;
+  if(screen==='UX07'&&n.id==='8801:348')return '登录店铺 → 配置接待。支持按平台、分组筛选；商品学习功能待接入。';
+  if(screen==='UX07'&&n.id==='8801:346')return <button className="source-store-control" onClick={()=>void b.execute({action:'refresh'}).then(()=>notice('店铺状态已刷新。')).catch(e=>notice(e.message))}>刷新</button>;
+  if(screen==='UX07'&&n.id==='8801:245')return <StoreManagement notice={notice}/>;
   if(Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&/^(会话行|空状态|已选会话|消息回复输入区)/.test(n.name))return null;
   if(screen==='UX17'&&n.id==='8801:1902')return <div className="live-global-rule"><b>全局模型规则</b><p>当前规则应用于全部店铺。</p><p>多方案与店铺独立绑定尚未接入。</p></div>;
   if(screen==='UX17'&&n.id==='10824:6117')return <div className="live-global-rule"><b>应用店铺（全部）</b>{b.snapshot.stores.map(s=><p key={s.id}>{s.storeName}</p>)}</div>;
@@ -35,7 +38,7 @@ function StoreList({notice,wide=false}:{notice:(s:string)=>void;wide?:boolean}){
 }
 export function BackendChrome({screen,notice}:{screen:string;notice:(s:string)=>void}){
  const b=useBackend();if(!b.available)return null;
- return <>{!['UX01','UX02','UX03','UX07','UX17','UX26','UX27','UX30','UX32'].includes(screen)&&<div className="live-capability-note">{screen==='UX08'?'支持全局转人工关键词设置，其它转接规则尚未接入。':'此页面为设计预览，当前后端尚未提供该业务能力。'}</div>}{Number(screen.slice(2))<26&&screen!=='UX03'&&<div className="live-toolbar"><label>当前店铺<select aria-label="当前店铺" value={b.snapshot.selection.storeId} onChange={e=>void b.execute({action:'select-store',storeId:e.target.value}).catch(e=>notice(e.message))}><option value="" disabled>请选择店铺</option>{b.snapshot.stores.map(s=><option key={s.id} value={s.id}>{s.storeName}</option>)}</select></label><button onClick={()=>b.setSettings(true)}>模型接口设置</button></div>}{b.error&&<div role="alert" className="live-service-error">服务读取失败：{b.error}</div>}{Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&<LiveConversations screen={screen} notice={notice}/>} {b.settings&&<ModelSettings notice={notice}/>}</>;
+ return <>{!['UX01','UX02','UX03','UX07','UX17','UX26','UX27','UX30','UX32'].includes(screen)&&<div className="live-capability-note">{screen==='UX08'?'支持全局转人工关键词设置，其它转接规则尚未接入。':'此页面为设计预览，当前后端尚未提供该业务能力。'}</div>}{Number(screen.slice(2))<26&&screen!=='UX03'&&screen!=='UX07'&&<div className="live-toolbar"><label>当前店铺<select aria-label="当前店铺" value={b.snapshot.selection.storeId} onChange={e=>void b.execute({action:'select-store',storeId:e.target.value}).catch(e=>notice(e.message))}><option value="" disabled>请选择店铺</option>{b.snapshot.stores.map(s=><option key={s.id} value={s.id}>{s.storeName}</option>)}</select></label><button onClick={()=>b.setSettings(true)}>模型接口设置</button></div>}{b.error&&<div role="alert" className="live-service-error">服务读取失败：{b.error}</div>}{Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&<LiveConversations screen={screen} notice={notice}/>} {b.settings&&<ModelSettings notice={notice}/>}</>;
 }
 function LiveConversations({screen,notice}:{screen:string;notice:(s:string)=>void}){
  const b=useBackend();const selected=b.snapshot.conversations.find(c=>c.storeId===b.snapshot.selection.storeId&&c.uid===b.snapshot.selection.conversationId);const [drafts,setDrafts]=useState<Record<string,string>>({}),[pending,setPending]=useState(false);const key=selected?selected.storeId+':'+selected.uid:'none',reply=drafts[key]||'';
