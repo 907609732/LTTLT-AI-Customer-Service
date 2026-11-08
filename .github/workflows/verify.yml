@@ -23,13 +23,21 @@ jobs:
       - name: Configure Windows desktop for 1440x900 application checks
         run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
       - run: npm ci
+      - name: Install verified Electron runtime with mirror fallback
+        run: |
+          node node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0) {
+            $env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+            node node_modules/electron/install.js
+            if ($LASTEXITCODE -ne 0) { throw 'Electron runtime download failed from both sources' }
+          }
       - run: npm run typecheck
       - run: npm test
       - run: npx playwright install chromium
       - run: npm run build
       - run: npm run test:e2e
       - run: npm run test:electron
-      - run: npx electron-builder --win --dir --publish never
+      - run: npx electron-builder --win --dir --publish never -c.electronDist=node_modules/electron/dist
       - run: npm run test:packaged
       - uses: actions/upload-artifact@v4
         with:
