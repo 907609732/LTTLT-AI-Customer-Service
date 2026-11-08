@@ -1,0 +1,10 @@
+# desk-v1 本地运行产物，不进仓库
+node_modules/
+data/
+dist/
+out/
+
+# 本机临时运行文件
+
+# 本机运行日志 / 会话存档
+*.log
