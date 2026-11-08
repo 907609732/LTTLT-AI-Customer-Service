@@ -49,3 +49,5 @@ Figma文件`CR9QYrjZfTfMf6CIBj5yrb`，Canvas`2:129`，右侧可编辑画板。UX
 搜索限制：店铺、意图包、工单、质检和成员搜索目前为可编辑输入，尚未绑定业务列表过滤/分页；只有禁用词搜索在当前演示数据上实际过滤。详情、新增等未在Figma设计的业务流程由接收方补齐。以上不列为业务功能验收通过。
 
 设计与交互说明：[钉钉文档](https://alidocs.dingtalk.com/i/nodes/QPGYqjpJYrjrOeLBc9grbY6K8akx1Z5N)。[当前Figma](https://www.figma.com/design/CR9QYrjZfTfMf6CIBj5yrb/AI%E5%AE%A2%E6%9C%8D?node-id=2-129)。[交付PR](https://github.com/907609732/LTTLT-AI-Customer-Service/pull/2)。云端构建及产物以PR检查和[Actions列表](https://github.com/907609732/LTTLT-AI-Customer-Service/actions)为准；未取得成功产物前不视为完成打包验收。
+
+窗口适配：主界面以1440×900为基准，放大窗口后按Figma约束扩展内容，不整体放大文字；辅助侧栏保持300宽。详见IMPLEMENTATION.md的自适应修复记录。

@@ -31,6 +31,14 @@ try{
  });
  if(!assets.found || !assets.loaded)throw Error('Bundled Figma image asset failed in Electron: '+JSON.stringify(assets));
  console.log('Main IPC and local assets verified');
+ await page.evaluate(()=>window.lingtu.windowAction('maximize'));
+ await page.waitForFunction(()=>innerWidth>1440&&document.querySelector('[data-figma-node="8836:4283"]').getBoundingClientRect().width===innerWidth);
+ const font=await page.locator('[data-figma-node="11:224"]').evaluate(el=>getComputedStyle(el).fontSize);
+ if(font!=='30px')throw Error('Maximizing must preserve source typography');
+ await page.screenshot({path:'test-results/native-maximized.png'});
+ await page.evaluate(()=>window.lingtu.windowAction('maximize'));
+ await page.waitForFunction(()=>innerWidth===1440&&document.querySelector('[data-figma-node="8836:4283"]').getBoundingClientRect().width===1440);
+ console.log('Native maximize/restore and fixed typography verified');
  await page.locator('[data-figma-node="11:237"]').click();
  await page.locator('[data-figma-node="2:140"]').waitFor({timeout:15000});
  const bad=await page.evaluate(()=>[...document.querySelectorAll('[style]')].filter(el=>el.getAttribute('style')?.includes('figma.com')).length);
