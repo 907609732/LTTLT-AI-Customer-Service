@@ -91,6 +91,7 @@ class StoreWorker {
     this.selfSend = selfSendLedger || new SelfSendLedger({ now });
 
     this.running = false;
+    this.generation = 0;
     this.paused = false;
     this.ticking = false;
     this.inflight = 0;
@@ -132,12 +133,14 @@ class StoreWorker {
   }
 
   stop() {
+    this.generation += 1;
     this.running = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
 
   pause() {
+    this.generation += 1;
     this.paused = true;
   }
 
@@ -167,12 +170,13 @@ class StoreWorker {
     if (!this.running || this.paused || this.ticking) return { popped: 0 };
     if (!this.store.aiEnabled) return { popped: 0 };
     if (this.cfg.enabled === false) return { popped: 0 };
+    const generation = this.generation;
     this.ticking = true;
     let popped = 0;
     try {
       await this.#drainMerchantSent();
       const max = this.cfg.maxInflight ?? 6;
-      while (this.inflight < max) {
+      while (this.inflight < max && this.#active(generation)) {
         let row;
         try {
           row = await this.adapter.popPending();
@@ -181,6 +185,7 @@ class StoreWorker {
           this.#markDegraded(err);
           break;
         }
+        if (!this.#active(generation)) { if(row?.uid) await this.adapter.release(row.uid).catch(()=>null); break; }
         this.#markRecovered();
         if (!row || !row.uid) break;
         if (this.processing.has(row.uid)) {
@@ -191,7 +196,7 @@ class StoreWorker {
         popped += 1;
         this.inflight += 1;
         this.processing.add(row.uid);
-        const task = this.#process(row)
+        const task = this.#process(row, generation)
           .catch((err) => {
             this.logger?.error(`处理会话 ${row.uid} 异常：${err?.stack || err}`);
             this.onEvent?.({ type: 'reply:error', storeId: this.store.id, uid: row.uid, error: String(err?.message || err) });
@@ -297,7 +302,9 @@ class StoreWorker {
     return this.recoveredAt > 0 && this.now() - this.recoveredAt <= this.#recoverWindowMs();
   }
 
-  async #process(row) {
+  #active(generation) { return generation === this.generation && this.running && !this.paused && this.store.aiEnabled && this.cfg.enabled !== false; }
+
+  async #process(row, generation) {
     const uid = String(row.uid);
     let claimed = true;
     const dispose = async (fn) => {
@@ -379,7 +386,7 @@ class StoreWorker {
 
       const hit = texts.map((m) => matchKeyword(m.content, this.safety.handoffKeywords)).find(Boolean);
       if (hit) {
-        const outcome = await this.#handoff(uid, hit);
+        const outcome = await this.#handoff(uid, hit, generation);
         if (outcome?.throttled) await dispose(() => this.adapter.release(uid));
         else await dispose(() => this.adapter.discard(uid));
         return;
@@ -387,7 +394,8 @@ class StoreWorker {
 
       await this.adapter.focusConversation(uid).catch(() => null);
 
-      const generated = await this.#generate(row, latest);
+      const generated = await this.#generate(row, latest, generation);
+      if (!this.#active(generation)) return;
       if (!generated.ok) {
         this.stats.failed += 1;
         if (generated.fatal) {
@@ -404,7 +412,7 @@ class StoreWorker {
         await dispose(() => this.adapter.release(uid));
         return;
       }
-      const sent = await this.#sendText(uid, text);
+      const sent = await this.#sendText(uid, text, { generation });
       if (sent.throttled) {
         // 节奏限制不是失败：归还队列，等窗口允许后重试
         await dispose(() => this.adapter.release(uid));
@@ -484,7 +492,8 @@ class StoreWorker {
    * bypassUidInterval 只给兜底话术用：D-07 要求兜底与 AI 正文都发，
    * 二者属于同一次应答，不能互相被 60s 间隔挡住；仍受单店分钟上限约束。
    */
-  async #sendText(uid, text, { bypassUidInterval = false, jitter = true } = {}) {
+  async #sendText(uid, text, { bypassUidInterval = false, jitter = true, generation } = {}) {
+    if (!this.#active(generation)) return {ok:false,throttled:true,reason:"cancelled"};
     const gate = this.#sendGate(uid, { bypassUidInterval });
     if (!gate.ok) {
       this.stats.throttled += 1;
@@ -506,6 +515,7 @@ class StoreWorker {
         /* 抖动等待被取消不阻塞发送 */
       }
     }
+    if (!this.#active(generation)) return {ok:false,throttled:true,reason:"cancelled"};
     const result = await this.adapter.sendText(uid, String(text));
     assertResult(result, 'sendText');
     if (result.ok || result.reason === 'send_unconfirmed') {
@@ -517,13 +527,14 @@ class StoreWorker {
     return result;
   }
 
-  async #generate(row, latest) {
+  async #generate(row, latest, generation) {
     const cfg = this.cfg;
     let fallbackTimer = null;
     const fallbackMs = cfg.fallbackAfterMs ?? 0;
     if (fallbackMs > 0 && cfg.fallbackText) {
       fallbackTimer = setTimeout(async () => {
         const sent = await this.#sendText(row.uid, cfg.fallbackText, {
+          generation,
           bypassUidInterval: true,
           jitter: false,
         }).catch(() => null);
@@ -557,9 +568,9 @@ class StoreWorker {
     }
   }
 
-  async #handoff(uid, keyword) {
+  async #handoff(uid, keyword, generation) {
     const text = this.cfg.handoffText || '已收到您的问题，正在为您转接人工客服，请稍候。';
-    const sent = await this.#sendText(uid, text).catch(() => null);
+    const sent = await this.#sendText(uid, text, {generation}).catch(() => null);
     this.stats.transferred += 1;
     this.logger?.info(`会话 ${uid} 命中转人工关键词「${keyword}」`);
     this.onEvent?.({

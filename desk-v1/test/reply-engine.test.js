@@ -623,3 +623,13 @@ test('mergeThread 去重并按时间升序，buyerTexts 只取买家文本', () 
   assert.deepEqual(merged.map((m) => m.msgId), ['m1', 'm2']);
   assert.equal(buyerTexts([{ from: 'buyer', content: 'x' }, { from: 'seller', content: 'y' }]).length, 1);
 });
+
+for (const action of ['stop', 'pause-resume']) test(`inflight AI is cancelled after ${action}`, async () => {
+ const pending=gate(); const {worker,state}=workerFor({rows:[buyerRow('cancel','m-cancel')],ai:makeAi({gate:pending})});
+ await worker.tick(); worker[action==='stop'?'stop':'pause'](); if(action==='pause-resume')worker.resume(); pending.resolve();await worker.settle();
+ assert.equal(state.sent.length,0);assert.ok(state.released.includes('cancel'));
+});
+test('stop during jitter cancels sending',async()=>{
+ const pending=gate();const entered=gate();const {worker,state}=workerFor({rows:[buyerRow('jitter','m-jitter')],sleep:async()=>{entered.resolve();await pending.promise}});
+ await worker.tick();await entered.promise;worker.stop();pending.resolve();await worker.settle();assert.equal(state.sent.length,0);
+});
