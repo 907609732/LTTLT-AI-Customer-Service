@@ -6,7 +6,7 @@ const {ClientLauncher}=require('../desk-v1/src/main/client-launcher');
 const {DoudianBridgeServer}=require('../desk-v1/src/main/doudian-bridge-server');
 function createPlatformHost({dataDir}){
  let manager,bridge,host,logger,config,registry,notify,adapterFor,closing=false;
- function ensureWindow(){if(host&&!host.isDestroyed())return host;host=new BrowserWindow({width:1100,height:800,minWidth:640,minHeight:480,title:'灵兔客服 · 店铺平台',autoHideMenuBar:true,show:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});host.removeMenu();host.loadURL('about:blank');host.on('resize',()=>manager?.relayout());host.on('close',()=>{if(!closing)manager?.closeAll()});host.on('closed',()=>{host=null});return host;}
+ function ensureWindow(){if(host&&!host.isDestroyed())return host;host=new BrowserWindow({icon:path.join(__dirname,'../dist/brand/logo.png'),width:1100,height:800,minWidth:640,minHeight:480,title:'灵兔客服 · 店铺平台',autoHideMenuBar:true,show:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});host.removeMenu();host.loadURL('about:blank');host.on('resize',()=>manager?.relayout());host.on('close',()=>{if(!closing)manager?.closeAll()});host.on('closed',()=>{host=null});return host;}
  const windowProxy={getContentSize:()=>ensureWindow().getContentSize(),get contentView(){return ensureWindow().contentView}};
  const adapterFactory=store=>platform.createAdapter(store,{logger:logger.child(store.storeName),config:config.all(),webContentsProvider:()=>manager.webContentsOf(store.id),dataDir,doudianBridge:{call:(...args)=>bridge?bridge.call(...args):Promise.reject(Error('抖店客户端未连接')),status:()=>bridge?.status()||{connected:false}}});
  const managerFactory=deps=>{

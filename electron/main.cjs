@@ -29,7 +29,7 @@ function loadWindow(w,screenId){
 }
 function createWindow(){
  closingMain=false;
- win=new BrowserWindow({width:1440,height:900,useContentSize:true,frame:false,minWidth:1100,minHeight:720,title:'灵兔客服',backgroundColor:'#e9f3ff',show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
+ win=new BrowserWindow({icon:path.join(__dirname,'../dist/brand/logo.png'),width:1440,height:900,useContentSize:true,frame:false,minWidth:1100,minHeight:720,title:'灵兔客服',backgroundColor:'#e9f3ff',show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
  configureWindow(win);
  win.on('close',()=>{closingMain=true;backend?.dispose();platformHost?.close();auxWin?.close();});
  win.on('closed',()=>{win=null;});
@@ -38,7 +38,7 @@ function createWindow(){
 function openAuxiliary(screenId){
  if(auxWin){if(auxWin.isMinimized())auxWin.restore();auxWin.show();auxWin.focus();auxWin.webContents.send('app:navigate',screenId);return;}
  const area=screen.getDisplayMatching(win.getBounds()).workArea;
- auxWin=new BrowserWindow({width:300,height:Math.min(900,area.height),useContentSize:true,frame:false,resizable:false,minWidth:300,maxWidth:300,minHeight:Math.min(900,area.height),maxHeight:Math.min(900,area.height),
+ auxWin=new BrowserWindow({icon:path.join(__dirname,'../dist/brand/logo.png'),width:300,height:Math.min(900,area.height),useContentSize:true,frame:false,resizable:false,minWidth:300,maxWidth:300,minHeight:Math.min(900,area.height),maxHeight:Math.min(900,area.height),
   x:Math.max(area.x,Math.min(win.getBounds().x+win.getBounds().width,area.x+area.width-300)),y:area.y,
   title:'灵兔客服 · AI辅助中心',backgroundColor:'#edf6ff',show:false,
   webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:['--lingtu-auxiliary'],contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
