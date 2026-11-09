@@ -25,6 +25,9 @@ type accountUserFixture struct {
 	Email       string
 	Username    string
 	Password    string
+	Status      int `gorm:"default:1"`
+	Role        int `gorm:"default:1"`
+	DeletedAt   gorm.DeletedAt
 }
 
 func (accountUserFixture) TableName() string { return "users" }

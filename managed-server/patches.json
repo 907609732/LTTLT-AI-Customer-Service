@@ -373,5 +373,15 @@
       "before": "          {!status?.self_use_mode_enabled &&\n            status?.register_enabled !== false && (",
       "after": "          {redirect === '/lingtu/admin' && (\n            <p className='text-muted-foreground text-left text-sm sm:text-base'>\n              {t('Sign in with the administrator username and password created during setup. No new registration or email verification is required.')}\n            </p>\n          )}\n          {redirect !== '/lingtu/admin' && !status?.self_use_mode_enabled &&\n            status?.register_enabled !== false && ("
     }
+  ],
+  "relay/channel/openai/relay-openai.go": [
+    {
+      "before": "\"github.com/QuantumNous/new-api/logger\"",
+      "after": "\"github.com/QuantumNous/new-api/logger\"\n\"github.com/QuantumNous/new-api/lingtu\""
+    },
+    {
+      "before": "\tlogger.LogDebug(c, \"upstream response body: %s\", responseBody)",
+      "after": "\tif c.GetBool(\"lingtu_internal\") {\n input, output, known := lingtu.ParseTokenUsage(responseBody)\n c.Set(\"lingtu_provider_usage_seen\", true); c.Set(\"lingtu_provider_usage_known\", known); c.Set(\"lingtu_provider_input_tokens\", input); c.Set(\"lingtu_provider_output_tokens\", output)\n }\n\tlogger.LogDebug(c, \"upstream response body: %s\", responseBody)"
+    }
   ]
 }
