@@ -25,29 +25,30 @@ import (
 var adminConfigurationMu sync.Mutex
 
 type configurationRequest struct {
-	Section     string `json:"section"`
-	AppID       string `json:"app_id"`
-	Secret      string `json:"secret"`
-	ClearSecret bool   `json:"clear_secret"`
-	Enabled     bool   `json:"enabled"`
-	Model       string `json:"model"`
-	Calls       int    `json:"calls"`
-	Days        int    `json:"days"`
-	DailyCalls  int    `json:"daily_calls"`
-	MaxTokens   int    `json:"max_tokens"`
-	PerAccountConcurrent *int `json:"per_account_concurrent"`
-	RequestsPerMinute *int `json:"requests_per_minute"`
-	GlobalConcurrent *int `json:"global_concurrent"`
-	UserID      int    `json:"user_id"`
-	ExpiresAt   int64  `json:"expires_at"`
-	Status      string `json:"status"`
-	Reason      string `json:"reason"`
-	Revoke      bool   `json:"revoke"`
-	RequestID   string `json:"request_id"`
-	Outcome     string `json:"outcome"`
-	SMTPServer  string `json:"smtp_server"`
-	SMTPAccount string `json:"smtp_account"`
-	SMTPFrom    string `json:"smtp_from"`
+	Section              string `json:"section"`
+	AppID                string `json:"app_id"`
+	Secret               string `json:"secret"`
+	ClearSecret          bool   `json:"clear_secret"`
+	Enabled              bool   `json:"enabled"`
+	MakeDefault          bool   `json:"make_default"`
+	Model                string `json:"model"`
+	Calls                int    `json:"calls"`
+	Days                 int    `json:"days"`
+	DailyCalls           int    `json:"daily_calls"`
+	MaxTokens            int    `json:"max_tokens"`
+	PerAccountConcurrent *int   `json:"per_account_concurrent"`
+	RequestsPerMinute    *int   `json:"requests_per_minute"`
+	GlobalConcurrent     *int   `json:"global_concurrent"`
+	UserID               int    `json:"user_id"`
+	ExpiresAt            int64  `json:"expires_at"`
+	Status               string `json:"status"`
+	Reason               string `json:"reason"`
+	Revoke               bool   `json:"revoke"`
+	RequestID            string `json:"request_id"`
+	Outcome              string `json:"outcome"`
+	SMTPServer           string `json:"smtp_server"`
+	SMTPAccount          string `json:"smtp_account"`
+	SMTPFrom             string `json:"smtp_from"`
 }
 
 func (h *Host) registerAdmin(router *gin.Engine) {
@@ -152,10 +153,26 @@ func (h *Host) saveConfig(c *gin.Context) {
 	case "deepseek", "qwen":
 		err = h.saveModel(c, request)
 	case "trial":
-		policy,loadErr:=lingtu.LoadTrialPolicy(model.DB);if loadErr!=nil{err=loadErr;break}
-		policy.Calls=request.Calls;policy.Days=request.Days;policy.DailyCalls=request.DailyCalls;policy.MaxTokens=request.MaxTokens;policy.DefaultModel=request.Model
-		if request.PerAccountConcurrent!=nil{policy.PerAccountConcurrent=*request.PerAccountConcurrent};if request.RequestsPerMinute!=nil{policy.RequestsPerMinute=*request.RequestsPerMinute};if request.GlobalConcurrent!=nil{policy.GlobalConcurrent=*request.GlobalConcurrent}
-		if policy.Calls < 0 || policy.Calls > 1000000 || policy.Days < 1 || policy.Days > 365 || policy.DailyCalls < 1 || policy.DailyCalls > 100000 || policy.MaxTokens < 1 || policy.MaxTokens > 8192 || policy.PerAccountConcurrent<1||policy.PerAccountConcurrent>4||policy.RequestsPerMinute<1||policy.RequestsPerMinute>120||policy.GlobalConcurrent<1||policy.GlobalConcurrent>16|| (policy.DefaultModel != "deepseek-flash" && policy.DefaultModel != "qwen-plus") {
+		policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
+		if loadErr != nil {
+			err = loadErr
+			break
+		}
+		policy.Calls = request.Calls
+		policy.Days = request.Days
+		policy.DailyCalls = request.DailyCalls
+		policy.MaxTokens = request.MaxTokens
+		policy.DefaultModel = request.Model
+		if request.PerAccountConcurrent != nil {
+			policy.PerAccountConcurrent = *request.PerAccountConcurrent
+		}
+		if request.RequestsPerMinute != nil {
+			policy.RequestsPerMinute = *request.RequestsPerMinute
+		}
+		if request.GlobalConcurrent != nil {
+			policy.GlobalConcurrent = *request.GlobalConcurrent
+		}
+		if policy.Calls < 0 || policy.Calls > 1000000 || policy.Days < 1 || policy.Days > 365 || policy.DailyCalls < 1 || policy.DailyCalls > 100000 || policy.MaxTokens < 1 || policy.MaxTokens > 8192 || policy.PerAccountConcurrent < 1 || policy.PerAccountConcurrent > 4 || policy.RequestsPerMinute < 1 || policy.RequestsPerMinute > 120 || policy.GlobalConcurrent < 1 || policy.GlobalConcurrent > 16 || (policy.DefaultModel != "deepseek-flash" && policy.DefaultModel != "qwen-plus") {
 			err = lingtu.ErrInvalidTrialInput
 			break
 		}
@@ -252,6 +269,9 @@ func (h *Host) saveSocial(r configurationRequest) error {
 	return nil
 }
 func (h *Host) saveModel(c *gin.Context, r configurationRequest) error {
+	if (r.Section != "deepseek" && r.Section != "qwen") || (r.MakeDefault && (!r.Enabled || r.ClearSecret)) {
+		return lingtu.ErrInvalidTrialInput
+	}
 	var channel model.Channel
 	err := model.DB.First(&channel, "name = ?", "lingtu-"+r.Section).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -292,21 +312,67 @@ func (h *Host) saveModel(c *gin.Context, r configurationRequest) error {
 		channel.Status = common.ChannelStatusEnabled
 		channel.TestTime = time.Now().Unix()
 	}
-	if channel.Id == 0 {
-		channel.CreatedTime = time.Now().Unix()
-		err = channel.Insert()
-	} else {
-		// Explicit Save persists a deliberate empty key too; Channel.Update omits it.
-		err = model.DB.Save(&channel).Error
-		if err == nil {
-			err = channel.UpdateAbilities(nil)
-		}
+	return persistManagedModel(&channel, r.MakeDefault)
+}
+
+// Native channel rows, abilities and the selected default must commit together.
+// The provider probe runs before this helper; it never calls an external service.
+func persistManagedModel(channel *model.Channel, makeDefault bool) error {
+	if channel == nil || channel.Type != 1 || channel.Group != "default" {
+		return lingtu.ErrInvalidTrialInput
 	}
+	selected := ""
+	switch channel.Name {
+	case "lingtu-deepseek":
+		selected = "deepseek-flash"
+	case "lingtu-qwen":
+		selected = "qwen-plus"
+	default:
+		return lingtu.ErrInvalidTrialInput
+	}
+	if channel.Models != selected || (makeDefault && (channel.Status != common.ChannelStatusEnabled || strings.TrimSpace(channel.Key) == "")) {
+		return lingtu.ErrInvalidTrialInput
+	}
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if channel.Id == 0 {
+			channel.CreatedTime = time.Now().Unix()
+			if err := tx.Create(channel).Error; err != nil {
+				return err
+			}
+			if err := channel.AddAbilities(tx); err != nil {
+				return err
+			}
+		} else {
+			// Save includes an intentionally cleared credential; native Update omits it.
+			if err := tx.Save(channel).Error; err != nil {
+				return err
+			}
+			if err := channel.UpdateAbilities(tx); err != nil {
+				return err
+			}
+		}
+		if makeDefault {
+			policy, err := lingtu.LoadTrialPolicy(tx)
+			if err != nil {
+				return err
+			}
+			policy.DefaultModel = selected
+			value, err := common.Marshal(policy)
+			if err != nil {
+				return err
+			}
+			if err = tx.Save(&lingtu.ManagedSetting{Name: "trial_policy", Value: string(value)}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err == nil {
 		model.InitChannelCache()
 	}
 	return err
 }
+
 func (h *Host) saveAccount(r configurationRequest) error {
 	if r.UserID <= 0 || r.Calls < 0 || r.Calls > 1000000 || len(strings.TrimSpace(r.Reason)) < 1 || len(r.Reason) > 256 || (r.Status != "enabled" && r.Status != "disabled") || r.ExpiresAt <= 0 {
 		return lingtu.ErrInvalidTrialInput
