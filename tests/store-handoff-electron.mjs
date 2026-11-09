@@ -58,7 +58,11 @@ try{
  app=await launch();page=await app.firstWindow();await page.waitForFunction(()=>Boolean(window.lingtu?.managedSnapshot));
  await page.evaluate(async()=>{const state=await window.lingtu.managedSnapshot();await window.lingtu.managedAction('local',state.workspace.workspaceId)});
  assert.equal((await page.evaluate(()=>window.lingtu.backendSnapshot())).workOrders[0].orderNo,'ISOLATED-001');
- console.log('PASS: isolated Electron IPC, store rules, banned words and work orders persist, training error preserves input');
+ await page.getByRole('main',{name:'灵兔客服'}).waitFor();await page.evaluate(()=>window.lingtu.openMain('UX04'));
+ const dashboard=page.getByRole('region',{name:'真实数据看板'});await dashboard.waitFor();
+ assert.equal(await dashboard.locator('article').filter({hasText:'已添加店铺'}).locator('strong').innerText(),'2');
+ assert.equal(await dashboard.getByText('73',{exact:true}).count(),0);
+ console.log('PASS: isolated Electron IPC, store rules, banned words and work orders persist; training errors and dashboard data verified');
 }finally{
  if(app){await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{})}
  await server?.close();
