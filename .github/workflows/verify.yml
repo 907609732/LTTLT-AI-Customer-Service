@@ -128,13 +128,13 @@ jobs:
       - run: npx playwright install chromium
       - name: Test changed configuration screens
         run: npx playwright test tests/e2e/handoff-settings.spec.ts tests/e2e/store-handoff.spec.ts tests/e2e/banned-words.spec.ts tests/e2e/training.spec.ts tests/e2e/work-orders.spec.ts tests/e2e/automation-fallback.spec.ts tests/e2e/dashboard-real-data.spec.ts tests/e2e/managed-model-issue.spec.ts tests/e2e/pdd-login.spec.ts tests/e2e/ux03-readability.spec.ts
+      - run: npm run build
       - name: Verify changed screens with isolated Electron data
         run: |
           node tests/store-handoff-electron.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Configuration integration failed' }
           node tests/pdd-login-electron.mjs
           if ($LASTEXITCODE -ne 0) { throw 'PDD login integration failed' }
-      - run: npm run build
       - name: Build Windows preview
         run: npx electron-builder --win dir --publish never --config.electronDist=node_modules/electron/dist
       - uses: actions/upload-artifact@v4
