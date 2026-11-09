@@ -172,5 +172,6 @@
  "Not authorized":"未授权",
  "Retry":"重试",
  "Disabled in the main account system":"主账号系统已停用",
- "This account is disabled in the main account system. Enable it there before editing model authorization.":"此账号已在主账号系统中停用。请先在主账号系统启用，再修改模型授权。"
+ "This account is disabled in the main account system. Enable it there before editing model authorization.":"此账号已在主账号系统中停用。请先在主账号系统启用，再修改模型授权。",
+ "Returned token total":"词元总量"
 }

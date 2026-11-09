@@ -14,6 +14,7 @@ import {SecureVerificationDialog, useSecureVerification} from '@/features/auth/s
 import {api} from '@/lib/api'
 import {formatNumber, formatTimestamp, formatTimestampForInput} from '@/lib/format'
 import {AccountUsageSummary, AdminOverview} from './admin-usage'
+import './admin-light.css'
 
 type Payload=Record<string,unknown>&{section:string}
 interface Policy{calls:number;days:number;default_model:string;daily_calls:number;max_tokens:number;per_account_concurrent:number;requests_per_minute:number;global_concurrent:number}
@@ -148,7 +149,7 @@ function UsageRecords(props:{save:Save;busy:boolean;userId?:number}){
    {id:'model',header:t('Model'),cell:row=>row.model?t(modelName(row.model)):'—'},
    {id:'state',header:t('Status'),cell:row=>t(recordState(row.state))},
    {id:'tokens',header:t('Input / output tokens'),cell:row=>row.usage_known===true?`${formatNumber(row.input_tokens)} / ${formatNumber(row.output_tokens)}`:t('Usage not returned')},
-   {id:'totalTokens',header:t('Total tokens'),cell:row=>row.usage_known===true?formatNumber(row.total_tokens):t('Usage not returned')},
+   {id:'totalTokens',header:t('Returned token total'),cell:row=>row.usage_known===true?formatNumber(row.total_tokens):t('Usage not returned')},
    {id:'diagnostic',header:t('Action guidance'),cell:row=>row.state==='uncertain'?t('Verify the actual result before reconciliation'):'—'},
    {id:'actions',header:t('Actions'),cell:row=>row.state==='uncertain'?<div className='flex gap-2'><Button variant='outline' disabled={props.busy} onClick={()=>{setReason('');setSelected({row,outcome:'success'})}}>{t('Confirm success')}</Button><Button variant='outline' disabled={props.busy} onClick={()=>{setReason('');setSelected({row,outcome:'failed'})}}>{t('Confirm failure')}</Button></div>:'—'},
   ]} emptyContent={t(emptyMessage)}/>
@@ -216,10 +217,10 @@ export function AdminPage(){
   }catch{setMessage('Could not save. Check the model key, model access and administrator verification, then try again.');return false}finally{saving.current=false;setBusy(false)}
  }
  const languageControl=<div role='group' aria-label={t('Interface language')} className='flex gap-1'><Button variant={language==='zhCN'?'default':'outline'} aria-pressed={language==='zhCN'} onClick={()=>setLanguage('zhCN')}>中文</Button><Button variant={language==='en'?'default':'outline'} aria-pressed={language==='en'} onClick={()=>setLanguage('en')}>English</Button></div>
- if(query.isPending)return <div className='space-y-4 p-8'>{languageControl}<p role='status'>{t('Loading configuration...')}</p></div>
- if(query.isError)return <div className='space-y-4 p-8'>{languageControl}<p role='alert'>{t('Unable to load configuration. Refresh the page to try again.')}</p><Button onClick={()=>void query.refetch()}>{t('Retry')}</Button></div>
+ if(query.isPending)return <div className='lingtu-admin-light space-y-4 bg-blue-50 p-8'>{languageControl}<p role='status'>{t('Loading configuration...')}</p></div>
+ if(query.isError)return <div className='lingtu-admin-light space-y-4 bg-blue-50 p-8'>{languageControl}<p role='alert'>{t('Unable to load configuration. Refresh the page to try again.')}</p><Button onClick={()=>void query.refetch()}>{t('Retry')}</Button></div>
  const config=query.data
- return <main className='min-h-screen bg-blue-50 p-5 text-slate-800 sm:p-8'><div className='mx-auto max-w-7xl space-y-5'>
+ return <main className='lingtu-admin-light min-h-screen bg-blue-50 p-5 text-slate-800 sm:p-8'><div className='mx-auto max-w-7xl space-y-5'>
   <header className='flex flex-wrap items-center justify-between gap-4'><div><p className='text-sm font-semibold text-blue-600'>{t('Manage accounts, models and usage in one place.')}</p><h1 className='text-2xl font-bold'>{t('Lingtu customer service administration')}</h1></div><div className='flex flex-wrap gap-3'>{languageControl}<Button variant='outline' disabled={query.isFetching} onClick={()=>void queryClient.invalidateQueries({queryKey:['lingtu']})}>{t('Refresh')}</Button></div></header>
   {message&&<p role='status' className='rounded-xl border border-blue-100 bg-white p-4 text-sm'>{t(message)}</p>}
   <Tabs value={tab} onValueChange={value=>selectTab(String(value))}><TabsList aria-label={t('Administration sections')} className='h-auto w-full flex-wrap justify-start bg-white'>{[['overview','Overview'],['models','Model configuration'],['accounts','Account management'],['usage','Usage records'],['login','Sign-in methods'],['trial','Trial settings']].map(([id,label])=><TabsTrigger key={id} value={id}>{t(label)}</TabsTrigger>)}</TabsList>
