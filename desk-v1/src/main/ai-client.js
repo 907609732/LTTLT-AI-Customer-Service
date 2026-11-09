@@ -123,6 +123,8 @@ class AiClient {
     this.logger = logger;
     this.secretReader = secretReader;
     this.fetchImpl = fetchImpl || globalThis.fetch;
+    this.controllers = new Set();
+    this.disposed = false;
   }
 
   get settings() {
@@ -139,6 +141,7 @@ class AiClient {
   }
 
   async complete({ messages, timeoutMs }) {
+    if(this.disposed)throw new Error('ai_client_closed');
     const settings = this.settings;
     if (settings.provider === 'echo') {
       const last = [...messages].reverse().find((m) => m.role === 'user');
@@ -151,6 +154,7 @@ class AiClient {
     if (!apiKey) throw new Error('ai_api_key_missing');
 
     const controller = new AbortController();
+    this.controllers.add(controller);
     const timer = setTimeout(() => controller.abort(), timeoutMs ?? settings.timeoutMs ?? 60000);
     if (typeof timer.unref === 'function') timer.unref();
     try {
@@ -188,11 +192,13 @@ class AiClient {
       throw err;
     } finally {
       clearTimeout(timer);
+      this.controllers.delete(controller);
     }
   }
 
   /** 端点连通性自检：只取模型列表，不消耗额度。 */
   async probe(timeoutMs = 4000) {
+    if(this.disposed)return {ok:false,error:'ai_client_closed'};
     if (this.settings.provider === 'echo') return { ok: true, provider: 'echo' };
     let url;
     try {
@@ -205,6 +211,7 @@ class AiClient {
     const apiKey = this.secretReader('ai.apiKey') || (local ? 'local-no-key' : '');
     if (!apiKey) return { ok: false, error: 'ai_api_key_missing' };
     const controller = new AbortController();
+    this.controllers.add(controller);
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     if (typeof timer.unref === 'function') timer.unref();
     try {
@@ -221,6 +228,7 @@ class AiClient {
       };
     } finally {
       clearTimeout(timer);
+      this.controllers.delete(controller);
     }
   }
 
@@ -234,6 +242,11 @@ class AiClient {
     });
     if (!normalized.reply) throw new Error('ai_empty_reply');
     return { ...normalized, raw };
+  }
+  dispose() {
+    this.disposed=true;
+    for(const controller of this.controllers)controller.abort();
+    this.controllers.clear();
   }
 }
 

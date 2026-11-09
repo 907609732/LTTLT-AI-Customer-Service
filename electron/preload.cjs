@@ -1,6 +1,9 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('lingtu',Object.freeze({
  role:process.argv.includes('--lingtu-auxiliary')?'auxiliary':'main',
+ managedSnapshot:()=>ipcRenderer.invoke('managed:snapshot'),
+ managedAction:(action,workspaceId)=>ipcRenderer.invoke('managed:action',action,workspaceId),
+ onManagedState:callback=>{const listener=(_event,value)=>callback(value);ipcRenderer.on('managed:state',listener);return()=>ipcRenderer.removeListener('managed:state',listener);},
  updateSnapshot:()=>ipcRenderer.invoke('update:snapshot'),
  checkForUpdates:()=>ipcRenderer.invoke('update:check'),
  downloadAndInstallUpdate:()=>ipcRenderer.invoke('update:download-install'),

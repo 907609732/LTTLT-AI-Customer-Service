@@ -38,6 +38,7 @@ class ShopWindowManager {
     clientWaitProbeIntervalMs = 5000,
     clientWait = null,
     onEvent = null,
+    partitionNamespace = '',
   }) {
     this.window = window;
     this.registry = registry;
@@ -57,13 +58,16 @@ class ShopWindowManager {
         intervalMs: clientWaitProbeIntervalMs,
       });
     this.onEvent = onEvent;
+    if(partitionNamespace&&!/^[a-zA-Z0-9-]{1,100}$/.test(partitionNamespace))throw Error('invalid_partition_namespace');
+    this.partitionOf=store=>partitionNamespace?`persist:lingtu-${partitionNamespace}-${store.id}`:partitionOf(store);
+    this.openGeneration=0;
     this.views = new Map();
     this.configuredSessions = new Set();
     this.sidebarWidth = 300;
   }
 
   #sessionFor(store) {
-    const partition = partitionOf(store);
+    const partition = this.partitionOf(store);
     const ses = session.fromPartition(partition, { cache: true });
     if (!this.configuredSessions.has(partition)) {
       ses.setPermissionRequestHandler((_wc, permission, callback) => {
@@ -77,6 +81,7 @@ class ShopWindowManager {
   }
 
   async open(storeId) {
+    const generation=this.openGeneration;
     const existing = this.views.get(storeId);
     if (existing) {
       this.#relayout();
@@ -93,6 +98,7 @@ class ShopWindowManager {
     if (!store) throw new Error(`store_not_found:${storeId}`);
 
     const accessMode = (await this.resolveAccessMode?.(store)) || 'webview';
+    if(generation!==this.openGeneration)throw Error('store_open_canceled');
     if (accessMode !== 'webview') {
       // 外部客户端由用户侧启动；core 只登记并等待适配器 ensure 成功
       const entry = {
@@ -113,12 +119,13 @@ class ShopWindowManager {
     }
 
     const url = await this.resolveEntryUrl?.(store);
+    if(generation!==this.openGeneration)throw Error('store_open_canceled');
     if (!url) throw new Error(`entry_url_missing:${store.platform}`);
 
     this.#sessionFor(store);
     const view = new WebContentsView({
       webPreferences: {
-        partition: partitionOf(store),
+        partition: this.partitionOf(store),
         preload: SHOP_PRELOAD,
         contextIsolation: true,
         nodeIntegration: false,
@@ -326,6 +333,7 @@ class ShopWindowManager {
   }
 
   closeAll() {
+    this.openGeneration++;
     for (const id of [...this.views.keys()]) this.close(id);
   }
 

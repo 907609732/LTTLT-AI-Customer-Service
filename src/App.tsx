@@ -1,3 +1,4 @@
+import {ManagedAccessProvider} from './features/ManagedAccess';
 import {useCallback,useEffect,useState} from 'react';
 import {BackendProvider,useBackend} from './features/BackendProvider';
 import {BackendChrome,useBackendLayers} from './features/BackendLayers';
@@ -17,7 +18,7 @@ const sets=Object.fromEntries(Object.values(registry).filter(n=>n.props.componen
 const receptionVariants=Object.values(registry).filter(n=>n.name.startsWith('菜单=')&&n.name.includes('接待模式='));
 const receptionClosed=Object.fromEntries(receptionVariants.map(n=>[n.id,receptionVariants.find(v=>v.name===n.name.replace(/菜单=[^,]+/,'菜单=关闭'))!.id]));
 const screenModules=import.meta.glob<{default:FigmaLayer}>('./design/generated/screens/UX*.json');
-export default function App(){return new URLSearchParams(location.search).get('design')==='1'?<DesignPreview/>:<BackendProvider><UpdateProvider><Product/></UpdateProvider></BackendProvider>;}
+export default function App(){return new URLSearchParams(location.search).get('design')==='1'?<DesignPreview/>:<ManagedAccessProvider><BackendProvider><UpdateProvider><Product/></UpdateProvider></BackendProvider></ManagedAccessProvider>;}
 function Product(){
  const backend=useBackend();
  const start=new URLSearchParams(location.search).get('screen');
@@ -52,7 +53,7 @@ function Product(){
  const finishClose=()=>{setConfirmClose(false);if(window.lingtu?.role==='auxiliary')void window.lingtu.windowAction('close');else dispatch({type:'NODE',navigation:'NAVIGATE',destinationId:'8836:4283'},[]);};
  const closeInteraction=(action:InteractionAction)=>{if(action.type==='BACK'||action.type==='CLOSE')setConfirmClose(false);else if(action.navigation==='NAVIGATE'&&action.destinationId==='8836:4283')finishClose();};
  if(backend.available&&backend.loading)return <div role="status" className="stage-loading">正在读取本地业务数据…</div>;
- return <FrontendProvider onNotice={setNotice} onOverlay={requestOverlay}><main className={'product-app '+(auxiliary?'product-auxiliary':'')} aria-label="灵兔客服">
+ return <FrontendProvider key={backend.snapshot.workspaceId} onNotice={setNotice} onOverlay={requestOverlay}><main className={'product-app '+(auxiliary?'product-auxiliary':'')} aria-label="灵兔客服">
   <div inert={confirmClose||state.overlays.length>0} aria-hidden={confirmClose||state.overlays.length>0||undefined}>{error?<div role="alert" className="stage-error">{error}<button onClick={()=>location.reload()}>重新加载</button></div>:!design?<div role="status" className="stage-loading">正在加载界面…</div>:<ProductCanvas notice={setNotice} design={design} screenId={state.screenId} scale={1} viewport={canvasViewport} state={state} onInteraction={dispatch} onAction={onAction}/>}</div>
   {state.overlays.map((id,index)=>registry[id]&&<div key={index+':'+id} className="product-overlay" role="dialog" aria-modal="true" aria-label={registry[id].name}><ProductCanvas notice={setNotice} design={registry[id]} screenId={state.screenId} scale={1} state={state} onInteraction={dispatch} onAction={onAction}/></div>)}
   <BackendChrome screen={state.screenId} notice={setNotice}/><UpdateNotice/>{notice&&<div role="status" className="dev-toast">{notice}</div>}

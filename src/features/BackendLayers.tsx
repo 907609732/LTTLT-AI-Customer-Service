@@ -1,3 +1,4 @@
+import {ManagedAccountPanel} from './ManagedAccess';
 import {StoreManagement} from './StoreManagement';
 import {ModelSettings} from './ModelSettings';
 import {CheckUpdateLink} from './Updates';import {version as appVersion} from '../../package.json';
@@ -6,6 +7,7 @@ import {useBackend} from './BackendProvider';import type {Store} from './Backend
 const status=(s:Store)=>s.runtime?.collectionError?'采集中断':s.runtime?.online?'已连接':s.runtime?.awaitingClient?'等待客户端':s.runtime?.lastError?'连接失败':s.runtime?.open?'请完成登录':'未打开';
 export function useBackendLayers(screen:string,notice:(s:string)=>void){
  const b=useBackend();return (n:FigmaLayer)=>{
+  if(screen==='UX25'&&n.id==='8801:2697')return <ManagedAccountPanel/>;
   if(!b.available)return undefined;
   if(n.type==='TEXT'&&n.props.text==='检测更新')return <CheckUpdateLink/>;
   if(n.type==='TEXT'&&/^v\d+\.\d+\.\d+$/.test(String(n.props.text||'')))return 'v'+appVersion;
@@ -38,7 +40,7 @@ function StoreList({notice,wide=false}:{notice:(s:string)=>void;wide?:boolean}){
 }
 export function BackendChrome({screen,notice}:{screen:string;notice:(s:string)=>void}){
  const b=useBackend();if(!b.available)return null;
- return <>{!['UX01','UX02','UX03','UX07','UX17','UX26','UX27','UX30','UX32'].includes(screen)&&<div className="live-capability-note">{screen==='UX08'?'支持全局转人工关键词设置，其它转接规则尚未接入。':'此页面为设计预览，当前后端尚未提供该业务能力。'}</div>}{Number(screen.slice(2))<26&&screen!=='UX03'&&screen!=='UX07'&&<div className="live-toolbar"><label>当前店铺<select aria-label="当前店铺" value={b.snapshot.selection.storeId} onChange={e=>void b.execute({action:'select-store',storeId:e.target.value}).catch(e=>notice(e.message))}><option value="" disabled>请选择店铺</option>{b.snapshot.stores.map(s=><option key={s.id} value={s.id}>{s.storeName}</option>)}</select></label><button onClick={()=>b.setSettings(true)}>模型接口设置</button></div>}{b.error&&<div role="alert" className="live-service-error">服务读取失败：{b.error}</div>}{Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&<LiveConversations screen={screen} notice={notice}/>} {b.settings&&<ModelSettings notice={notice}/>}</>;
+ return <>{!['UX01','UX02','UX03','UX07','UX17','UX25','UX26','UX27','UX30','UX32'].includes(screen)&&<div className="live-capability-note">{screen==='UX08'?'支持全局转人工关键词设置，其它转接规则尚未接入。':'此页面为设计预览，当前后端尚未提供该业务能力。'}</div>}{Number(screen.slice(2))<26&&screen!=='UX03'&&screen!=='UX07'&&screen!=='UX25'&&<div className="live-toolbar"><label>当前店铺<select aria-label="当前店铺" value={b.snapshot.selection.storeId} onChange={e=>void b.execute({action:'select-store',storeId:e.target.value}).catch(e=>notice(e.message))}><option value="" disabled>请选择店铺</option>{b.snapshot.stores.map(s=><option key={s.id} value={s.id}>{s.storeName}</option>)}</select></label><button onClick={()=>{if(window.lingtu?.managedAction)void window.lingtu.openMain('UX25');else b.setSettings(true);}}>模型接口设置</button></div>}{b.error&&<div role="alert" className="live-service-error">服务读取失败：{b.error}</div>}{Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&<LiveConversations screen={screen} notice={notice}/>} {b.settings&&<ModelSettings notice={notice}/>}<ManagedModelIssueNotice key={b.snapshot.workspaceId}/></>;
 }
 function LiveConversations({screen,notice}:{screen:string;notice:(s:string)=>void}){
  const b=useBackend();const selected=b.snapshot.conversations.find(c=>c.storeId===b.snapshot.selection.storeId&&c.uid===b.snapshot.selection.conversationId);const [drafts,setDrafts]=useState<Record<string,string>>({}),[pending,setPending]=useState(false);const key=selected?selected.storeId+':'+selected.uid:'none',reply=drafts[key]||'';
@@ -49,5 +51,15 @@ function LiveConversations({screen,notice}:{screen:string;notice:(s:string)=>voi
 function LiveReception({notice}:{notice:(s:string)=>void}){
  const b=useBackend(),s=b.snapshot.stores.find(s=>s.id===b.snapshot.selection.storeId);const [pending,setPending]=useState(false);
  const run=async(action:string,values?:Record<string,unknown>)=>{if(pending)return;setPending(true);try{const r=await b.execute({action,storeId:s?.id,values});notice(r.message||'操作完成');const failed=(r.data?.results as {ok:boolean;message?:string}[]|undefined)?.filter(r=>!r.ok);if(failed?.length)notice((r.message||'')+' '+failed.map(r=>r.message).join('；'));}catch(e){notice(e instanceof Error?e.message:String(e))}finally{setPending(false)}};
- return <div className="live-reception"><button disabled={pending||!s} onClick={()=>void run('set-ai',{enabled:!s?.aiEnabled})}><i className={s?.aiEnabled?'on':''}/>{s?.aiEnabled?(b.snapshot.engine[s.id]?.paused?'AI已暂停':'全自动接待'):'AI已关闭'}</button><button onClick={()=>b.setSettings(true)}>模型设置⌄</button><select aria-label="一键操作" disabled={pending} value="" onChange={e=>void run('batch',{operation:e.target.value})}><option value="" disabled>一键操作⌄</option><option value="open">一键加载店铺</option><option value="pause">一键暂停AI</option><option value="close">一键离线</option><option value="enable">一键开启AI</option><option value="disable">一键关闭AI</option></select></div>;
+ return <div className="live-reception"><button disabled={pending||!s} onClick={()=>void run('set-ai',{enabled:!s?.aiEnabled})}><i className={s?.aiEnabled?'on':''}/>{s?.aiEnabled?(b.snapshot.engine[s.id]?.paused?'AI已暂停':'全自动接待'):'AI已关闭'}</button><button onClick={()=>{if(window.lingtu?.managedAction)void window.lingtu.openMain('UX25');else b.setSettings(true);}}>模型设置⌄</button><select aria-label="一键操作" disabled={pending} value="" onChange={e=>void run('batch',{operation:e.target.value})}><option value="" disabled>一键操作⌄</option><option value="open">一键加载店铺</option><option value="pause">一键暂停AI</option><option value="close">一键离线</option><option value="enable">一键开启AI</option><option value="disable">一键关闭AI</option></select></div>;
+}
+function ManagedModelIssueNotice(){
+ const b=useBackend(),issue=b.snapshot.modelIssue;const [review,setReview]=useState(false),[pending,setPending]=useState(false),[error,setError]=useState('');
+ if(!issue)return null;
+ const acknowledge=async()=>{if(pending)return;setPending(true);setError('');try{await b.execute({action:'acknowledge-model-issue',values:{confirmed:true,code:issue.code,at:issue.at}});setReview(false);}catch(e){setError(e instanceof Error?e.message:'操作未完成');}finally{setPending(false);}};
+ return <aside className="managed-model-issue" role="alert" aria-label="托管 AI 暂停提示"><strong>托管 AI 已暂停</strong><p>{issue.message}</p>
+  <p>{issue.requiresReview?'结果待核对：已保留原输入，不会自动重发或发送超时兜底。请先检查平台回复与服务端请求记录；尚未确认时不要重新生成。':'当前不会自动重试或切换模型。检查服务或额度后，确认提示，再手动开启 AI。'}</p>
+  {review?<div role="alertdialog" aria-label="确认已核对托管请求"><p>请确认你已核对原请求及买家会话。清除提示不会重发原请求，也不会自动开启 AI。</p><button disabled={pending} onClick={()=>void acknowledge()}>我已核对，清除提示</button><button disabled={pending} onClick={()=>setReview(false)}>继续保留提示</button></div>:<button disabled={pending} onClick={()=>issue.requiresReview?setReview(true):void acknowledge()}>{issue.requiresReview?'核对后处理':'清除提示'}</button>}
+  {error&&<p>{error}</p>}
+ </aside>;
 }

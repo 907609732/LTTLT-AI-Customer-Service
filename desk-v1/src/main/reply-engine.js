@@ -418,7 +418,19 @@ class StoreWorker {
         await dispose(() => this.adapter.release(uid));
         return;
       }
-      const sent = await this.#sendText(uid, text, { generation });
+      let sent;
+      try{sent=await this.#sendText(uid,text,{generation});}
+      catch(error){if(typeof this.aiClient.onDeliveryFailure!=='function')throw error;sent={ok:false,reason:'send_unconfirmed'};}
+      if(!sent.ok&&typeof this.aiClient.onDeliveryFailure==='function'){
+        if(sent.reason==='cancelled')return;
+        this.stats.failed+=1;
+        this.aiClient.onDeliveryFailure({reason:sent.reason||'send_unconfirmed',throttled:!!sent.throttled});
+        this.stop();
+        // Preserve conversation input; an unconfirmed delivery is never requeued.
+        await dispose(()=>sent.reason==='send_unconfirmed'?this.adapter.discard(uid):this.adapter.release(uid));
+        this.onEvent?.({type:'reply:failed',storeId:this.store.id,uid,reason:sent.reason});
+        return;
+      }
       if (sent.throttled) {
         // 节奏限制不是失败：归还队列，等窗口允许后重试
         await dispose(() => this.adapter.release(uid));
@@ -537,7 +549,7 @@ class StoreWorker {
     const cfg = this.cfg;
     let fallbackTimer = null;
     const fallbackMs = cfg.fallbackAfterMs ?? 0;
-    if (fallbackMs > 0 && cfg.fallbackText) {
+    if (!this.aiClient.suppressFallback && fallbackMs > 0 && cfg.fallbackText) {
       fallbackTimer = setTimeout(async () => {
         const sent = await this.#sendText(row.uid, cfg.fallbackText, {
           generation,
@@ -566,6 +578,7 @@ class StoreWorker {
       return { ok: true, result };
     } catch (err) {
       const message = String(err?.message || err);
+      this.aiClient.onGenerationFailure?.(err);
       this.logger?.warn(`AI 生成失败：${message}`);
       this.onEvent?.({ type: 'reply:error', storeId: this.store.id, uid: row.uid, error: message });
       return { ok: false, fatal: FATAL_AI_ERROR.test(message) };

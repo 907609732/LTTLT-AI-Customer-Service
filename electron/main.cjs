@@ -1,9 +1,18 @@
-const {app,BrowserWindow,ipcMain,dialog,session,screen,shell}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,session,screen,shell,safeStorage}=require('electron');
 const path=require('node:path');
 const fs=require('node:fs/promises');
 const {pathToFileURL,fileURLToPath}=require('node:url');
 const crypto=require('node:crypto');
 let win,auxWin,backend,platformHost,updates,updateTimer;let closingMain=false,closeAuxApproved=false,updateQuitPending=false;
+let managed,runtime,managedTransition=Promise.resolve(),workspaceMessage=null;
+// Fixtures must isolate Chromium, cookies and safeStorage before Electron is ready.
+if(process.env.LINGTU_DATA_DIR){const isolated=path.resolve(process.env.LINGTU_DATA_DIR,'electron-userdata');require('node:fs').mkdirSync(isolated,{recursive:true});app.setPath('userData',isolated);}
+// Prevent an older process from keeping a native-client worker after another process binds its owner.
+if(!app.requestSingleInstanceLock())app.quit();
+app.on('second-instance',()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}});
+function broadcast(channel,value){for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send(channel,value);}
+function managedSnapshot(){return {session:managed.snapshot(),workspace:runtime.view(),message:workspaceMessage};}
+function managedChanged(){if(managed&&runtime)broadcast('managed:state',managedSnapshot());}
 const DEV_URL='http://127.0.0.1:5173/';
 const isDev=!app.isPackaged&&process.argv.includes('--dev');
 const entry=pathToFileURL(path.join(__dirname,'../dist/index.html')).href;
@@ -31,7 +40,7 @@ function createWindow(){
  closingMain=false;
  win=new BrowserWindow({icon:path.join(__dirname,'../dist/brand/logo.png'),width:1440,height:900,useContentSize:true,frame:false,minWidth:1100,minHeight:720,title:'灵兔客服',backgroundColor:'#e9f3ff',show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
  configureWindow(win);
- win.on('close',()=>{closingMain=true;backend?.dispose();platformHost?.close();auxWin?.close();});
+ win.on('close',()=>{closingMain=true;managed?.dispose();void runtime?.dispose();auxWin?.close();});
  win.on('closed',()=>{win=null;});
  loadWindow(win);
 }
@@ -53,13 +62,34 @@ app.whenReady().then(async()=>{
  ipcMain.handle('update:check',event=>{guard(event);return updates.check(true);});
  ipcMain.handle('update:download-install',event=>{guard(event);return updates.downloadAndInstall();});
  ipcMain.handle('update:open-release',event=>{guard(event);return updates.openReleasePage();});
- const dataDir=path.join(process.env.LINGTU_DATA_DIR||app.getPath('userData'),'backend');
- process.env.DESK_DATA_DIR=dataDir;
- platformHost=require('./platform-host.cjs').createPlatformHost({dataDir});
- backend=require('./backend.cjs').createBackend({dataDir,...platformHost,openExternal:url=>shell.openExternal(url),onEvent:event=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('backend:event',event);}});
- await platformHost.start();
- ipcMain.handle('backend:snapshot',event=>{guard(event);return backend.snapshot();});
- ipcMain.handle('backend:execute',(event,command)=>{guard(event);return backend.execute(command);});
+ const dataRoot=path.resolve(process.env.LINGTU_DATA_DIR||app.getPath('userData'));
+ const workspaces=require('./account-workspaces.cjs').createAccountWorkspaces({dataRoot,origin:'https://api-kefu.lttlt.top'});
+ runtime=require('./workspace-runtime.cjs').createWorkspaceRuntime({workspaces,
+  createHost:options=>require('./platform-host.cjs').createPlatformHost(options),
+  createBackend:options=>require('./backend.cjs').createBackend({...options,safeStorage,openExternal:url=>shell.openExternal(url)}),
+  managedChat:(payload,options)=>managed.chat(payload,options),
+  onEvent:event=>broadcast('backend:event',event),
+  onReset:event=>broadcast('backend:event',event),onChange:managedChanged});
+ managed=require('./managed-session.cjs').createManagedSession({credentialFile:path.join(dataRoot,'managed-session.bin'),safeStorage,openExternal:url=>shell.openExternal(url),onChange:value=>{
+  managedTransition=runtime.acceptSession(value).catch(error=>{if(error.code==='workspace_canceled')return;workspaceMessage='工作区未能打开，请保留本机数据并检查后重试。';return runtime.lock();}).finally(managedChanged);
+ }});
+ await managed.init();await managedTransition;
+ ipcMain.handle('managed:snapshot',async event=>{guard(event);await managedTransition;return managedSnapshot();});
+ ipcMain.handle('managed:action',async(event,action,workspaceId)=>{
+  guard(event);if(workspaceId!==runtime.view().workspaceId)throw Error('工作区已切换，请刷新后重试。');workspaceMessage=null;
+  if(action==='login'){await runtime.lock();await managed.beginLogin();}
+  else if(action==='cancel'){await runtime.lock();await managed.cancelLogin();}
+  else if(action==='logout'){await runtime.lock();await managed.logout();}
+  else if(action==='refresh')await managed.refresh();
+  else if(action==='local')await runtime.local();
+  else if(action==='managed')await runtime.managed();
+  else if(action==='adopt'||action==='skip')await runtime.decide(action);
+  else if(action==='claim-native')await runtime.claimExternal();
+  else throw Error('不支持的账号操作');
+  await managedTransition;managedChanged();return managedSnapshot();
+ });
+ ipcMain.handle('backend:snapshot',event=>{guard(event);return runtime.snapshot();});
+ ipcMain.handle('backend:execute',(event,command)=>{guard(event);return runtime.execute(command);});
  session.defaultSession.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
  session.defaultSession.setPermissionCheckHandler(()=>false);
  ipcMain.handle('app:info',event=>{const owner=guard(event);return {version:app.getVersion(),platform:process.platform,mode:'frontend-handoff',role:owner===auxWin?'auxiliary':'main'};});
@@ -103,6 +133,6 @@ app.whenReady().then(async()=>{
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
 require('electron').autoUpdater.on('before-quit-for-update',()=>{updateQuitPending=true;});
-app.on('before-quit',event=>{if(updateQuitPending){updateQuitPending=false;const state=updates?.snapshot();if(state?.status==='error'&&state.failureStage==='install'){event.preventDefault();return;}}closingMain=true;closeAuxApproved=true;clearTimeout(updateTimer);updates?.dispose();backend?.dispose();platformHost?.close();});
+app.on('before-quit',event=>{if(updateQuitPending){updateQuitPending=false;const state=updates?.snapshot();if(state?.status==='error'&&state.failureStage==='install'){event.preventDefault();return;}}closingMain=true;closeAuxApproved=true;clearTimeout(updateTimer);updates?.dispose();managed?.dispose();void runtime?.dispose();});
 
-if(process.env.LINGTU_INTEGRATION_TEST==='1'){module.exports.getBackend=()=>backend;module.exports.getUpdates=()=>updates;}
+if(process.env.LINGTU_INTEGRATION_TEST==='1'){module.exports.getBackend=()=>runtime?.getBackend();module.exports.getUpdates=()=>updates;}
