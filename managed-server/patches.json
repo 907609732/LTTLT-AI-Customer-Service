@@ -92,7 +92,7 @@
     },
     {
       "before": "func Register(c *gin.Context) {",
-      "after": "func Register(c *gin.Context) {\n\tif !common.EmailVerificationEnabled { common.ApiErrorT(c, \"Email verification is required\"); return }"
+      "after": "func Register(c *gin.Context) {\n\tif !common.EmailVerificationEnabled { common.ApiErrorT(c, \"Email registration is not configured. Sign in with an existing account or contact the administrator.\"); return }"
     },
     {
       "before": "if err := cleanUser.Insert(inviterId); err != nil {",
@@ -120,7 +120,7 @@
     },
     {
       "before": "config.AllowHeaders = []string{\"*\"}",
-      "after": "config.AllowHeaders = []string{\"Origin\",\"Content-Type\",\"Authorization\",\"Cache-Control\",\"X-Security-Proof\",\"New-Api-User\",\"X-Request-Id\"}"
+      "after": "config.AllowHeaders = []string{\"Origin\",\"Content-Type\",\"Authorization\",\"Cache-Control\",\"X-Security-Proof\",\"New-Api-User\",\"X-Request-Id\", \"X-Auth-Session\"}"
     }
   ],
   "router/main.go": [
@@ -336,6 +336,42 @@
     {
       "before": "t('Set a secure password (min. 8 characters)')",
       "after": "t('Set a secure password (min. 15 characters)')"
+    }
+  ],
+  "web/src/features/auth/sign-up/components/sign-up-form.tsx": [
+    {
+      "before": "import { cn } from '@/lib/utils'",
+      "after": "import { cn } from '@/lib/utils'\nimport { EmailRegistrationUnavailable, emailRegistrationUnavailableMessage } from '@/features/lingtu/email-registration-unavailable'"
+    },
+    {
+      "before": "  async function onSubmit(data: z.infer<typeof registerFormSchema>) {",
+      "after": "  async function onSubmit(data: z.infer<typeof registerFormSchema>) {\n    if (!emailVerificationRequired) {\n      toast.error(t(emailRegistrationUnavailableMessage))\n      return\n    }"
+    },
+    {
+      "before": "        {/* Username Field */}",
+      "after": "        {emailVerificationRequired ? <>\n        {/* Username Field */}"
+    },
+    {
+      "before": "        <LegalConsent\n",
+      "after": "        </> : <EmailRegistrationUnavailable />}\n\n        <LegalConsent\n"
+    },
+    {
+      "before": "        {/* Submit Button */}\n        <Button",
+      "after": "        {/* Submit Button */}\n        {emailVerificationRequired && <Button"
+    },
+    {
+      "before": "          {t('Create account')}\n        </Button>",
+      "after": "          {t('Create account')}\n        </Button>}"
+    },
+    {
+      "before": "placeholder={t('Enter password (8–128 characters)')}",
+      "after": "placeholder={t('Enter password (15–128 characters)')}"
+    }
+  ],
+  "web/src/features/auth/sign-in/index.tsx": [
+    {
+      "before": "          {!status?.self_use_mode_enabled &&\n            status?.register_enabled !== false && (",
+      "after": "          {redirect === '/lingtu/admin' && (\n            <p className='text-muted-foreground text-left text-sm sm:text-base'>\n              {t('Sign in with the administrator username and password created during setup. No new registration or email verification is required.')}\n            </p>\n          )}\n          {redirect !== '/lingtu/admin' && !status?.self_use_mode_enabled &&\n            status?.register_enabled !== false && ("
     }
   ]
 }

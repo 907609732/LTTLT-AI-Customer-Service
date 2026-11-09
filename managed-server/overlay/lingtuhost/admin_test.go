@@ -103,8 +103,16 @@ func TestLingtuSocialConfigurationPreservesOrExplicitlyClearsSecret(t *testing.T
 	if err := h.saveSocial(configurationRequest{Section: "wechat", AppID: "app", Secret: "private-fixture", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
+	var before model.CustomOAuthProvider
+	if err := db.First(&before, "slug = ?", "ltwechat").Error; err != nil || before.CreatedAt.IsZero() {
+		t.Fatalf("provider creation timestamp unavailable: %v", err)
+	}
 	if err := h.saveSocial(configurationRequest{Section: "wechat", AppID: "app", Enabled: true}); err != nil {
 		t.Fatal(err)
+	}
+	var after model.CustomOAuthProvider
+	if err := db.First(&after, "slug = ?", "ltwechat").Error; err != nil || !after.CreatedAt.Equal(before.CreatedAt) {
+		t.Fatalf("provider update changed creation timestamp: %v", err)
 	}
 	var row lingtu.ManagedSetting
 	if err := db.First(&row, "name = ?", "ltwechat").Error; err != nil || !strings.Contains(row.Value, "private-fixture") {

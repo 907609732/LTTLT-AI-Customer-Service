@@ -74,5 +74,8 @@
  "reserved":"处理中",
  "success":"成功",
  "failed":"失败",
- "Set a secure password (min. 15 characters)":"设置安全密码（最少 15 个字符）"
+ "Set a secure password (min. 15 characters)":"设置安全密码（最少 15 个字符）",
+ "Email registration is unavailable. Ask an administrator to configure email service; existing administrators should sign in directly.":"邮箱注册暂未开放，请联系管理员配置邮件服务；已有管理员账号请直接登录。",
+ "Enter password (15–128 characters)":"输入密码（15 至 128 个字符）",
+ "Sign in with the administrator username and password created during setup. No new registration or email verification is required.":"请使用初始化时创建的管理员用户名和密码登录，无需重新注册或邮箱验证。"
 }
