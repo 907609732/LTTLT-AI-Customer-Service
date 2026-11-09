@@ -212,6 +212,14 @@ test('AI 禁用词按长词优先单次替换，空回复不发送并交给人�
   assert.equal(expanded.state.sent[0].text,'12345');
 });
 
+test('未接入平台转接时旧默认话术不承诺已在转接，用户自定义话术保留',async()=>{
+ const legacy=workerFor({rows:[buyerRow('u1','m1','投诉')],config:baseConfig({reply:{handoffText:'已收到您的问题，正在为您转接人工客服，请稍候。'}})});
+ await legacy.worker.tick();await legacy.worker.settle();
+ assert.equal(legacy.state.sent[0].text,'已收到您的问题，客服会尽快为您处理，请稍候。');
+ const custom=workerFor({rows:[buyerRow('u2','m2','投诉')],config:baseConfig({reply:{handoffText:'客服稍后跟进'}})});
+ await custom.worker.tick();await custom.worker.settle();assert.equal(custom.state.sent[0].text,'客服稍后跟进');
+});
+
 test('正常链路：消费 pending → AI → 发送 → discard，并写入自发送台账', async () => {
   const ai = makeAi({ reply: '在的亲，有货' });
   const { worker, state, events } = workerFor({ rows: [buyerRow('u1', 'm1')], ai });

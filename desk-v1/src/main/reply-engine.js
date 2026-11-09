@@ -599,7 +599,8 @@ class StoreWorker {
   }
 
   async #handoff(uid, keyword, generation) {
-    const text = this.cfg.handoffText || '已收到您的问题，正在为您转接人工客服，请稍候。';
+    const configured=this.cfg.handoffText;
+    const text = !configured || configured==='已收到您的问题，正在为您转接人工客服，请稍候。' ? '已收到您的问题，客服会尽快为您处理，请稍候。' : configured;
     const sent = await this.#sendText(uid, text, {generation}).catch(() => null);
     this.stats.transferred += 1;
     this.logger?.info(`会话 ${uid} 命中转人工关键词「${keyword}」`);
