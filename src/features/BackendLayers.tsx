@@ -18,8 +18,7 @@ export function useBackendLayers(screen:string,notice:(s:string)=>void){
   if(n.name==='顶部操作 · 接待与一键操作')return <LiveReception notice={notice}/>;
   if((screen==='UX01'&&n.id==='11:84')||(screen==='UX02'&&n.name==='平台店铺 / 9 个渠道'))return <StoreList notice={notice}/>;
   if((screen==='UX04'&&n.id==='8801:448')||(screen==='UX05'&&n.id==='8801:596')||(screen==='UX06'&&n.id==='8801:773'))return <LiveDashboard/>;
-  if(screen==='UX08'&&['8801:1053','8801:1057','8801:1058'].some(id=>n.id.endsWith(id)))return null;
-  if(screen==='UX08'&&n.id.endsWith('8801:957'))return b.loading?'正在读取转人工关键词…':b.error?'转人工关键词读取失败，请稍后重试。':<HandoffKeywords key={b.snapshot.selection.storeId||'global'} notice={notice} drafts={handoffDrafts}/>;
+  if(screen==='UX08'&&n.id==='8801:838')return <HandoffPage notice={notice} drafts={handoffDrafts}/>;
   if(screen==='UX03'&&n.id==='8801:3075')return <AddStore notice={notice}/>;
   if(screen==='UX07'&&n.id==='8801:348')return '登录店铺 → 配置接待。支持按平台、分组筛选；商品学习功能待接入。';
   if(screen==='UX07'&&n.id==='8801:346')return <button className="source-store-control" onClick={()=>void b.execute({action:'refresh'}).then(()=>notice('店铺状态已刷新。')).catch(e=>notice(e.message))}>刷新</button>;
@@ -79,4 +78,13 @@ function HandoffKeywords({notice,drafts}:{notice:(s:string)=>void;drafts:RefObje
  const inherit=async()=>{if(pending||!storeId)return;setPending(true);setError('');try{await b.execute({action:'save-store-handoff',storeId,values:{mode:'inherit'}});delete drafts.current[draftKey];setKeywords(global.join('，'));notice('已恢复使用全局关键词。')}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setPending(false)}};
  const changeScope=()=>{const nextGlobal=!globalMode;setGlobalMode(nextGlobal);const nextKey=nextGlobal?'global':selectedStore;setKeywords(drafts.current[nextKey]??(nextGlobal?global:b.snapshot.handoffByStore?.[selectedStore]?.keywords||global).join('，'));setError('')};
  return <form id="handoff-keyword-settings" className="live-handoff-keywords" aria-label="转人工关键词设置" onSubmit={save}><label>转人工关键词<textarea aria-label="转人工关键词" value={keywords} disabled={pending} onChange={e=>{drafts.current[draftKey]=e.target.value;setKeywords(e.target.value)}}/></label><footer><span>{storeId?(custom?'本店单独设置':'本店使用全局关键词'):'全局关键词'}；逗号或换行分隔。</span><div>{selectedStore&&<button type="button" className="handoff-inherit" disabled={pending} onClick={changeScope}>{globalMode?'返回本店关键词':'编辑全局关键词'}</button>}{storeId&&<button type="button" className="handoff-inherit" disabled={pending||!custom} onClick={()=>void inherit()}>恢复全局关键词</button>}<button type="submit" disabled={pending}>{pending?'正在保存…':storeId?'保存本店关键词':'保存转人工关键词'}</button></div></footer>{error&&<p role="alert">{error}</p>}</form>;
+}
+
+function HandoffPage({notice,drafts}:{notice:(s:string)=>void;drafts:RefObject<Record<string,string>>}){
+ const b=useBackend();
+ return <section className="handoff-page" aria-label="转接人工配置"><header><h1>转接人工</h1><p>设置需要人工处理的关键词；当前会话会标记预警并暂停 AI。</p></header>
+  <article className="handoff-card"><div className="handoff-row"><div><h2>平台自动转接</h2><p>平台自动转接尚未接入，命中关键词后需要人工接手。</p></div><button type="button" role="switch" aria-label="平台自动转接" aria-checked={false} disabled>暂未接入</button></div></article>
+  <article className="handoff-card"><h2>关键词触发</h2><p>买家消息包含关键词时，标记会话并暂停该会话的 AI 自动回复。</p>{b.loading?<p>正在读取关键词…</p>:b.error?<p role="alert">关键词读取失败，请稍后重试。</p>:<HandoffKeywords key={b.snapshot.selection.storeId||'global'} notice={notice} drafts={drafts}/>}</article>
+  <article className="handoff-card"><div className="handoff-row"><div><h2>客服接收与无人在线兜底</h2><p>客服名单、平台转接及无人在线兜底正在接入。</p></div><span>暂未接入</span></div></article>
+ </section>;
 }

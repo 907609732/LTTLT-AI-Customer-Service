@@ -9,6 +9,8 @@ test('handoff keywords follow the selected store, save independently and can inh
   (window as any).lingtu={role:'main',backendSnapshot:async()=>snapshot(),onBackendEvent:()=>()=>{},onNavigate:()=>()=>{},onConfirmClose:()=>()=>{},backendExecute:async(c:any)=>{const state=read();if(c.action==='select-store')state.selection=c.storeId;if(c.action==='save-store-handoff'){if(c.values.mode==='inherit')delete state.stores[c.storeId];else state.stores[c.storeId]={keywords:c.values.keywords}}if(c.action==='save-config')state.global=c.values.handoffKeywords;save(state);return{status:'ok',message:'已保存'}}};
  });
  await page.goto('/?screen=UX08');
+ await expect(page.getByRole('switch',{name:'平台自动转接'})).toBeDisabled();
+ await expect(page.getByText('平台自动转接尚未接入',{exact:false}).first()).toBeVisible();
  const input=page.getByRole('textbox',{name:'转人工关键词',exact:true});
  await expect(input).toHaveValue('投诉');
  await input.fill('退款，人工');
