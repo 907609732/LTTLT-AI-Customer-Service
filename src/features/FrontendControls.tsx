@@ -64,7 +64,7 @@ export function FrontendProvider({children,onNotice,onOverlay,services=frontendS
     const operations:Record<string,string>={'一键上线':'open','一键加载店铺':'open','一键离线':'close','一键小休':'pause','一键开启AI':'enable','一键关闭AI':'disable'};
     const operation=Object.entries(operations).find(([name])=>label===name||n.name.endsWith(name))?.[1];
     if(operation){void backend.execute({action:'batch',values:{operation}}).then(r=>onNotice(r.message||'操作完成')).catch(e=>onNotice(e.message));return true;}
-    if(screen==='UX08'&&/^保存/.test(label)){backend.setSettings(true);return true;}
+    if(screen==='UX08'&&/^保存/.test(label)){document.querySelector<HTMLFormElement>('#handoff-keyword-settings')?.requestSubmit();return true;}
     if(/^同步/.test(label)){onNotice('当前模型与转人工配置为全局设置，其它页面的跨店同步尚未接入。');return true;}
    }
    if(screen==='UX11'&&n.name==='欢迎开关 / 热区')drafts.edit(key,{enabled:!drafts.get(key).draft.enabled});
