@@ -124,10 +124,10 @@ jobs:
           }
       - run: npm run typecheck
       - name: Test changed backend and account boundaries
-        run: node --test tests/managed-backend.test.mjs tests/workspace-runtime.test.mjs tests/training.test.mjs tests/store-handoff.test.mjs tests/banned-words.test.mjs desk-v1/test/reply-engine.test.js
+        run: node --test tests/managed-backend.test.mjs tests/workspace-runtime.test.mjs tests/training.test.mjs tests/store-handoff.test.mjs tests/banned-words.test.mjs tests/work-orders.test.mjs desk-v1/test/reply-engine.test.js
       - run: npx playwright install chromium
       - name: Test changed configuration screens
-        run: npx playwright test tests/e2e/handoff-settings.spec.ts tests/e2e/store-handoff.spec.ts tests/e2e/banned-words.spec.ts tests/e2e/training.spec.ts tests/e2e/managed-model-issue.spec.ts
+        run: npx playwright test tests/e2e/handoff-settings.spec.ts tests/e2e/store-handoff.spec.ts tests/e2e/banned-words.spec.ts tests/e2e/training.spec.ts tests/e2e/work-orders.spec.ts tests/e2e/managed-model-issue.spec.ts
       - name: Verify changed screens with isolated Electron data
         run: node tests/store-handoff-electron.mjs
       - run: npm run build

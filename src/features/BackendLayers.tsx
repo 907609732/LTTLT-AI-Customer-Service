@@ -2,6 +2,7 @@ import {ManagedAccountPanel} from './ManagedAccess';
 import {StoreManagement} from './StoreManagement';
 import {ModelSettings} from './ModelSettings';
 import {TrainingGround} from './TrainingGround';
+import {WorkOrders} from './WorkOrders';
 import {CheckUpdateLink} from './Updates';import {version as appVersion} from '../../package.json';
 import {useRef,useState} from 'react';import type {FormEvent,RefObject} from 'react';import {AddStore} from './AddStorePlatform';
 import {useBackend} from './BackendProvider';import type {Store} from './BackendProvider';import type {FigmaLayer} from '../design/types';
@@ -22,6 +23,7 @@ export function useBackendLayers(screen:string,notice:(s:string)=>void){
   if(screen==='UX07'&&n.id==='8801:346')return <button className="source-store-control" onClick={()=>void b.execute({action:'refresh'}).then(()=>notice('店铺状态已刷新。')).catch(e=>notice(e.message))}>刷新</button>;
   if(screen==='UX07'&&n.id==='8801:245')return <StoreManagement notice={notice}/>;
   if(screen==='UX16'&&n.id==='8801:1803')return <TrainingGround/>;
+  if(screen==='UX20'&&n.id==='8801:2186')return <WorkOrders/>;
   if(Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&/^(会话行|空状态|已选会话|消息回复输入区)/.test(n.name))return null;
   if(screen==='UX17'&&n.id==='8801:1902')return <div className="live-global-rule"><b>全局模型规则</b><p>当前规则应用于全部店铺。</p><p>多方案与店铺独立绑定尚未接入。</p></div>;
   if(screen==='UX17'&&n.id==='10824:6117')return <div className="live-global-rule"><b>应用店铺（全部）</b>{b.snapshot.stores.map(s=><p key={s.id}>{s.storeName}</p>)}</div>;
@@ -44,7 +46,7 @@ function StoreList({notice,wide=false}:{notice:(s:string)=>void;wide?:boolean}){
 }
 export function BackendChrome({screen,notice}:{screen:string;notice:(s:string)=>void}){
  const b=useBackend();if(!b.available)return null;
- return <>{!['UX01','UX02','UX03','UX07','UX16','UX17','UX19','UX25','UX26','UX27','UX30','UX32'].includes(screen)&&<div className="live-capability-note">{screen==='UX08'?'命中后会标记会话并暂停 AI；平台自动转接尚未接入。':'此页面为设计预览，当前后端尚未提供该业务能力。'}</div>}{Number(screen.slice(2))<26&&screen!=='UX03'&&screen!=='UX07'&&screen!=='UX25'&&<div className="live-toolbar"><label>当前店铺<select aria-label="当前店铺" value={b.snapshot.selection.storeId} onChange={e=>void b.execute({action:'select-store',storeId:e.target.value}).catch(e=>notice(e.message))}><option value="" disabled>请选择店铺</option>{b.snapshot.stores.map(s=><option key={s.id} value={s.id}>{s.storeName}</option>)}</select></label><button onClick={()=>{if(window.lingtu?.managedAction)void window.lingtu.openMain('UX25');else b.setSettings(true);}}>模型接口设置</button></div>}{b.error&&<div role="alert" className="live-service-error">服务读取失败：{b.error}</div>}{Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&<LiveConversations screen={screen} notice={notice}/>} {b.settings&&<ModelSettings notice={notice}/>}<ManagedModelIssueNotice key={b.snapshot.workspaceId}/></>;
+ return <>{!['UX01','UX02','UX03','UX07','UX16','UX17','UX19','UX20','UX25','UX26','UX27','UX30','UX32'].includes(screen)&&<div className="live-capability-note">{screen==='UX08'?'命中后会标记会话并暂停 AI；平台自动转接尚未接入。':'此页面为设计预览，当前后端尚未提供该业务能力。'}</div>}{Number(screen.slice(2))<26&&screen!=='UX03'&&screen!=='UX07'&&screen!=='UX25'&&screen!=='UX20'&&<div className="live-toolbar"><label>当前店铺<select aria-label="当前店铺" value={b.snapshot.selection.storeId} onChange={e=>void b.execute({action:'select-store',storeId:e.target.value}).catch(e=>notice(e.message))}><option value="" disabled>请选择店铺</option>{b.snapshot.stores.map(s=><option key={s.id} value={s.id}>{s.storeName}</option>)}</select></label><button onClick={()=>{if(window.lingtu?.managedAction)void window.lingtu.openMain('UX25');else b.setSettings(true);}}>模型接口设置</button></div>}{b.error&&<div role="alert" className="live-service-error">服务读取失败：{b.error}</div>}{Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&<LiveConversations screen={screen} notice={notice}/>} {b.settings&&<ModelSettings notice={notice}/>}<ManagedModelIssueNotice key={b.snapshot.workspaceId}/></>;
 }
 function LiveConversations({screen,notice}:{screen:string;notice:(s:string)=>void}){
  const b=useBackend();const selected=b.snapshot.conversations.find(c=>c.storeId===b.snapshot.selection.storeId&&c.uid===b.snapshot.selection.conversationId);const [drafts,setDrafts]=useState<Record<string,string>>({}),[pending,setPending]=useState(false);const key=selected?selected.storeId+':'+selected.uid:'none',reply=drafts[key]||'';

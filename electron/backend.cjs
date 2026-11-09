@@ -11,6 +11,7 @@ const {AiClient}=require('../desk-v1/src/main/ai-client');
 const {ReplyEngine,filterBannedWords}=require('../desk-v1/src/main/reply-engine');
 const {MessageMonitor}=require('../desk-v1/src/main/message-monitor');
 const {readJson,writeJson}=require('../desk-v1/src/main/json-store');
+const {createWorkOrders}=require('./work-orders.cjs');
 const platforms=[{id:'pdd-web',label:'拼多多'},{id:'doudian-client',label:'抖店'}];
 const Command=z.object({action:z.string().min(1).max(60),screenId:z.string().max(30).optional(),storeId:z.string().max(64).optional(),conversationId:z.string().max(200).optional(),values:z.record(z.string(),z.unknown()).optional()});
 function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},allowExternalClient=true,externalClientReady=()=>{}}={}){
@@ -30,6 +31,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  const bannedFileSchema=z.object({version:z.literal(1),rules:bannedRulesSchema}).strict();
  let bannedWords=[];
  if(fs.existsSync(bannedFile)){try{bannedWords=bannedFileSchema.parse(JSON.parse(fs.readFileSync(bannedFile,'utf8'))).rules}catch{throw Error('AI 禁用词配置损坏，请恢复备份后重试；原文件未改动')}}
+ const workOrders=createWorkOrders(path.join(dataDir,'work-orders.json'));
  const secrets=new SecretStore({file:path.join(dataDir,'secrets.json'),safeStorage});
  config.update({reply:{enabled:false}});for(const s of registry.list())if(s.aiEnabled)registry.setAi(s.id,false);
  const archiveFile=path.join(dataDir,'conversations.json');
@@ -46,7 +48,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  let modelIssue=savedIssue?safeIssue(savedIssue.code,savedIssue.at):null;
  function retainIssue(e){const next=safeIssue(e?.code);if(modelIssue&&(modelIssue.requiresReview||!next.requiresReview))return;modelIssue=next;try{writeJson(issueFile,{code:next.code,at:next.at});}catch{modelIssue.message+=' 本机未能保存暂停提示，请在重启前核对原请求。';}}
  const adapterFor=store=>{if(!adapters.has(store.id)){if(!adapterFactory)throw Error('平台服务尚未就绪');adapters.set(store.id,adapterFactory(store,{config:config.all(),logger}));}return adapters.get(store.id)};
- const snapshot=()=>structuredClone({revision,modelIssue,stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19']}});
+ const snapshot=()=>structuredClone({revision,modelIssue,stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
  function changed(){if(disposed)return;revision++;onEvent({type:'backend:changed',revision});}
  function ingest(event){
   if(disposed)return;
@@ -125,6 +127,9 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
     message=values.mode==='inherit'?'已恢复使用全局关键词。':'本店关键词已保存。';break;
    }
    case 'save-banned-words':{const rules=bannedRulesSchema.parse(v.rules);writeJson(bannedFile,{version:1,rules});bannedWords=rules;message='AI 禁用词已保存，应用于全部店铺。';break;}
+   case 'create-work-order':{const store=storeOf(v.storeId);const item=workOrders.create(v,store);data={id:item.id};message='工单已登记在本机。';break;}
+   case 'set-work-order-status':{const input=z.object({id:z.string().uuid(),status:z.enum(['pending','working','waiting','done'])}).strict().parse(v);workOrders.status(input.id,input.status);message='工单状态已更新。';break;}
+   case 'add-work-order-note':{const input=z.object({id:z.string().uuid(),text:z.string().trim().min(1).max(2000)}).strict().parse(v);workOrders.note(input.id,input.text);message='跟进记录已保存。';break;}
    case 'start-training':{
     if(modelMode==='managed'&&modelIssue)throw Error('请先核对托管请求状态并确认清除提示，再进行测试。');
     const input=z.object({question:z.string().trim().min(1).max(2000),history:z.array(z.object({from:z.enum(['buyer','seller']),content:z.string().min(1).max(2000)}).strict()).max(20)}).strict().parse(v);

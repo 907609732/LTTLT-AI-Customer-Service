@@ -7,12 +7,13 @@ import {createServer} from 'vite';
 import {electronExecutable} from '../shared/electron-runtime.mjs';
 
 const data=fs.mkdtempSync(path.join(os.tmpdir(),'lingtu-handoff-electron-'));
+const packaged=process.env.LINGTU_PACKAGED_EXE;
 const env={...process.env,LINGTU_DATA_DIR:data,LINGTU_INTEGRATION_TEST:'1',LINGTU_DISABLE_UPDATE_CHECK:'1'};
 delete env.ELECTRON_RUN_AS_NODE;
 let server,app;
-async function launch(){return electron.launch({executablePath:await electronExecutable(),args:['.','--dev'],env,timeout:30000})}
+async function launch(){return electron.launch({executablePath:packaged||await electronExecutable(),args:packaged?[]:['.','--dev'],env,timeout:30000})}
 try{
- server=await createServer();await server.listen();
+ if(!packaged){server=await createServer();await server.listen()}
  app=await launch();let page=await app.firstWindow();
  await page.waitForFunction(()=>Boolean(window.lingtu?.backendSnapshot));
  await page.evaluate(async()=>{const state=await window.lingtu.managedSnapshot();await window.lingtu.managedAction('local',state.workspace.workspaceId)});
@@ -50,7 +51,14 @@ try{
  await trainingInput.fill('测试问题');await page.getByRole('button',{name:'发送测试'}).click();
  await page.getByRole('alert').filter({hasText:'请先配置模型接口地址'}).waitFor();
  assert.equal(await trainingInput.inputValue(),'测试问题');
- console.log('PASS: isolated Electron IPC, per-store and banned-word persistence, configuration-center save, training error preserves input');
+ await page.evaluate(()=>window.lingtu.openMain('UX20'));
+ await page.getByRole('button',{name:'登记工单'}).click();await page.getByLabel('订单号').fill('ISOLATED-001');await page.getByLabel('登记内容').fill('测试跟进');await page.getByRole('button',{name:'保存登记'}).click();
+ await page.waitForFunction(async()=> (await window.lingtu.backendSnapshot()).workOrders?.some(o=>o.orderNo==='ISOLATED-001'));
+ await app.evaluate(({app})=>app.exit(0));await app.close();
+ app=await launch();page=await app.firstWindow();await page.waitForFunction(()=>Boolean(window.lingtu?.managedSnapshot));
+ await page.evaluate(async()=>{const state=await window.lingtu.managedSnapshot();await window.lingtu.managedAction('local',state.workspace.workspaceId)});
+ assert.equal((await page.evaluate(()=>window.lingtu.backendSnapshot())).workOrders[0].orderNo,'ISOLATED-001');
+ console.log('PASS: isolated Electron IPC, store rules, banned words and work orders persist, training error preserves input');
 }finally{
  if(app){await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{})}
  await server?.close();
