@@ -58,7 +58,7 @@ func (h *Host) registerAdmin(router *gin.Engine) {
 	admin.GET("/audit", h.adminAudit)
 	admin.GET("/usage", h.adminUsage)
 	admin.GET("/usage-summary", h.adminUsageSummary)
-	admin.POST("/config", middleware.CriticalRateLimit(), h.saveConfig)
+	admin.POST("/config", middleware.LingtuCriticalRateLimit("admin-config"), h.saveConfig)
 }
 func (h *Host) adminConfig(c *gin.Context) {
 	policy, err := lingtu.LoadTrialPolicy(model.DB)

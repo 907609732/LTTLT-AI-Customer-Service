@@ -374,6 +374,12 @@
       "after": "          {redirect === '/lingtu/admin' && (\n            <p className='text-muted-foreground text-left text-sm sm:text-base'>\n              {t('Sign in with the administrator username and password created during setup. No new registration or email verification is required.')}\n            </p>\n          )}\n          {redirect !== '/lingtu/admin' && !status?.self_use_mode_enabled &&\n            status?.register_enabled !== false && ("
     }
   ],
+  "middleware/rate-limit.go": [
+    {
+      "before": "\tc.Status(http.StatusTooManyRequests)\n\tc.Abort()",
+      "after": "\tc.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{\"success\": false, \"error\": \"rate_limited\", \"message_key\": \"Too many requests. Please wait a moment and try again.\", \"message\": \"Too many requests. Please wait a moment and try again.\"})"
+    }
+  ],
   "relay/channel/openai/relay-openai.go": [
     {
       "before": "\"github.com/QuantumNous/new-api/logger\"",
