@@ -1,0 +1,54 @@
+name: Managed server checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/managed-model-access]
+    paths: ['managed-server/**', 'scripts/prepare-managed-server.mjs', '.github/workflows/managed-server.yml']
+permissions:
+  contents: read
+jobs:
+  trial-ledger:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [sqlite, mysql, postgres]
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: isolated-ci-password
+          MYSQL_DATABASE: lingtu_test
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h localhost -pisolated-ci-password" --health-interval=10s --health-timeout=5s --health-retries=12
+      postgres:
+        image: postgres:9.6
+        env:
+          POSTGRES_PASSWORD: isolated-ci-password
+          POSTGRES_DB: lingtu_test
+        ports: ['5432:5432']
+        options: --health-cmd="pg_isready -U postgres" --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - run: node scripts/prepare-managed-server.mjs
+      - name: Test real database and migration restart
+        working-directory: managed-server/.upstream
+        env:
+          ENGINE: ${{ matrix.engine }}
+        shell: bash
+        run: |
+          if [ "$ENGINE" = mysql ]; then
+            export LINGTU_TEST_ENGINE=mysql
+            export LINGTU_TEST_DSN='root:isolated-ci-password@tcp(127.0.0.1:3306)/lingtu_test?charset=utf8mb4&parseTime=True&loc=Local'
+          elif [ "$ENGINE" = postgres ]; then
+            export LINGTU_TEST_ENGINE=postgres
+            export LINGTU_TEST_DSN='host=127.0.0.1 user=postgres password=isolated-ci-password dbname=lingtu_test port=5432 sslmode=disable'
+          fi
+          go test -race ./lingtu -count=1 -v

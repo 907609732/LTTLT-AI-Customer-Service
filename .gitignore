@@ -10,3 +10,6 @@ design/snapshots/
 bootstrap.ps1
 transfer*.json
 transfer*.b64
+
+managed-server/.upstream/
+.superpowers/
