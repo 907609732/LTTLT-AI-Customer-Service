@@ -82,3 +82,34 @@ func TestDesktopAccessChecksAudienceAndLiveRevocation(t *testing.T) {
 		t.Fatal("revoked user refreshed")
 	}
 }
+
+func TestDesktopTemporaryControlFailureDoesNotRevokeCredentials(t *testing.T) {
+	v, _ := NewVault(bytes.Repeat([]byte{9}, 32))
+	outage := false
+	temporary := errors.New("control temporarily unavailable")
+	s := NewSessionStore(trialDB(t), v, "https://api.example", func(int, string, int64) error {
+		if outage {
+			return temporary
+		}
+		return nil
+	})
+	if err := s.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1800000000, 0)
+	bundle, err := s.Create(1, "session", 1, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outage = true
+	if _, err = s.Authenticate(bundle.AccessToken, now); !errors.Is(err, temporary) {
+		t.Fatalf("temporary outage classified as revoked: %v", err)
+	}
+	if _, err = s.Refresh(bundle.RefreshToken, "operation-123", now); !errors.Is(err, temporary) {
+		t.Fatalf("temporary outage classified as revoked: %v", err)
+	}
+	outage = false
+	if _, err = s.Refresh(bundle.RefreshToken, "operation-123", now); err != nil {
+		t.Fatal(err)
+	}
+}

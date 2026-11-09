@@ -51,4 +51,63 @@ jobs:
             export LINGTU_TEST_ENGINE=postgres
             export LINGTU_TEST_DSN='host=127.0.0.1 user=postgres password=isolated-ci-password dbname=lingtu_test port=5432 sslmode=disable'
           fi
-          go test -race ./lingtu -count=1 -v
+          go test -race -p 1 ./lingtu ./lingtuhost ./middleware ./controller ./service ./common ./relay/helper -run 'Test(Device|Desktop|Trial|Concurrent|Settlement|Social|Credential|GORM|Lingtu)' -count=1 -v -timeout=180s
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - run: node scripts/prepare-managed-server.mjs
+      - run: bun install --frozen-lockfile
+        working-directory: managed-server/.upstream/web
+      - name: Generate routes
+        working-directory: managed-server/.upstream/web
+        run: node --input-type=module -e "import {Generator,getConfig} from '@tanstack/router-generator'; const root=process.cwd(); await new Generator({config:getConfig({},root),root}).run();"
+      - run: bun run typecheck
+        working-directory: managed-server/.upstream/web
+      - name: Changed frontend lint
+        working-directory: managed-server/.upstream/web
+        run: bunx oxlint -c .oxlintrc.json src/features/lingtu src/routes/lingtu src/features/auth/hooks/use-oauth-login.ts 'src/routes/oauth/$provider.tsx' src/features/auth/secure-verification/types.ts src/lib/http-client.ts src/lib/auth-session.ts
+      - run: bun run test src/features/lingtu src/features/auth/api.test.ts
+        working-directory: managed-server/.upstream/web
+      - name: Build frontend
+        working-directory: managed-server/.upstream/web
+        env:
+          VITE_MANAGED_API_ORIGIN: https://api-kefu.lttlt.top
+        run: |
+          if ! bun run build > /tmp/managed-web-build.log 2>&1; then
+            tail -80 /tmp/managed-web-build.log
+            exit 1
+          fi
+          tail -3 /tmp/managed-web-build.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: managed-web-${{ github.sha }}
+          path: managed-server/.upstream/web/dist
+          retention-days: 7
+      - name: Build Linux server from the same sources
+        working-directory: managed-server/.upstream
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          mkdir -p ../../server-artifact
+          go build -trimpath -ldflags="-s -w" -o ../../server-artifact/lingtu-managed .
+          cp LICENSE ../../server-artifact/NEW-API-LICENSE
+          printf '%s\n' '${{ github.sha }}' > ../../server-artifact/source-commit.txt
+          sha256sum ../../server-artifact/lingtu-managed > ../../server-artifact/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: managed-linux-amd64-${{ github.sha }}
+          path: server-artifact
+          retention-days: 7

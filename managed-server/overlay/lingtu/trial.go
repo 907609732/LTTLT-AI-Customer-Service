@@ -45,7 +45,12 @@ type Reservation struct {
 type TrialStore struct{ db *gorm.DB }
 
 func NewTrialStore(db *gorm.DB) *TrialStore { return &TrialStore{db: db} }
-func (s *TrialStore) Migrate() error        { return s.db.AutoMigrate(&TrialGrant{}, &TrialRequest{}) }
+func (s *TrialStore) Migrate() error {
+	if err := s.db.AutoMigrate(&TrialGrant{}, &TrialRequest{}, &trialLimitGate{}, &trialDailyBudget{}, &trialLimitedRequest{}); err != nil {
+		return err
+	}
+	return s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&trialLimitGate{ID: 1}).Error
+}
 
 // Grant deliberately leaves an existing grant unchanged on login, retry or restart.
 func (s *TrialStore) Grant(userID int, now time.Time, limit int, duration time.Duration) error {
@@ -103,6 +108,9 @@ func (s *TrialStore) Settle(userID int, requestID, outcome string) error {
 		return ErrInvalidTrialInput
 	}
 	return s.transaction(func(tx *gorm.DB) error {
+		if err := lockTrialLimits(tx); err != nil {
+			return err
+		}
 		allowed := []string{"pending", "uncertain"}
 		if outcome == "uncertain" {
 			allowed = []string{"pending"}
@@ -120,6 +128,9 @@ func (s *TrialStore) Settle(userID int, requestID, outcome string) error {
 				return nil
 			}
 			return ErrSettlementConflict
+		}
+		if err := settleTrialLimits(tx, userID, requestID, outcome); err != nil {
+			return err
 		}
 		if outcome == "uncertain" {
 			return nil

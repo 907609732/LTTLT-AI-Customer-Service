@@ -60,18 +60,24 @@ func NewSessionStore(db *gorm.DB, vault *Vault, issuer string, validate func(int
 	return &SessionStore{db: db, vault: vault, issuer: issuer, validate: validate}
 }
 func (s *SessionStore) Migrate() error { return s.db.AutoMigrate(&ManagedSession{}) }
-func (s *SessionStore) Create(userID int, sid string, authVersion int64, now time.Time) (TokenBundle, error) {
+func (s *SessionStore) Create(userID int, sid string, authVersion int64, now time.Time, deadline ...int64) (TokenBundle, error) {
 	if userID <= 0 || sid == "" || len(sid) > 64 || authVersion <= 0 || s.validate == nil {
 		return TokenBundle{}, ErrSessionInvalid
 	}
 	if err := s.validate(userID, sid, authVersion); err != nil {
-		return TokenBundle{}, ErrSessionInvalid
+		return TokenBundle{}, err
 	}
 	secret, err := randomSecret()
 	if err != nil {
 		return TokenBundle{}, err
 	}
 	row := ManagedSession{SID: sid, UserID: userID, AuthVersion: authVersion, RefreshHash: s.vault.digest("refresh", secret), ExpiresAt: now.Add(30 * 24 * time.Hour).Unix()}
+	if len(deadline) > 0 {
+		if deadline[0] <= now.Unix() || deadline[0] > row.ExpiresAt {
+			return TokenBundle{}, ErrSessionInvalid
+		}
+		row.ExpiresAt = deadline[0]
+	}
 	bundle, err := s.bundle(row, secret, now)
 	if err != nil {
 		return TokenBundle{}, err
@@ -103,11 +109,20 @@ func (s *SessionStore) Authenticate(raw string, now time.Time) (ClientIdentity, 
 		return ClientIdentity{}, ErrSessionInvalid
 	}
 	var row ManagedSession
-	if err = s.db.First(&row, "sid = ?", claims.SID).Error; err != nil || row.UserID != uid || row.AuthVersion != claims.AuthVersion || row.ExpiresAt <= now.Unix() {
+	if err = s.db.First(&row, "sid = ?", claims.SID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ClientIdentity{}, ErrSessionInvalid
+		}
+		return ClientIdentity{}, err
+	}
+	if row.UserID != uid || row.AuthVersion != claims.AuthVersion || row.ExpiresAt <= now.Unix() {
 		return ClientIdentity{}, ErrSessionInvalid
 	}
-	if s.validate == nil || s.validate(uid, row.SID, row.AuthVersion) != nil {
+	if s.validate == nil {
 		return ClientIdentity{}, ErrSessionInvalid
+	}
+	if err = s.validate(uid, row.SID, row.AuthVersion); err != nil {
+		return ClientIdentity{}, err
 	}
 	return ClientIdentity{UserID: uid, SID: row.SID, AuthVersion: row.AuthVersion}, nil
 }
@@ -120,11 +135,20 @@ func (s *SessionStore) Refresh(raw, operation string, now time.Time) (TokenBundl
 	for range 4 {
 		err := NewTrialStore(s.db).transaction(func(tx *gorm.DB) error {
 			var row ManagedSession
-			if err := tx.First(&row, "sid = ?", parts[1]).Error; err != nil || row.ExpiresAt <= now.Unix() {
+			if err := tx.First(&row, "sid = ?", parts[1]).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrSessionInvalid
+				}
+				return err
+			}
+			if row.ExpiresAt <= now.Unix() {
 				return ErrSessionInvalid
 			}
-			if s.validate == nil || s.validate(row.UserID, row.SID, row.AuthVersion) != nil {
+			if s.validate == nil {
 				return ErrSessionInvalid
+			}
+			if err := s.validate(row.UserID, row.SID, row.AuthVersion); err != nil {
+				return err
 			}
 			hash := s.vault.digest("refresh", parts[2])
 			opHash := s.vault.digest("rotation", operation)

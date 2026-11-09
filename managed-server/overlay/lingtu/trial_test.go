@@ -45,8 +45,16 @@ func trialDB(t *testing.T) *gorm.DB {
 	}
 	t.Cleanup(func() { sql.Close() })
 	if os.Getenv("LINGTU_TEST_ENGINE") != "" {
+		var database string
+		query := "SELECT DATABASE()"
+		if os.Getenv("LINGTU_TEST_ENGINE") == "postgres" {
+			query = "SELECT current_database()"
+		}
+		if err := db.Raw(query).Scan(&database).Error; err != nil || database != "lingtu_test" {
+			t.Fatal("refusing to modify a non-test database")
+		}
 		// CI-only database, never a production connection. Tests run sequentially.
-		if err := db.Migrator().DropTable(&TrialRequest{}, &TrialGrant{}, &ManagedSession{}); err != nil {
+		if err := db.Migrator().DropTable(&TrialRequest{}, &TrialGrant{}, &ManagedSession{}, &DeviceGrant{}); err != nil {
 			t.Fatal(err)
 		}
 	}
