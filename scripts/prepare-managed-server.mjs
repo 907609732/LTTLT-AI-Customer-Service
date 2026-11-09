@@ -32,7 +32,8 @@ const translations=JSON.parse(await readFile(path.join(folder,'translations.json
 for(const language of ['en','zh','zh-TW','fr','ru','ja','vi']){
  const name=`web/src/i18n/locales/${language}.json`;
  const catalog=JSON.parse(git(['show',`${lock.commit}:${name}`],target));
- for(const [key,zh] of Object.entries(translations))if(!Object.hasOwn(catalog,key))catalog[key]=language==='zh'?zh:key;
+ if(!catalog.translation||typeof catalog.translation!=='object')throw Error(`Unexpected native translation namespace: ${language}`);
+ for(const [key,zh] of Object.entries(translations))if(!Object.hasOwn(catalog.translation,key))catalog.translation[key]=language==='zh'?zh:key;
  await writeFile(path.join(target,name),JSON.stringify(catalog,null,2)+'\n');
 }
 execFileSync('gofmt',['-w',...Object.keys(patches).filter(name=>name.endsWith('.go')).map(name=>path.join(target,name))],{stdio:'inherit'});

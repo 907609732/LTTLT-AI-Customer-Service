@@ -69,6 +69,8 @@ jobs:
       - run: node scripts/prepare-managed-server.mjs
       - run: bun install --frozen-lockfile
         working-directory: managed-server/.upstream/web
+      - name: Verify generated translation overlays
+        run: node --test managed-server/tests/preparation.test.mjs
       - name: Generate routes
         working-directory: managed-server/.upstream/web
         run: node --input-type=module -e "import {Generator,getConfig} from '@tanstack/router-generator'; const root=process.cwd(); await new Generator({config:getConfig({},root),root}).run();"
@@ -76,7 +78,7 @@ jobs:
         working-directory: managed-server/.upstream/web
       - name: Changed frontend lint
         working-directory: managed-server/.upstream/web
-        run: bunx oxlint -c .oxlintrc.json src/features/lingtu src/routes/lingtu src/features/auth/hooks/use-oauth-login.ts 'src/routes/oauth/$provider.tsx' src/features/auth/secure-verification/types.ts src/lib/http-client.ts src/lib/auth-session.ts
+        run: bunx oxlint -c .oxlintrc.json src/features/lingtu src/routes/lingtu src/features/auth/sign-in/index.tsx src/features/auth/sign-up/components/sign-up-form.tsx src/features/auth/hooks/use-oauth-login.ts 'src/routes/oauth/$provider.tsx' src/features/auth/secure-verification/types.ts src/lib/http-client.ts src/lib/auth-session.ts
       - run: bun run test src/features/lingtu src/features/auth/api.test.ts
         working-directory: managed-server/.upstream/web
       - name: Build frontend
