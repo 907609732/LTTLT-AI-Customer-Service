@@ -52,11 +52,12 @@ function useDraft(screen:string){const c=useController();const [,tick]=useReduce
 
 export function FrontendProvider({children,onNotice,onOverlay,services=frontendServices}:{children:ReactNode;onNotice:(s:string)=>void;onOverlay?:(id:string)=>void;services?:FrontendServices}){
  const backend=useBackend();const selectedStore=backend.snapshot.selection.storeId;
- const [drafts]=useState(()=>{const d=createDraftStore();if(backend.available)d.seed('UX17:account',{prompt:backend.snapshot.config.ai.systemPrompt});d.seed('UX11:demo-store-001',{enabled:false,welcomeTemplate:'default'});return d});
+ const [drafts]=useState(()=>{const d=createDraftStore();if(backend.available){d.seed('UX17:account',{prompt:backend.snapshot.config.ai.systemPrompt});d.seed('UX19:account',{items:backend.snapshot.bannedWords||[]})}d.seed('UX11:demo-store-001',{enabled:false,welcomeTemplate:'default'});return d});
  useEffect(()=>{if(backend.available)drafts.hydrate('UX17:account',{prompt:backend.snapshot.config.ai.systemPrompt})},[backend.available,backend.snapshot.config.ai.systemPrompt,drafts]);
+ useEffect(()=>{if(backend.available)drafts.hydrate('UX19:account',{items:backend.snapshot.bannedWords||[]})},[backend.available,backend.snapshot.bannedWords,drafts]);
  const c=useMemo<Controller>(()=>{
   const scope=(screen:string)=>screen+':'+(['UX19','UX24','tasks',...(backend.available?['UX17']:[])].includes(screen)?'account':(backend.available?selectedStore:'demo-store-001'));
-  const submit:Controller['submit']=async command=>{const result=await (backend.available?backend.execute({...command,storeId:selectedStore,conversationId:backend.snapshot.selection.conversationId}):services.execute({...command,storeId:'demo-store-001',requestId:crypto.randomUUID()}));if(result.status==='not-connected')throw Error(result.message||'服务尚未接入');return result;};
+  const submit:Controller['submit']=async command=>{const adapted=command.screenId==='UX19'&&command.action==='save-config'?{...command,action:'save-banned-words',values:{rules:command.values.items||[]}}:command;const result=await (backend.available?backend.execute({...adapted,storeId:selectedStore,conversationId:backend.snapshot.selection.conversationId}):services.execute({...command,storeId:'demo-store-001',requestId:crypto.randomUUID()}));if(result.status==='not-connected')throw Error(result.message||'服务尚未接入');return result;};
   return {drafts,scope,submit,notice:onNotice,handle(n,screen){
    const label=buttonLabel(n),key=scope(screen);
    if(backend.available){
@@ -64,7 +65,7 @@ export function FrontendProvider({children,onNotice,onOverlay,services=frontendS
     const operations:Record<string,string>={'一键上线':'open','一键加载店铺':'open','一键离线':'close','一键小休':'pause','一键开启AI':'enable','一键关闭AI':'disable'};
     const operation=Object.entries(operations).find(([name])=>label===name||n.name.endsWith(name))?.[1];
     if(operation){void backend.execute({action:'batch',values:{operation}}).then(r=>onNotice(r.message||'操作完成')).catch(e=>onNotice(e.message));return true;}
-    if(screen==='UX08'&&/^保存/.test(label)){backend.setSettings(true);return true;}
+    if(screen==='UX08'&&/^保存/.test(label)){document.querySelector<HTMLFormElement>('#handoff-keyword-settings')?.requestSubmit();return true;}
     if(/^同步/.test(label)){onNotice('当前模型与转人工配置为全局设置，其它页面的跨店同步尚未接入。');return true;}
    }
    if(screen==='UX11'&&n.name==='欢迎开关 / 热区')drafts.edit(key,{enabled:!drafts.get(key).draft.enabled});
@@ -106,7 +107,7 @@ export function BoundControl({binding,screenId,sourceNodeId,onClose,children,inp
  if(binding.kind==='tags'){
   const items=(entry.draft.items||[]) as {word:string;replacement:string}[];const query=String(entry.draft.search||'').toLowerCase();const visible=items.filter(x=>x.word.toLowerCase().includes(query));
   if(!items.length&&children)return <>{children}</>;
-  return <div className="banned-tags">{!items.length?<div className="banned-empty"><b>还没有禁用词</b><p>在上方输入后点添加，或直接粘贴一批词</p></div>:visible.length?visible.map(x=><span className="banned-tag" key={x.word}>{x.word}{x.replacement?' → '+x.replacement:''}<button aria-label={'删除禁用词 '+x.word} onClick={()=>edit(items.filter(y=>y.word!==x.word))}>×</button></span>):<p className="banned-empty">没有匹配的禁用词</p>}</div>;
+  return <div className="banned-tags">{!items.length?<div className="banned-empty"><b>还没有禁用词</b><p>在上方输入后点添加，或直接粘贴一批词</p></div>:<>{visible.length?visible.map(x=><span className="banned-tag" key={x.word}><button type="button" className="banned-edit" aria-label={'编辑禁用词 '+x.word} onClick={()=>c.drafts.edit(key,{word:x.word,replacement:x.replacement})}>{x.word}{x.replacement?' → '+x.replacement:''}</button><button type="button" aria-label={'删除禁用词 '+x.word} onClick={()=>edit(items.filter(y=>y.word!==x.word))}>×</button></span>):<p className="banned-empty">没有匹配的禁用词</p>}<button type="button" className="banned-clear" onClick={()=>edit([])}>清空全部禁用词</button></>}</div>;
  }
  if(binding.kind==='switch')return <button type="button" className={'bound-switch '+(value?'is-on':'')} style={{background:value===initial?'transparent':value?'#347fff':'#dce0e6',borderRadius:'inherit'}} role="switch" aria-label={binding.label} aria-checked={Boolean(value)} onClick={e=>{e.stopPropagation();edit(!value)}}>{value!==initial&&Boolean(value)&&<span/>}</button>;
  const common={value:String(value),disabled:binding.disabled,'aria-label':binding.label,placeholder:binding.placeholder,onChange:(e:React.ChangeEvent<HTMLInputElement|HTMLTextAreaElement>)=>edit(binding.max?Array.from(e.target.value).slice(0,binding.max).join(''):e.target.value),onClick:(e:React.MouseEvent)=>e.stopPropagation(),onKeyDown:(e:React.KeyboardEvent<HTMLInputElement|HTMLTextAreaElement>)=>{

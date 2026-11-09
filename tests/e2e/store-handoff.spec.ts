@@ -1,0 +1,39 @@
+import {test,expect} from '@playwright/test';
+
+test('handoff keywords follow the selected store, save independently and can inherit global rules',async({page})=>{
+ await page.setViewportSize({width:1440,height:900});
+ await page.addInitScript(()=>{
+  const read=()=>JSON.parse(localStorage.getItem('handoff-fixture')||'{"selection":"a","stores":{}}');
+  const save=(v:any)=>localStorage.setItem('handoff-fixture',JSON.stringify(v));
+  const snapshot=()=>{const state=read();return {revision:1,stores:[{id:'a',storeName:'甲店',platform:'pdd-web',runtime:{}},{id:'b',storeName:'乙店',platform:'pdd-web',runtime:{}}],selection:{storeId:state.selection,conversationId:''},conversations:[],config:{ai:{systemPrompt:'',baseUrl:'',model:''},safety:{handoffKeywords:state.global||['投诉']}},handoffByStore:state.stores,engine:{},capabilities:{platforms:[],apiKeyConfigured:false}}};
+  (window as any).lingtu={role:'main',backendSnapshot:async()=>snapshot(),onBackendEvent:()=>()=>{},onNavigate:()=>()=>{},onConfirmClose:()=>()=>{},backendExecute:async(c:any)=>{const state=read();if(c.action==='select-store')state.selection=c.storeId;if(c.action==='save-store-handoff'){if(c.values.mode==='inherit')delete state.stores[c.storeId];else state.stores[c.storeId]={keywords:c.values.keywords}}if(c.action==='save-config')state.global=c.values.handoffKeywords;save(state);return{status:'ok',message:'已保存'}}};
+ });
+ await page.goto('/?screen=UX08');
+ const input=page.getByRole('textbox',{name:'转人工关键词',exact:true});
+ await expect(input).toHaveValue('投诉');
+ await input.fill('退款，人工');
+ await page.getByLabel('当前店铺').selectOption('b');
+ await expect(input).toHaveValue('投诉');
+ await page.getByLabel('当前店铺').selectOption('a');
+ await expect(input).toHaveValue('退款，人工');
+ await page.getByRole('button',{name:'保存本店关键词'}).click();
+ await page.getByLabel('当前店铺').selectOption('b');
+ await expect(input).toHaveValue('投诉');
+ await input.fill('物流');
+ await page.getByRole('button',{name:'保存本店关键词'}).click();
+ await page.reload();
+ await expect(input).toHaveValue('物流');
+ await page.getByLabel('当前店铺').selectOption('a');
+ await expect(input).toHaveValue('退款，人工');
+ await page.getByRole('button',{name:'恢复全局关键词'}).click();
+ await expect(input).toHaveValue('投诉');
+ await page.reload();await expect(input).toHaveValue('投诉');
+ await page.getByRole('button',{name:'编辑全局关键词'}).click();
+ await input.fill('全局新词');
+ await page.getByRole('button',{name:'保存转人工关键词'}).click();
+ await page.getByRole('button',{name:'返回本店关键词'}).click();
+ await expect(input).toHaveValue('全局新词');
+ await page.getByLabel('当前店铺').selectOption('b');
+ await expect(input).toHaveValue('物流');
+ await input.scrollIntoViewIfNeeded();await page.screenshot({path:'test-results/store-handoff.png'});
+});

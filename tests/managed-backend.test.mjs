@@ -6,6 +6,20 @@ test('managed model calls use injected transport and never local endpoint or key
  const result=await backend.engine.aiClient.reply({systemPrompt:'rule',thread:[{from:'buyer',type:'text',content:'你好'}]});
  assert.equal(result.reply,'托管回答');assert.ok(captured.client_request_id);assert.equal(captured.messages.length,2);assert.equal(backend.engine.aiClient.suppressFallback,true);
 });
+test('training respects managed transport and blocks further requests while outcome needs review',async t=>{
+ let calls=0;const {ManagedSessionError}=require('../electron/managed-session.cjs');
+ const {backend}=await setup(t,{managedChat:async()=>{calls++;if(calls===1)return {choices:[{message:{content:'{"reply":"测试回答"}'}}]};throw new ManagedSessionError('request_uncertain');}});
+ const input={action:'start-training',values:{question:'你好',history:[]}};
+ const ok=await backend.execute(input);assert.equal(ok.data.reply,'测试回答');
+ await assert.rejects(backend.execute(input));assert.equal(backend.snapshot().modelIssue.code,'request_uncertain');
+ await assert.rejects(backend.execute(input),/核对/);assert.equal(calls,2);
+});
+test('training with an unusable managed result retains the existing review protection',async t=>{
+ let calls=0;const {backend}=await setup(t,{managedChat:async()=>{calls++;return {choices:[{message:{content:'{"reply":""}'}}]}}});
+ const input={action:'start-training',values:{question:'你好',history:[]}};
+ await assert.rejects(backend.execute(input));assert.equal(backend.snapshot().modelIssue.code,'generation_failed');
+ await assert.rejects(backend.execute(input),/核对/);assert.equal(calls,1);
+});
 test('disposed backend cancels pending generation and rejects stale manual send after focus',async t=>{
  let resolveFocus,sent=0;const {backend}=await setup(t,{adapterFactory:()=>({focusConversation:()=>new Promise(r=>{resolveFocus=r;}),sendText:async()=>{sent++;return {ok:true};}})});
  await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'fixture'}});const id=backend.snapshot().stores[0].id;

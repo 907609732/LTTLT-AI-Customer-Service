@@ -1,0 +1,40 @@
+import {test,expect} from '@playwright/test';
+
+test('AI banned-word list reads, edits and saves real configuration commands',async({page})=>{
+ await page.setViewportSize({width:1440,height:900});
+ await page.addInitScript(()=>{
+  const rules=()=>JSON.parse(localStorage.getItem('banned-fixture')||'[{"word":"微信","replacement":""}]');
+  const snap=()=>({revision:1,stores:[],selection:{storeId:'',conversationId:''},conversations:[],config:{ai:{systemPrompt:'',baseUrl:'',model:''},safety:{handoffKeywords:[]}},bannedWords:rules(),engine:{},capabilities:{platforms:[],apiKeyConfigured:false}});
+  (window as any).lingtu={role:'main',backendSnapshot:async()=>snap(),onBackendEvent:()=>()=>{},onNavigate:()=>()=>{},onConfirmClose:()=>()=>{},backendExecute:async(c:any)=>{if(c.action==='save-banned-words')localStorage.setItem('banned-fixture',JSON.stringify(c.values.rules));else throw Error('unexpected command '+c.action);return{status:'ok',message:'禁用词已保存'}}};
+ });
+ await page.goto('/?screen=UX19');
+ await expect(page.getByRole('button',{name:'删除禁用词 微信'})).toBeVisible();
+ await page.getByRole('textbox',{name:'禁用词',exact:true}).fill('红包');
+ await page.getByRole('textbox',{name:'替换成',exact:true}).fill('优惠');
+ await page.getByRole('button',{name:'添加',exact:true}).click();
+ await expect(page.getByRole('button',{name:'删除禁用词 红包'})).toBeVisible();
+ await page.getByRole('button',{name:'编辑禁用词 红包'}).click();
+ await expect(page.getByRole('textbox',{name:'替换成',exact:true})).toHaveValue('优惠');
+ await page.getByRole('textbox',{name:'替换成',exact:true}).fill('优惠券');
+ await page.getByRole('button',{name:'添加',exact:true}).click();
+ await page.getByRole('button',{name:'保存词表',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('禁用词已保存');
+ await page.reload();
+ await expect(page.getByRole('button',{name:'删除禁用词 微信'})).toBeVisible();
+ await expect(page.getByRole('button',{name:'删除禁用词 红包'})).toBeVisible();
+ await expect(page.getByText('优惠券',{exact:false})).toBeVisible();
+ await page.getByRole('button',{name:'删除禁用词 微信'}).click();
+ await page.getByRole('button',{name:'保存词表',exact:true}).click();
+ await page.reload();
+ await expect(page.getByRole('button',{name:'删除禁用词 微信'})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'删除禁用词 红包'})).toBeVisible();
+ await page.screenshot({path:'test-results/banned-words.png'});
+ await page.getByRole('button',{name:'清空全部禁用词'}).click();
+ await expect(page.getByRole('button',{name:'删除禁用词 红包'})).toHaveCount(0);
+ await page.getByRole('button',{name:'放弃更改',exact:true}).click();
+ await expect(page.getByRole('button',{name:'删除禁用词 红包'})).toBeVisible();
+ await page.getByRole('button',{name:'清空全部禁用词'}).click();
+ await page.getByRole('button',{name:'保存词表',exact:true}).click();
+ await page.reload();
+ await expect(page.getByRole('button',{name:'删除禁用词 红包'})).toHaveCount(0);
+});

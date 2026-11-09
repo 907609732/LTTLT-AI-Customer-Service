@@ -11,7 +11,6 @@ export function ModelSettings({notice}:{notice:(message:string)=>void}){
  const [baseUrl,setBaseUrl]=useState(saved.baseUrl||modelProviders.deepseek.baseUrl);
  const [model,setModel]=useState(saved.baseUrl?saved.model:modelProviders.deepseek.model);
  const [apiKey,setApiKey]=useState(''),[pending,setPending]=useState(false),[error,setError]=useState('');
- const [keywords,setKeywords]=useState(b.snapshot.config.safety.handoffKeywords.join('，'));
  const canKeepKey=b.snapshot.capabilities.apiKeyConfigured&&baseUrl.replace(/\/+$/,'')===saved.baseUrl.replace(/\/+$/,'');
  const choose=(next:Provider)=>{setProvider(next);setApiKey('');setError('');if(next!=='custom'){setBaseUrl(modelProviders[next].baseUrl);setModel(modelProviders[next].model);}};
  const save=async(e:FormEvent)=>{
@@ -20,7 +19,7 @@ export function ModelSettings({notice}:{notice:(message:string)=>void}){
   catch(e){setError(e instanceof Error?e.message:String(e));}finally{setPending(false);}
  };
  const getKey=async()=>{if(provider==='custom')return;setPending(true);setError('');try{await b.execute({action:'open-model-key-page',values:{provider}});}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setPending(false);}};
- const saveKeywords=async()=>{if(pending)return;setPending(true);setError('');try{await b.execute({action:'save-config',screenId:'UX08',values:{handoffKeywords:keywords.split(/[,，\n]/).map(s=>s.trim()).filter(Boolean)}});notice('全局转人工关键词已保存。');}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setPending(false);}};
+
  return <div className="live-settings-mask" role="dialog" aria-modal="true" aria-label="模型接口设置">
   <form className="live-settings model-provider-settings" onSubmit={save}>
    <h2>连接 AI 模型</h2><p>选择厂商，粘贴 API Key，即可完成连接。设置应用于全部店铺。</p>
@@ -30,7 +29,7 @@ export function ModelSettings({notice}:{notice:(message:string)=>void}){
     {provider!=='custom'&&<><button type="button" onClick={()=>void getKey()}>获取 API Key</button><span className="model-key-help">在本地浏览器登录官方平台后复制密钥</span><p className="model-preset-note">已自动配置模型：{model}{provider==='qwen'?' · 使用百炼北京地域 API Key':''}</p></>}
     <details key={provider} open={provider==='custom'?true:undefined}><summary>高级设置</summary><label>接口地址<input aria-label="模型接口地址" type="url" required value={baseUrl} onChange={e=>{setBaseUrl(e.target.value);setApiKey('');}}/></label><label>模型名称<input aria-label="模型名称" required value={model} onChange={e=>setModel(e.target.value)}/></label>{provider==='qwen'&&<p>其他地域或专属业务空间请填写官方提供的接口地址及对应密钥。</p>}</details>
    </fieldset>
-   <details><summary>转人工关键词</summary><label>关键词<textarea aria-label="转人工关键词" disabled={pending} value={keywords} onChange={e=>setKeywords(e.target.value)}/></label><button type="button" disabled={pending} onClick={()=>void saveKeywords()}>保存转人工关键词</button></details>
+
    <p>密钥使用系统加密存储。连接测试会发送一条简短测试消息，费用按厂商计费；不会开启店铺自动回复。</p>
    {error&&<p role="alert">{error}</p>}
    <footer><button type="button" disabled={pending} onClick={()=>b.setSettings(false)}>取消</button><button disabled={pending}>{pending?'正在处理…':'测试连接并保存'}</button></footer>
