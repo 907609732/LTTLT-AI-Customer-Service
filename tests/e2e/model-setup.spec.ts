@@ -7,7 +7,8 @@ test('simple setup auto-fills providers, clears switched key and saves tested se
  await dialog.getByRole('button',{name:'获取 API Key'}).click();await dialog.getByLabel('模型API Key').fill('new-test-key');await dialog.getByRole('button',{name:'测试连接并保存'}).click();await expect(dialog).not.toBeVisible();
  const commands=await page.evaluate(()=>(window as any).modelCommands);expect(commands).toContainEqual({action:'open-model-key-page',values:{provider:'qwen'}});expect(commands.find((c:any)=>c.action==='save-model-settings').values).toMatchObject({baseUrl:'https://dashscope.aliyuncs.com/compatible-mode/v1',model:'qwen-plus',apiKey:'new-test-key',testConnection:true});
  await page.getByRole('button',{name:'模型接口设置',exact:true}).click();await expect(page.getByLabel('模型厂商')).toHaveValue('qwen');await expect(page.getByLabel('模型API Key')).toHaveValue('');
- await page.getByText('转人工关键词',{exact:true}).click();await page.getByLabel('转人工关键词').fill('投诉，人工');await page.getByRole('button',{name:'保存转人工关键词'}).click();expect(await page.evaluate(()=>(window as any).modelCommands.at(-1))).toMatchObject({action:'save-config',screenId:'UX08',values:{handoffKeywords:['投诉','人工']}});
+ await expect(page.getByRole('dialog',{name:'模型接口设置'}).getByLabel('转人工关键词')).toHaveCount(0);
+ expect(await page.evaluate(()=>(window as any).modelCommands.some((c:any)=>c.action==='save-config'))).toBe(false);
  await page.screenshot({path:'test-results/model-setup-qwen.png'});
 });
 test('failed test preserves the key and custom endpoint is available',async({page})=>{
