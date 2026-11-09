@@ -50,6 +50,8 @@ jobs:
       - run: npm run test:e2e
       - run: npm run test:electron
       - run: npm run test:integration
+      - name: PDD login integration
+        run: node tests/pdd-login-electron.mjs
       - name: Managed session and native client ownership integration
         run: |
           node tests/managed-electron.mjs
@@ -62,6 +64,9 @@ jobs:
         run: |
           $env:LINGTU_PACKAGED_EXE = (Resolve-Path release/win-unpacked/LingtuCustomerService.exe).Path
           npm run test:integration
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged backend integration failed' }
+          node tests/pdd-login-electron.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged PDD login integration failed' }
       - name: Verify installer update metadata
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
