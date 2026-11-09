@@ -12,12 +12,21 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestMain(m *testing.M) {
+	// These isolated SQL fixtures do not configure Redis. Set process-wide
+	// infrastructure before any relay can launch asynchronous metrics work;
+	// cleanup must never rewrite configuration still read by that work.
+	common.RedisEnabled = false
+	os.Exit(m.Run())
+}
 
 func TestLingtuBufferDoesNotDeliverBeforeAuthorizationRecheck(t *testing.T) {
 	recorder := httptest.NewRecorder()
@@ -80,6 +89,7 @@ func TestLingtuChatLifecycle(t *testing.T) {
 			if err := h.migrateChat(); err != nil {
 				t.Fatal(err)
 			}
+			seedManagedChatIdentity(t, db)
 			if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
 				t.Fatal(err)
 			}
@@ -210,6 +220,7 @@ func TestLingtuChatModelReadinessAndPendingDedupe(t *testing.T) {
 	if err := h.migrateChat(); err != nil {
 		t.Fatal(err)
 	}
+	seedManagedChatIdentity(t, db)
 	if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -259,6 +270,16 @@ func chatFixtureDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func seedManagedChatIdentity(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := db.Create(&accountUserFixture{ID: 99, DisplayName: "Chat fixture", Email: "fixture99@example.test", Username: "chat-fixture", Password: "unused-fixture-password"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := lingtu.RecordVerifiedTrialEmail(db, 99, "fixture99@example.test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLingtuNativeGatewayUsesPinnedChannel(t *testing.T) {
 	// InitLogDB also initializes native SQL identifier quoting; keep it on this
 	// already-verified isolated fixture connection and skip unrelated migrations.
@@ -298,6 +319,7 @@ func TestLingtuNativeGatewayUsesPinnedChannel(t *testing.T) {
 	if err := h.migrateChat(); err != nil {
 		t.Fatal(err)
 	}
+	seedManagedChatIdentity(t, db)
 	if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -323,9 +345,6 @@ func TestLingtuNativeGatewayUsesPinnedChannel(t *testing.T) {
 	if err := db.Create(&model.Ability{Group: "default", Model: "deepseek-flash", ChannelId: channel.Id, Enabled: true}).Error; err != nil {
 		t.Fatal(err)
 	}
-	oldRedis := common.RedisEnabled
-	common.RedisEnabled = false
-	t.Cleanup(func() { common.RedisEnabled = oldRedis })
 	oldMemory := common.MemoryCacheEnabled
 	common.MemoryCacheEnabled = false
 	t.Cleanup(func() { common.MemoryCacheEnabled = oldMemory })

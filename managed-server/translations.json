@@ -73,5 +73,6 @@
  "uncertain":"待核实",
  "reserved":"处理中",
  "success":"成功",
- "failed":"失败"
+ "failed":"失败",
+ "Set a secure password (min. 15 characters)":"设置安全密码（最少 15 个字符）"
 }

@@ -41,18 +41,18 @@ type ManagedAudit struct {
 func (ManagedAudit) TableName() string { return "lingtu_audits" }
 
 type TrialPolicy struct {
-	Calls        int    `json:"calls"`
-	Days         int    `json:"days"`
-	DefaultModel string `json:"default_model"`
-	DailyCalls   int    `json:"daily_calls"`
-	MaxTokens    int    `json:"max_tokens"`
-	PerAccountConcurrent int `json:"per_account_concurrent"`
-	RequestsPerMinute int `json:"requests_per_minute"`
-	GlobalConcurrent int `json:"global_concurrent"`
+	Calls                int    `json:"calls"`
+	Days                 int    `json:"days"`
+	DefaultModel         string `json:"default_model"`
+	DailyCalls           int    `json:"daily_calls"`
+	MaxTokens            int    `json:"max_tokens"`
+	PerAccountConcurrent int    `json:"per_account_concurrent"`
+	RequestsPerMinute    int    `json:"requests_per_minute"`
+	GlobalConcurrent     int    `json:"global_concurrent"`
 }
 
 func DefaultTrialPolicy() TrialPolicy {
-	return TrialPolicy{Calls: 20, Days: 7, DefaultModel: "deepseek-flash", DailyCalls: 200, MaxTokens: 512,PerAccountConcurrent:1,RequestsPerMinute:5,GlobalConcurrent:4}
+	return TrialPolicy{Calls: 20, Days: 7, DefaultModel: "deepseek-flash", DailyCalls: 200, MaxTokens: 512, PerAccountConcurrent: 1, RequestsPerMinute: 5, GlobalConcurrent: 4}
 }
 func LoadTrialPolicy(db *gorm.DB) (TrialPolicy, error) {
 	policy := DefaultTrialPolicy()
@@ -64,7 +64,7 @@ func LoadTrialPolicy(db *gorm.DB) (TrialPolicy, error) {
 	if err != nil {
 		return policy, err
 	}
-	if common.UnmarshalJsonStr(row.Value, &policy) != nil || policy.Calls < 0 || policy.Calls > 1000000 || policy.Days < 1 || policy.Days > 365 || policy.DailyCalls < 1 || policy.MaxTokens < 1 || policy.MaxTokens > 8192 || policy.PerAccountConcurrent<1||policy.PerAccountConcurrent>4||policy.RequestsPerMinute<1||policy.RequestsPerMinute>120||policy.GlobalConcurrent<1||policy.GlobalConcurrent>16 {
+	if common.UnmarshalJsonStr(row.Value, &policy) != nil || policy.Calls < 0 || policy.Calls > 1000000 || policy.Days < 1 || policy.Days > 365 || policy.DailyCalls < 1 || policy.MaxTokens < 1 || policy.MaxTokens > 8192 || policy.PerAccountConcurrent < 1 || policy.PerAccountConcurrent > 4 || policy.RequestsPerMinute < 1 || policy.RequestsPerMinute > 120 || policy.GlobalConcurrent < 1 || policy.GlobalConcurrent > 16 {
 		return policy, errors.New("invalid managed trial policy")
 	}
 	return policy, nil
@@ -74,6 +74,13 @@ func EnsureManagedAccount(db *gorm.DB, userID int, now time.Time) error {
 		return ErrInvalidTrialInput
 	}
 	return NewTrialStore(db).transaction(func(tx *gorm.DB) error {
+		if err := lockTrialLimits(tx); err != nil {
+			return err
+		}
+		eligible, err := claimCurrentTrialIdentities(tx, userID, now)
+		if err != nil {
+			return err
+		}
 		account := ManagedAccount{UserID: userID, Status: "enabled"}
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&account).Error; err != nil {
 			return err
@@ -82,7 +89,7 @@ func EnsureManagedAccount(db *gorm.DB, userID int, now time.Time) error {
 		if err != nil {
 			return err
 		}
-		if policy.Calls == 0 {
+		if policy.Calls == 0 || !eligible {
 			grant := TrialGrant{UserID: userID, CreatedAt: now.Unix(), ExpiresAt: now.Add(time.Duration(policy.Days) * 24 * time.Hour).Unix()}
 			return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&grant).Error
 		}
@@ -130,7 +137,7 @@ func RuntimeVault() (*Vault, error) {
 	return vault, nil
 }
 func MigrateManaged(db *gorm.DB) error {
-	if err := db.AutoMigrate(&ManagedSetting{}, &ManagedAccount{}, &ManagedAudit{}); err != nil {
+	if err := db.AutoMigrate(&ManagedSetting{}, &ManagedAccount{}, &ManagedAudit{}, &TrialIdentityClaim{}, &TrialVerifiedEmail{}); err != nil {
 		return err
 	}
 	return NewTrialStore(db).Migrate()

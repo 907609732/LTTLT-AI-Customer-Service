@@ -42,7 +42,7 @@
     },
     {
       "before": "defer func() {\n\t\terr := model.CloseDB()",
-      "after": "defer lingtuhost.Shutdown()\n\tdefer func() {\n\t\terr := model.CloseDB()"
+      "after": "defer func() {\n\t\tlingtuhost.Shutdown()\n\t\terr := model.CloseDB()"
     }
   ],
   "model/main.go": [
@@ -93,6 +93,14 @@
     {
       "before": "func Register(c *gin.Context) {",
       "after": "func Register(c *gin.Context) {\n\tif !common.EmailVerificationEnabled { common.ApiErrorT(c, \"Email verification is required\"); return }"
+    },
+    {
+      "before": "if err := cleanUser.Insert(inviterId); err != nil {",
+      "after": "if err := model.DB.Transaction(func(tx *gorm.DB) error {\n if err := cleanUser.InsertWithTx(tx, inviterId); err != nil { return err }; if common.EmailVerificationEnabled { return lingtu.RecordVerifiedTrialEmail(tx, cleanUser.Id, cleanUser.Email, time.Now()) }; return nil\n}); err != nil {"
+    },
+    {
+      "before": "// 获取插入后的用户ID",
+      "after": "cleanUser.FinishInsert(inviterId)\n\t// 获取插入后的用户ID"
     }
   ],
   "middleware/auth.go": [
@@ -284,6 +292,50 @@
     {
       "before": "model.ResetUserPasswordByEmail(email, \"new-password\")",
       "after": "model.ResetUserPasswordByEmail(email, \"new-password-long-fixture\")"
+    }
+  ],
+  "model/user_oauth_binding.go": [
+    {
+      "before": "\"time\"",
+      "after": "\"time\"\n\"github.com/QuantumNous/new-api/lingtu\""
+    },
+    {
+      "before": "return DB.Create(binding).Error",
+      "after": "return DB.Transaction(func(tx *gorm.DB) error {\n if err := tx.Create(binding).Error; err != nil { return err }; return lingtu.RecordTrialOAuthIdentity(tx, binding.UserId, binding.ProviderId, binding.ProviderUserId, time.Now())\n})"
+    },
+    {
+      "before": "return tx.Create(binding).Error",
+      "after": "if err := tx.Create(binding).Error; err != nil { return err }; return lingtu.RecordTrialOAuthIdentity(tx, binding.UserId, binding.ProviderId, binding.ProviderUserId, time.Now())"
+    },
+    {
+      "before": "return DB.Model(&binding).Update(\"provider_user_id\", newProviderUserId).Error",
+      "after": "return DB.Transaction(func(tx *gorm.DB) error {\n if err := tx.Model(&binding).Update(\"provider_user_id\", newProviderUserId).Error; err != nil { return err }; return lingtu.RecordTrialOAuthIdentity(tx, userId, providerId, newProviderUserId, time.Now())\n})"
+    }
+  ],
+  "model/account_security.go": [
+    {
+      "before": "\"errors\"",
+      "after": "\"errors\"\n\"time\"\n\"github.com/QuantumNous/new-api/lingtu\""
+    },
+    {
+      "before": "return tx.Model(&binding).Update(\"provider_user_id\", subject).Error",
+      "after": "if err := tx.Model(&binding).Update(\"provider_user_id\", subject).Error; err != nil { return err }; return lingtu.RecordTrialOAuthIdentity(tx, identity.UserID, providerID, subject, time.Now())"
+    }
+  ],
+  "model/email_binding.go": [
+    {
+      "before": "\"github.com/QuantumNous/new-api/common\"",
+      "after": "\"github.com/QuantumNous/new-api/common\"\n\"github.com/QuantumNous/new-api/lingtu\""
+    },
+    {
+      "before": "return tx.Model(flow).Update(\"consumed_at\", time.Now()).Error",
+      "after": "if err := lingtu.RecordVerifiedTrialEmail(tx, identity.UserID, state.Email, time.Now()); err != nil { return err }; return tx.Model(flow).Update(\"consumed_at\", time.Now()).Error"
+    }
+  ],
+  "web/src/features/setup/components/admin-step.tsx": [
+    {
+      "before": "t('Set a secure password (min. 8 characters)')",
+      "after": "t('Set a secure password (min. 15 characters)')"
     }
   ]
 }

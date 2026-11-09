@@ -22,6 +22,9 @@ import (
 type accountUserFixture struct {
 	ID          int `gorm:"primaryKey"`
 	DisplayName string
+	Email       string
+	Username    string
+	Password    string
 }
 
 func (accountUserFixture) TableName() string { return "users" }
@@ -52,7 +55,12 @@ func hostDB(t *testing.T) *gorm.DB {
 		if err = db.Raw(query).Scan(&database).Error; err != nil || database != "lingtu_test" {
 			t.Fatal("refusing to modify a non-test database")
 		}
-		if err = db.Migrator().DropTable(&lingtu.TrialRequest{}, &lingtu.TrialGrant{}, &lingtu.ManagedSetting{}, &lingtu.ManagedAccount{}, &lingtu.ManagedAudit{}, &model.CustomOAuthProvider{}, &accountUserFixture{}); err != nil {
+		if engine == "mysql" {
+			// Match production's required Chinese-capable schema regardless of the
+			// CI service image's database defaults. The DSN charset only sets the connection.
+			db = db.Set("gorm:table_options", "CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci").Session(&gorm.Session{})
+		}
+		if err = db.Migrator().DropTable(&lingtu.TrialIdentityClaim{}, &lingtu.TrialVerifiedEmail{}, &model.UserOAuthBinding{}, &lingtu.TrialRequest{}, &lingtu.TrialGrant{}, &lingtu.ManagedSetting{}, &lingtu.ManagedAccount{}, &lingtu.ManagedAudit{}, &model.CustomOAuthProvider{}, &accountUserFixture{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -65,14 +73,17 @@ func hostDB(t *testing.T) *gorm.DB {
 	if err = lingtu.MigrateManaged(db); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(&accountUserFixture{}, &model.CustomOAuthProvider{}); err != nil {
+	if err = db.AutoMigrate(&accountUserFixture{}, &model.CustomOAuthProvider{}, &model.UserOAuthBinding{}); err != nil {
 		t.Fatal(err)
 	}
 	return db
 }
 func TestLingtuAdminAccountListUsesRealTrialLedger(t *testing.T) {
 	db := hostDB(t)
-	if err := db.Create(&accountUserFixture{ID: 9, DisplayName: "Owner"}).Error; err != nil {
+	if err := db.Create(&accountUserFixture{ID: 9, DisplayName: "Owner", Email: "owner9@example.test"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := lingtu.RecordVerifiedTrialEmail(db, 9, "owner9@example.test", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := lingtu.EnsureManagedAccount(db, 9, time.Now()); err != nil {

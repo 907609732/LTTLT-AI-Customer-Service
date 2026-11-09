@@ -23,4 +23,3 @@ export function ManagedAccountPanel(){
   {state.workspace.mode==='local'&&<div className="managed-account-message" role="status">当前为自己的 Key 直连模式。<button onClick={()=>void action('managed').catch(()=>{})}>切回托管模型</button></div>}
  </>;
 }
-

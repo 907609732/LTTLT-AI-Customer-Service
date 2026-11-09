@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 type legacyChannel struct {
@@ -77,5 +81,33 @@ func TestLingtuLegacyEncryptionPreservesValuesAndRunsOnlyOnce(t *testing.T) {
 	plain, err = v.Open("custom_oauth_providers.client_secret", provider.ClientSecret)
 	if err != nil || string(plain) != strings.Repeat("s", 500) {
 		t.Fatal("long OAuth secret changed")
+	}
+}
+
+func TestLingtuLegacyCredentialQueryQuotesReservedIdentifiers(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		dialect gorm.Dialector
+		quoted  string
+	}{
+		{"mysql", mysql.New(mysql.Config{DSN: "fixture:fixture@tcp(localhost:3306)/lingtu_test", SkipInitializeWithVersion: true}), "`key`"},
+		{"postgres", postgres.Open("host=localhost user=fixture dbname=lingtu_test"), `"key"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, err := gorm.Open(test.dialect, &gorm.Config{DryRun: true, DisableAutomaticPing: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, column := range []struct{ table, primary, field string }{{"channels", "id", "key"}, {"options", "key", "value"}} {
+				var rows []map[string]any
+				query := legacyCredentialQuery(db, column.table, column.primary, column.field, 0).Find(&rows)
+				if query.Error != nil {
+					t.Fatal(query.Error)
+				}
+				if !strings.Contains(query.Statement.SQL.String(), test.quoted) {
+					t.Fatalf("unquoted reserved identifier: %s", query.Statement.SQL.String())
+				}
+			}
+		})
 	}
 }

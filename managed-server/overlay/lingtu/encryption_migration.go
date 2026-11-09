@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type encryptionState struct {
@@ -42,7 +43,7 @@ func EncryptLegacyCredentials(db *gorm.DB) error {
 			}
 			for offset := 0; ; offset += 100 {
 				var rows []map[string]any
-				if err := tx.Table(column.table).Select([]string{column.primary, column.field}).Order(column.primary).Offset(offset).Limit(100).Find(&rows).Error; err != nil {
+				if err := legacyCredentialQuery(tx, column.table, column.primary, column.field, offset).Find(&rows).Error; err != nil {
 					return err
 				}
 				for _, row := range rows {
@@ -74,4 +75,11 @@ func EncryptLegacyCredentials(db *gorm.DB) error {
 		}
 		return tx.Create(&encryptionState{ID: 1, Version: 1}).Error
 	})
+}
+
+func legacyCredentialQuery(db *gorm.DB, table, primary, field string, offset int) *gorm.DB {
+	return db.Table(table).Clauses(
+		clause.Select{Columns: []clause.Column{{Name: primary}, {Name: field}}},
+		clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: primary}}}},
+	).Offset(offset).Limit(100)
 }

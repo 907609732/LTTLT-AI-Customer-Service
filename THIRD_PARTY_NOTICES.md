@@ -4,6 +4,10 @@
 
 ## 软件依赖
 
+### 托管账号与模型服务
+
+`managed-server/` 复用 [QuantumNous/New API](https://github.com/QuantumNous/new-api)，固定版本为 `v1.0.0-rc.49`、提交 `48a6c87f9e7757fdc58e5be9bcb4f8281ad0dfd0`。上游版权属于 QuantumNous 及相应贡献者，上游许可为 **AGPL-3.0-or-later**；不受本项目单独商业授权覆盖。保留上游文件版权、LICENSE 和界面归属。新增覆盖层及构建说明见 `managed-server/README.md`；构建产物附上上游完整 LICENSE，运行界面提供修改版源码入口。
+
 项目各开发分支的 `package.json` 和 `package-lock.json` 记录其实际依赖版本。它们可能包括 React、React DOM、Lucide、Electron、Vite、TypeScript、Playwright、electron-builder，以及 Figma 重构分支中的 [openfig-core](https://github.com/OpenFig-org/openfig-core)。
 
 这些依赖及其传递依赖分别适用自己的许可证。锁文件中出现 MIT、ISC、BSD、Apache-2.0、MPL-2.0 等不同许可；不能将所有依赖一概声明为 AGPL 或本项目自有代码。锁文件的元数据也不能替代实际包中的许可证全文。

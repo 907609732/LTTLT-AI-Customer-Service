@@ -43,6 +43,12 @@ jobs:
       - run: npm run test:e2e
       - run: npm run test:electron
       - run: npm run test:integration
+      - name: Managed session and native client ownership integration
+        run: |
+          node tests/managed-electron.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Managed session integration failed' }
+          node tests/native-binding-electron.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Native client ownership integration failed' }
       - run: npx electron-builder --win nsis --publish never --config.electronDist=node_modules/electron/dist
       - run: npm run test:packaged
       - name: Packaged frontend/backend integration
