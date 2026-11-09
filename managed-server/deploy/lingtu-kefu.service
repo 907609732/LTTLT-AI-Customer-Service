@@ -1,0 +1,27 @@
+[Unit]
+Description=Lingtu managed model service (New API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lingtu-kefu
+Group=lingtu-kefu
+WorkingDirectory=/opt/lingtu-kefu/shared
+EnvironmentFile=/opt/lingtu-kefu/shared/service.env
+ExecStart=/opt/lingtu-kefu/current/lingtu-managed --port 3211 --log-dir /opt/lingtu-kefu/shared/logs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=130
+MemoryMax=256M
+CPUQuota=80%
+TasksMax=128
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/lingtu-kefu/shared
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -86,6 +86,9 @@ function RecordPages(props:{page:number;total:number;fetching:boolean;setPage:(p
 function UsageRecords(props:{save:Save;busy:boolean}){
  const {t}=useTranslation();const [page,setPage]=useState(1);const [selected,setSelected]=useState<{row:UsageRecord;outcome:'success'|'failed'}|null>(null);const [reason,setReason]=useState('');const reconciling=useRef(false)
  const query=useQuery({queryKey:['lingtu','usage',page],queryFn:async()=>(await api.get<Page<UsageRecord>>('/api/lingtu/admin/usage',{params:{page}})).data})
+ let emptyMessage='No usage records yet'
+ if(query.isPending)emptyMessage='Loading...'
+ else if(query.isError)emptyMessage='Unable to load usage records'
  async function reconcile():Promise<void>{
   if(!selected||!reason.trim()||props.busy||reconciling.current)return
   reconciling.current=true
@@ -103,7 +106,7 @@ function UsageRecords(props:{save:Save;busy:boolean}){
    {id:'tokens',header:t('Input / output tokens'),cell:row=>`${formatNumber(row.input_tokens)} / ${formatNumber(row.output_tokens)}`},
    {id:'diagnostic',header:t('Diagnostic code'),cell:row=>row.diagnostic||'—'},
    {id:'actions',header:t('Actions'),cell:row=>row.state==='uncertain'?<div className='flex gap-2'><Button variant='outline' disabled={props.busy} onClick={()=>{setReason('');setSelected({row,outcome:'success'})}}>{t('Confirm success')}</Button><Button variant='outline' disabled={props.busy} onClick={()=>{setReason('');setSelected({row,outcome:'failed'})}}>{t('Confirm failure')}</Button></div>:'—'},
-  ]} emptyContent={t(query.isPending?'Loading...':query.isError?'Unable to load usage records':'No usage records yet')}/>
+  ]} emptyContent={t(emptyMessage)}/>
   <RecordPages page={page} total={query.data?.total||0} fetching={query.isFetching} setPage={setPage}/>
   <ConfirmDialog open={!!selected} onOpenChange={open=>{if(!open&&!props.busy)setSelected(null)}} title={t(selected?.outcome==='success'?'Confirm successful result':'Confirm failed result')} desc={<div className='space-y-3'><p>{t('Verify the actual upstream result. Successful results consume one call; failed results release the reserved call. No request is resent.')}</p><p className='break-all font-mono text-xs'>{selected?.row.user_id} · {selected?.row.request_id}</p><Field id='reconcile-reason' label={t('Reason for change')} value={reason} onChange={setReason}/></div>} confirmText={t('Confirm reconciliation')} disabled={!reason.trim()||reason.trim().length>256||props.busy} isLoading={props.busy} handleConfirm={()=>void reconcile()}/>
  </CardContent></Card>
@@ -111,6 +114,9 @@ function UsageRecords(props:{save:Save;busy:boolean}){
 function AuditRecords(){
  const {t}=useTranslation();const [page,setPage]=useState(1)
  const query=useQuery({queryKey:['lingtu','audit',page],queryFn:async()=>(await api.get<Page<AuditRecord>>('/api/lingtu/admin/audit',{params:{page}})).data})
+ let emptyMessage='No audit records yet'
+ if(query.isPending)emptyMessage='Loading...'
+ else if(query.isError)emptyMessage='Unable to load audit records'
  return <Card className='border border-blue-100 bg-white'><CardHeader className='flex flex-row items-center justify-between'><CardTitle>{t('Administrative audit')}</CardTitle><Button variant='outline' disabled={query.isFetching} onClick={()=>void query.refetch()}>{t('Refresh')}</Button></CardHeader><CardContent className='space-y-4'>
   {query.isError&&<p role='alert'>{t('Unable to load audit records')}</p>}
   <StaticDataTable data={query.data?.items||[]} getRowKey={row=>row.id} columns={[
@@ -120,7 +126,7 @@ function AuditRecords(){
    {id:'section',header:t('Configuration section'),cell:row=>row.section},
    {id:'outcome',header:t('Outcome'),cell:row=>t(row.outcome)},
    {id:'reason',header:t('Reason for change'),cell:row=><span className='break-all'>{row.reason||'—'}</span>},
-  ]} emptyContent={t(query.isPending?'Loading...':query.isError?'Unable to load audit records':'No audit records yet')}/>
+  ]} emptyContent={t(emptyMessage)}/>
   <RecordPages page={page} total={query.data?.total||0} fetching={query.isFetching} setPage={setPage}/>
  </CardContent></Card>
 }

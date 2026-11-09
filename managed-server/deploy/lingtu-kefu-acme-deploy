@@ -1,0 +1,25 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+base=/var/lib/lingtu-kefu-tls
+cert=/var/lib/lingtu-acme/certificates/lingtu-kefu.crt
+key=/var/lib/lingtu-acme/certificates/lingtu-kefu.key
+openssl x509 -in "$cert" -noout -checkend 86400
+openssl x509 -in "$cert" -noout -checkhost account-kefu.lttlt.top
+openssl x509 -in "$cert" -noout -checkhost api-kefu.lttlt.top
+test "$(openssl x509 -in "$cert" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum)" = "$(openssl pkey -in "$key" -pubout -outform DER | sha256sum)"
+release="$base/releases/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$release"
+install -m 600 "$cert" "$release/fullchain.pem"
+install -m 600 "$key" "$release/privkey.pem"
+previous=$(readlink "$base/current" || true)
+ln -s "$release" "$base/current.new"
+mv -Tf "$base/current.new" "$base/current"
+if ! nginx -t; then
+ if test -n "$previous"; then
+  ln -s "$previous" "$base/current.rollback"
+  mv -Tf "$base/current.rollback" "$base/current"
+ fi
+ exit 1
+fi
+systemctl reload nginx
