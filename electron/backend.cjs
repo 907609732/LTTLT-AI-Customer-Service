@@ -127,6 +127,12 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
     message=values.mode==='inherit'?'已恢复使用全局关键词。':'本店关键词已保存。';break;
    }
    case 'save-banned-words':{const rules=bannedRulesSchema.parse(v.rules);writeJson(bannedFile,{version:1,rules});bannedWords=rules;message='AI 禁用词已保存，应用于全部店铺。';break;}
+   case 'save-automation-fallback':{
+    if(modelMode!=='local')throw Error('托管模型模式不支持超时兜底，避免请求状态未确认时重复发送。');
+    const input=z.object({enabled:z.boolean(),seconds:z.number().int().min(1).max(120),text:z.string().trim().max(500)}).strict().parse(v);
+    if(input.enabled&&!input.text)throw Error('开启兜底前请填写兜底话术。');
+    config.update({reply:{fallbackAfterMs:input.enabled?input.seconds*1000:0,fallbackText:input.text}});message='自动回复兜底设置已保存，应用于全部店铺。';break;
+   }
    case 'create-work-order':{const store=storeOf(v.storeId);const item=workOrders.create(v,store);data={id:item.id};message='工单已登记在本机。';break;}
    case 'set-work-order-status':{const input=z.object({id:z.string().uuid(),status:z.enum(['pending','working','waiting','done'])}).strict().parse(v);workOrders.status(input.id,input.status);message='工单状态已更新。';break;}
    case 'add-work-order-note':{const input=z.object({id:z.string().uuid(),text:z.string().trim().min(1).max(2000)}).strict().parse(v);workOrders.note(input.id,input.text);message='跟进记录已保存。';break;}
