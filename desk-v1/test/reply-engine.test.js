@@ -167,6 +167,59 @@ async function waitFor(check, timeoutMs = 1000) {
   }
 }
 
+test('每店回复引擎使用自己的实时关键词，配置更新不需要重启', async () => {
+  const first = makeAdapter([buyerRow('u1', 'm1', '我要退款')]);
+  const second = makeAdapter([buyerRow('u2', 'm2', '我要退款')]);
+  const ai = makeAi();
+  const config = baseConfig();
+  const perStore = { s1: ['退款'], s2: ['人工'] };
+  const engine = new ReplyEngine({
+    registry: { get: id => ({ id, storeName: id, aiEnabled: true }) },
+    adapterFactory: store => store.id === 's1' ? first.adapter : second.adapter,
+    aiClient: ai,
+    getConfig: id => ({ ...config, safety: { ...config.safety, handoffKeywords: perStore[id] || [] } }),
+    logger: silentLogger, now: () => NOW, sleep: async () => {}, random: () => 0,
+  });
+  const a = await engine.startStore('s1');
+  const b = await engine.startStore('s2');
+  try {
+    await a.tick(); await b.tick(); await a.settle(); await b.settle();
+    assert.equal(a.stats.transferred, 1);
+    assert.equal(b.stats.transferred, 0);
+    assert.equal(ai.calls, 1);
+    perStore.s2 = ['退款'];
+    second.state.queue.push(buyerRow('u3', 'm3', '需要退款'));
+    await b.tick(); await b.settle();
+    assert.equal(b.stats.transferred, 1);
+    assert.equal(ai.calls, 1);
+  } finally { engine.stopAll(); }
+});
+
+test('AI 禁用词按长词优先单次替换，空回复不发送并交给人工', async () => {
+  const config=baseConfig({safety:{bannedWords:[{word:'微信',replacement:''},{word:'微信客服',replacement:'人工客服'}]}});
+  const ai=makeAi({reply:'请联系微信客服，微信123'});
+  const first=workerFor({rows:[buyerRow('u1','m1')],ai,config});
+  await first.worker.tick();await first.worker.settle();
+  assert.deepEqual(first.state.sent,[{uid:'u1',text:'请联系人工客服，123'}]);
+  const second=workerFor({rows:[buyerRow('u2','m2')],ai:makeAi({reply:'微信'}),config});
+  await second.worker.tick();await second.worker.settle();
+  assert.deepEqual(second.state.sent,[]);
+  assert.deepEqual(second.state.discarded,['u2']);
+  assert.ok(second.events.some(e=>e.type==='reply:failed'&&e.reason==='banned_empty'));
+  assert.ok(second.events.some(e=>e.type==='reply:needs-manual'&&e.reason==='banned_empty'));
+  const expanded=workerFor({rows:[buyerRow('u3','m3')],ai:makeAi({reply:'x'}),config:baseConfig({reply:{maxReplyChars:5},safety:{bannedWords:[{word:'x',replacement:'123456789'}]}})});
+  await expanded.worker.tick();await expanded.worker.settle();
+  assert.equal(expanded.state.sent[0].text,'12345');
+});
+
+test('未接入平台转接时旧默认话术不承诺已在转接，用户自定义话术保留',async()=>{
+ const legacy=workerFor({rows:[buyerRow('u1','m1','投诉')],config:baseConfig({reply:{handoffText:'已收到您的问题，正在为您转接人工客服，请稍候。'}})});
+ await legacy.worker.tick();await legacy.worker.settle();
+ assert.equal(legacy.state.sent[0].text,'已收到您的问题，客服会尽快为您处理，请稍候。');
+ const custom=workerFor({rows:[buyerRow('u2','m2','投诉')],config:baseConfig({reply:{handoffText:'客服稍后跟进'}})});
+ await custom.worker.tick();await custom.worker.settle();assert.equal(custom.state.sent[0].text,'客服稍后跟进');
+});
+
 test('正常链路：消费 pending → AI → 发送 → discard，并写入自发送台账', async () => {
   const ai = makeAi({ reply: '在的亲，有货' });
   const { worker, state, events } = workerFor({ rows: [buyerRow('u1', 'm1')], ai });

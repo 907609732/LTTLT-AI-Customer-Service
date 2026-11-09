@@ -33,7 +33,7 @@ const DEFAULTS = Object.freeze({
     fallbackAfterMs: 15000,
     fallbackText: '在的亲，稍等一下，马上为您处理~',
     maxReplyChars: 200,
-    handoffText: '已收到您的问题，正在为您转接人工客服，请稍候。',
+    handoffText: '已收到您的问题，客服会尽快为您处理，请稍候。',
     // D-11 保守节奏：同 uid 60s、发送前 0.5~2s 抖动、单店每分钟上限。
     perUidMinIntervalMs: 60000,
     sendJitterMinMs: 500,

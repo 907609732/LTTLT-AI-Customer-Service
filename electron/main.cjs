@@ -95,7 +95,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('app:info',event=>{const owner=guard(event);return {version:app.getVersion(),platform:process.platform,mode:'frontend-handoff',role:owner===auxWin?'auxiliary':'main'};});
  ipcMain.handle('window:action',(event,action)=>{const owner=guard(event);if(action==='minimize')owner.minimize();else if(action==='maximize'&&owner===win)owner.isMaximized()?owner.unmaximize():owner.maximize();else if(action==='close'){if(owner===auxWin)closeAuxApproved=true;owner.close();}else throw new Error('不支持的窗口操作');});
  ipcMain.handle('auxiliary:open',(event,screenId)=>{if(guard(event)!==win||!/^UX(2[6-9]|3[01])$/.test(screenId))throw Error('不允许的辅助窗口目标');openAuxiliary(screenId);return {opened:true};});
- ipcMain.handle('main:open',(event,screenId)=>{guard(event);if(!/^UX(0[1-9]|1[0-9]|2[0-5])$/.test(screenId))throw Error('不允许的主窗口目标');if(!win)createWindow();if(win.isMinimized())win.restore();win.show();win.focus();win.webContents.send('app:navigate',screenId);return {opened:true};});
+ ipcMain.handle('main:open',(event,screenId,options)=>{guard(event);if(!/^UX(0[1-9]|1[0-9]|2[0-5])$/.test(screenId))throw Error('不允许的主窗口目标');if(!win)createWindow();if(options?.focus!==false){if(win.isMinimized())win.restore();win.show();win.focus();}win.webContents.send('app:navigate',screenId);return {opened:true};});
  ipcMain.handle('design:import',async event=>{
   guard(event);
   const chosen=await dialog.showOpenDialog(win,{title:'导入本地 Figma 设计快照',properties:['openFile'],filters:[{name:'灵兔设计快照',extensions:['json']}]});

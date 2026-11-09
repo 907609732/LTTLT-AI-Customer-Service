@@ -1,13 +1,14 @@
 import {test,expect} from '@playwright/test';
 test('simple setup auto-fills providers, clears switched key and saves tested settings',async({page})=>{
  await page.addInitScript(()=>{const config={ai:{systemPrompt:'',baseUrl:'',model:'qwen2.5:7b-instruct'},safety:{handoffKeywords:['投诉']}};let key=false;(window as any).modelCommands=[];(window as any).lingtu={role:'main',onNavigate:()=>()=>{},onConfirmClose:()=>()=>{},onBackendEvent:()=>()=>{},backendSnapshot:async()=>({revision:0,stores:[],selection:{storeId:'',conversationId:''},conversations:[],config,engine:{},capabilities:{platforms:[],apiKeyConfigured:key}}),backendExecute:async(c:any)=>{(window as any).modelCommands.push(c);if(c.action==='save-model-settings'){Object.assign(config.ai,c.values);key=true;}return {status:'ok',message:'连接成功，模型设置已保存。'};}};});
- await page.goto('/');await expect(page.locator('.live-toolbar')).toHaveCount(0);await page.getByRole('button',{name:'模型设置⌄',exact:true}).click();const dialog=page.getByRole('dialog',{name:'模型接口设置'});
+ await page.goto('/');await page.getByRole('button',{name:'模型设置⌄',exact:true}).click();const dialog=page.getByRole('dialog',{name:'模型接口设置'});await expect(page.locator('.live-toolbar')).toHaveCount(0);
  await expect(dialog.getByLabel('模型厂商')).toHaveValue('deepseek');await expect(dialog.getByLabel('模型接口地址')).not.toBeVisible();
  await dialog.getByLabel('模型API Key').fill('old-test-key');await dialog.getByLabel('模型厂商').selectOption('qwen');await expect(dialog.getByLabel('模型API Key')).toHaveValue('');
  await dialog.getByRole('button',{name:'获取 API Key'}).click();await dialog.getByLabel('模型API Key').fill('new-test-key');await dialog.getByRole('button',{name:'测试连接并保存'}).click();await expect(dialog).not.toBeVisible();
  const commands=await page.evaluate(()=>(window as any).modelCommands);expect(commands).toContainEqual({action:'open-model-key-page',values:{provider:'qwen'}});expect(commands.find((c:any)=>c.action==='save-model-settings').values).toMatchObject({baseUrl:'https://dashscope.aliyuncs.com/compatible-mode/v1',model:'qwen-plus',apiKey:'new-test-key',testConnection:true});
  await page.getByRole('button',{name:'模型设置⌄',exact:true}).click();await expect(page.getByLabel('模型厂商')).toHaveValue('qwen');await expect(page.getByLabel('模型API Key')).toHaveValue('');
- await page.getByText('转人工关键词',{exact:true}).click();await page.getByLabel('转人工关键词').fill('投诉，人工');await page.getByRole('button',{name:'保存转人工关键词'}).click();expect(await page.evaluate(()=>(window as any).modelCommands.at(-1))).toMatchObject({action:'save-config',screenId:'UX08',values:{handoffKeywords:['投诉','人工']}});
+ await expect(page.getByRole('dialog',{name:'模型接口设置'}).getByLabel('转人工关键词')).toHaveCount(0);
+ expect(await page.evaluate(()=>(window as any).modelCommands.some((c:any)=>c.action==='save-config'))).toBe(false);
  await page.screenshot({path:'test-results/model-setup-qwen.png'});
 });
 test('failed test preserves the key and custom endpoint is available',async({page})=>{

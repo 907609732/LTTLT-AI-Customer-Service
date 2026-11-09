@@ -56,6 +56,15 @@ function matchKeyword(text, keywords) {
   return (Array.isArray(keywords) ? keywords : []).find((k) => k && content.includes(k)) || null;
 }
 
+function filterBannedWords(text, rules) {
+  const input=String(text || '');
+  const sorted=(Array.isArray(rules)?rules:[]).filter(r=>typeof r?.word==='string'&&r.word).slice().sort((a,b)=>b.word.length-a.word.length);
+  if(!sorted.length)return input;
+  let output='';
+  for(let i=0;i<input.length;){const match=sorted.find(r=>input.startsWith(r.word,i));if(match){output+=String(match.replacement||'');i+=match.word.length}else{output+=input[i];i++}}
+  return sorted.some(r=>output.includes(r.word))?'':output;
+}
+
 class StoreWorker {
   constructor({
     store,
@@ -413,8 +422,10 @@ class StoreWorker {
         return;
       }
 
-      const text = String(generated.result.reply || '').trim();
+      const originalText = String(generated.result.reply || '').trim();
+      const text = filterBannedWords(originalText, this.safety.bannedWords).trim().slice(0,this.cfg.maxReplyChars ?? 200).trim();
       if (!text) {
+        if(originalText){this.stats.failed+=1;await dispose(()=>this.adapter.discard(uid));this.onEvent?.({type:'reply:failed',storeId:this.store.id,uid,reason:'banned_empty'});this.onEvent?.({type:'reply:needs-manual',storeId:this.store.id,uid,reason:'banned_empty'});return;}
         await dispose(() => this.adapter.release(uid));
         return;
       }
@@ -588,7 +599,8 @@ class StoreWorker {
   }
 
   async #handoff(uid, keyword, generation) {
-    const text = this.cfg.handoffText || '已收到您的问题，正在为您转接人工客服，请稍候。';
+    const configured=this.cfg.handoffText;
+    const text = !configured || configured==='已收到您的问题，正在为您转接人工客服，请稍候。' ? '已收到您的问题，客服会尽快为您处理，请稍候。' : configured;
     const sent = await this.#sendText(uid, text, {generation}).catch(() => null);
     this.stats.transferred += 1;
     this.logger?.info(`会话 ${uid} 命中转人工关键词「${keyword}」`);
@@ -643,7 +655,7 @@ class ReplyEngine {
       store,
       adapter,
       aiClient: this.aiClient,
-      getConfig: this.getConfig,
+      getConfig: () => this.getConfig(storeId),
       logger: this.logger?.child?.(store.storeName) || this.logger,
       onEvent: this.onEvent,
       now: this.now,
@@ -719,5 +731,6 @@ module.exports = {
   mergeThread,
   messageKey,
   matchKeyword,
+  filterBannedWords,
   MAX_ATTEMPTS,
 };

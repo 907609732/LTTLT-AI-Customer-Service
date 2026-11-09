@@ -32,6 +32,8 @@ class ShopWindowManager {
     resolveEntryUrl,
     resolveAccessMode,
     prepareStore = null,
+    readIdentity = null,
+    identityPollIntervalMs = 5000,
     ensureClientRunning = null,
     healthCheckTimeoutMs = DEFAULT_HEALTH_CHECK_MS,
     clientWaitTimeoutMs = DEFAULT_CLIENT_WAIT_MS,
@@ -48,6 +50,8 @@ class ShopWindowManager {
     // 平台层能力：建完窗口后调用适配器 ensure()（注入 hook + 版本握手）。
     // core 不关心实现，只知道成功/失败。
     this.prepareStore = prepareStore;
+    this.readIdentity = readIdentity;
+    this.identityPollIntervalMs = identityPollIntervalMs;
     // 外部客户端平台：打开店铺时「未运行则启动」，已在运行只等待；重启只能由按钮触发。
     this.ensureClientRunning = ensureClientRunning;
     this.healthCheckTimeoutMs = healthCheckTimeoutMs;
@@ -86,7 +90,15 @@ class ShopWindowManager {
     if (existing) {
       this.#relayout();
       // 再次点「打开」= 重试（webview 重跑健康检查；客户端店铺重启等待窗口）。
-      if (existing.view) await this.#verifyAndMark(storeId, existing);
+      if (existing.view) {
+        if(existing.loaded===false){
+          existing.navigation=(existing.navigation||0)+1;
+          await existing.view.webContents.loadURL(existing.entryUrl||await this.resolveEntryUrl?.(this.registry.get(storeId)||existing.store));
+          if(this.views.get(storeId)!==existing)return null;
+          existing.loaded=true;
+        }
+        await this.#verifyAndMark(storeId, existing);
+      }
       else {
         const store = this.registry.get(storeId) || existing.store;
         await this.#ensureClientStarted(store);
@@ -132,7 +144,8 @@ class ShopWindowManager {
         sandbox: true,
       },
     });
-    view.setBackgroundColor('#0f1218');
+    // Merchant pages leave some regions transparent; keep their native light background.
+    view.setBackgroundColor('#ffffff');
     view.webContents.setWindowOpenHandler(({ url: target }) => {
       shell.openExternal(target).catch(() => {});
       return { action: 'deny' };
@@ -140,6 +153,7 @@ class ShopWindowManager {
     view.webContents.on('render-process-gone', (_e, details) => {
       const entry = this.views.get(storeId);
       if (entry) {
+        entry.navigation=(entry.navigation||0)+1;entry.loaded=false;
         entry.online = false;
         entry.lastError = `页面异常退出：${details?.reason || 'unknown'}`;
       }
@@ -152,6 +166,7 @@ class ShopWindowManager {
       const entry = this.views.get(storeId);
       const message = `${errorDescription || 'load_failed'} (${errorCode})`;
       if (entry) {
+        entry.navigation=(entry.navigation||0)+1;entry.loaded=false;
         entry.online = false;
         entry.lastError = message;
       }
@@ -160,8 +175,26 @@ class ShopWindowManager {
     });
 
     this.window.contentView.addChildView(view);
-    const entry = { view, store, accessMode, awaitingClient: false, online: false, lastError: '' };
+    const entry = { view, store, entryUrl:url, accessMode, awaitingClient: false, online: false, lastError: '' };
     this.views.set(storeId, entry);
+    if (store.platform === 'pdd-web' && this.readIdentity) {
+      entry.authenticated = null;
+      entry.identityError = '';
+      entry.navigation = 0;
+      entry.loaded = false;
+      const navigating = () => {
+        entry.navigation++;
+        entry.online = false;
+        entry.authenticated = null;
+        entry.loaded = false;
+        this.onEvent?.({type:'shop:navigating',storeId});
+      };
+      view.webContents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => {if(mainFrame)navigating();});
+      view.webContents.on('did-finish-load', () => {entry.loaded=true;void this.#verifyAndMark(storeId,entry);});
+      view.webContents.on('did-navigate-in-page', (_event,_url,mainFrame) => {if(mainFrame){navigating();entry.loaded=true;void this.#verifyAndMark(storeId,entry);}});
+      entry.identityTimer = setInterval(() => {if(entry.loaded&&!entry.probing)void this.#verifyAndMark(storeId,entry);},this.identityPollIntervalMs);
+      entry.identityTimer.unref?.();
+    }
     this.#relayout();
 
     try {
@@ -173,6 +206,7 @@ class ShopWindowManager {
     }
 
     // 页面已加载：调用适配器 ensure()（注入平台 hook），失败不关窗，留给用户登录/重试。
+    entry.loaded = true;
     await this.#verifyAndMark(storeId, entry);
     return view;
   }
@@ -263,6 +297,7 @@ class ShopWindowManager {
    * 失败保留窗口（用户可能只是没登录），状态置 error 并写 lastError。
    */
   async #verifyAndMark(storeId, entry) {
+    if(entry.store.platform === 'pdd-web' && this.readIdentity)return this.#verifyIdentity(storeId,entry);
     const store = this.registry.get(storeId) || entry.store;
     let result = { ok: true, skipped: true };
     if (typeof this.prepareStore === 'function') {
@@ -302,6 +337,60 @@ class ShopWindowManager {
     return false;
   }
 
+  async #verifyIdentity(storeId, entry) {
+    if(this.views.get(storeId)!==entry)return false;
+    if(entry.probing){entry.recheck=true;return entry.probing;}
+    const navigation=entry.navigation;
+    const current=()=>this.views.get(storeId)===entry&&entry.navigation===navigation&&entry.loaded!==false&&!entry.view.webContents.isDestroyed()&&Boolean(this.registry.get(storeId));
+    entry.probing=(async()=>{
+      const before=JSON.stringify(this.stateOf(storeId));
+      const store=this.registry.get(storeId);
+      let identity;
+      const refresh=Boolean(entry.identityChecked);entry.identityChecked=true;
+      try{identity=await withTimeout(Promise.resolve(this.readIdentity(store,{refresh})),this.healthCheckTimeoutMs,'店铺信息识别');}
+      catch{identity={authenticated:null,identityError:'店铺信息获取失败，请点击打开重试'};}
+      if(!current())return false;
+      if(identity?.authenticated!==true&&identity?.authenticated!==false){
+        entry.identityError=String(identity?.identityError||'店铺信息获取失败，请点击打开重试').slice(0,300);
+        if(before!==JSON.stringify(this.stateOf(storeId)))this.onEvent?.({type:'shop:identity_pending',storeId});
+        return entry.online;
+      }
+      entry.authenticated=identity?.authenticated===true?true:identity?.authenticated===false?false:null;
+      entry.identityError=String(identity?.identityError||'').slice(0,300);
+      entry.online=false;entry.lastError='';
+      let identityChanged=false;
+      if(entry.authenticated===true){
+        const patch={};
+        const accountChanged=Boolean(store.mallId&&identity.mallId&&store.mallId!==identity.mallId);
+        if(accountChanged)Object.assign(patch,{storeName:'',customerServiceName:'',customerServiceId:'',aiEnabled:false});
+        for(const [key,max] of [['storeName',60],['mallId',100],['customerServiceName',100],['customerServiceId',100]]){
+          const value=typeof identity[key]==='string'?identity[key].trim().slice(0,max):'';
+          if(value&&value!==store[key])patch[key]=value;
+        }
+        if(!identity.storeName&&!entry.identityError)entry.identityError='店铺名称暂未获取，请点击打开重试';
+        let ready;
+        try{ready=this.prepareStore?await withTimeout(Promise.resolve(this.prepareStore(store)),this.healthCheckTimeoutMs,'店铺连接检查'):{ok:true};}
+        catch{ready={ok:false};}
+        if(!current())return false;
+        if(Object.keys(patch).length){this.registry.update(storeId,patch);identityChanged=true;}
+        if(accountChanged)this.onEvent?.({type:'shop:account_changed',storeId});
+        entry.online=ready?.ok===true;
+        if(!entry.online)entry.lastError='平台连接暂未就绪，请点击打开重试';
+      }
+      if(!current())return false;
+      const after=JSON.stringify(this.stateOf(storeId));
+      if(before!==after||identityChanged){
+        if(entry.online)this.registry.markOpened(storeId);
+        this.onEvent?.({type:'shop:login_state',storeId,authenticated:entry.authenticated,online:entry.online});
+      }
+      return entry.online;
+    })();
+    try{return await entry.probing;}finally{
+      entry.probing=null;
+      if(entry.recheck&&this.views.get(storeId)===entry&&entry.loaded){entry.recheck=false;queueMicrotask(()=>void this.#verifyAndMark(storeId,entry));}
+    }
+  }
+
   /**
    * 重启客户端成功后重新进入等待/探测（覆盖上一轮已超时进入 error 的情况）。
    * 只对已打开的外部客户端店铺生效；webview 店铺不参与。
@@ -318,6 +407,7 @@ class ShopWindowManager {
     const entry = this.views.get(storeId);
     if (!entry) return false;
     this.clientWait.stop(storeId);
+    clearInterval(entry.identityTimer);
     this.views.delete(storeId);
     if (entry.view) {
       try {
@@ -364,6 +454,7 @@ class ShopWindowManager {
       accessMode: entry.accessMode,
       awaitingClient: !!entry.awaitingClient,
       online: !!(entry.online && alive && !entry.awaitingClient),
+      ...(entry.store.platform==='pdd-web'&&this.readIdentity?{authenticated:entry.authenticated,identityError:entry.identityError||''}:{}),
       lastError: entry.awaitingClient ? '' : String(entry.lastError || ''),
     };
   }

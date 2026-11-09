@@ -19,6 +19,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const contract = require('../shared/adapter-contract');
+const { buildIdentityScript } = require('./pdd-identity');
 
 const { ok, fail } = contract;
 
@@ -243,6 +244,19 @@ class PddWebAdapter {
       return ok();
     } catch (err) {
       return this._failOrThrow('ensure', err);
+    }
+  }
+
+  /** Read-only extension: login identity must not depend on successful hook injection. */
+  async readIdentity({ refresh = false } = {}) {
+    try {
+      return await withTimeout(
+        this._wc().executeJavaScript(buildIdentityScript({ timeoutMs: this.timeouts.read, refresh }), true),
+        this.timeouts.read + 1000,
+        '店铺信息读取',
+      );
+    } catch {
+      return { authenticated: null, storeName: '', mallId: '', customerServiceName: '', customerServiceId: '', identityError: '店铺信息获取失败，请重试' };
     }
   }
 
