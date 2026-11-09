@@ -19,3 +19,16 @@ test('generated locale overlays use the native namespace and preserve existing t
   }
  }
 });
+
+test('administrator literal messages exist in both runtime language catalogs',()=>{
+ const catalogs=['en','zh'].map(language=>JSON.parse(readFileSync(resolve(upstream,`web/src/i18n/locales/${language}.json`),'utf8')).translation);
+ for(const file of ['admin-page.tsx','admin-usage.tsx']){
+  const source=readFileSync(resolve(root,'overlay/web/src/features/lingtu',file),'utf8');
+  const keys=[...source.matchAll(/\bt\('([^'\\]*(?:\\.[^'\\]*)*)'/g)].map(match=>match[1].replaceAll("\\'","'"));
+  assert.ok(keys.length>10,`expected administrator messages in ${file}`);
+  for(const key of keys)for(const [index,catalog] of catalogs.entries()){
+   assert.ok(Object.hasOwn(catalog,key),`missing ${['en','zh'][index]} administrator message: ${key}`);
+   assert.ok(typeof catalog[key]==='string'&&catalog[key].trim(),`empty administrator message: ${key}`);
+  }
+ }
+});

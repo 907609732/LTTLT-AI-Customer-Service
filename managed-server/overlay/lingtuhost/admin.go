@@ -57,6 +57,7 @@ func (h *Host) registerAdmin(router *gin.Engine) {
 	admin.GET("/accounts", h.adminAccounts)
 	admin.GET("/audit", h.adminAudit)
 	admin.GET("/usage", h.adminUsage)
+	admin.GET("/usage-summary", h.adminUsageSummary)
 	admin.POST("/config", middleware.CriticalRateLimit(), h.saveConfig)
 }
 func (h *Host) adminConfig(c *gin.Context) {
@@ -99,26 +100,43 @@ func (h *Host) adminConfig(c *gin.Context) {
 	c.JSON(200, gin.H{"policy": policy, "login_providers": providers, "model_providers": models, "smtp": smtp})
 }
 func (h *Host) adminAccounts(c *gin.Context) {
-	page, _ := strconv.Atoi(c.Query("page"))
-	page = max(1, page)
-	var accounts []struct {
-		UserID      int    `json:"user_id"`
-		Status      string `json:"status"`
-		Model       string `json:"model"`
-		DisplayName string `json:"display_name"`
-		Limit       int    `json:"limit" gorm:"column:call_limit"`
-		Used        int    `json:"used"`
-		Reserved    int    `json:"reserved"`
-		ExpiresAt   int64  `json:"expires_at"`
+	page, ok := positiveQuery(c, "page", 1)
+	if !ok || page > int(^uint(0)>>1)/20 {
+		clientFailure(c, 400, "invalid_request")
+		return
 	}
-	query := model.DB.Table("lingtu_accounts AS a").Select("a.user_id,a.status,a.model,u.display_name,g.call_limit,g.used,g.reserved,g.expires_at").Joins("JOIN users AS u ON u.id=a.user_id").Joins("JOIN lingtu_trial_grants AS g ON g.user_id=a.user_id")
+	search := strings.TrimSpace(c.Query("query"))
+	if len(search) > 128 {
+		clientFailure(c, 400, "invalid_request")
+		return
+	}
+	accounts := []struct {
+		UserID       int    `json:"user_id"`
+		Username     string `json:"username"`
+		Role         int    `json:"role"`
+		NativeStatus int    `json:"native_status"`
+		Status       string `json:"status"`
+		Model        string `json:"model"`
+		DisplayName  string `json:"display_name"`
+		Limit        int    `json:"limit" gorm:"column:call_limit"`
+		Used         int    `json:"used"`
+		Reserved     int    `json:"reserved"`
+		ExpiresAt    int64  `json:"expires_at"`
+	}{}
+	query := model.DB.Table("users AS u").Joins("LEFT JOIN lingtu_accounts AS a ON a.user_id = u.id").Joins("LEFT JOIN lingtu_trial_grants AS g ON g.user_id = u.id").Where("u.deleted_at IS NULL")
+	if search != "" {
+		search = strings.ToLower(search)
+		search = strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(search)
+		query = query.Where("(LOWER(u.username) LIKE ? ESCAPE '!' OR LOWER(u.display_name) LIKE ? ESCAPE '!')", "%"+search+"%", "%"+search+"%")
+	}
 	var count int64
-	if query.Count(&count).Error != nil || query.Order("a.user_id DESC").Offset((page-1)*20).Limit(20).Scan(&accounts).Error != nil {
+	if query.Count(&count).Error != nil || query.Select("u.id AS user_id,u.username,u.role,u.status AS native_status,CASE WHEN a.user_id IS NULL OR g.user_id IS NULL THEN 'not_authorized' ELSE a.status END AS status,COALESCE(a.model,'') AS model,CASE WHEN COALESCE(u.display_name,'') = '' THEN COALESCE(u.username,'') ELSE u.display_name END AS display_name,COALESCE(g.call_limit,0) AS call_limit,COALESCE(g.used,0) AS used,COALESCE(g.reserved,0) AS reserved,COALESCE(g.expires_at,0) AS expires_at").Order("u.id DESC").Offset((page-1)*20).Limit(20).Scan(&accounts).Error != nil {
 		clientFailure(c, 503, "temporarily_unavailable")
 		return
 	}
 	c.JSON(200, gin.H{"items": accounts, "total": count, "page": page})
 }
+
 func (h *Host) saveConfig(c *gin.Context) {
 	// Only interactive native sessions may authorize sensitive configuration writes.
 	if _, ok := middleware.GetSessionAuthIdentity(c); !ok {
@@ -381,8 +399,20 @@ func (h *Host) saveAccount(r configurationRequest) error {
 		return lingtu.ErrInvalidTrialInput
 	}
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
-		var existing lingtu.ManagedAccount
-		if err := tx.First(&existing, "user_id = ?", r.UserID).Error; err != nil {
+		var native struct {
+			ID     int
+			Status int
+		}
+		if err := tx.Table("users").Select("id", "status").Where("id = ? AND deleted_at IS NULL", r.UserID).Take(&native).Error; err != nil {
+			return err
+		}
+		if native.Status != common.UserStatusEnabled {
+			return lingtu.ErrInvalidTrialInput
+		}
+		// Only this protected, reason-bearing admin save may initialize entitlement.
+		// Ensure preserves existing grants/identity claims; requested values below are
+		// explicit authorization and never reset used or reserved accounting.
+		if err := lingtu.EnsureManagedAccount(tx, r.UserID, time.Now()); err != nil {
 			return err
 		}
 		account := tx.Model(&lingtu.ManagedAccount{}).Where("user_id = ?", r.UserID).Updates(map[string]any{"status": r.Status, "model": r.Model})

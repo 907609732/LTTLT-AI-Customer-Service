@@ -95,6 +95,7 @@ type managedUsage struct {
 	Model        string `gorm:"type:varchar(128)"`
 	InputTokens  int
 	OutputTokens int
+	UsageKnown   bool   `gorm:"not null;default:false"`
 	Diagnostic   string `gorm:"type:varchar(64)"`
 	CreatedAt    int64  `gorm:"autoCreateTime:false;index"`
 }
@@ -413,9 +414,16 @@ func (h *Host) prepareChat(c *gin.Context) {
 			outcome = "failed"
 			diagnostic = "upstream_rejected"
 		}
+		// Provider token facts survive a rejected reply, capture error or panic.
+		// Delivery acceptance must never erase already-reported consumption.
+		providerUsage := &managedTokenUsage{}
+		if c.GetBool("lingtu_provider_usage_seen") && c.GetBool("lingtu_provider_usage_known") {
+			providerUsage = &managedTokenUsage{Input: c.GetInt("lingtu_provider_input_tokens"), Output: c.GetInt("lingtu_provider_output_tokens"), Known: true}
+		}
+		usage.InputTokens, usage.OutputTokens, usage.UsageKnown = providerUsage.Input, providerUsage.Output, providerUsage.Known
 		var plain []byte
 		if panicValue == nil && started && upstreamStatus >= 200 && upstreamStatus < 300 && capture.Status() == 200 && !capture.tooLarge {
-			plain, usage.InputTokens, usage.OutputTokens = sanitizeResponse(capture.body.Bytes(), selected, append(channel.GetKeys(), c.GetString("lingtu_internal_key"))...)
+			plain, _, _, _ = sanitizeManagedResponse(capture.body.Bytes(), selected, providerUsage, append(channel.GetKeys(), c.GetString("lingtu_internal_key"))...)
 			if len(plain) > 0 {
 				outcome = "success"
 				diagnostic = "success"
@@ -461,31 +469,48 @@ func (h *Host) prepareChat(c *gin.Context) {
 	}()
 	c.Next()
 }
+
+type managedTokenUsage struct {
+	Input, Output int
+	Known         bool
+}
+
+// Keep the existing three-value internal API for callers that do not need provenance.
 func sanitizeResponse(raw []byte, selected string, secrets ...string) ([]byte, int, int) {
+	clean, input, output, _ := sanitizeManagedResponse(raw, selected, nil, secrets...)
+	return clean, input, output
+}
+func sanitizeManagedResponse(raw []byte, selected string, providerUsage *managedTokenUsage, secrets ...string) ([]byte, int, int, bool) {
 	var response struct {
 		Choices []struct {
 			Message struct {
-				Role    string `json:"role"`
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
-		Usage struct {
-			Input  int `json:"prompt_tokens"`
-			Output int `json:"completion_tokens"`
-		} `json:"usage"`
 	}
 	if json.Unmarshal(raw, &response) != nil || len(response.Choices) < 1 {
-		return nil, 0, 0
+		return nil, 0, 0, false
 	}
 	content := response.Choices[0].Message.Content
-	if strings.TrimSpace(content) == "" || response.Usage.Input < 0 || response.Usage.Output < 0 {
-		return nil, 0, 0
+	if strings.TrimSpace(content) == "" {
+		return nil, 0, 0, false
 	}
 	for _, secret := range secrets {
 		if secret != "" && strings.Contains(content, secret) {
-			return nil, 0, 0
+			return nil, 0, 0, false
 		}
 	}
-	clean, _ := json.Marshal(gin.H{"model": selected, "choices": []gin.H{{"index": 0, "message": gin.H{"role": "assistant", "content": content}, "finish_reason": "stop"}}, "usage": gin.H{"prompt_tokens": response.Usage.Input, "completion_tokens": response.Usage.Output, "total_tokens": response.Usage.Input + response.Usage.Output}})
-	return clean, response.Usage.Input, response.Usage.Output
+	input, output, known := lingtu.ParseTokenUsage(raw)
+	if providerUsage != nil {
+		input, output, known = providerUsage.Input, providerUsage.Output, providerUsage.Known
+	}
+	if !known {
+		input, output = 0, 0
+	}
+	payload := gin.H{"model": selected, "choices": []gin.H{{"index": 0, "message": gin.H{"role": "assistant", "content": content}, "finish_reason": "stop"}}}
+	if known {
+		payload["usage"] = gin.H{"prompt_tokens": input, "completion_tokens": output, "total_tokens": input + output}
+	}
+	clean, _ := json.Marshal(payload)
+	return clean, input, output, known
 }
