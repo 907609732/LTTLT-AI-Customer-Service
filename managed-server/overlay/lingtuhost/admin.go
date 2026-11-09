@@ -239,6 +239,7 @@ func (h *Host) saveSocial(r configurationRequest) error {
 		var current model.CustomOAuthProvider
 		if err := tx.First(&current, "slug = ?", slug).Error; err == nil {
 			provider.Id = current.Id
+			provider.CreatedAt = current.CreatedAt
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
