@@ -20,7 +20,7 @@ jobs:
   verify:
     # Explicit UI-only requests run their focused acceptance job; release tags/manual runs retain full regression.
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.validation_scope != 'config-center') || (github.event_name != 'workflow_dispatch' && (startsWith(github.ref, 'refs/tags/v') || (!contains(github.event.pull_request.title, 'UI-only: UX03') && !contains(github.event.head_commit.message, 'UI-only: UX03'))))
+      (github.event_name == 'workflow_dispatch' && inputs.validation_scope != 'config-center') || (github.event_name != 'workflow_dispatch' && (startsWith(github.ref, 'refs/tags/v') || (!contains(github.event.pull_request.title, 'UI-only: UX03') && !contains(github.event.head_commit.message, 'UI-only: UX03') && !contains(github.event.head_commit.message, '[config-merge]'))))
     runs-on: windows-latest
     timeout-minutes: 15
     permissions:
@@ -100,7 +100,7 @@ jobs:
           retention-days: 14
 
   config-center:
-    if: github.event_name == 'workflow_dispatch' && inputs.validation_scope == 'config-center'
+    if: (github.event_name == 'workflow_dispatch' && inputs.validation_scope == 'config-center') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[config-merge]'))
     runs-on: windows-latest
     timeout-minutes: 15
     permissions:
@@ -124,12 +124,16 @@ jobs:
           }
       - run: npm run typecheck
       - name: Test changed backend and account boundaries
-        run: node --test tests/managed-backend.test.mjs tests/workspace-runtime.test.mjs tests/training.test.mjs tests/store-handoff.test.mjs tests/banned-words.test.mjs tests/work-orders.test.mjs tests/automation-fallback.test.mjs desk-v1/test/config.test.js desk-v1/test/reply-engine.test.js
+        run: node --test tests/managed-backend.test.mjs tests/workspace-runtime.test.mjs tests/training.test.mjs tests/store-handoff.test.mjs tests/banned-words.test.mjs tests/work-orders.test.mjs tests/automation-fallback.test.mjs tests/pdd-identity.test.mjs tests/pdd-login.test.mjs tests/pdd-window.test.mjs desk-v1/test/config.test.js desk-v1/test/reply-engine.test.js
       - run: npx playwright install chromium
       - name: Test changed configuration screens
-        run: npx playwright test tests/e2e/handoff-settings.spec.ts tests/e2e/store-handoff.spec.ts tests/e2e/banned-words.spec.ts tests/e2e/training.spec.ts tests/e2e/work-orders.spec.ts tests/e2e/automation-fallback.spec.ts tests/e2e/dashboard-real-data.spec.ts tests/e2e/managed-model-issue.spec.ts
+        run: npx playwright test tests/e2e/handoff-settings.spec.ts tests/e2e/store-handoff.spec.ts tests/e2e/banned-words.spec.ts tests/e2e/training.spec.ts tests/e2e/work-orders.spec.ts tests/e2e/automation-fallback.spec.ts tests/e2e/dashboard-real-data.spec.ts tests/e2e/managed-model-issue.spec.ts tests/e2e/pdd-login.spec.ts tests/e2e/ux03-readability.spec.ts
       - name: Verify changed screens with isolated Electron data
-        run: node tests/store-handoff-electron.mjs
+        run: |
+          node tests/store-handoff-electron.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Configuration integration failed' }
+          node tests/pdd-login-electron.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'PDD login integration failed' }
       - run: npm run build
       - name: Build Windows preview
         run: npx electron-builder --win dir --publish never --config.electronDist=node_modules/electron/dist

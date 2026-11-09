@@ -1,7 +1,7 @@
 import {createContext,useContext,useState,useEffect,useCallback,useRef} from 'react';
 import type {ReactNode} from 'react';
 import type {FrontendResult} from '../services/contracts';
-export type Store={id:string;storeName:string;platform:string;group?:string;aiEnabled:boolean;runtime:{open:boolean;online:boolean;awaitingClient?:boolean;collectionError?:string;lastError?:string}};
+export type Store={id:string;storeName:string;platform:string;group?:string;mallId?:string;customerServiceName?:string;customerServiceId?:string;aiEnabled:boolean;runtime:{open:boolean;online:boolean;authenticated?:boolean|null;identityError?:string;awaitingClient?:boolean;collectionError?:string;lastError?:string}};
 export type Conversation={storeId:string;uid:string;name:string;status:string;messages:{from:string;content:string;ts:number}[];updatedAt?:number};
 export type WorkOrder={id:string;storeId:string;storeName:string;type:string;orderNo:string;buyer:string;priority:string;description:string;status:string;createdAt:number;updatedAt:number;notes:{id:string;text:string;at:number}[]};
 export type ManagedModelIssue={code:string;kind:string;message:string;requiresReview:boolean;at:number};

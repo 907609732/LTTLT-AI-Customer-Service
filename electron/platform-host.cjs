@@ -12,7 +12,7 @@ function createPlatformHost({dataDir,partitionNamespace='',allowExternalClient=p
  const managerFactory=deps=>{
   ({logger,config,registry,adapterFor}=deps);notify=deps.onEvent;
   const launcher=new ClientLauncher({logger:logger.child('client'),launcherConfigPath:path.join(dataDir,'launcher_config.json')});
-  manager=new ShopWindowManager({partitionNamespace,window:windowProxy,registry,logger,resolveEntryUrl:platform.entryUrlFor,resolveAccessMode:platform.accessModeFor,prepareStore:s=>adapterFor(s).ensure(),ensureClientRunning:s=>launcher.ensureRunning(s),onEvent:notify});manager.sidebarWidth=0;
+  manager=new ShopWindowManager({partitionNamespace,window:windowProxy,registry,logger,resolveEntryUrl:platform.entryUrlFor,resolveAccessMode:platform.accessModeFor,prepareStore:s=>adapterFor(s).ensure(),readIdentity:(s,options)=>adapterFor(s).readIdentity(options),ensureClientRunning:s=>launcher.ensureRunning(s),onEvent:notify});manager.sidebarWidth=0;
   const closeAll=manager.closeAll.bind(manager);manager.closeAll=()=>{closeAll();if(host&&!host.isDestroyed()){closing=true;host.destroy();host=null;closing=false}};
   const open=manager.open.bind(manager);manager.open=async id=>{if(disposed)throw Error('工作区已关闭');const r=await open(id);if(disposed){manager.closeAll();throw Error('工作区已关闭');}if(manager.stateOf(id).open&&platform.accessModeFor(registry.get(id))==='webview'){ensureWindow().show();host.focus();}return r;};
   manager.restartClient=async id=>{const s=registry.get(id);if(!s)throw Error('店铺不存在');const r=await launcher.restart(s);if(!r?.ok)throw Error('无法重启客户端，请确认已安装');manager.retryClient(id);return r;};

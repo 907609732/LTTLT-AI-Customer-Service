@@ -50,9 +50,22 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  const adapterFor=store=>{if(!adapters.has(store.id)){if(!adapterFactory)throw Error('平台服务尚未就绪');adapters.set(store.id,adapterFactory(store,{config:config.all(),logger}));}return adapters.get(store.id)};
  const snapshot=()=>structuredClone({revision,modelIssue,stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
  function changed(){if(disposed)return;revision++;onEvent({type:'backend:changed',revision});}
+ async function startCollection(id){
+  const state=manager.stateOf(id);
+  if(!state?.open||state.authenticated===false||state.authenticated===null)return;
+  await monitor.start(id);
+  const after=manager.stateOf(id);
+  if(disposed||!registry.get(id)||!after?.open||after.authenticated===false||after.authenticated===null)monitor.stop(id);
+ }
  function ingest(event){
   if(disposed)return;
   const store=registry.get(event.storeId);
+  if(store&&event.type==='shop:login_state'&&event.authenticated===true&&event.online)void startCollection(store.id).catch(()=>{});
+  if(store&&(['shop:navigating','shop:crash','shop:open_failed','shop:account_changed'].includes(event.type)||(event.type==='shop:login_state'&&event.authenticated===false))){
+   aiEpoch.set(store.id,(aiEpoch.get(store.id)||0)+1);
+   monitor?.stop(store.id);engine?.stopStore(store.id);registry.setAi(store.id,false);collectionErrors.delete(store.id);
+   const adapter=adapters.get(store.id);if(adapter)void adapter.syncAiEnabled(false).catch(()=>{});
+  }
   if(store&&event.type==='collection:lost')collectionErrors.set(store.id,String(event.reasonText||'消息采集中断'));
   if(store&&['collection:resumed','shop:closed'].includes(event.type))collectionErrors.delete(store.id);
   if(store&&((event.type==='message:in'&&['buyer','seller'].includes(event.from))||event.type==='reply:sent')){
@@ -104,7 +117,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  async function execute(raw){
   if(disposed)throw Error('服务已关闭');const command=Command.parse(raw);const v=command.values||{};let data={},message='操作完成。';
   switch(command.action){
-   case 'add-store':if(!platforms.some(p=>p.id===v.platform))throw Error('该平台尚未接入');if(v.platform==='doudian-client'){externalClientReady();if(!allowExternalClient)throw Error('请先在登录账号页面确认将本机抖店客户端绑定当前灵兔账号。');}data=registry.add(v);selection={storeId:data.id,conversationId:''};message='店铺已添加，AI默认关闭。';break;
+   case 'add-store':if(!platforms.some(p=>p.id===v.platform))throw Error('该平台尚未接入');if(v.platform==='doudian-client'){externalClientReady();if(!allowExternalClient)throw Error('请先在登录账号页面确认将本机抖店客户端绑定当前灵兔账号。');}data=registry.add(v);selection={storeId:data.id,conversationId:''};message='店铺已添加，AI默认关闭。';if(v.platform==='pdd-web'&&v.openAfterAdd===true){changed();try{await execute({action:'open-store',storeId:data.id});data={...data,opened:true};message='已打开拼多多，请完成登录，店铺名称将自动识别。';}catch{data={...data,opened:false};message='店铺已添加，登录页打开失败，请点击打开重试。';}}break;
    case 'set-store-group':storeOf(command.storeId);registry.update(command.storeId,{group:z.string().trim().max(30).parse(v.group)});message='店铺分组已保存。';break;
    case 'remove-store':{
     const store=storeOf(command.storeId),id=store.id;
@@ -146,7 +159,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
     data={reply};message='模拟回复已生成。';break;
    }
    case 'select-conversation':{storeOf(command.storeId);const c=conversations.find(c=>c.storeId===command.storeId&&c.uid===command.conversationId);if(!c)throw Error('会话不存在或尚未采集');selection={storeId:command.storeId,conversationId:c.uid};break;}
-   case 'open-store':{const id=command.storeId;const target=storeOf(id);if(target.platform==='doudian-client'){externalClientReady();if(!allowExternalClient)throw Error('请先在登录账号页面确认将本机抖店客户端绑定当前灵兔账号。');}if(!manager.open)throw Error('平台窗口尚未就绪');if(opening.has(id))throw Error('店铺正在打开，请稍候');const epoch=(openEpoch.get(id)||0)+1;openEpoch.set(id,epoch);opening.add(id);try{await manager.open(id);if(disposed||openEpoch.get(id)!==epoch){manager.close(id);throw Error('打开店铺操作已取消');}await monitor.start(id);if(disposed||openEpoch.get(id)!==epoch){monitor.stop(id);manager.close(id);throw Error('打开店铺操作已取消');}message='已打开店铺，请完成平台登录。';}finally{opening.delete(id);}break;}
+   case 'open-store':{const id=command.storeId;const target=storeOf(id);if(target.platform==='doudian-client'){externalClientReady();if(!allowExternalClient)throw Error('请先在登录账号页面确认将本机抖店客户端绑定当前灵兔账号。');}if(!manager.open)throw Error('平台窗口尚未就绪');if(opening.has(id))throw Error('店铺正在打开，请稍候');const epoch=(openEpoch.get(id)||0)+1;openEpoch.set(id,epoch);opening.add(id);try{await manager.open(id);if(disposed||openEpoch.get(id)!==epoch){manager.close(id);throw Error('打开店铺操作已取消');}await startCollection(id);if(disposed||openEpoch.get(id)!==epoch){monitor.stop(id);manager.close(id);throw Error('打开店铺操作已取消');}message='已打开店铺，请完成平台登录。';}finally{opening.delete(id);}break;}
    case 'restart-client':{externalClientReady();if(!allowExternalClient)throw Error('请先在登录账号页面确认本机抖店客户端的绑定。');const s=storeOf(command.storeId);if(s.platform!=='doudian-client'||!manager.restartClient)throw Error('该平台不支持重启客户端');data=await manager.restartClient(s.id);message='客户端已重启，正在重新连接。';break;}
    case 'close-store':storeOf(command.storeId);openEpoch.set(command.storeId,(openEpoch.get(command.storeId)||0)+1);aiEpoch.set(command.storeId,(aiEpoch.get(command.storeId)||0)+1);engine.stopStore(command.storeId);monitor.stop(command.storeId);registry.setAi(command.storeId,false);manager.close(command.storeId);break;
    case 'set-ai':await setAi(command.storeId,v.enabled===true);message=v.enabled?'AI已开启。':'AI已关闭。';break;
