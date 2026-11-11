@@ -3,7 +3,7 @@ const path=require('node:path');
 const fs=require('node:fs/promises');
 const {pathToFileURL,fileURLToPath}=require('node:url');
 const crypto=require('node:crypto');
-let win,auxWin,backend,platformHost,updates,updateTimer;let closingMain=false,closeAuxApproved=false;
+let win,auxWin,backend,platformHost,updates,updateTimer;let closingMain=false,closeAuxApproved=false,updateQuitPending=false;
 const DEV_URL='http://127.0.0.1:5173/';
 const isDev=!app.isPackaged&&process.argv.includes('--dev');
 const entry=pathToFileURL(path.join(__dirname,'../dist/index.html')).href;
@@ -48,14 +48,15 @@ function openAuxiliary(screenId){
  loadWindow(auxWin,screenId);
 }
 app.whenReady().then(async()=>{
- updates=require('./updates.cjs').createUpdateService({updater:require('electron-updater').autoUpdater,currentVersion:app.getVersion(),enabled:app.isPackaged,openExternal:url=>shell.openExternal(url),onChange:state=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('update:state',state);}});
+ updates=require('./updates.cjs').createUpdateService({updater:require('electron-updater').autoUpdater,currentVersion:app.getVersion(),enabled:app.isPackaged||process.env.LINGTU_INTEGRATION_TEST==='1',openExternal:url=>shell.openExternal(url),onChange:state=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('update:state',state);}});
  ipcMain.handle('update:snapshot',event=>{guard(event);return updates.snapshot();});
  ipcMain.handle('update:check',event=>{guard(event);return updates.check(true);});
+ ipcMain.handle('update:download-install',event=>{guard(event);return updates.downloadAndInstall();});
  ipcMain.handle('update:open-release',event=>{guard(event);return updates.openReleasePage();});
  const dataDir=path.join(process.env.LINGTU_DATA_DIR||app.getPath('userData'),'backend');
  process.env.DESK_DATA_DIR=dataDir;
  platformHost=require('./platform-host.cjs').createPlatformHost({dataDir});
- backend=require('./backend.cjs').createBackend({dataDir,...platformHost,onEvent:event=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('backend:event',event);}});
+ backend=require('./backend.cjs').createBackend({dataDir,...platformHost,openExternal:url=>shell.openExternal(url),onEvent:event=>{for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send('backend:event',event);}});
  await platformHost.start();
  ipcMain.handle('backend:snapshot',event=>{guard(event);return backend.snapshot();});
  ipcMain.handle('backend:execute',(event,command)=>{guard(event);return backend.execute(command);});
@@ -64,7 +65,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('app:info',event=>{const owner=guard(event);return {version:app.getVersion(),platform:process.platform,mode:'frontend-handoff',role:owner===auxWin?'auxiliary':'main'};});
  ipcMain.handle('window:action',(event,action)=>{const owner=guard(event);if(action==='minimize')owner.minimize();else if(action==='maximize'&&owner===win)owner.isMaximized()?owner.unmaximize():owner.maximize();else if(action==='close'){if(owner===auxWin)closeAuxApproved=true;owner.close();}else throw new Error('不支持的窗口操作');});
  ipcMain.handle('auxiliary:open',(event,screenId)=>{if(guard(event)!==win||!/^UX(2[6-9]|3[01])$/.test(screenId))throw Error('不允许的辅助窗口目标');openAuxiliary(screenId);return {opened:true};});
- ipcMain.handle('main:open',(event,screenId)=>{guard(event);if(!/^UX(0[1-9]|1[0-9]|2[0-5])$/.test(screenId))throw Error('不允许的主窗口目标');if(!win)createWindow();if(win.isMinimized())win.restore();win.show();win.focus();win.webContents.send('app:navigate',screenId);return {opened:true};});
+ ipcMain.handle('main:open',(event,screenId,options)=>{guard(event);if(!/^UX(0[1-9]|1[0-9]|2[0-5])$/.test(screenId))throw Error('不允许的主窗口目标');if(!win)createWindow();if(options?.focus!==false){if(win.isMinimized())win.restore();win.show();win.focus();}win.webContents.send('app:navigate',screenId);return {opened:true};});
  ipcMain.handle('design:import',async event=>{
   guard(event);
   const chosen=await dialog.showOpenDialog(win,{title:'导入本地 Figma 设计快照',properties:['openFile'],filters:[{name:'灵兔设计快照',extensions:['json']}]});
@@ -101,6 +102,7 @@ app.whenReady().then(async()=>{
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
-app.on('before-quit',()=>{closingMain=true;clearTimeout(updateTimer);updates?.dispose();backend?.dispose();platformHost?.close();});
+require('electron').autoUpdater.on('before-quit-for-update',()=>{updateQuitPending=true;});
+app.on('before-quit',event=>{if(updateQuitPending){updateQuitPending=false;const state=updates?.snapshot();if(state?.status==='error'&&state.failureStage==='install'){event.preventDefault();return;}}closingMain=true;closeAuxApproved=true;clearTimeout(updateTimer);updates?.dispose();backend?.dispose();platformHost?.close();});
 
-if(process.env.LINGTU_INTEGRATION_TEST==='1')module.exports.getBackend=()=>backend;
+if(process.env.LINGTU_INTEGRATION_TEST==='1'){module.exports.getBackend=()=>backend;module.exports.getUpdates=()=>updates;}

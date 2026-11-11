@@ -17,24 +17,28 @@ const PLATFORM_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const StoreSchema = z.object({
   id: z.string().min(6).max(64),
   platform: z.string().min(1).max(40),
-  storeName: z.string().min(1).max(60),
+  storeName: z.string().max(60),
+  mallId: z.string().max(100).default(''),
+  customerServiceName: z.string().max(100).default(''),
+  customerServiceId: z.string().max(100).default(''),
   status: z.enum(['inactive', 'active', 'error']).default('inactive'),
   aiEnabled: z.boolean().default(true),
   note: z.string().max(200).default(''),
+  group: z.string().trim().max(30).default(''),
   createdAt: z.number().int().nonnegative(),
   lastOpenedAt: z.number().int().nonnegative().default(0),
   lastError: z.string().max(300).default(''),
-});
+}).refine(s => s.platform === 'pdd-web' || Boolean(s.storeName.trim()), {message:'店铺名称不能为空',path:['storeName']});
 
 const AddInput = z.object({
-  storeName: z.string().trim().min(1).max(60),
+  storeName: z.string().trim().min(1).max(60).optional(),
   platform: z
     .string()
     .trim()
     .regex(PLATFORM_ID_RE, 'platform 必须是平台适配器 id（小写 kebab，如 pdd-web）')
     .default(DEFAULT_PLATFORM_ID),
   note: z.string().trim().max(200).optional(),
-});
+}).refine(s => s.platform === 'pdd-web' || Boolean(s.storeName), {message:'店铺名称不能为空',path:['storeName']});
 
 function partitionOf(storeOrId) {
   const id = typeof storeOrId === 'string' ? storeOrId : storeOrId?.id;
@@ -81,7 +85,7 @@ class StoreRegistry {
     const store = StoreSchema.parse({
       id,
       platform: parsed.platform,
-      storeName: parsed.storeName,
+      storeName: parsed.storeName || '',
       status: 'inactive',
       // 新店默认不自动回复：AI 端点未配置时兜底话术仍可能发出，会误发给真实买家。
       aiEnabled: false,
