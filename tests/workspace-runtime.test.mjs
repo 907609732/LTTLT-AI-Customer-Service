@@ -24,9 +24,11 @@ test('configuration data remains isolated when switching managed accounts',async
   await runtime.execute({workspaceId:a.workspaceId,action:'save-store-handoff',storeId:store,values:{mode:'custom',keywords:['甲规则']}});
   await runtime.execute({workspaceId:a.workspaceId,action:'save-banned-words',values:{rules:[{word:'甲禁用',replacement:''}]}});
   await runtime.execute({workspaceId:a.workspaceId,action:'create-work-order',values:{storeId:store,type:'其他事项',orderNo:'隔离单号',buyer:'',priority:'normal',description:'跟进测试'}});
-  await runtime.acceptSession({status:'signed_in',account:{userId:'account-b'}});let b=runtime.snapshot();assert.deepEqual(b.bannedWords,[]);assert.deepEqual(b.stores,[]);assert.deepEqual(b.workOrders,[]);
+  runtime.getBackend().ingest({type:'message:in',storeId:store,uid:'draft-buyer',from:'buyer',content:'fixture'});
+  await runtime.execute({workspaceId:a.workspaceId,action:'save-auxiliary-draft',storeId:store,conversationId:'draft-buyer',values:{text:'账号甲草稿'}});
+  await runtime.acceptSession({status:'signed_in',account:{userId:'account-b'}});let b=runtime.snapshot();assert.deepEqual(b.auxiliary.drafts,[]);assert.deepEqual(b.bannedWords,[]);assert.deepEqual(b.stores,[]);assert.deepEqual(b.workOrders,[]);
   await assert.rejects(runtime.execute({workspaceId:a.workspaceId,action:'save-banned-words',values:{rules:[]}}),/工作区/);
   await runtime.execute({workspaceId:b.workspaceId,action:'save-banned-words',values:{rules:[{word:'乙禁用',replacement:''}]}});
-  await runtime.acceptSession({status:'signed_in',account:{userId:'account-a'}});a=runtime.snapshot();assert.deepEqual(a.bannedWords,[{word:'甲禁用',replacement:''}]);assert.deepEqual(a.handoffByStore[store].keywords,['甲规则']);assert.equal(a.workOrders[0].orderNo,'隔离单号');
+  await runtime.acceptSession({status:'signed_in',account:{userId:'account-a'}});a=runtime.snapshot();assert.equal(a.auxiliary.drafts[0].text,'账号甲草稿');assert.deepEqual(a.bannedWords,[{word:'甲禁用',replacement:''}]);assert.deepEqual(a.handoffByStore[store].keywords,['甲规则']);assert.equal(a.workOrders[0].orderNo,'隔离单号');
  }finally{await runtime.dispose()}
 });

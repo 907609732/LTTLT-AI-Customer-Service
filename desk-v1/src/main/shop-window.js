@@ -41,8 +41,10 @@ class ShopWindowManager {
     clientWait = null,
     onEvent = null,
     partitionNamespace = '',
+    layoutViews = null,
   }) {
     this.window = window;
+    this.layoutViews = layoutViews;
     this.registry = registry;
     this.logger = logger;
     this.resolveEntryUrl = resolveEntryUrl;
@@ -70,15 +72,27 @@ class ShopWindowManager {
     this.sidebarWidth = 300;
   }
 
-  #sessionFor(store) {
+  #sessionFor(store, entryUrl) {
     const partition = this.partitionOf(store);
     const ses = session.fromPartition(partition, { cache: true });
     if (!this.configuredSessions.has(partition)) {
-      ses.setPermissionRequestHandler((_wc, permission, callback) => {
-        const allowed = ['media', 'clipboard-read', 'clipboard-sanitized-write', 'notifications', 'fullscreen'];
+      const notificationOrigin = new URL(entryUrl).origin;
+      const canNotify = (webContents, origin) => {
+        try {
+          return !!webContents && new URL(origin).origin === notificationOrigin &&
+            new URL(webContents.getURL()).origin === notificationOrigin;
+        } catch { return false; }
+      };
+      ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
+        if (permission === 'notifications') {
+          callback(canNotify(webContents, details.requestingUrl || webContents?.getURL()));
+          return;
+        }
+        const allowed = ['media', 'clipboard-read', 'clipboard-sanitized-write', 'fullscreen'];
         callback(allowed.includes(permission));
       });
-      ses.setPermissionCheckHandler((_wc, permission) => permission === 'media');
+      ses.setPermissionCheckHandler((webContents, permission, requestingOrigin) =>
+        permission === 'notifications' ? canNotify(webContents, requestingOrigin) : permission === 'media');
       this.configuredSessions.add(partition);
     }
     return ses;
@@ -134,7 +148,7 @@ class ShopWindowManager {
     if(generation!==this.openGeneration)throw Error('store_open_canceled');
     if (!url) throw new Error(`entry_url_missing:${store.platform}`);
 
-    this.#sessionFor(store);
+    this.#sessionFor(store, url);
     const view = new WebContentsView({
       webPreferences: {
         partition: this.partitionOf(store),
@@ -412,9 +426,13 @@ class ShopWindowManager {
     if (entry.view) {
       try {
         this.window.contentView.removeChildView(entry.view);
-        entry.view.webContents.close();
       } catch {
-        /* 窗口已销毁 */
+        /* 主窗口可能已销毁，仍需关闭店铺页面。 */
+      }
+      try {
+        if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close();
+      } catch {
+        /* 店铺页面已关闭。 */
       }
     }
     this.#relayout();
@@ -464,6 +482,7 @@ class ShopWindowManager {
   }
 
   #relayout() {
+    if (this.layoutViews) { this.layoutViews(this.views); return; }
     const ids = [...this.views.entries()].filter(([, entry]) => entry.view).map(([id]) => id);
     if (!ids.length) return;
     const [width, height] = this.window.getContentSize();

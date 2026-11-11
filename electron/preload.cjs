@@ -1,5 +1,7 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('lingtu',Object.freeze({
+ resizeModelIssue:height=>ipcRenderer.invoke('model-issue:resize',height),
+ presentStore:value=>ipcRenderer.invoke('platform:present',value),
  role:process.argv.includes('--lingtu-auxiliary')?'auxiliary':'main',
  managedSnapshot:()=>ipcRenderer.invoke('managed:snapshot'),
  managedAction:(action,workspaceId)=>ipcRenderer.invoke('managed:action',action,workspaceId),

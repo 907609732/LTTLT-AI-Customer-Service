@@ -1,10 +1,11 @@
+import {useManagedAccess} from './ManagedAccess';
 import {useState} from 'react';
 import type {FormEvent} from 'react';
 import {useBackend} from './BackendProvider';
 import {modelProviders,detectModelProvider} from '../../shared/model-providers.mjs';
 type Provider='deepseek'|'qwen'|'custom';
 
-export function ModelSettings({notice}:{notice:(message:string)=>void}){
+function OwnModelSettings({notice,onUseManaged,modeError,switching}:{notice:(message:string)=>void;onUseManaged?:()=>void;modeError?:string;switching?:boolean}){
  const b=useBackend(),saved=b.snapshot.config.ai;
  const initial:Provider=saved.baseUrl?detectModelProvider(saved.baseUrl):'deepseek';
  const [provider,setProvider]=useState<Provider>(initial);
@@ -32,7 +33,27 @@ export function ModelSettings({notice}:{notice:(message:string)=>void}){
 
    <p>密钥使用系统加密存储。连接测试会发送一条简短测试消息，费用按厂商计费；不会开启店铺自动回复。</p>
    {error&&<p role="alert">{error}</p>}
-   <footer><button type="button" disabled={pending} onClick={()=>b.setSettings(false)}>取消</button><button disabled={pending}>{pending?'正在处理…':'测试连接并保存'}</button></footer>
+   {modeError&&<p role="alert">{modeError}</p>}
+   <footer>{onUseManaged&&<button type="button" disabled={pending||switching} onClick={onUseManaged}>切回托管模型</button>}<button type="button" disabled={pending} onClick={()=>b.setSettings(false)}>取消</button><button disabled={pending}>{pending?'正在处理…':'测试连接并保存'}</button></footer>
   </form>
  </div>;
+}
+
+export function ModelSettings({notice}:{notice:(message:string)=>void}){
+ const b=useBackend(),managed=useManagedAccess();
+ const [pending,setPending]=useState(false),[error,setError]=useState('');
+ const change=async(mode:'local'|'managed')=>{
+  if(pending)return;
+  setPending(true);setError('');
+  try{await managed.action(mode);await b.refresh();b.setSettings(mode==='local');}
+  catch(e){setError(e instanceof Error?e.message:String(e));}
+  finally{setPending(false);}
+ };
+ if(!window.lingtu?.managedAction||managed.state.workspace.mode==='local')return <OwnModelSettings notice={notice} onUseManaged={managed.state.session.status==='signed_in'?()=>void change('managed'):undefined} modeError={error} switching={pending}/>;
+ return <div className="live-settings-mask" role="dialog" aria-modal="true" aria-label="模型设置"><section className="live-settings">
+  <h2>模型设置</h2><p>当前使用托管 AI，模型由服务端统一配置。</p>
+  <p>也可以连接自己的模型服务，在这里填写厂商 API Key。</p>
+  {error&&<p role="alert">{error}</p>}
+  <footer><button disabled={pending} onClick={()=>b.setSettings(false)}>关闭</button><button disabled={pending} onClick={()=>void change('local')}>使用自己的 Key</button></footer>
+ </section></div>;
 }

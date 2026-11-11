@@ -1,4 +1,4 @@
-import {useRef,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import type {FormEvent} from 'react';
 import {useBackend} from './BackendProvider';
 
@@ -11,6 +11,7 @@ export function WorkOrders(){
  const [storeId,setStoreId]=useState(b.snapshot.selection.storeId),[type,setType]=useState(types[0]),[orderNo,setOrderNo]=useState(''),[buyer,setBuyer]=useState(''),[priority,setPriority]=useState('normal'),[description,setDescription]=useState(''),[notes,setNotes]=useState<Record<string,string>>({}),[pending,setPending]=useState(false),[error,setError]=useState('');
  const busy=useRef(false),note=notes[selectedId]||'';
  const selected=orders.find(x=>x.id===selectedId);
+ useEffect(()=>{if(b.snapshot.auxiliary?.workOrderId){setSelectedId(b.snapshot.auxiliary.workOrderId);setCreating(false)}},[b.snapshot.auxiliary?.workOrderId,b.snapshot.auxiliary?.workOrderSelection]);
  const visible=orders.filter(o=>(filter==='all'||o.status===filter)&&[o.orderNo,o.buyer,o.description,o.storeName].some(v=>v.toLowerCase().includes(query.trim().toLowerCase()))).slice().sort((a,c)=>c.updatedAt-a.updatedAt);
  const run=async(action:string,values:Record<string,unknown>)=>{if(busy.current)return;busy.current=true;setPending(true);setError('');try{return await b.execute({action,values})}catch(e){setError(e instanceof Error?e.message:String(e));return undefined}finally{busy.current=false;setPending(false)}};
  const create=async(e:FormEvent)=>{e.preventDefault();const r=await run('create-work-order',{storeId,type,orderNo,buyer,priority,description});if(r?.data?.id){setSelectedId(String(r.data.id));setCreating(false);setOrderNo('');setBuyer('');setDescription('')}};

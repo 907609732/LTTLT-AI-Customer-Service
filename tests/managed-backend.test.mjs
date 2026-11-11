@@ -42,7 +42,12 @@ test('disposing local own-key backend aborts its in-flight model HTTP request',a
 });
 test('uncertain managed result remains visible across refresh/restart and requires explicit review before AI restart',async t=>{
  const {ManagedSessionError}=require('../electron/managed-session.cjs');const {backend,dir}=await setup(t,{managedChat:async()=>{throw new ManagedSessionError('request_uncertain');}});
- await assert.rejects(backend.engine.aiClient.complete({messages:[{role:'user',content:'fixture'}]}));assert.equal(backend.snapshot().modelIssue.code,'request_uncertain');assert.match(backend.snapshot().modelIssue.message,/未确认|待确认/);
+ await assert.rejects(backend.engine.aiClient.reply({systemPrompt:'fixture',thread:[{from:'buyer',content:'fixture'}],reviewContext:{storeId:'fixture-store',uid:'fixture-buyer',buyerMessage:'fixture question'}}));
+ assert.equal(backend.snapshot().modelIssue.context.storeId,'fixture-store');
+ assert.equal(backend.snapshot().modelIssue.context.uid,'fixture-buyer');
+ assert.equal(backend.snapshot().modelIssue.context.buyerMessage,'fixture question');
+ assert.match(backend.snapshot().modelIssue.context.requestId,/^[0-9a-f-]{36}$/);
+ assert.equal(backend.snapshot().modelIssue.code,'request_uncertain');assert.match(backend.snapshot().modelIssue.message,/未确认|待确认/);
  await backend.execute({action:'refresh'});assert.equal(backend.snapshot().modelIssue.requiresReview,true);backend.dispose();
  const restored=createBackend({dataDir:dir,modelMode:'managed'});t.after(()=>restored.dispose());assert.equal(restored.snapshot().modelIssue.code,'request_uncertain');
  await restored.execute({action:'add-store',values:{platform:'pdd-web',storeName:'fixture'}});const id=restored.snapshot().stores[0].id;
@@ -65,5 +70,25 @@ for(const outcome of ['input_not_found','send_unconfirmed','throws','throttled',
  if(outcome==='throttled')worker.sendWindow.push(Date.now());worker.running=true;backend.engine.workers.set(store.id,worker);
  for(let i=0;i<3;i++){await worker.tick();await worker.settle();}
  assert.equal(ids.length,1);assert.equal(new Set(ids).size,1);assert.equal(sends,['throttled','unusable_reply'].includes(outcome)?0:1);assert.equal(worker.running,false);assert.equal(backend.snapshot().modelIssue.requiresReview,true);assert.match(backend.snapshot().modelIssue.message,outcome==='unusable_reply'?/模型回复/:/回复已生成/);assert.equal(backend.snapshot().modelIssue.code,outcome==='unusable_reply'?'generation_failed':outcome==='throttled'?'delivery_blocked':['throws','send_unconfirmed'].includes(outcome)?'delivery_unconfirmed':'delivery_failed');assert.ok(!JSON.stringify(backend.snapshot().modelIssue).includes('raw platform'));
+ const detail=backend.snapshot().modelIssue.context;
+ if(outcome!=='unusable_reply'){
+  assert.equal(detail.storeId,store.id);assert.equal(detail.uid,'buyer');
+  assert.equal(detail.buyerMessage,'fixture');assert.equal(detail.reply,'fixture generated reply');
+ }
  backend.dispose();const restored=createBackend({dataDir:dir,modelMode:'managed'});t.after(()=>restored.dispose());assert.equal(restored.snapshot().modelIssue.requiresReview,true);
+ assert.deepEqual(restored.snapshot().modelIssue.context,detail);
+});
+
+test('reviewing delivery issue focuses its original conversation without sending or clearing it',async t=>{
+ let focused='',sends=0;
+ const {backend}=await setup(t,{adapterFactory:()=>({focusConversation:async uid=>{focused=uid;return {ok:true};},sendText:async()=>{sends++;return {ok:true};}})});
+ await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'测试店铺'}});
+ const storeId=backend.snapshot().stores[0].id;
+ backend.engine.aiClient.onDeliveryFailure({reason:'send_unconfirmed',storeId,uid:'original-buyer',buyerName:'测试买家',buyerMessage:'测试问题',reply:'待核对回答'});
+ const issue=backend.snapshot().modelIssue;
+ await assert.rejects(backend.execute({action:'review-model-issue',values:{code:issue.code,at:issue.at-1}}),/已更新/);
+ await backend.execute({action:'review-model-issue',values:{code:issue.code,at:issue.at}});
+ assert.equal(focused,'original-buyer');assert.equal(sends,0);
+ assert.deepEqual(backend.snapshot().modelIssue,issue);
+ assert.equal(backend.snapshot().selection.conversationId,'original-buyer');
 });

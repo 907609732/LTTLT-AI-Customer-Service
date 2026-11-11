@@ -1,16 +1,47 @@
-const {app,BrowserWindow,ipcMain,dialog,session,screen,shell,safeStorage}=require('electron');
+const {app,BrowserWindow,WebContentsView,ipcMain,dialog,session,screen,shell,safeStorage}=require('electron');
 const path=require('node:path');
 const fs=require('node:fs/promises');
 const {pathToFileURL,fileURLToPath}=require('node:url');
 const crypto=require('node:crypto');
-let win,auxWin,backend,platformHost,updates,updateTimer;let closingMain=false,closeAuxApproved=false,updateQuitPending=false;
+let win,auxWin,issueView,backend,platformHost,updates,updateTimer;let closingMain=false,closeAuxApproved=false,updateQuitPending=false;
+let issueHeight=220,storePresentation={visible:false,storeId:''};
 let managed,runtime,managedTransition=Promise.resolve(),workspaceMessage=null;
 // Fixtures must isolate Chromium, cookies and safeStorage before Electron is ready.
 if(process.env.LINGTU_DATA_DIR){const isolated=path.resolve(process.env.LINGTU_DATA_DIR,'electron-userdata');require('node:fs').mkdirSync(isolated,{recursive:true});app.setPath('userData',isolated);}
 // Prevent an older process from keeping a native-client worker after another process binds its owner.
 if(!app.requestSingleInstanceLock())app.quit();
 app.on('second-instance',()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}});
-function broadcast(channel,value){for(const w of [win,auxWin])if(w&&!w.isDestroyed())w.webContents.send(channel,value);}
+function broadcast(channel,value){
+ for(const target of [win,auxWin,issueView]){
+  const contents=target?.webContents;
+  if(contents&&!contents.isDestroyed())contents.send(channel,value);
+ }
+ if(channel==='backend:event')syncIssueView();
+}
+function syncIssueView(){
+ if(!win||win.isDestroyed())return;
+ const visible=storePresentation.visible&&!!runtime?.snapshot().modelIssue;
+ if(visible&&!issueView)createIssueView();
+ if(!issueView?.webContents||issueView.webContents.isDestroyed())return;
+ const [width,height]=win.getContentSize();
+ issueView.setVisible(visible);
+ if(!visible)return;
+ const panelWidth=Math.min(520,Math.max(260,width-324));
+ issueView.setBounds({x:Math.max(300,width-panelWidth-16),y:84,width:panelWidth,height:Math.min(issueHeight,Math.max(100,height-100))});
+ win.contentView.addChildView(issueView);
+}
+function createIssueView(){
+ issueView=new WebContentsView({webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+ issueView.setBackgroundColor('#00000000');
+ issueView.setVisible(false);
+ win.contentView.addChildView(issueView);
+ issueView.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+ issueView.webContents.on('will-navigate',event=>event.preventDefault());
+ issueView.webContents.on('did-finish-load',syncIssueView);
+ win.on('resize',syncIssueView);
+ if(isDev)void issueView.webContents.loadURL(DEV_URL+'?notice=model-issue');
+ else void issueView.webContents.loadFile(path.join(__dirname,'../dist/index.html'),{query:{notice:'model-issue'}});
+}
 function managedSnapshot(){return {session:managed.snapshot(),workspace:runtime.view(),message:workspaceMessage};}
 function managedChanged(){if(managed&&runtime)broadcast('managed:state',managedSnapshot());}
 const DEV_URL='http://127.0.0.1:5173/';
@@ -18,7 +49,7 @@ const isDev=!app.isPackaged&&process.argv.includes('--dev');
 const entry=pathToFileURL(path.join(__dirname,'../dist/index.html')).href;
 function trusted(event){
  const url=event.senderFrame?.url||'';
- const owner=[win,auxWin].find(w=>w&&event.sender===w.webContents);
+ const owner=[win,auxWin,issueView].find(w=>w&&event.sender===w.webContents);
  if(!owner||event.senderFrame!==owner.webContents.mainFrame)return false;
  try{
   const actual=new URL(url);
@@ -26,7 +57,7 @@ function trusted(event){
   return actual.protocol==='file:'&&actual.hostname===''&&path.resolve(fileURLToPath(actual)).toLowerCase()===path.resolve(fileURLToPath(entry)).toLowerCase();
  }catch{return false;}
 }
-function guard(event){if(!trusted(event))throw new Error('不允许的调用来源');return [win,auxWin].find(w=>w&&event.sender===w.webContents);}
+function guard(event){if(!trusted(event))throw new Error('不允许的调用来源');return [win,auxWin,issueView].find(w=>w&&event.sender===w.webContents);}
 function configureWindow(w){
  w.removeMenu();w.webContents.setWindowOpenHandler(()=>({action:'deny'}));
  w.webContents.on('will-navigate',event=>event.preventDefault());w.webContents.on('will-attach-webview',event=>event.preventDefault());
@@ -41,7 +72,7 @@ function createWindow(){
  win=new BrowserWindow({icon:path.join(__dirname,'../dist/brand/logo.png'),width:1440,height:900,useContentSize:true,frame:false,minWidth:1100,minHeight:720,title:'灵兔客服',backgroundColor:'#e9f3ff',show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
  configureWindow(win);
  win.on('close',()=>{closingMain=true;managed?.dispose();void runtime?.dispose();auxWin?.close();});
- win.on('closed',()=>{win=null;});
+ win.on('closed',()=>{if(issueView?.webContents&&!issueView.webContents.isDestroyed())issueView.webContents.close();issueView=null;win=null;});
  loadWindow(win);
 }
 function openAuxiliary(screenId){
@@ -65,7 +96,7 @@ app.whenReady().then(async()=>{
  const dataRoot=path.resolve(process.env.LINGTU_DATA_DIR||app.getPath('userData'));
  const workspaces=require('./account-workspaces.cjs').createAccountWorkspaces({dataRoot,origin:'https://api-kefu.lttlt.top'});
  runtime=require('./workspace-runtime.cjs').createWorkspaceRuntime({workspaces,
-  createHost:options=>require('./platform-host.cjs').createPlatformHost(options),
+  createHost:options=>require('./platform-host.cjs').createPlatformHost({...options,getWindow:()=>win}),
   createBackend:options=>require('./backend.cjs').createBackend({...options,safeStorage,openExternal:url=>shell.openExternal(url)}),
   managedChat:(payload,options)=>managed.chat(payload,options),
   onEvent:event=>broadcast('backend:event',event),
@@ -80,6 +111,7 @@ app.whenReady().then(async()=>{
   if(action==='login'){await runtime.lock();await managed.beginLogin();}
   else if(action==='cancel'){await runtime.lock();await managed.cancelLogin();}
   else if(action==='logout'){await runtime.lock();await managed.logout();}
+  else if(action==='open-admin')await shell.openExternal('https://account-kefu.lttlt.top/lingtu/admin');
   else if(action==='refresh')await managed.refresh();
   else if(action==='local')await runtime.local();
   else if(action==='managed')await runtime.managed();
@@ -88,12 +120,24 @@ app.whenReady().then(async()=>{
   else throw Error('不支持的账号操作');
   await managedTransition;managedChanged();return managedSnapshot();
  });
+ ipcMain.handle('model-issue:resize',(event,height)=>{
+  if(guard(event)!==issueView||!Number.isFinite(height)||height<0)throw Error('提示窗口参数无效');
+  const next=Math.max(48,Math.min(10000,Math.ceil(height)));
+  if(next!==issueHeight){issueHeight=next;syncIssueView();}
+ });
+ ipcMain.handle('platform:present',(event,value)=>{
+  if(guard(event)!==win)throw Error('仅主窗口可显示店铺');
+  if(!value||typeof value.visible!=='boolean'||typeof value.storeId!=='string'||value.storeId.length>200)throw Error('店铺显示参数无效');
+  storePresentation={visible:value.visible,storeId:value.storeId};
+  runtime.setPresentation(storePresentation);
+  syncIssueView();
+ });
  ipcMain.handle('backend:snapshot',event=>{guard(event);return runtime.snapshot();});
  ipcMain.handle('backend:execute',(event,command)=>{guard(event);return runtime.execute(command);});
  session.defaultSession.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
  session.defaultSession.setPermissionCheckHandler(()=>false);
  ipcMain.handle('app:info',event=>{const owner=guard(event);return {version:app.getVersion(),platform:process.platform,mode:'frontend-handoff',role:owner===auxWin?'auxiliary':'main'};});
- ipcMain.handle('window:action',(event,action)=>{const owner=guard(event);if(action==='minimize')owner.minimize();else if(action==='maximize'&&owner===win)owner.isMaximized()?owner.unmaximize():owner.maximize();else if(action==='close'){if(owner===auxWin)closeAuxApproved=true;owner.close();}else throw new Error('不支持的窗口操作');});
+ ipcMain.handle('window:action',(event,action)=>{const owner=guard(event);if(owner===issueView)throw Error('提示窗口不支持窗口操作');if(action==='minimize')owner.minimize();else if(action==='maximize'&&owner===win)owner.isMaximized()?owner.unmaximize():owner.maximize();else if(action==='close'){if(owner===auxWin)closeAuxApproved=true;owner.close();}else throw new Error('不支持的窗口操作');});
  ipcMain.handle('auxiliary:open',(event,screenId)=>{if(guard(event)!==win||!/^UX(2[6-9]|3[01])$/.test(screenId))throw Error('不允许的辅助窗口目标');openAuxiliary(screenId);return {opened:true};});
  ipcMain.handle('main:open',(event,screenId,options)=>{guard(event);if(!/^UX(0[1-9]|1[0-9]|2[0-5])$/.test(screenId))throw Error('不允许的主窗口目标');if(!win)createWindow();if(options?.focus!==false){if(win.isMinimized())win.restore();win.show();win.focus();}win.webContents.send('app:navigate',screenId);return {opened:true};});
  ipcMain.handle('design:import',async event=>{
@@ -135,4 +179,4 @@ app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
 require('electron').autoUpdater.on('before-quit-for-update',()=>{updateQuitPending=true;});
 app.on('before-quit',event=>{if(updateQuitPending){updateQuitPending=false;const state=updates?.snapshot();if(state?.status==='error'&&state.failureStage==='install'){event.preventDefault();return;}}closingMain=true;closeAuxApproved=true;clearTimeout(updateTimer);updates?.dispose();managed?.dispose();void runtime?.dispose();});
 
-if(process.env.LINGTU_INTEGRATION_TEST==='1'){module.exports.getBackend=()=>runtime?.getBackend();module.exports.getUpdates=()=>updates;}
+if(process.env.LINGTU_INTEGRATION_TEST==='1'){module.exports.getRuntime=()=>runtime;module.exports.getIssueView=()=>issueView;module.exports.getBackend=()=>runtime?.getBackend();module.exports.getUpdates=()=>updates;}

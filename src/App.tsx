@@ -1,4 +1,7 @@
-import {ManagedAccessProvider} from './features/ManagedAccess';
+import {AuxiliaryCenter} from './features/AuxiliaryCenter';
+import {ModelIssueOverlay} from './features/ModelIssueOverlay';
+import {ManagedAccessProvider,useManagedAccess} from './features/ManagedAccess';
+import {TopAccountButton,AccountDialog} from './features/TopAccountEntry';
 import {useCallback,useEffect,useState} from 'react';
 import {BackendProvider,useBackend} from './features/BackendProvider';
 import {BackendChrome,useBackendLayers} from './features/BackendLayers';
@@ -18,13 +21,17 @@ const sets=Object.fromEntries(Object.values(registry).filter(n=>n.props.componen
 const receptionVariants=Object.values(registry).filter(n=>n.name.startsWith('菜单=')&&n.name.includes('接待模式='));
 const receptionClosed=Object.fromEntries(receptionVariants.map(n=>[n.id,receptionVariants.find(v=>v.name===n.name.replace(/菜单=[^,]+/,'菜单=关闭'))!.id]));
 const screenModules=import.meta.glob<{default:FigmaLayer}>('./design/generated/screens/UX*.json');
-export default function App(){return new URLSearchParams(location.search).get('design')==='1'?<DesignPreview/>:<ManagedAccessProvider><BackendProvider><UpdateProvider><Product/></UpdateProvider></BackendProvider></ManagedAccessProvider>;}
+export default function App(){if(new URLSearchParams(location.search).get('notice')==='model-issue')return <BackendProvider><ModelIssueOverlay/></BackendProvider>;return new URLSearchParams(location.search).get('design')==='1'?<DesignPreview/>:<ManagedAccessProvider><BackendProvider><UpdateProvider><Product/></UpdateProvider></BackendProvider></ManagedAccessProvider>;}
 function Product(){
- const backend=useBackend();
+ const backend=useBackend(),managed=useManagedAccess();
+ const [accountOpen,setAccountOpen]=useState(false),[accountError,setAccountError]=useState('');
+ useEffect(()=>{if(managed.state.session.status!=='signed_out')setAccountError('')},[managed.state.session.status]);
+ const showAccount=()=>{setAccountError('');setAccountOpen(true)};
+ const openAccount=()=>{showAccount();if(managed.state.session.status==='signed_out'&&managed.state.workspace.workspaceId&&window.lingtu?.managedAction)void managed.action('login').catch(()=>setAccountError('登录未能启动，请检查网络后在此窗口重试。'));};
  const start=new URLSearchParams(location.search).get('screen');
  const [state,setState]=useState(()=>initialInteractionState(manifest.files.some(s=>s.uxId===start)?start!:'UX01'));
  const [design,setDesign]=useState<FigmaLayer|null>(null);const [error,setError]=useState('');const [notice,setNotice]=useState('');
- const [confirmClose,setConfirmClose]=useState(false);
+ const [confirmClose,setConfirmClose]=useState(false),[updateOpen,setUpdateOpen]=useState(false);
  const [closeDesign,setCloseDesign]=useState<FigmaLayer|null>(null);
  useEffect(()=>{if(confirmClose&&!closeDesign)void screenModules['./design/generated/screens/UX32.json']().then(m=>setCloseDesign(m.default));},[confirmClose,closeDesign]);
  useEffect(()=>{if(!confirmClose||!closeDesign)return;const id=requestAnimationFrame(()=>document.querySelector<HTMLElement>('.aux-close-source-mask [role="button"][aria-label="取消"]')?.focus());return()=>cancelAnimationFrame(id);},[confirmClose,closeDesign]);
@@ -49,15 +56,22 @@ function Product(){
   if(action.kind==='notice')setNotice(action.message);if(action.kind==='window'&&window.lingtu)void window.lingtu.windowAction(action.action);
  };
  const auxiliary=Number(state.screenId.slice(2))>=26;
+ useEffect(()=>{
+  if(auxiliary||!window.lingtu?.presentStore)return;
+  const visible=['UX01','UX02'].includes(state.screenId)&&!accountOpen&&!backend.settings&&!confirmClose&&!state.overlays.length&&!backend.loading&&!updateOpen;
+  void window.lingtu.presentStore({visible,storeId:backend.snapshot.selection.storeId}).catch(()=>setNotice('店铺页面显示失败，请重新打开店铺。'));
+ },[auxiliary,state.screenId,state.overlays.length,accountOpen,backend.settings,backend.loading,confirmClose,updateOpen,backend.snapshot.selection.storeId,backend.snapshot.workspaceId]);
  const canvasViewport=auxiliary?{width:300,height:Math.max(900,viewport.height)}:{width:Math.max(1440,viewport.width),height:Math.max(900,viewport.height)};
  const finishClose=()=>{setConfirmClose(false);if(window.lingtu?.role==='auxiliary')void window.lingtu.windowAction('close');else dispatch({type:'NODE',navigation:'NAVIGATE',destinationId:'8836:4283'},[]);};
  const closeInteraction=(action:InteractionAction)=>{if(action.type==='BACK'||action.type==='CLOSE')setConfirmClose(false);else if(action.navigation==='NAVIGATE'&&action.destinationId==='8836:4283')finishClose();};
  if(backend.available&&backend.loading)return <div role="status" className="stage-loading">正在读取本地业务数据…</div>;
- return <FrontendProvider key={backend.snapshot.workspaceId} onNotice={setNotice} onOverlay={requestOverlay}><main className={'product-app '+(auxiliary?'product-auxiliary':'')} aria-label="灵兔客服">
-  <div inert={confirmClose||state.overlays.length>0} aria-hidden={confirmClose||state.overlays.length>0||undefined}>{error?<div role="alert" className="stage-error">{error}<button onClick={()=>location.reload()}>重新加载</button></div>:!design?<div role="status" className="stage-loading">正在加载界面…</div>:<ProductCanvas notice={setNotice} design={design} screenId={state.screenId} scale={1} viewport={canvasViewport} state={state} onInteraction={dispatch} onAction={onAction}/>}</div>
-  {state.overlays.map((id,index)=>registry[id]&&<div key={index+':'+id} className="product-overlay" role="dialog" aria-modal="true" aria-label={registry[id].name}><ProductCanvas notice={setNotice} design={registry[id]} screenId={state.screenId} scale={1} state={state} onInteraction={dispatch} onAction={onAction}/></div>)}
-  <BackendChrome screen={state.screenId} notice={setNotice}/><UpdateNotice/>{notice&&<div role="status" className="dev-toast">{notice}</div>}
+ if(auxiliary&&backend.available)return <AuxiliaryCenter key={(backend.snapshot.workspaceId||'locked')+':'+backend.snapshot.workspaceMode} initialScreen={state.screenId}/>;
+ return <><FrontendProvider key={backend.snapshot.workspaceId} onNotice={setNotice} onOverlay={requestOverlay}><main className={'product-app '+(auxiliary?'product-auxiliary':'')} aria-label="灵兔客服">
+  <div inert={confirmClose||accountOpen||state.overlays.length>0} aria-hidden={confirmClose||accountOpen||state.overlays.length>0||undefined}>{error?<div role="alert" className="stage-error">{error}<button onClick={()=>location.reload()}>重新加载</button></div>:!design?<div role="status" className="stage-loading">正在加载界面…</div>:<ProductCanvas notice={setNotice} openAccount={showAccount} design={design} screenId={state.screenId} scale={1} viewport={canvasViewport} state={state} onInteraction={dispatch} onAction={onAction}/>}</div>
+  {state.overlays.map((id,index)=>registry[id]&&<div key={index+':'+id} className="product-overlay" role="dialog" aria-modal="true" aria-label={registry[id].name}><ProductCanvas notice={setNotice} openAccount={showAccount} design={registry[id]} screenId={state.screenId} scale={1} state={state} onInteraction={dispatch} onAction={onAction}/></div>)}
+  {!auxiliary&&state.screenId!=='UX03'&&<TopAccountButton left={canvasViewport.width-(['UX01','UX02'].includes(state.screenId)?255:225)} compact={!['UX01','UX02'].includes(state.screenId)} expanded={accountOpen} onOpen={openAccount}/>}
+  <BackendChrome screen={state.screenId} notice={setNotice} openAccount={showAccount}/><UpdateNotice onVisibilityChange={setUpdateOpen}/>{notice&&<div role="status" className="dev-toast">{notice}</div>}
   {confirmClose&&<div className="aux-close-source-mask" role="dialog" aria-modal="true" aria-label="关闭 AI 辅助中心" onKeyDown={e=>{if(e.key==='Escape')setConfirmClose(false)}}>{closeDesign?<FigmaCanvas design={closeDesign} screenId="UX32" scale={1} onInteraction={closeInteraction} onAction={action=>{if(action.kind==='navigate'){if(action.to==='UX01')finishClose();else setConfirmClose(false);}}}/>:<div role="status">正在加载确认界面…</div>}</div>}
- </main></FrontendProvider>;
+ </main></FrontendProvider>{accountOpen&&<AccountDialog error={accountError} onClose={()=>setAccountOpen(false)}/>}</>;
 }
-function ProductCanvas({notice,...props}:React.ComponentProps<typeof FigmaCanvas>&{notice:(s:string)=>void}){const onUIAction=useFrontendActions();const renderLayer=useBackendLayers(props.screenId,notice);return <FigmaCanvas {...props} renderLayer={renderLayer} onUIAction={onUIAction}/>;}
+function ProductCanvas({notice,openAccount,...props}:React.ComponentProps<typeof FigmaCanvas>&{notice:(s:string)=>void;openAccount:()=>void}){const onUIAction=useFrontendActions();const renderLayer=useBackendLayers(props.screenId,notice,openAccount);return <FigmaCanvas {...props} renderLayer={renderLayer} onUIAction={onUIAction}/>;}

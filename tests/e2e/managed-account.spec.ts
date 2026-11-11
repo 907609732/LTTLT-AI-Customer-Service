@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-test('account panel uses fixed shell, opens explicit advanced mode and clears old profile data',async({page})=>{test.setTimeout(60000);
+test('account panel keeps login and account actions without store or model setup',async({page})=>{test.setTimeout(60000);
  await page.addInitScript(()=>{
   let state:any={session:{status:'signed_out',account:null,expiresAt:null,login:null,message:null},workspace:{id:null,workspaceId:'locked',mode:'locked',legacyAdoption:null},message:null};let managed=(s:any)=>{},backend=(e:any)=>{};
   (window as any).accountActions=[];
@@ -12,6 +12,8 @@ test('account panel uses fixed shell, opens explicit advanced mode and clears ol
  });
  await page.goto('/?screen=UX25');const panel=page.getByRole('region',{name:'登录账号',exact:true});await expect(panel).toBeVisible({timeout:30000});await expect(page.locator('[data-design-source="UX25:8801:2697"]')).toBeVisible();
  await panel.getByRole('button',{name:'登录 / 注册灵兔账号'}).click();await expect(panel.getByLabel('登录确认码 ABCD-EFGH')).toBeVisible();
- await panel.getByText('高级设置',{exact:true}).click();await panel.getByRole('button',{name:'使用自己的 Key',exact:true}).click();await expect(page.getByRole('dialog',{name:'模型接口设置'})).toBeVisible();await expect(page.getByLabel('模型API Key')).toHaveValue('');
- expect(await page.evaluate(()=>(window as any).accountActions)).toEqual(['login','local']);
+ await expect(panel.getByText('高级设置',{exact:true})).toHaveCount(0);
+ await expect(panel.getByRole('button',{name:'使用自己的 Key',exact:true})).toHaveCount(0);
+ await expect(panel.getByRole('button',{name:'服务端管理后台',exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>(window as any).accountActions)).toEqual(['login']);
 });

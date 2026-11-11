@@ -7,6 +7,7 @@ const canceled=()=>Object.assign(Error('工作区切换已取消'),{code:'worksp
 function createWorkspaceRuntime({workspaces,createHost,createBackend,managedChat,onEvent=()=>{},onReset=()=>{},onChange=()=>{}}){
  let backend=null,host=null,profile=null,mode='locked',workspaceId=randomUUID(),epoch=0,disposed=false,session={status:'signed_out',account:null},pending=null;
  let queue=Promise.resolve();
+ let presentation={visible:false,storeId:''};
  function view(){return {id:profile?.id||null,mode,workspaceId,legacyAdoption:pending?.legacyAdoption||profile?.legacyAdoption||null,externalClient:workspaces.externalClient?.(session.status==='signed_in'?session.account.userId:null)||null};}
  function snapshot(){return {...(backend?.snapshot()||empty()),workspaceId,workspaceMode:mode};}
  function invalidate(){epoch++;workspaceId=randomUUID();const oldBackend=backend,oldHost=host;backend=null;host=null;profile=null;mode='locked';oldBackend?.dispose();onReset({type:'workspace:reset',workspaceId});onChange(view());return Promise.resolve(oldHost?.close()).catch(()=>{});}
@@ -18,9 +19,10 @@ function createWorkspaceRuntime({workspaces,createHost,createBackend,managedChat
    pending=null;
    const allowExternalClient=descriptor.externalClient?.allowed??descriptor.partitionNamespace==='';
    const nextHost=createHost({dataDir:descriptor.dataDir,partitionNamespace:descriptor.partitionNamespace,allowExternalClient});
-   const nextBackend=createBackend({dataDir:descriptor.dataDir,...nextHost,modelMode:nextMode,allowExternalClient,externalClientReady:()=>{if(workspaces.externalClient&&!workspaces.externalClient(session.status==='signed_in'?session.account.userId:null).allowed)throw Error('请在登录账号页面确认本机抖店客户端的账号绑定。');},managedReady:assertManagedReady,managedChat,
+   const nextBackend=createBackend({dataDir:descriptor.dataDir,...nextHost,modelMode:nextMode,allowExternalClient,externalClientReady:()=>{if(workspaces.externalClient&&!workspaces.externalClient(session.status==='signed_in'?session.account.userId:null).allowed)throw Error('请在添加抖店时确认本机抖店客户端的账号绑定。');},managedReady:assertManagedReady,managedChat,
     onEvent:event=>{if(!disposed&&ticket===epoch)onEvent({...event,workspaceId});}});
    host=nextHost;backend=nextBackend;profile=descriptor;mode=nextMode;
+   host.setPresentation?.(presentation);
    try{await nextHost.start();}catch{if(ticket===epoch){await invalidate();throw Error('工作区平台服务启动失败');}return;}
    if(disposed||ticket!==epoch){nextBackend.dispose();await nextHost.close();throw canceled();}
    onEvent({type:'backend:changed',workspaceId,revision:0});onChange(view());
@@ -47,13 +49,13 @@ function createWorkspaceRuntime({workspaces,createHost,createBackend,managedChat
  }
  async function execute(command){
   if(disposed||command?.workspaceId!==workspaceId)throw Error('工作区已切换，请刷新后重试。');
-  if(!backend||mode==='locked')throw Error('请先登录并选择工作区，或在账号高级设置明确选择自己的 Key。');
+  if(!backend||mode==='locked')throw Error('请先登录并选择工作区，或在模型设置选择自己的 Key。');
   const ticket=epoch,target=backend;const {workspaceId:ignored,...raw}=command;
   const result=await target.execute(raw);
   if(disposed||ticket!==epoch||target!==backend)throw Error('工作区已切换，已丢弃旧操作结果。');
   return result;
  }
- async function local(){if(disposed)throw Error('服务已关闭');const descriptor=session.status==='signed_in'?workspaces.ensure(session.account.userId):workspaces.local();if(descriptor.pending)throw Error('请先选择归入已有店铺或使用空白工作区。');return change(descriptor,'local');}
+ async function local(){if(disposed)throw Error('服务已关闭');const descriptor=session.status==='signed_in'?workspaces.ensure(session.account.userId):workspaces.local();if(descriptor.pending)throw Error('请先进入店铺区域，选择使用原有店铺或空白工作区。');return change(descriptor,'local');}
  async function managed(){assertManagedReady();return change(workspaces.ensure(session.account.userId),'managed');}
  async function decide(action){if(session.status!=='signed_in')throw Error('请先登录');const id=session.account.userId;const closed=invalidate(),ticket=epoch;await closed;await queue;if(disposed||ticket!==epoch||session.status!=='signed_in'||session.account.userId!==id)throw Error('账号已切换');const descriptor=action==='adopt'?workspaces.adopt(id):workspaces.skip(id);return change(descriptor,'managed');}
  async function claimExternal(){
@@ -67,6 +69,6 @@ function createWorkspaceRuntime({workspaces,createHost,createBackend,managedChat
  }
  async function lock(){pending=null;return change(null,'locked');}
  async function dispose(){disposed=true;pending=null;await invalidate();await queue;}
- return {snapshot,view,execute,acceptSession,assertManagedReady,local,managed,decide,claimExternal,lock,dispose,getBackend:()=>backend};
+ return {setPresentation(value){presentation=value;host?.setPresentation?.(value);},snapshot,view,execute,acceptSession,assertManagedReady,local,managed,decide,claimExternal,lock,dispose,getBackend:()=>backend};
 }
 module.exports={createWorkspaceRuntime};

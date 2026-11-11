@@ -435,7 +435,7 @@ class StoreWorker {
       if(!sent.ok&&typeof this.aiClient.onDeliveryFailure==='function'){
         if(sent.reason==='cancelled')return;
         this.stats.failed+=1;
-        this.aiClient.onDeliveryFailure({reason:sent.reason||'send_unconfirmed',throttled:!!sent.throttled});
+        this.aiClient.onDeliveryFailure({reason:sent.reason||'send_unconfirmed',throttled:!!sent.throttled,storeId:this.store.id,uid,buyerName:row.username||row.name||'',buyerMessage:latest.content,reply:text});
         this.stop();
         // Preserve conversation input; an unconfirmed delivery is never requeued.
         await dispose(()=>sent.reason==='send_unconfirmed'?this.adapter.discard(uid):this.adapter.release(uid));
@@ -581,6 +581,7 @@ class StoreWorker {
       const result = await this.aiClient.reply({
         systemPrompt,
         thread,
+        reviewContext:{storeId:this.store.id,uid:row.uid,buyerName:row.username||row.name||'',buyerMessage:latest.content},
         goodsTitle: row.goodsTitle,
         orderId: row.orderId,
         timeoutMs: this.getConfig()?.ai?.timeoutMs ?? 60000,
@@ -589,7 +590,7 @@ class StoreWorker {
       return { ok: true, result };
     } catch (err) {
       const message = String(err?.message || err);
-      this.aiClient.onGenerationFailure?.(err);
+      this.aiClient.onGenerationFailure?.(err,{storeId:this.store.id,uid:row.uid,buyerName:row.username||row.name||'',buyerMessage:latest.content});
       this.logger?.warn(`AI 生成失败：${message}`);
       this.onEvent?.({ type: 'reply:error', storeId: this.store.id, uid: row.uid, error: message });
       return { ok: false, fatal: FATAL_AI_ERROR.test(message) };

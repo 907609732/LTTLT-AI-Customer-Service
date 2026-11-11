@@ -15,10 +15,12 @@ export function UpdateProvider({children}:{children:ReactNode}){
  return <Context.Provider value={{state,check,downloadAndInstall,openRelease}}>{children}</Context.Provider>;
 }
 export function CheckUpdateLink(){const u=useUpdates();const busy=['checking','downloading','downloaded','installing'].includes(u.state.status);return <button className="check-update-link" aria-label="检测更新" disabled={busy} onClick={()=>void u.check()}>{busy?(u.state.status==='checking'?'检测中…':'正在更新…'):'检测更新'}</button>}
-export function UpdateNotice(){
+export function UpdateNotice({onVisibilityChange}:{onVisibilityChange?:(visible:boolean)=>void}={}){
  const u=useUpdates(),[dismissed,setDismissed]=useState(-1);const s=u.state;
  const busy=['downloading','downloaded','installing'].includes(s.status);
- if(window.lingtu?.role==='auxiliary'||dismissed===s.revision||['idle','checking'].includes(s.status)||(!s.manual&&s.status!=='available'&&!busy))return null;
+ const visible=window.lingtu?.role!=='auxiliary'&&dismissed!==s.revision&&!['idle','checking'].includes(s.status)&&(s.manual||s.status==='available'||busy);
+ useEffect(()=>{onVisibilityChange?.(visible);return()=>onVisibilityChange?.(false);},[visible,onVisibilityChange]);
+ if(!visible)return null;
  const heading=s.status==='available'?'发现新版本 v'+s.availableVersion:busy?'正在更新至 v'+s.availableVersion:'软件更新';
  const retryUpdate=s.status==='error'&&['download','install'].includes(s.failureStage||'');
  return <section role="dialog" aria-label="软件更新" className="update-notice"><h2>{heading}</h2><p>当前版本 v{s.currentVersion}</p><p role="status">{s.message}</p>
