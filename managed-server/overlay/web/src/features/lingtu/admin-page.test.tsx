@@ -206,3 +206,5 @@ it('merges untouched trial settings after a model save without reverting the new
  fireEvent.click(screen.getByRole('button',{name:'保存'}))
  await waitFor(()=>expect(posts[2]).toMatchObject({section:'trial',default_model:'qwen-plus',model:'qwen-plus',daily_calls:300,calls:25}))
 },20000)
+
+it('offers an explicit Qwen3-VL vision channel and account model option',async()=>{installFixture();renderAdmin();await openModels();fireEvent.click(screen.getByRole('button',{name:'English'}));await screen.findByLabelText('1. Choose a model');fireEvent.change(screen.getByLabelText('1. Choose a model'),{target:{value:'qwen-vision'}});expect(screen.getByRole('option',{name:'Qwen3-VL · Image understanding'})).toBeTruthy();expect(screen.getByLabelText('Model key')).toBeTruthy();});

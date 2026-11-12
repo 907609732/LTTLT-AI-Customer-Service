@@ -481,7 +481,7 @@ class StoreWorker {
         this.attempts.delete(uid);
         this.stats.replied += 1;
         await dispose(() => this.adapter.discard(uid));
-        this.onEvent?.({ type: 'reply:sent', storeId: this.store.id, uid, text });
+        this.onEvent?.({ type: 'reply:sent', storeId: this.store.id, uid, text, msgId:sent.msgId, ts:this.now() });
         return;
       }
 
@@ -621,6 +621,7 @@ class StoreWorker {
       return { ok: true, result, thread, historyKnown:history.known };
     } catch (err) {
       if(err?.code==='queued_canceled')return {ok:false,fatal:false};
+      if(/^vision_/.test(err?.code||''))this.takeOver(row.uid,'vision');
       const message = String(err?.message || err);
       this.aiClient.onGenerationFailure?.(err,{storeId:this.store.id,uid:row.uid,buyerName:row.username||row.name||'',buyerMessage:latest.content});
       this.logger?.warn(`AI 生成失败：${message}`);

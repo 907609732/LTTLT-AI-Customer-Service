@@ -19,7 +19,7 @@ function createWorkspaceRuntime({workspaces,createHost,createBackend,managedChat
    pending=null;
    const allowExternalClient=descriptor.externalClient?.allowed??descriptor.partitionNamespace==='';
    const nextHost=createHost({dataDir:descriptor.dataDir,partitionNamespace:descriptor.partitionNamespace,allowExternalClient});
-   const nextBackend=createBackend({dataDir:descriptor.dataDir,...nextHost,modelMode:nextMode,allowExternalClient,externalClientReady:()=>{if(workspaces.externalClient&&!workspaces.externalClient(session.status==='signed_in'?session.account.userId:null).allowed)throw Error('请在添加抖店时确认本机抖店客户端的账号绑定。');},managedReady:assertManagedReady,managedChat,
+   const nextBackend=createBackend({dataDir:descriptor.dataDir,...nextHost,modelMode:nextMode,allowExternalClient,externalClientReady:()=>{if(workspaces.externalClient&&!workspaces.externalClient(session.status==='signed_in'?session.account.userId:null).allowed)throw Error('请在添加抖店时确认本机抖店客户端的账号绑定。');},managedReady:assertManagedReady,managedChat,managedCapabilities:()=>session.account?.capabilities||{},
     onEvent:event=>{if(!disposed&&ticket===epoch)onEvent({...event,workspaceId});}});
    host=nextHost;backend=nextBackend;profile=descriptor;mode=nextMode;
    host.setPresentation?.(presentation);
@@ -41,7 +41,7 @@ function createWorkspaceRuntime({workspaces,createHost,createBackend,managedChat
   if(disposed)return;session=value;
   if(value.status==='signed_in'){
    const descriptor=workspaces.ensure(value.account.userId);
-   if(profile?.id===descriptor.id)return;
+   if(profile?.id===descriptor.id){onEvent({type:'backend:changed',workspaceId,revision:backend?.snapshot()?.revision||0});return;}
    return change(descriptor,'managed');
   }
   if(value.status==='offline'&&value.account&&profile?.id===workspaces.ensure(value.account.userId).id){backend?.stopAi();return;}

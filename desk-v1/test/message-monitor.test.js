@@ -96,6 +96,7 @@ test('买家/我方两行日志格式与既定格式一致，并 emit message:in
     uid: 'u1',
     from: 'buyer',
     content: '消息1',
+    messageType:'text',msgId:'m1',username:'小明',
     ts: NOW + 1,
   });
   assert.equal(emitted.length, 2);
@@ -312,3 +313,4 @@ test('失败原因映射：已知枚举转中文，未知原因保留原值', ()
   assert.equal(collectionFailureReason({ reason: 'hook_not_ready', detail: 'connect timeout' }), 'hook_not_ready');
   assert.equal(collectionFailureReason({ reason: 'hook_not_ready' }), 'hook_not_ready');
 });
+test('图片类型、消息编号和顾客名必须保留到主进程会话事件',async()=>{const {adapter}=makeAdapter([{ok:true,seq:1,events:[event(1,{type:'image',content:'https://images.example.com/a.png'})]}]);const {monitor,emitted}=makeMonitor({adapter});await monitor.start('store-1');await monitor.tick('store-1');assert.equal(emitted[0].messageType,'image');assert.equal(emitted[0].msgId,'m1');assert.equal(emitted[0].username,'小明');monitor.stopAll();});

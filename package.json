@@ -26,7 +26,7 @@
     "pack:win": "npm run build && electron-builder --win --dir --publish never",
     "dist:win": "npm run build && electron-builder --win nsis --publish never",
     "test:backend": "node --test desk-v1/test/*.test.js",
-    "test:integration": "node tests/backend-electron.mjs"
+    "test:integration": "node tests/backend-electron.mjs && node tests/vision-electron.mjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.12",

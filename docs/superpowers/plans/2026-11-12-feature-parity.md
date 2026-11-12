@@ -43,3 +43,11 @@
 - 首次采集的顾客须在欢迎开启后、消息新鲜且平台历史无更早对话。已有本机顾客预先登记为旧会话；历史回放、重启和未知发送均不重复欢迎。
 - 平台没有无消息访客进入事件，第一版准确标为“新会话首条回复欢迎”，不伪装无消息访客欢迎。
 - RED：分店/重启/旧会话、历史、原子损坏保护，worker正文合并一次、人工接管取消不消耗欢迎。
+
+## Task 7 brief：真实多模态接待
+- 复用既有OpenAI兼容HTTP与New API托管链路，采用官方Qwen3-VL图片content parts（https://help.aliyun.com/en/model-studio/qwen-vl-compatible-with-openai）。不引入新的模型SDK、OCR进程或另存Key。
+- 托管端新增独立qwen-vision渠道（qwen3-vl-plus），管理员显式配置/测试并绑定账号或默认模型；/me声明能力。客户端仅在实际模式支持时允许开启本店识图。
+- URL图像最多4张，公网HTTPS域名、无凭据/非标准端口/片段，禁止IP/内网名字及data/file等协议；仅user消息可携带图片。文字仍受32KiB/128KiB总体限额；上游负责读取图片，不经3Mbps站点转存。
+- 实际接待保留image类型，不把URL拼成文字让模型猜；开启后向受支持模型送真实image_url；停用/不支持/不安全链接/识别失败转本会话人工提示，不自动编造视觉结果或循环重试，不关全店。
+- UX14每店开关和训练识图验证，训练不发给买家；账号隔离、未知结果不重试、请求idempotency不变。
+- RED：跨JS/Go协议、无能力不调用、图片payload真正抵达transport、URL与数量限制、server渠道/能力/账本、worker正常识图及失败只暂停该会话、三尺寸UI与Electron。

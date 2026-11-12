@@ -52,3 +52,5 @@ test('concurrent windows cannot mix endpoint and key while connection is being t
  release();await first;assert.equal(b.snapshot().config.ai.baseUrl,'https://api.deepseek.com');
  }finally{release();b.dispose();}
 });
+
+test('vision preset selects the supported official Qwen3-VL model',async()=>{const {modelProviders,detectModelProvider}=await import('../shared/model-providers.mjs');assert.equal(modelProviders.qwenVision.model,'qwen3-vl-plus');assert.equal(detectModelProvider(modelProviders.qwen.baseUrl,'qwen3-vl-plus'),'qwenVision');});

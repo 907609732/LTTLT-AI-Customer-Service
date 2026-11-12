@@ -135,3 +135,9 @@ test('unexpected auth text in a 5xx response cannot clear encrypted credentials'
  const f=await fixture(t,p=>response(p.endsWith('/completions')?{error:{code:'session_expired'}}:p.endsWith('authorize')?authorize:p.endsWith('/token')?bundle:me,p.endsWith('/completions')?503:200));await login(f);
  await assert.rejects(f.session.chat({client_request_id:'r',messages:[{role:'user',content:'fixture'}]}),{code:'offline'});assert.ok((await readFile(f.credentialFile)).length>0);
 });
+
+test('multimodal managed chat keeps image parts and requires advertised server capability',async t=>{
+ let received;const f=await fixture(t,(p,opts)=>p.endsWith('/completions')?(received=JSON.parse(opts.body),response({choices:[{message:{content:'{"reply":"fixture"}'}}]})):response(p.endsWith('authorize')?authorize:p.endsWith('/token')?bundle:{...me,capabilities:{vision:true,model:'qwen3-vl-plus',max_images:4}}));await login(f);
+ const content=[{type:'text',text:'图片'},{type:'image_url',image_url:{url:'https://images.example.com/a.png'}}];await f.session.chat({client_request_id:'vision',messages:[{role:'user',content}]});assert.deepEqual(received.messages[0].content,content);assert.equal(f.session.snapshot().account.capabilities.vision,true);
+ const unsupported=await fixture(t,p=>response(p.endsWith('authorize')?authorize:p.endsWith('/token')?bundle:me));await login(unsupported);await assert.rejects(unsupported.session.chat({client_request_id:'vision',messages:[{role:'user',content}]}),{code:'vision_unavailable'});assert.equal(unsupported.calls.filter(c=>c.url.endsWith('/completions')).length,0);
+});

@@ -4,7 +4,7 @@ import {Eye,MessageSquare,Search,X} from 'lucide-react';
 import {useBackend} from './BackendProvider';
 import type {QualityRecord} from './BackendProvider';
 const stateName={pending:'待质检',passed:'通过',problem:'有问题'};
-const reasons:Record<string,string>={delivery_unconfirmed:'发送结果待核实',delivery_failed:'平台发送失败',delivery_blocked:'发送节奏限制',generation_failed:'回复生成失败',service_busy:'服务繁忙',rate_limited:'请求频率限制',offline:'服务连接中断',canceled:'旧请求已取消',invalid_response:'服务响应异常',request_uncertain:'请求结果待核实',request_pending:'请求处理中'};
+const reasons:Record<string,string>={vision_unavailable:'本店或当前模型未启用图片识别',vision_invalid_input:'图片地址或数量不受支持',vision_failed:'图片识别未完成，需人工核实',delivery_unconfirmed:'发送结果待核实',delivery_failed:'平台发送失败',delivery_blocked:'发送节奏限制',generation_failed:'回复生成失败',service_busy:'服务繁忙',rate_limited:'请求频率限制',offline:'服务连接中断',canceled:'旧请求已取消',invalid_response:'服务响应异常',request_uncertain:'请求结果待核实',request_pending:'请求处理中'};
 const date=(n:number)=>n?new Date(n).toLocaleString('zh-CN',{hour12:false}):'—';
 export function ConversationQuality({openAccount}:{openAccount:()=>void}){
  const [correcting,setCorrecting]=useState(false);

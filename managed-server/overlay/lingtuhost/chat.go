@@ -31,6 +31,7 @@ import (
 )
 
 const internalTokenName = "lingtu-managed-internal"
+const internalModelLimits = "deepseek-flash,qwen-plus,qwen3-vl-plus"
 
 var internalTokenMu sync.Mutex
 var chatCleanupMu sync.Mutex
@@ -163,7 +164,7 @@ func (h *Host) startChatCleanup() {
 
 type chatMessage struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
 }
 type chatInput struct {
 	RequestID string        `json:"client_request_id"`
@@ -179,8 +180,9 @@ func parseChat(r io.Reader) (chatInput, string, error) {
 	if json.Unmarshal(raw, &in) != nil || len(in.RequestID) < 1 || len(in.RequestID) > 128 || len(in.Messages) < 1 || len(in.Messages) > 64 {
 		return in, "", errors.New("invalid request")
 	}
+	images := 0
 	for _, m := range in.Messages {
-		if (m.Role != "system" && m.Role != "user" && m.Role != "assistant") || len(m.Content) > 32768 {
+		if (m.Role != "system" && m.Role != "user" && m.Role != "assistant") || !validChatContent(m.Role, m.Content, &images) {
 			return in, "", errors.New("invalid message")
 		}
 	}
@@ -195,6 +197,8 @@ func selectedChannel(selected string) (model.Channel, error) {
 		name = "lingtu-deepseek"
 	case "qwen-plus":
 		name = "lingtu-qwen"
+	case visionModel:
+		name = "lingtu-qwen-vision"
 	default:
 		return model.Channel{}, errors.New("unknown model")
 	}
@@ -226,14 +230,25 @@ func resolveInternalToken() (model.Token, error) {
 		if keyErr != nil {
 			return token, keyErr
 		}
-		token = model.Token{UserId: root.Id, Key: key, Name: internalTokenName, Status: common.TokenStatusEnabled, UnlimitedQuota: true, ModelLimitsEnabled: true, ModelLimits: "deepseek-flash,qwen-plus", ExpiredTime: -1, CreatedTime: time.Now().Unix(), Group: "default"}
+		token = model.Token{UserId: root.Id, Key: key, Name: internalTokenName, Status: common.TokenStatusEnabled, UnlimitedQuota: true, ModelLimitsEnabled: true, ModelLimits: internalModelLimits, ExpiredTime: -1, CreatedTime: time.Now().Unix(), Group: "default"}
 		err = model.DB.Create(&token).Error
 	}
 	if err != nil {
 		return token, err
 	}
-	if token.UserId != root.Id || token.Status != common.TokenStatusEnabled || !token.UnlimitedQuota || !token.ModelLimitsEnabled || token.ModelLimits != "deepseek-flash,qwen-plus" || token.ExpiredTime != -1 || token.Key == "" {
+	if token.UserId != root.Id || token.Status != common.TokenStatusEnabled || !token.UnlimitedQuota || !token.ModelLimitsEnabled || (token.ModelLimits != "deepseek-flash,qwen-plus" && token.ModelLimits != internalModelLimits) || token.ExpiredTime != -1 || token.Key == "" {
 		return token, errors.New("invalid internal token")
+	}
+
+	if token.ModelLimits != internalModelLimits {
+		result := model.DB.Model(&model.Token{}).Where("id = ? AND model_limits = ?", token.Id, token.ModelLimits).Update("model_limits", internalModelLimits)
+		if result.Error != nil {
+			return token, result.Error
+		}
+		if result.RowsAffected != 1 {
+			return token, errors.New("internal token changed")
+		}
+		token.ModelLimits = internalModelLimits
 	}
 	return token, nil
 }
@@ -357,6 +372,10 @@ func (h *Host) prepareChat(c *gin.Context) {
 	channel, err := selectedChannel(selected)
 	if err != nil {
 		clientFailure(c, 503, "model_not_ready")
+		return
+	}
+	if containsImages(in.Messages) && selected != visionModel {
+		clientFailure(c, 400, "vision_unavailable")
 		return
 	}
 	reservation, err := h.trials.ReserveWithLimits(uid, in.RequestID, digest, time.Now(), lingtu.TrialLimits{PerAccountConcurrent: policy.PerAccountConcurrent, RequestsPerMinute: policy.RequestsPerMinute, GlobalConcurrent: policy.GlobalConcurrent, DailyCalls: policy.DailyCalls})

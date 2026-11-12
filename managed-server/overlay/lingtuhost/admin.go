@@ -85,7 +85,7 @@ func (h *Host) adminConfig(c *gin.Context) {
 		providers = append(providers, gin.H{"provider": name, "app_id": config.AppID, "configured": config.Secret != "", "enabled": native.Enabled, "callback": h.portal + "/oauth/" + slug})
 	}
 	models := make([]gin.H, 0, 2)
-	for _, name := range []string{"deepseek", "qwen"} {
+	for _, name := range []string{"deepseek", "qwen", "qwen-vision"} {
 		var channel model.Channel
 		err := model.DB.First(&channel, "name = ?", "lingtu-"+name).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -168,7 +168,7 @@ func (h *Host) saveConfig(c *gin.Context) {
 	switch request.Section {
 	case "wechat", "dingtalk":
 		err = h.saveSocial(request)
-	case "deepseek", "qwen":
+	case "deepseek", "qwen", "qwen-vision":
 		err = h.saveModel(c, request)
 	case "trial":
 		policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
@@ -190,7 +190,7 @@ func (h *Host) saveConfig(c *gin.Context) {
 		if request.GlobalConcurrent != nil {
 			policy.GlobalConcurrent = *request.GlobalConcurrent
 		}
-		if policy.Calls < 0 || policy.Calls > 1000000 || policy.Days < 1 || policy.Days > 365 || policy.DailyCalls < 1 || policy.DailyCalls > 100000 || policy.MaxTokens < 1 || policy.MaxTokens > 8192 || policy.PerAccountConcurrent < 1 || policy.PerAccountConcurrent > 4 || policy.RequestsPerMinute < 1 || policy.RequestsPerMinute > 120 || policy.GlobalConcurrent < 1 || policy.GlobalConcurrent > 16 || (policy.DefaultModel != "deepseek-flash" && policy.DefaultModel != "qwen-plus") {
+		if policy.Calls < 0 || policy.Calls > 1000000 || policy.Days < 1 || policy.Days > 365 || policy.DailyCalls < 1 || policy.DailyCalls > 100000 || policy.MaxTokens < 1 || policy.MaxTokens > 8192 || policy.PerAccountConcurrent < 1 || policy.PerAccountConcurrent > 4 || policy.RequestsPerMinute < 1 || policy.RequestsPerMinute > 120 || policy.GlobalConcurrent < 1 || policy.GlobalConcurrent > 16 || (policy.DefaultModel != "deepseek-flash" && policy.DefaultModel != "qwen-plus" && policy.DefaultModel != visionModel) {
 			err = lingtu.ErrInvalidTrialInput
 			break
 		}
@@ -287,7 +287,7 @@ func (h *Host) saveSocial(r configurationRequest) error {
 	return nil
 }
 func (h *Host) saveModel(c *gin.Context, r configurationRequest) error {
-	if (r.Section != "deepseek" && r.Section != "qwen") || (r.MakeDefault && (!r.Enabled || r.ClearSecret)) {
+	if (r.Section != "deepseek" && r.Section != "qwen" && r.Section != "qwen-vision") || (r.MakeDefault && (!r.Enabled || r.ClearSecret)) {
 		return lingtu.ErrInvalidTrialInput
 	}
 	var channel model.Channel
@@ -313,9 +313,12 @@ func (h *Host) saveModel(c *gin.Context, r configurationRequest) error {
 	base := "https://api.deepseek.com"
 	channel.Models = "deepseek-flash"
 	override := `{"thinking":{"type":"disabled"}}`
-	if r.Section == "qwen" {
+	if r.Section == "qwen" || r.Section == "qwen-vision" {
 		base = "https://dashscope.aliyuncs.com/compatible-mode"
 		channel.Models = "qwen-plus"
+		if r.Section == "qwen-vision" {
+			channel.Models = visionModel
+		}
 		override = `{}`
 	}
 	channel.BaseURL = &base
@@ -345,6 +348,8 @@ func persistManagedModel(channel *model.Channel, makeDefault bool) error {
 		selected = "deepseek-flash"
 	case "lingtu-qwen":
 		selected = "qwen-plus"
+	case "lingtu-qwen-vision":
+		selected = visionModel
 	default:
 		return lingtu.ErrInvalidTrialInput
 	}
@@ -395,7 +400,7 @@ func (h *Host) saveAccount(r configurationRequest) error {
 	if r.UserID <= 0 || r.Calls < 0 || r.Calls > 1000000 || len(strings.TrimSpace(r.Reason)) < 1 || len(r.Reason) > 256 || (r.Status != "enabled" && r.Status != "disabled") || r.ExpiresAt <= 0 {
 		return lingtu.ErrInvalidTrialInput
 	}
-	if r.Model != "" && r.Model != "deepseek-flash" && r.Model != "qwen-plus" {
+	if r.Model != "" && r.Model != "deepseek-flash" && r.Model != "qwen-plus" && r.Model != visionModel {
 		return lingtu.ErrInvalidTrialInput
 	}
 	err := model.DB.Transaction(func(tx *gorm.DB) error {

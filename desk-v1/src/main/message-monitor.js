@@ -311,6 +311,9 @@ class MessageMonitor {
       uid,
       from,
       content,
+      messageType:String(event.type||'text').slice(0,30),
+      msgId:String(event.msgId||'').slice(0,200),
+      username,
       ts: Number(event.ts) || 0,
     });
     return true;

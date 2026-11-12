@@ -3,8 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const {validateMessages}=require('../shared/multimodal.cjs');
 
 const MESSAGES = {
+  vision_unavailable:'当前模型或本店设置未启用图片识别，请转人工处理图片。',vision_invalid_input:'图片地址或数量不受支持，请在原会话检查图片。',vision_failed:'图片识别未完成，请人工检查该会话；不会自动重试。',
   session_expired: '登录已过期，请重新登录。', account_disabled: '账号已停用。',
   trial_exhausted: '试用次数已用完。', trial_expired: '试用已到期。',
   daily_limit: '今日服务试用上限已达到，请明天或联系管理员后再试。',
@@ -144,7 +146,8 @@ function createManagedSession(options = {}) {
   function validateAccount(m) {
     if (m?.status === 'disabled') throw error('account_disabled');
     if (!m || m.user_id !== credential?.userId || m.status !== 'enabled' || !text(m.display_name) || !m.trial || !['limit', 'used', 'reserved', 'remaining', 'expires_at'].every(k => finite(m.trial[k]))) throw error('invalid_response');
-    return { userId: m.user_id, displayName: m.display_name, trial: { limit: m.trial.limit, used: m.trial.used, reserved: m.trial.reserved, remaining: m.trial.remaining, expiresAt: m.trial.expires_at } };
+    const capabilities=m.capabilities?{vision:m.capabilities.vision===true&&m.capabilities.model==='qwen3-vl-plus'&&m.capabilities.max_images===4,model:typeof m.capabilities.model==='string'?m.capabilities.model.slice(0,128):'',maxImages:4}:undefined;
+    return { userId: m.user_id, displayName: m.display_name,...(capabilities?{capabilities}:{}), trial: { limit: m.trial.limit, used: m.trial.used, reserved: m.trial.reserved, remaining: m.trial.remaining, expiresAt: m.trial.expires_at } };
   }
   function later(fn, ms) { timer = schedule(fn, ms); timer?.unref?.(); }
   function autoRefresh(e) {
@@ -244,9 +247,11 @@ function createManagedSession(options = {}) {
     return snapshot();
   }
   async function chat(payload, { signal } = {}) {
-    if (!payload || !text(payload.client_request_id, 128) || !Array.isArray(payload.messages) || !payload.messages.length || payload.messages.length > 200 || payload.messages.some(m => !['system', 'user', 'assistant'].includes(m?.role) || !text(m.content, 100000))) throw error('invalid_request');
-    const body = { client_request_id: payload.client_request_id, messages: payload.messages.map(({ role, content }) => ({ role, content })) };
-    if (Buffer.byteLength(JSON.stringify(body)) > 512000) throw error('invalid_request');
+    if (!payload || !text(payload.client_request_id, 128)) throw error('invalid_request');
+    let messages;try{messages=validateMessages(payload.messages);}catch{throw error('invalid_request');}
+    if(messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==='image_url'))&&!state.account?.capabilities?.vision)throw error('vision_unavailable');
+    const body = { client_request_id: payload.client_request_id, messages };
+    if (Buffer.byteLength(JSON.stringify(body)) > 128*1024) throw error('invalid_request');
     const e = epoch;
     try {
       if (!credential || credential.expiresAt <= now()) throw error('session_expired');

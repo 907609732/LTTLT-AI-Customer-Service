@@ -21,7 +21,7 @@ const {createAuxiliaryState}=require('./auxiliary-state.cjs');
 const {createConversationQuality}=require('./conversation-quality.cjs');
 const platforms=[{id:'pdd-web',label:'拼多多'},{id:'doudian-client',label:'抖店'}];
 const Command=z.object({action:z.string().min(1).max(60),screenId:z.string().max(30).optional(),storeId:z.string().max(64).optional(),conversationId:z.string().max(200).optional(),values:z.record(z.string(),z.unknown()).optional()});
-function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},allowExternalClient=true,externalClientReady=()=>{},sourceDiagnostics=false}={}){
+function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},managedCapabilities=()=>({}),allowExternalClient=true,externalClientReady=()=>{},sourceDiagnostics=false}={}){
  if(!dataDir)throw Error('data_directory_required');
  const logger=new Logger({dir:path.join(dataDir,'logs'),console:sourceDiagnostics,level:sourceDiagnostics?'debug':'info'});
  let diagnostics=null;
@@ -46,9 +46,12 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  const intents=createIntentKnowledge(path.join(dataDir,'intent-knowledge.json'));
  const modelProfiles=createModelProfiles(path.join(dataDir,'model-profiles.json'));
  const welcome=createWelcome(path.join(dataDir,'store-welcome.json'));
+ const visionFile=path.join(dataDir,'store-vision.json'),visionSetting=z.object({enabled:z.boolean(),version:z.number().int().nonnegative()}).strict(),visionSchema=z.object({version:z.literal(1),stores:z.record(z.string(),visionSetting)}).strict();
+ let visionSettings={version:1,stores:{}};if(fs.existsSync(visionFile)){try{visionSettings=visionSchema.parse(JSON.parse(fs.readFileSync(visionFile,'utf8')));}catch{throw Error('图片识别配置损坏，原文件未改动，请恢复备份');}}
  const auxiliary=createAuxiliaryState(path.join(dataDir,'auxiliary-state.json'));
  const quality=createConversationQuality(path.join(dataDir,'conversation-quality.json'));
  const secrets=new SecretStore({file:path.join(dataDir,'secrets.json'),safeStorage});
+ function visionSupport(){const ai=config.all().ai,caps=modelMode==='managed'?managedCapabilities():null,supported=modelMode==='managed'?caps?.vision===true&&caps?.model==='qwen3-vl-plus':ai.provider==='openai'&&ai.model==='qwen3-vl-plus'&&(secrets.has('ai.apiKey')||/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(ai.baseUrl));return {supported,model:modelMode==='managed'?String(caps?.model||''):ai.model,maxImages:4,reason:supported?'当前模型支持图片输入':modelMode==='managed'?'当前托管账号未获图片识别能力；请在服务端配置并授权 Qwen3-VL。':'请在模型设置连接 Qwen3-VL（qwen3-vl-plus）后启用图片识别。'};}
  config.update({reply:{enabled:false}});for(const s of registry.list())if(s.aiEnabled)registry.setAi(s.id,false);
  const archiveFile=path.join(dataDir,'conversations.json');
  let conversations=readJson(archiveFile,[]);if(!Array.isArray(conversations))conversations=[];
@@ -105,7 +108,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   catch{modelIssue.message+=' 本机未能保存暂停提示，请在重启前核对原请求。';}
  }
  const adapterFor=store=>{if(!adapters.has(store.id)){if(!adapterFactory)throw Error('平台服务尚未就绪');adapters.set(store.id,adapterFactory(store,{config:config.all(),logger}));}return adapters.get(store.id)};
- const snapshot=()=>structuredClone({revision,welcomeByStore:welcome.snapshot(),products:products.summary(),modelIssue,quality:quality.list(),auxiliary:auxiliary.snapshot(),stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
+ const snapshot=()=>structuredClone({revision,visionByStore:visionSettings.stores,welcomeByStore:welcome.snapshot(),products:products.summary(),modelIssue,quality:quality.list(),auxiliary:auxiliary.snapshot(),stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{vision:visionSupport(),platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
  function changed(){if(disposed)return;logger.setMaskPii(config.all().privacy?.maskPii);revision++;onEvent({type:'backend:changed',revision});diagnostics?.status();}
  async function startCollection(id){
   const state=manager.stateOf(id);
@@ -134,7 +137,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    if(quality.blocked(store.id,uid))c.status='handoff';
    const from=event.type==='reply:sent'?'seller':event.from,content=String(event.content??event.text??'').slice(0,10000),ts=Number(event.ts)||Date.now();
    const msgId=String(event.msgId||'');
-   const duplicate=c.messages.some(m=>msgId?m.msgId===msgId:m.from===from&&m.content===content&&Math.abs(m.ts-ts)<8000);
+   const duplicate=c.messages.find(m=>msgId?(m.msgId===msgId||(!m.msgId&&m.from===from&&m.content===content&&Math.abs(m.ts-ts)<8000)):m.from===from&&m.content===content&&Math.abs(m.ts-ts)<8000);if(duplicate&&msgId&&!duplicate.msgId)duplicate.msgId=msgId;
    if(!duplicate&&from==='buyer'){
     auxiliary.reveal({storeId:store.id,uid});
     if(quality.advance(store.id,uid,ts)&&!quality.blocked(store.id,uid)){
@@ -142,7 +145,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
      if(released&&c.status==='handoff')c.status='pending';
     }
    }
-   if(!duplicate){c.messages.push({from,content,ts,msgId});if(ts>=(c.updatedAt||0)){if(c.status!=='handoff'||event.manual)c.status=from==='buyer'?'pending':'replied';c.updatedAt=ts;quality.observe(store,c);}}
+   if(!duplicate){c.messages.push({from,content,ts,msgId,type:event.type==='reply:sent'?'text':['image','video','audio','file'].includes(event.messageType)?event.messageType:'text'});if(ts>=(c.updatedAt||0)){if(c.status!=='handoff'||event.manual)c.status=from==='buyer'?'pending':'replied';c.updatedAt=ts;quality.observe(store,c);}}
    if(event.manual&&from==='seller'&&ts>=(c.updatedAt||0)){c.status='replied';c.updatedAt=ts;}
    c.messages=c.messages.slice(-100);
    conversations=conversations.slice(-200);writeJson(archiveFile,conversations);
@@ -152,12 +155,13 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   changed();
  }
  manager=managerFactory?.({registry,config,adapterFor,logger,onEvent:ingest})||{stateOf:()=>({open:false,online:false}),closeAll(){}};
- const modelClient=aiClient||new AiClient({getConfig:()=>config.all(),logger,secretReader:n=>secrets.get(n),fetchImpl,contextProvider:({thread,goodsTitle,reviewContext})=>{
+ const modelClient=aiClient||new AiClient({getConfig:()=>config.all(),logger,secretReader:n=>secrets.get(n),fetchImpl,visionProvider:context=>({...visionSupport(),enabled:!!visionSettings.stores[context?.storeId]?.enabled}),contextProvider:({thread,goodsTitle,reviewContext})=>{
   const storeId=reviewContext?.storeId;if(!registry.get(storeId))return [];
   const question=[...(thread||[])].reverse().find(m=>m.from==='buyer')?.content||'';
   const productId=products.getByProductId(storeId,reviewContext?.productId)?.productId||products.identifyTitle(storeId,goodsTitle);
   return [...products.search(storeId,[goodsTitle,question].filter(Boolean).join(' '),3).map(x=>({...x,source:'product'})),...intents.search(storeId,question,productId)];
  }});
+ if(!modelClient.onGenerationFailure)modelClient.onGenerationFailure=(error,context)=>{if(/^vision_/.test(error?.code||''))reportConversationIssue(new ManagedSessionError(error.code),context);};
  if(modelMode==='managed'){
   modelClient.suppressFallback=true;
   modelClient.onGenerationFailure=(error,context)=>{if(disposed)return;reportConversationIssue(new ManagedSessionError(error?.code||'generation_failed'),{...context,storeName:registry.get(context?.storeId)?.storeName||''});};
@@ -228,6 +232,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
     if(input.enabled&&!input.text)throw Error('开启兜底前请填写兜底话术。');
     config.update({reply:{fallbackAfterMs:input.enabled?input.seconds*1000:0,fallbackText:input.text}});message='自动回复兜底设置已保存，应用于全部店铺。';break;
    }
+   case 'save-vision-settings':{storeOf(command.storeId);const input=visionSetting.parse(v),old=visionSettings.stores[command.storeId]||{enabled:false,version:0};if(input.version!==old.version)throw Error('图片识别配置已更新，请重新载入');if(input.enabled&&!visionSupport().supported)throw Error(visionSupport().reason);const next=visionSchema.parse({version:1,stores:{...visionSettings.stores,[command.storeId]:{...input,version:old.version+1}}});writeJson(visionFile,next);visionSettings=next;data=next.stores[command.storeId];message='本店图片识别设置已保存，AI接待开关未改变。';break;}
    case 'save-welcome':storeOf(command.storeId);data=welcome.save(command.storeId,v);message='本店新会话欢迎已保存，AI接待开关未改变。';break;
    case 'list-model-profiles':data={...modelProfiles.snapshot(),globalPrompt:config.all().ai.systemPrompt,globalMaxReplyChars:config.all().reply.maxReplyChars};break;
    case 'save-model-profile':data=modelProfiles.save(v);message='模型规则方案已保存，绑定店铺后生效。';break;
@@ -260,12 +265,12 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    case 'add-work-order-note':{const input=z.object({id:z.string().uuid(),text:z.string().trim().min(1).max(2000)}).strict().parse(v);workOrders.note(input.id,input.text);message='跟进记录已保存。';break;}
    case 'start-training':{
     if(modelMode==='managed'&&modelIssue)throw Error('请先核对托管请求状态并确认清除提示，再进行测试。');
-    const input=z.object({question:z.string().trim().min(1).max(2000),productId:z.string().trim().max(100).optional(),history:z.array(z.object({from:z.enum(['buyer','seller']),content:z.string().min(1).max(2000)}).strict()).max(20)}).strict().parse(v);
-    if(command.storeId)storeOf(command.storeId);
+    const input=z.object({question:z.string().trim().min(1).max(2000),productId:z.string().trim().max(100).optional(),images:z.array(z.string().max(2048)).max(4).optional(),history:z.array(z.object({from:z.enum(['buyer','seller']),content:z.string().min(1).max(2000)}).strict()).max(20)}).strict().parse(v);
+    if(input.images?.length&&!command.storeId)throw Error('请先选择测试店铺');if(command.storeId)storeOf(command.storeId);
     const trainingConfig=modelProfiles.resolve(command.storeId,config.all());
     const trainingProduct=input.productId?products.getByProductId(command.storeId,input.productId):null;if(input.productId&&!trainingProduct)throw Error('请选择当前店铺已启用的有效商品');
-    const thread=[...input.history.map(m=>({...m,type:'text'})),{from:'buyer',type:'text',content:input.question}];
-    let result;try{result=await modelClient.reply({systemPrompt:trainingConfig.ai.systemPrompt,thread,goodsTitle:trainingProduct?.title,reviewContext:command.storeId?{storeId:command.storeId,productId:trainingProduct?.productId}:undefined,timeoutMs:config.all().ai.timeoutMs})}catch(error){if(modelMode==='managed'&&!disposed&&!modelIssue)modelClient.onGenerationFailure?.(error);const reason=String(error?.message||'');throw Error(modelMode==='managed'?'托管模型请求未完成，请查看界面上的托管 AI 提示。':reason==='ai_base_url_missing'?'请先配置模型接口地址':reason==='ai_api_key_missing'?'请先配置模型 API Key':/^ai_http_40[13]/.test(reason)?'模型密钥无效或没有访问权限':reason.startsWith('ai_http_402')?'模型账户余额不足':reason.startsWith('ai_http_429')?'模型请求受限，请稍后重试':reason==='llm_timeout'?'模型响应超时，请稍后重试':'模型连接失败，请检查模型设置和网络')}
+    const thread=[...input.history.map(m=>({...m,type:'text'})),...(input.images||[]).map(content=>({from:'buyer',type:'image',content})),{from:'buyer',type:'text',content:input.question}];
+    let result;try{result=await modelClient.reply({systemPrompt:trainingConfig.ai.systemPrompt,thread,goodsTitle:trainingProduct?.title,reviewContext:command.storeId?{storeId:command.storeId,productId:trainingProduct?.productId}:undefined,timeoutMs:config.all().ai.timeoutMs})}catch(error){if(['vision_unavailable','vision_invalid_input'].includes(error?.code))throw new ManagedSessionError(error.code);if(modelMode==='managed'&&!disposed&&!modelIssue)modelClient.onGenerationFailure?.(error);const reason=String(error?.message||'');throw Error(modelMode==='managed'?'托管模型请求未完成，请查看界面上的托管 AI 提示。':reason==='ai_base_url_missing'?'请先配置模型接口地址':reason==='ai_api_key_missing'?'请先配置模型 API Key':/^ai_http_40[13]/.test(reason)?'模型密钥无效或没有访问权限':reason.startsWith('ai_http_402')?'模型账户余额不足':reason.startsWith('ai_http_429')?'模型请求受限，请稍后重试':reason==='llm_timeout'?'模型响应超时，请稍后重试':'模型连接失败，请检查模型设置和网络')}
     const reply=filterBannedWords(String(result.reply||''),bannedWords).trim().slice(0,trainingConfig.reply.maxReplyChars).trim();
     if(!reply)throw Error('回复被禁用词过滤为空，请调整规则后重试');
     data={reply};message='模拟回复已生成。';break;

@@ -193,7 +193,17 @@ func (h *Host) accountResponse(c *gin.Context, uid int) {
 		clientFailure(c, 404, "account_not_ready")
 		return
 	}
-	c.JSON(200, gin.H{"user_id": uid, "display_name": user.DisplayName, "status": account.Status, "trial": gin.H{"limit": grant.Limit, "used": grant.Used, "reserved": grant.Reserved, "remaining": max(0, grant.Limit-grant.Used-grant.Reserved), "expires_at": grant.ExpiresAt}})
+
+	policy, err := lingtu.LoadTrialPolicy(model.DB)
+	if err != nil {
+		clientFailure(c, 503, "configuration_unavailable")
+		return
+	}
+	selected := account.Model
+	if selected == "" {
+		selected = policy.DefaultModel
+	}
+	c.JSON(200, gin.H{"capabilities": visionCapability(selected), "user_id": uid, "display_name": user.DisplayName, "status": account.Status, "trial": gin.H{"limit": grant.Limit, "used": grant.Used, "reserved": grant.Reserved, "remaining": max(0, grant.Limit-grant.Used-grant.Reserved), "expires_at": grant.ExpiresAt}})
 }
 func (h *Host) config(c *gin.Context) {
 	policy, err := lingtu.LoadTrialPolicy(model.DB)

@@ -175,5 +175,7 @@
  "Disabled in the main account system":"主账号系统已停用",
  "This account is disabled in the main account system. Enable it there before editing model authorization.":"此账号已在主账号系统中停用。请先在主账号系统启用，再修改模型授权。",
  "Returned token total":"词元总量",
- "Switch account":"切换账号"
+ "Switch account":"切换账号",
+ "Qwen3-VL · Image understanding":"Qwen3-VL · 图片识别",
+ "Qwen3-VL settings":"Qwen3-VL 识图设置"
 }
