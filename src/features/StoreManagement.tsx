@@ -1,3 +1,4 @@
+import {ProductKnowledge} from './ProductKnowledge';
 import {storeDisplayName,storeConnection} from './store-display';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
@@ -57,6 +58,7 @@ function SourceStoreRows({stores,hasStores,notice,onRemove}:{stores:Store[];hasS
 }
 
 function SourceStoreRow({store:s,width,notice,onRemove}:{store:Store;width:number;notice:(s:string)=>void;onRemove:()=>void}){
+ const [productsOpen,setProductsOpen]=useState(false);
  const b=useBackend(),[pending,setPending]=useState(false),[group,setGroup]=useState(s.group||'');
  useEffect(()=>setGroup(s.group||''),[s.group]);
  const template=s.platform==='doudian-client'?doudianSource:rowSource;
@@ -71,12 +73,13 @@ function SourceStoreRow({store:s,width,notice,onRemove}:{store:Store;width:numbe
   if(id==='8801:294')return platformName(s);
   if(id==='8801:296')return <span title={s.runtime.identityError||s.runtime.collectionError||s.runtime.lastError}>{connection(s)}</span>;
   if(id==='8801:268')return s.aiEnabled?'AI接待已开启':'AI接待未开启';
-  if(id==='8801:272')return '未接入';
+  if(id==='8801:272')return '知识 '+(b.snapshot.products?.byStore[s.id]||0);
   if(id==='8801:256')return <input className="source-store-group" aria-label={storeDisplayName(s)+' 分组'} placeholder="分组" maxLength={30} value={group} disabled={pending} onChange={e=>setGroup(e.target.value)} onBlur={()=>void saveGroup()} onKeyDown={e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing)e.currentTarget.blur();}}/>;
   if(id==='8801:278')return <button className="source-store-delete" aria-label={'删除店铺账号 '+storeDisplayName(s)} disabled={pending} onClick={onRemove}>删除</button>;
   if(id==='8801:255')return <button className="source-store-action" disabled={pending||(s.runtime.online&&!s.runtime.identityError)} onClick={()=>void perform('open-store')} title={s.runtime.online?'商品学习尚未接入':'打开店铺完成平台登录'}><i className="source-dot inactive"/>{s.runtime.identityError?'重新获取店铺信息':s.runtime.online?'学习未接入':pending?'打开中…':'请先登录'}</button>;
+  if(id==='8801:254')return <button className="source-store-action" onClick={()=>setProductsOpen(true)}>商品知识</button>;
   if(actions[id]){const a=actions[id];return <button className="source-store-action" disabled={pending||a.unsupported} title={a.unsupported?'此功能尚未接入':a.label==='转接人工'?'配置转人工关键词':'打开配置页面，业务能力以页面提示为准'} onClick={()=>void perform('select-store',a.target)}><i className={'source-dot '+(id==='8801:249'?'':'inactive')}/>{a.label}</button>;}
   return undefined;
  };
- return <article className="source-store-row" aria-label={'店铺 '+storeDisplayName(s)}><FigmaCanvas design={design} screenId="UX07" scale={1} viewport={{width,height:74}} renderLayer={render} onAction={()=>{}}/></article>;
+ return <article className="source-store-row" aria-label={'店铺 '+storeDisplayName(s)}><FigmaCanvas design={design} screenId="UX07" scale={1} viewport={{width,height:74}} renderLayer={render} onAction={()=>{}}/>{productsOpen&&createPortal(<ProductKnowledge key={b.snapshot.workspaceId} storeId={s.id} onClose={()=>setProductsOpen(false)}/>,document.body)}</article>;
 }

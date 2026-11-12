@@ -107,3 +107,18 @@ test('quality release never clears explicit manual takeover',()=>{const {StoreWo
 for(const gate of ['uid_interval','store_rate'])test(`managed ${gate} waits without quality hold or repeated generation`,async t=>{
  const {StoreWorker}=require('../desk-v1/src/main/reply-engine'),{METHODS}=require('../desk-v1/src/shared/adapter-contract');let calls=0,sends=0,clock=Date.now();const {backend}=await setup(t,{managedChat:async()=>{calls++;return {choices:[{message:{content:'{"reply":"answer"}'}}]}}});await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'fixture'}});const store=backend.snapshot().stores[0];const row={uid:'buyer',messages:[{msgId:'fresh',from:'buyer',type:'text',content:'question',ts:clock}]},queue=[row];const adapter={id:'fixture',accessMode:'webview',...Object.fromEntries(METHODS.map(k=>[k,async()=>({ok:true})])),popPending:async()=>queue.shift()||null,popMerchantSent:async()=>[],conversationHistory:async()=>({ok:true,messages:[]}),release:async()=>{queue.push(row);return {ok:true}},sendText:async()=>{sends++;return {ok:true}}};const worker=new StoreWorker({store:{...store,aiEnabled:true},adapter,aiClient:backend.engine.aiClient,now:()=>clock,getConfig:()=>({reply:{enabled:true,maxInflight:1,staleMs:180000,perUidMinIntervalMs:60000,perStorePerMinuteMax:1,sendJitterMinMs:0,sendJitterMaxMs:0}})});worker.running=true;backend.engine.workers.set(store.id,worker);if(gate==='uid_interval')worker.lastSentAt.set('buyer',clock);else worker.sendWindow.push(clock);for(let i=0;i<3;i++){await worker.tick();await worker.settle()}assert.equal(calls,0);assert.equal(sends,0);assert.equal(worker.manualSuppressed.size,0);assert.equal(backend.snapshot().quality.length,0);clock+=60001;await worker.tick();await worker.settle();assert.equal(calls,1);assert.equal(sends,1);
 });
+
+test('product knowledge reaches managed reception and training only for its store',async t=>{
+ const calls=[];const {backend}=await setup(t,{managedChat:async payload=>{calls.push(payload.messages);return {choices:[{message:{content:'{"reply":"测试"}'}}]};}});
+ for(const name of ['甲店','乙店'])await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:name}});
+ const [a,b]=backend.snapshot().stores;
+ await backend.execute({action:'save-product',storeId:a.id,values:{productId:'1',title:'智能门锁',description:'仅甲店支持 NFC'}});
+ const thread=[{from:'buyer',type:'text',content:'门锁支持 NFC 吗'}];
+ await backend.engine.aiClient.reply({systemPrompt:'规则',thread,reviewContext:{storeId:a.id}});
+ assert.match(calls.at(-1)[1].content,/仅甲店支持 NFC/);
+ await backend.engine.aiClient.reply({systemPrompt:'规则',thread,reviewContext:{storeId:b.id}});
+ assert.doesNotMatch(calls.at(-1)[1].content,/仅甲店支持 NFC/);
+ await backend.execute({action:'start-training',storeId:a.id,values:{question:'门锁支持 NFC 吗',history:[]}});
+ assert.match(calls.at(-1)[1].content,/仅甲店支持 NFC/);
+ await assert.rejects(backend.execute({action:'list-products',storeId:'missing'}),/有效店铺/);
+});

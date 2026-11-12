@@ -13,6 +13,7 @@ const {ReplyEngine,filterBannedWords}=require('../desk-v1/src/main/reply-engine'
 const {MessageMonitor}=require('../desk-v1/src/main/message-monitor');
 const {readJson,writeJson}=require('../desk-v1/src/main/json-store');
 const {createWorkOrders}=require('./work-orders.cjs');
+const {createProductKnowledge}=require('./product-knowledge.cjs');
 const {createAuxiliaryState}=require('./auxiliary-state.cjs');
 const {createConversationQuality}=require('./conversation-quality.cjs');
 const platforms=[{id:'pdd-web',label:'拼多多'},{id:'doudian-client',label:'抖店'}];
@@ -38,6 +39,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  let bannedWords=[];
  if(fs.existsSync(bannedFile)){try{bannedWords=bannedFileSchema.parse(JSON.parse(fs.readFileSync(bannedFile,'utf8'))).rules}catch{throw Error('AI 禁用词配置损坏，请恢复备份后重试；原文件未改动')}}
  const workOrders=createWorkOrders(path.join(dataDir,'work-orders.json'));
+ const products=createProductKnowledge(path.join(dataDir,'product-knowledge.json'));
  const auxiliary=createAuxiliaryState(path.join(dataDir,'auxiliary-state.json'));
  const quality=createConversationQuality(path.join(dataDir,'conversation-quality.json'));
  const secrets=new SecretStore({file:path.join(dataDir,'secrets.json'),safeStorage});
@@ -96,7 +98,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   catch{modelIssue.message+=' 本机未能保存暂停提示，请在重启前核对原请求。';}
  }
  const adapterFor=store=>{if(!adapters.has(store.id)){if(!adapterFactory)throw Error('平台服务尚未就绪');adapters.set(store.id,adapterFactory(store,{config:config.all(),logger}));}return adapters.get(store.id)};
- const snapshot=()=>structuredClone({revision,modelIssue,quality:quality.list(),auxiliary:auxiliary.snapshot(),stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
+ const snapshot=()=>structuredClone({revision,products:products.summary(),modelIssue,quality:quality.list(),auxiliary:auxiliary.snapshot(),stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
  function changed(){if(disposed)return;logger.setMaskPii(config.all().privacy?.maskPii);revision++;onEvent({type:'backend:changed',revision});diagnostics?.status();}
  async function startCollection(id){
   const state=manager.stateOf(id);
@@ -142,7 +144,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   changed();
  }
  manager=managerFactory?.({registry,config,adapterFor,logger,onEvent:ingest})||{stateOf:()=>({open:false,online:false}),closeAll(){}};
- const modelClient=aiClient||new AiClient({getConfig:()=>config.all(),logger,secretReader:n=>secrets.get(n),fetchImpl});
+ const modelClient=aiClient||new AiClient({getConfig:()=>config.all(),logger,secretReader:n=>secrets.get(n),fetchImpl,contextProvider:({thread,goodsTitle,reviewContext})=>registry.get(reviewContext?.storeId)?products.search(reviewContext.storeId,[goodsTitle,[...(thread||[])].reverse().find(m=>m.from==='buyer')?.content].filter(Boolean).join(' '),3):[]});
  if(modelMode==='managed'){
   modelClient.suppressFallback=true;
   modelClient.onGenerationFailure=(error,context)=>{if(disposed)return;reportConversationIssue(new ManagedSessionError(error?.code||'generation_failed'),{...context,storeName:registry.get(context?.storeId)?.storeName||''});};
@@ -213,14 +215,22 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
     if(input.enabled&&!input.text)throw Error('开启兜底前请填写兜底话术。');
     config.update({reply:{fallbackAfterMs:input.enabled?input.seconds*1000:0,fallbackText:input.text}});message='自动回复兜底设置已保存，应用于全部店铺。';break;
    }
+   case 'list-products':storeOf(command.storeId);data=products.list(command.storeId,v);break;
+   case 'save-product':storeOf(command.storeId);data=products.save({...v,storeId:command.storeId});message='商品知识已保存。';break;
+   case 'remove-product':storeOf(command.storeId);products.remove(command.storeId,v.id,v.version,v.confirmed);message='商品知识已删除，平台商品未改动。';break;
+   case 'preview-product-import':storeOf(command.storeId);data=products.previewImport(command.storeId,v.csv);break;
+   case 'import-products':storeOf(command.storeId);data=products.importCsv(command.storeId,v.csv,v);message='商品知识已导入。';break;
+   case 'export-products':storeOf(command.storeId);data={csv:products.exportCsv(command.storeId)};break;
+   case 'search-product-knowledge':storeOf(command.storeId);data={items:products.search(command.storeId,v.query)};break;
    case 'create-work-order':{const store=storeOf(v.storeId);const item=workOrders.create(v,store);data={id:item.id};message='工单已登记在本机。';break;}
    case 'set-work-order-status':{const input=z.object({id:z.string().uuid(),status:z.enum(['pending','working','waiting','done'])}).strict().parse(v);workOrders.status(input.id,input.status);message='工单状态已更新。';break;}
    case 'add-work-order-note':{const input=z.object({id:z.string().uuid(),text:z.string().trim().min(1).max(2000)}).strict().parse(v);workOrders.note(input.id,input.text);message='跟进记录已保存。';break;}
    case 'start-training':{
     if(modelMode==='managed'&&modelIssue)throw Error('请先核对托管请求状态并确认清除提示，再进行测试。');
     const input=z.object({question:z.string().trim().min(1).max(2000),history:z.array(z.object({from:z.enum(['buyer','seller']),content:z.string().min(1).max(2000)}).strict()).max(20)}).strict().parse(v);
+    if(command.storeId)storeOf(command.storeId);
     const thread=[...input.history.map(m=>({...m,type:'text'})),{from:'buyer',type:'text',content:input.question}];
-    let result;try{result=await modelClient.reply({systemPrompt:config.all().ai.systemPrompt,thread,timeoutMs:config.all().ai.timeoutMs})}catch(error){if(modelMode==='managed'&&!disposed&&!modelIssue)modelClient.onGenerationFailure?.(error);const reason=String(error?.message||'');throw Error(modelMode==='managed'?'托管模型请求未完成，请查看界面上的托管 AI 提示。':reason==='ai_base_url_missing'?'请先配置模型接口地址':reason==='ai_api_key_missing'?'请先配置模型 API Key':/^ai_http_40[13]/.test(reason)?'模型密钥无效或没有访问权限':reason.startsWith('ai_http_402')?'模型账户余额不足':reason.startsWith('ai_http_429')?'模型请求受限，请稍后重试':reason==='llm_timeout'?'模型响应超时，请稍后重试':'模型连接失败，请检查模型设置和网络')}
+    let result;try{result=await modelClient.reply({systemPrompt:config.all().ai.systemPrompt,thread,reviewContext:command.storeId?{storeId:command.storeId}:undefined,timeoutMs:config.all().ai.timeoutMs})}catch(error){if(modelMode==='managed'&&!disposed&&!modelIssue)modelClient.onGenerationFailure?.(error);const reason=String(error?.message||'');throw Error(modelMode==='managed'?'托管模型请求未完成，请查看界面上的托管 AI 提示。':reason==='ai_base_url_missing'?'请先配置模型接口地址':reason==='ai_api_key_missing'?'请先配置模型 API Key':/^ai_http_40[13]/.test(reason)?'模型密钥无效或没有访问权限':reason.startsWith('ai_http_402')?'模型账户余额不足':reason.startsWith('ai_http_429')?'模型请求受限，请稍后重试':reason==='llm_timeout'?'模型响应超时，请稍后重试':'模型连接失败，请检查模型设置和网络')}
     const reply=filterBannedWords(String(result.reply||''),bannedWords).trim().slice(0,config.all().reply.maxReplyChars).trim();
     if(!reply)throw Error('回复被禁用词过滤为空，请调整规则后重试');
     data={reply};message='模拟回复已生成。';break;
