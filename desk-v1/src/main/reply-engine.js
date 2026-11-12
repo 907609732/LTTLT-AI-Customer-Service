@@ -435,10 +435,10 @@ class StoreWorker {
       if(!sent.ok&&typeof this.aiClient.onDeliveryFailure==='function'){
         if(sent.reason==='cancelled')return;
         this.stats.failed+=1;
-        this.aiClient.onDeliveryFailure({reason:sent.reason||'send_unconfirmed',throttled:!!sent.throttled,storeId:this.store.id,uid,buyerName:row.username||row.name||'',buyerMessage:latest.content,reply:text});
-        this.stop();
-        // Preserve conversation input; an unconfirmed delivery is never requeued.
-        await dispose(()=>sent.reason==='send_unconfirmed'?this.adapter.discard(uid):this.adapter.release(uid));
+        this.takeOver(uid);
+        // Claim disposition must happen even if storing the review record fails.
+        try{this.aiClient.onDeliveryFailure({reason:sent.reason||'send_unconfirmed',throttled:!!sent.throttled,storeId:this.store.id,uid,buyerName:row.username||row.name||'',buyerMessage:latest.content,reply:text});}
+        finally{await dispose(()=>sent.reason==='send_unconfirmed'?this.adapter.discard(uid):this.adapter.release(uid));}
         this.onEvent?.({type:'reply:failed',storeId:this.store.id,uid,reason:sent.reason});
         return;
       }

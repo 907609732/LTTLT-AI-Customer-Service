@@ -20,7 +20,8 @@ function broadcast(channel,value){
 }
 function syncIssueView(){
  if(!win||win.isDestroyed())return;
- const visible=storePresentation.visible&&!!runtime?.snapshot().modelIssue;
+ // Review lives in UX21; never cover a platform chat with a model-issue popup.
+ const visible=false;
  if(visible&&!issueView)createIssueView();
  if(!issueView?.webContents||issueView.webContents.isDestroyed())return;
  const [width,height]=win.getContentSize();

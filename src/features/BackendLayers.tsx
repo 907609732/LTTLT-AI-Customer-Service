@@ -1,3 +1,4 @@
+import {ConversationQuality} from './ConversationQuality';
 import {StoreWorkspaceGate} from './StoreWorkspaceGate';
 import {storeDisplayName,storeConnection} from './store-display';
 import {ManagedAccountPanel} from './ManagedAccess';
@@ -29,6 +30,7 @@ export function useBackendLayers(screen:string,notice:(s:string)=>void,openAccou
   if(screen==='UX07'&&n.id==='8801:346')return <button className="source-store-control" onClick={()=>void b.execute({action:'refresh'}).then(()=>notice('店铺状态已刷新。')).catch(e=>notice(e.message))}>刷新</button>;
   if(screen==='UX07'&&n.id==='8801:245')return <StoreWorkspaceGate><StoreManagement notice={notice}/></StoreWorkspaceGate>;
   if(screen==='UX16'&&n.id==='8801:1803')return <TrainingGround/>;
+  if(screen==='UX21'&&n.id==='8801:2258')return <ConversationQuality openAccount={openAccount}/>;
   if(screen==='UX20'&&n.id==='8801:2186')return <WorkOrders/>;
   if(Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&/^(会话行|空状态|已选会话|消息回复输入区)/.test(n.name))return null;
   if(screen==='UX17'&&n.id==='8801:1902')return <div className="live-global-rule"><b>全局模型规则</b><p>当前规则应用于全部店铺。</p><p>多方案与店铺独立绑定尚未接入。</p></div>;
@@ -52,7 +54,7 @@ function StoreList({notice,wide=false}:{notice:(s:string)=>void;wide?:boolean}){
 }
 export function BackendChrome({screen,notice,openAccount}:{screen:string;notice:(s:string)=>void;openAccount:()=>void}){
  const b=useBackend();if(!b.available)return null;
- return <>{!['UX01','UX02','UX03','UX04','UX05','UX06','UX07','UX12','UX16','UX17','UX19','UX20','UX25','UX26','UX27','UX30','UX32'].includes(screen)&&<div className="live-capability-note">{screen==='UX08'?'命中后会标记会话并暂停 AI；平台自动转接尚未接入。':'此页面为设计预览，当前后端尚未提供该业务能力。'}</div>}{b.error&&<div role="alert" className="live-service-error">服务读取失败：{b.error}</div>}{Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&<LiveConversations screen={screen} notice={notice}/>} {b.settings&&<ModelSettings notice={notice}/>}{!['UX01','UX02'].includes(screen)&&<ManagedModelIssueNotice key={b.snapshot.workspaceId}/>}</>;
+ return <>{!['UX01','UX02','UX03','UX04','UX05','UX06','UX07','UX12','UX16','UX17','UX19','UX20','UX21','UX25','UX26','UX27','UX30','UX32'].includes(screen)&&<div className="live-capability-note">{screen==='UX08'?'命中后会标记会话并暂停 AI；平台自动转接尚未接入。':'此页面为设计预览，当前后端尚未提供该业务能力。'}</div>}{b.error&&<div role="alert" className="live-service-error">服务读取失败：{b.error}</div>}{Number(screen.slice(2))>=26&&Number(screen.slice(2))<32&&<LiveConversations screen={screen} notice={notice}/>} {b.settings&&<ModelSettings notice={notice}/>}</>;
 }
 function LiveConversations({screen,notice}:{screen:string;notice:(s:string)=>void}){
  const b=useBackend();const selected=b.snapshot.conversations.find(c=>c.storeId===b.snapshot.selection.storeId&&c.uid===b.snapshot.selection.conversationId);const [drafts,setDrafts]=useState<Record<string,string>>({}),[pending,setPending]=useState(false);const key=selected?selected.storeId+':'+selected.uid:'none',reply=drafts[key]||'';
@@ -63,7 +65,7 @@ function LiveConversations({screen,notice}:{screen:string;notice:(s:string)=>voi
 function LiveReception({notice,openAccount}:{notice:(s:string)=>void;openAccount:()=>void}){
  const b=useBackend(),s=b.snapshot.stores.find(s=>s.id===b.snapshot.selection.storeId);const [pending,setPending]=useState(false);
  const run=async(action:string,values?:Record<string,unknown>)=>{if(pending)return;setPending(true);try{const r=await b.execute({action,storeId:s?.id,values});notice(r.message||'操作完成');const failed=(r.data?.results as {ok:boolean;message?:string}[]|undefined)?.filter(r=>!r.ok);if(failed?.length)notice((r.message||'')+' '+failed.map(r=>r.message).join('；'));}catch(e){notice(e instanceof Error?e.message:String(e))}finally{setPending(false)}};
- return <div className="live-reception"><button disabled={pending||!s} onClick={()=>void run('set-ai',{enabled:!s?.aiEnabled})}><i className={s?.aiEnabled?'on':''}/>{s?.aiEnabled?(b.snapshot.engine[s.id]?.paused?'AI已暂停':'全自动接待'):'AI已关闭'}</button><button onClick={()=>{b.setSettings(true);}}>模型设置⌄</button><select aria-label="一键操作" disabled={pending} value="" onChange={e=>void run('batch',{operation:e.target.value})}><option value="" disabled>一键操作⌄</option><option value="open">一键加载店铺</option><option value="pause">一键暂停AI</option><option value="close">一键离线</option><option value="enable">一键开启AI</option><option value="disable">一键关闭AI</option></select></div>;
+ return <div className="live-reception"><button disabled={pending||!s} onClick={()=>b.snapshot.modelIssue?void window.lingtu?.openMain('UX21'):void run('set-ai',{enabled:!s?.aiEnabled})}><i className={s?.aiEnabled?'on':''}/>{b.snapshot.modelIssue?'服务异常 · 查看':s?.aiEnabled?(b.snapshot.engine[s.id]?.paused?'AI已暂停':'全自动接待'):'AI已关闭'}</button><button onClick={()=>{b.setSettings(true);}}>模型设置⌄</button><select aria-label="一键操作" disabled={pending} value="" onChange={e=>void run('batch',{operation:e.target.value})}><option value="" disabled>一键操作⌄</option><option value="open">一键加载店铺</option><option value="pause">一键暂停AI</option><option value="close">一键离线</option><option value="enable">一键开启AI</option><option value="disable">一键关闭AI</option></select></div>;
 }
 export function ManagedModelIssueNotice(){
  const b=useBackend(),issue=b.snapshot.modelIssue;const [review,setReview]=useState(false),[collapsed,setCollapsed]=useState(false),[pending,setPending]=useState(false),[error,setError]=useState('');

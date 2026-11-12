@@ -32,7 +32,7 @@ for(const code of ['session_expired','trial_exhausted','trial_expired','daily_li
  await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'fixture'}});const store=backend.snapshot().stores[0];let row={uid:'buyer',messages:[{msgId:'m1',from:'buyer',type:'text',content:'fixture',ts:Date.now()}]};
  const adapter={id:'fixture',accessMode:'webview',...Object.fromEntries(METHODS.map(k=>[k,async()=>({ok:true})])),popPending:async()=>{const next=row;row=null;return next;},popMerchantSent:async()=>[],conversationHistory:async()=>({ok:true,messages:[]}),sendText:async()=>{sent++;return {ok:true};}};
  const worker=new StoreWorker({store:{...store,aiEnabled:true},adapter,aiClient:backend.engine.aiClient,getConfig:()=>({ai:{systemPrompt:'rule'},reply:{enabled:true,maxInflight:1,staleMs:180000,fallbackAfterMs:1,fallbackText:'MUST NOT SEND',perUidMinIntervalMs:0,sendJitterMinMs:0,sendJitterMaxMs:0}})});
- worker.running=true;backend.engine.workers.set(store.id,worker);await worker.tick();await worker.settle();await worker.tick();assert.equal(calls,1);assert.equal(sent,0);assert.equal(worker.running,false);assert.equal(backend.engine.workers.size,0);
+ worker.running=true;backend.engine.workers.set(store.id,worker);await worker.tick();await worker.settle();await worker.tick();assert.equal(calls,1);assert.equal(sent,0);const globalIssue=['session_expired','trial_exhausted','trial_expired','daily_limit','model_unavailable'].includes(code);assert.equal(worker.running,!globalIssue);assert.equal(backend.engine.workers.size,globalIssue?0:1);if(!globalIssue){assert.equal(backend.snapshot().modelIssue,null);assert.equal(backend.snapshot().quality[0].events[0].code,code);}
 });
 test('disposing local own-key backend aborts its in-flight model HTTP request',async t=>{
  let entered,aborted=false;const started=new Promise(r=>{entered=r;});
@@ -60,7 +60,7 @@ test('managed denial invalidates an AI start still awaiting adapter readiness',a
  const {backend}=await setup(t,{adapterFactory:()=>adapter});await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'fixture'}});const id=backend.snapshot().stores[0].id;
  const pending=backend.execute({action:'set-ai',storeId:id,values:{enabled:true}});await ready;backend.stopAi();release();await assert.rejects(pending,/取消/);assert.equal(backend.engine.worker(id),null);assert.equal(backend.snapshot().stores[0].aiEnabled,false);
 });
-for(const outcome of ['input_not_found','send_unconfirmed','throws','throttled','unusable_reply'])test(`managed ${outcome} after generation pauses without another model ID or duplicate send`,async t=>{
+for(const outcome of ['input_not_found','send_unconfirmed','throws','throttled','unusable_reply'])test(`managed ${outcome} after generation isolates that conversation without another model ID or duplicate send`,async t=>{
  const {StoreWorker}=require('../desk-v1/src/main/reply-engine'),{METHODS}=require('../desk-v1/src/shared/adapter-contract');const ids=[];let sends=0;
  const {backend,dir}=await setup(t,{managedChat:async payload=>{ids.push(payload.client_request_id);return {choices:[{message:{content:outcome==='unusable_reply'?'{"reply":""}':'{"reply":"fixture generated reply"}'}}]};}});
  await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'fixture'}});const store=backend.snapshot().stores[0];
@@ -69,14 +69,11 @@ for(const outcome of ['input_not_found','send_unconfirmed','throws','throttled',
  const worker=new StoreWorker({store:{...store,aiEnabled:true},adapter,aiClient:backend.engine.aiClient,getConfig:()=>({ai:{systemPrompt:'rule'},reply:{enabled:true,maxInflight:1,staleMs:180000,fallbackAfterMs:1,fallbackText:'MUST NOT SEND',perUidMinIntervalMs:0,perStorePerMinuteMax:1,sendJitterMinMs:0,sendJitterMaxMs:0}})});
  if(outcome==='throttled')worker.sendWindow.push(Date.now());worker.running=true;backend.engine.workers.set(store.id,worker);
  for(let i=0;i<3;i++){await worker.tick();await worker.settle();}
- assert.equal(ids.length,1);assert.equal(new Set(ids).size,1);assert.equal(sends,['throttled','unusable_reply'].includes(outcome)?0:1);assert.equal(worker.running,false);assert.equal(backend.snapshot().modelIssue.requiresReview,true);assert.match(backend.snapshot().modelIssue.message,outcome==='unusable_reply'?/模型回复/:/回复已生成/);assert.equal(backend.snapshot().modelIssue.code,outcome==='unusable_reply'?'generation_failed':outcome==='throttled'?'delivery_blocked':['throws','send_unconfirmed'].includes(outcome)?'delivery_unconfirmed':'delivery_failed');assert.ok(!JSON.stringify(backend.snapshot().modelIssue).includes('raw platform'));
- const detail=backend.snapshot().modelIssue.context;
- if(outcome!=='unusable_reply'){
-  assert.equal(detail.storeId,store.id);assert.equal(detail.uid,'buyer');
-  assert.equal(detail.buyerMessage,'fixture');assert.equal(detail.reply,'fixture generated reply');
- }
- backend.dispose();const restored=createBackend({dataDir:dir,modelMode:'managed'});t.after(()=>restored.dispose());assert.equal(restored.snapshot().modelIssue.requiresReview,true);
- assert.deepEqual(restored.snapshot().modelIssue.context,detail);
+ assert.equal(ids.length,1);assert.equal(new Set(ids).size,1);assert.equal(sends,['throttled','unusable_reply'].includes(outcome)?0:1);assert.equal(worker.running,true);assert.equal(backend.snapshot().modelIssue,null);
+ const record=backend.snapshot().quality[0],event=record.events[0];assert.equal(event.code,outcome==='unusable_reply'?'generation_failed':outcome==='throttled'?'delivery_blocked':['throws','send_unconfirmed'].includes(outcome)?'delivery_unconfirmed':'delivery_failed');assert.ok(!JSON.stringify(record).includes('raw platform'));
+ assert.equal(record.storeId,store.id);assert.equal(record.uid,'buyer');
+ if(outcome!=='unusable_reply'){assert.equal(event.buyerMessage,'fixture');assert.equal(event.reply,'fixture generated reply');}
+ backend.dispose();const restored=createBackend({dataDir:dir,modelMode:'managed'});t.after(()=>restored.dispose());assert.equal(restored.snapshot().modelIssue,null);assert.deepEqual(restored.snapshot().quality[0].events,event?[event]:[]);
 });
 
 test('reviewing delivery issue focuses its original conversation without sending or clearing it',async t=>{
@@ -85,13 +82,22 @@ test('reviewing delivery issue focuses its original conversation without sending
  await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'测试店铺'}});
  const storeId=backend.snapshot().stores[0].id;
  backend.engine.aiClient.onDeliveryFailure({reason:'send_unconfirmed',storeId,uid:'original-buyer',buyerName:'测试买家',buyerMessage:'测试问题',reply:'待核对回答'});
- const issue=backend.snapshot().modelIssue;
- await assert.rejects(backend.execute({action:'review-model-issue',values:{code:issue.code,at:issue.at-1}}),/已更新/);
- await backend.execute({action:'review-model-issue',values:{code:issue.code,at:issue.at}});
+ backend.ingest({type:'message:in',storeId,uid:'original-buyer',from:'buyer',content:'测试问题'});
+ const record=backend.snapshot().quality[0];
+ await backend.execute({action:'focus-conversation',storeId,conversationId:'original-buyer'});
  assert.equal(focused,'original-buyer');assert.equal(sends,0);
- assert.deepEqual(backend.snapshot().modelIssue,issue);
- assert.equal(backend.snapshot().selection.conversationId,'original-buyer');
+ await backend.execute({action:'review-conversation',values:{id:record.id,version:record.version,status:'passed',note:'核对完成'}});
+ assert.equal(backend.snapshot().quality[0].status,'passed');assert.equal(sends,0);assert.equal(backend.snapshot().modelIssue,null);
 });
 test('managed requests queue across conversations instead of exceeding account concurrency',async t=>{let release,entered;const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r);let active=0,max=0,calls=0;const {backend}=await setup(t,{managedChat:async()=>{calls++;active++;max=Math.max(max,active);entered();if(calls===1)await gate;active--;return {choices:[{message:{content:'ok'}}]}}});const first=backend.engine.aiClient.complete({messages:[{role:'user',content:'a'}]});await started;const second=backend.engine.aiClient.complete({messages:[{role:'user',content:'b'}]});await new Promise(r=>setTimeout(r,25));assert.equal(calls,1);release();await Promise.all([first,second]);assert.equal(max,1);assert.equal(calls,2);});
 test('busy response stops queued requests before transport and preserves the original cause',async t=>{let release,entered;const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r);let calls=0;const {ManagedSessionError}=require('../electron/managed-session.cjs');const {backend}=await setup(t,{managedChat:async()=>{calls++;entered();await gate;throw new ManagedSessionError('service_busy')}});const first=backend.engine.aiClient.complete({messages:[{role:'user',content:'a'}]});await started;const second=backend.engine.aiClient.complete({messages:[{role:'user',content:'b'}]});const results=Promise.allSettled([first,second]);release();const settled=await results;assert.ok(settled.every(r=>r.status==='rejected'));assert.equal(calls,1);assert.equal(backend.snapshot().modelIssue.code,'service_busy');});
 test('a queued generation invalidated by its worker never starts transport or creates an issue',async t=>{let release,entered,valid=true,calls=0;const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r);const {backend}=await setup(t,{managedChat:async()=>{calls++;entered();await gate;return {choices:[{message:{content:'ok'}}]}}});const first=backend.engine.aiClient.complete({messages:[{role:'user',content:'a'}]});await started;const second=backend.engine.aiClient.complete({messages:[{role:'user',content:'b'}],isCurrent:()=>valid});const done=Promise.allSettled([first,second]);valid=false;release();const results=await done;assert.equal(calls,1);assert.equal(results[1].reason.code,'queued_canceled');assert.equal(backend.snapshot().modelIssue,null);});
+
+test('one uncertain buyer does not stop automatic replies to another buyer',async t=>{
+ const {StoreWorker}=require('../desk-v1/src/main/reply-engine'),{METHODS}=require('../desk-v1/src/shared/adapter-contract');
+ const {backend}=await setup(t);await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'测试店'}});const store=backend.snapshot().stores[0],sent=[];
+ const rows=['a','b'].map(uid=>({uid,messages:[{msgId:uid,from:'buyer',type:'text',content:'问题'+uid,ts:Date.now()}]}));
+ const adapter={id:'fixture',accessMode:'webview',...Object.fromEntries(METHODS.map(k=>[k,async()=>({ok:true})])),popPending:async()=>rows.shift()||null,popMerchantSent:async()=>[],conversationHistory:async()=>({ok:true,messages:[]}),sendText:async uid=>{sent.push(uid);return uid==='a'?{ok:false,reason:'send_unconfirmed'}:{ok:true}}};
+ const worker=new StoreWorker({store:{...store,aiEnabled:true},adapter,aiClient:backend.engine.aiClient,getConfig:()=>({ai:{systemPrompt:'rule'},reply:{enabled:true,maxInflight:1,staleMs:180000,perUidMinIntervalMs:0,sendJitterMinMs:0,sendJitterMaxMs:0}})});worker.running=true;backend.engine.workers.set(store.id,worker);await worker.tick();await worker.settle();await worker.tick();await worker.settle();assert.deepEqual(sent,['a','b']);assert.equal(worker.running,true);assert.equal(backend.snapshot().modelIssue,null);assert.equal(backend.snapshot().quality.find(r=>r.uid==='a').events[0].code,'delivery_unconfirmed');
+});
+test('delivery review callback failure cannot release an unknown send for automatic retry',async t=>{const {StoreWorker}=require('../desk-v1/src/main/reply-engine'),{METHODS}=require('../desk-v1/src/shared/adapter-contract');let sends=0,discarded=0,released=0;const store={id:'fixture',storeName:'fixture',aiEnabled:true};let pending={uid:'buyer',messages:[{msgId:'q',from:'buyer',type:'text',content:'q',ts:Date.now()}]};const adapter={id:'fixture',accessMode:'webview',...Object.fromEntries(METHODS.map(k=>[k,async()=>({ok:true})])),popPending:async()=>{const row=pending;pending=null;return row},popMerchantSent:async()=>[],conversationHistory:async()=>({ok:true,messages:[]}),sendText:async()=>{sends++;return {ok:false,reason:'send_unconfirmed'}},discard:async()=>{discarded++;return {ok:true}},release:async()=>{released++;return {ok:true}}};const aiClient={suppressFallback:true,reply:async()=>({reply:'fixture answer'}),onDeliveryFailure(){throw Error('disk failed')}};const worker=new StoreWorker({store,adapter,aiClient,getConfig:()=>({reply:{enabled:true,maxInflight:1,staleMs:180000,sendJitterMinMs:0,sendJitterMaxMs:0},ai:{systemPrompt:'rule'}})});worker.running=true;await worker.tick();await worker.settle();await worker.tick();await worker.settle();assert.equal(sends,1);assert.equal(discarded,1);assert.equal(released,0);assert.ok(worker.manualSuppressed.has('buyer'));});

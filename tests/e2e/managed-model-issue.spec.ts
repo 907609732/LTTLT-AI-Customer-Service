@@ -1,9 +1,8 @@
 import {test,expect} from '@playwright/test';
 test('uncertain managed request stays visible on refresh and clears only after explicit review without enabling AI',async({page})=>{
  test.setTimeout(60000);await page.addInitScript(()=>{let issue:any={code:'request_uncertain',kind:'service',message:'请求结果尚未确认，请勿自动重试。',requiresReview:true,at:1};(window as any).issueActions=[];(window as any).lingtu={role:'main',onNavigate:()=>()=>{},onConfirmClose:()=>()=>{},onBackendEvent:()=>()=>{},backendSnapshot:async()=>({workspaceId:'fixture',workspaceMode:'managed',modelIssue:issue,revision:1,stores:[],selection:{storeId:'',conversationId:''},conversations:[],config:{ai:{systemPrompt:'',baseUrl:'',model:''},reply:{enabled:false},safety:{handoffKeywords:[]}},engine:{},capabilities:{platforms:[],apiKeyConfigured:false}}),backendExecute:async(c:any)=>{(window as any).issueActions.push(c);if(c.action==='acknowledge-model-issue'&&c.values.confirmed)issue=null;return {status:'ok'};}};});
- await page.goto('/?screen=UX25');const alert=page.getByRole('alert',{name:'托管 AI 暂停提示'});await expect(alert).toBeVisible({timeout:30000});await expect(alert).toContainText('缺少店铺');await page.reload();await expect(alert).toBeVisible({timeout:30000});
- await alert.getByRole('button',{name:'处理这条记录'}).click();await alert.getByRole('button',{name:'保留记录'}).click();await expect(alert).toBeVisible();expect(await page.evaluate(()=>(window as any).issueActions)).toEqual([]);
- await alert.getByRole('button',{name:'处理这条记录'}).click();await alert.getByRole('button',{name:'确认清除记录'}).click();await expect(alert).toHaveCount(0);expect(await page.evaluate(()=>(window as any).issueActions.map((a:any)=>a.action))).toEqual(['acknowledge-model-issue']);
+ await page.goto('/?screen=UX21');const alert=page.locator('.quality-account-error');await expect(alert).toBeVisible({timeout:30000});await page.reload();await expect(alert).toBeVisible({timeout:30000});
+ await alert.getByRole('button',{name:'清除已处理提示'}).click();await expect(alert).toHaveCount(0);expect(await page.evaluate(()=>(window as any).issueActions.map((a:any)=>a.action))).toEqual(['acknowledge-model-issue']);
 });
 
 test('floating issue displays original conversation details and can collapse',async({page})=>{

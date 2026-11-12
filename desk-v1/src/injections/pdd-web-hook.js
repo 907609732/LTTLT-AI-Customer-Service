@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VER = 2;
+  var VER = 3;
   window.__PDD_WEB_VER = VER;
 
   var PREV = window.__pddWeb;
@@ -1189,14 +1189,11 @@
       clientX: r.left + r.width / 2,
       clientY: r.top + r.height / 2,
     };
-    try {
-      el.dispatchEvent(new MouseEvent('mousedown', opt));
-      el.dispatchEvent(new MouseEvent('mouseup', opt));
-      el.dispatchEvent(new MouseEvent('click', opt));
-    } catch (e) {}
+    // Exactly one click. Dispatching a click and then calling .click() invoked send twice.
     try {
       if (typeof el.click === 'function') el.click();
-    } catch (e) {}
+      else el.dispatchEvent(new MouseEvent('click', opt));
+    } catch (e) { return false; }
     return true;
   }
 
@@ -1204,25 +1201,23 @@
     var el = findInput();
     if (!el) return { ok: false, reason: 'input_not_found' };
     if (trimStr(readEditor(el))) return { ok: false, reason: 'input_busy' };
+    if(resolveActiveUid()!==normUid(uid))return {ok:false,reason:'conversation_not_found'};
     setEditor(el, text);
     await sleep(80);
     if (!trimStr(readEditor(el))) {
       return { ok: false, reason: 'send_unconfirmed', detail: 'input_write_failed' };
     }
+    if(resolveActiveUid()!==normUid(uid))return {ok:false,reason:'conversation_not_found'};
     // 点击前登记 self-send：页面回显可能比本函数返回更早发生
     noteSelfSend(uid, text);
     var btn = findSendButton();
     if (btn) {
       clickEl(btn);
       await sleep(150);
-      if (trimStr(readEditor(el))) pressEnter(el);
+      // Do not press Enter after a click: a delayed acknowledgement must not duplicate the send.
     } else {
       pressEnter(el);
       await sleep(150);
-      if (trimStr(readEditor(el))) {
-        var b2 = findSendButton();
-        if (b2) clickEl(b2);
-      }
     }
     await sleep(200);
     var left = trimStr(readEditor(el));
@@ -1230,14 +1225,25 @@
   }
 
   /** 契约要求：成功前确认消息真的进入会话（DOM/消息流回显），不能只看输入框清空 */
-  async function waitForEcho(uid, text, timeoutMs, since) {
+  function sellerEchoCount(uid,text){
+    if(resolveActiveUid()!==normUid(uid))return 0;
+    var nodes=document.querySelectorAll(BUBBLE_SEL),count=0,target=trimStr(text,500);
+    for(var i=0;i<nodes.length;i++){
+      var node=nodes[i],item=node.closest&&node.closest('.chat-item');
+      var seller=!!((node.closest&&node.closest('.merchantMessage'))||(item&&item.querySelector('.merchantMessage')));
+      if(seller&&trimStr(node.textContent||'',500)===target)count++;
+    }
+    return count;
+  }
+  async function waitForEcho(uid, text, timeoutMs, since, baseline) {
     var target = trimStr(text, 500);
     var key = normUid(uid || '');
     var from = Number(since) || Date.now();
     var deadline = Date.now() + (timeoutMs || CONF.sendConfirmMs);
     while (Date.now() < deadline) {
       var e = state.lastEcho;
-      if (e && e.text === target && e.at >= from && (!key || !e.uid || e.uid === key)) return true;
+      if (e && e.text === target && e.at >= from && e.uid === key) return true;
+      if(sellerEchoCount(key,target)>baseline)return true;
       await sleep(80);
     }
     return false;
@@ -1732,6 +1738,8 @@
       var content = trimStr(text, 900);
       if (!content) return { ok: false, reason: 'invalid_payload' };
       state.stats.sends++;
+      if(resolveActiveUid()!==normUid(uid)){var focus=await api.focusConversation(uid);if(!focus.ok||resolveActiveUid()!==normUid(uid))return {ok:false,reason:'conversation_not_found'};}
+      var baseline=sellerEchoCount(uid,content);
       var startedAt = Date.now();
       var res;
       try {
@@ -1743,7 +1751,7 @@
       if (!res.ok) {
         return { ok: false, reason: res.reason || 'send_unconfirmed', detail: res.detail, method: 'ui' };
       }
-      var confirmed = await waitForEcho(uid, content, CONF.sendConfirmMs, startedAt);
+      var confirmed = await waitForEcho(uid, content, CONF.sendConfirmMs, startedAt, baseline);
       if (!confirmed) {
         return { ok: false, reason: 'send_unconfirmed', detail: 'no_dom_or_stream_echo', method: 'ui' };
       }

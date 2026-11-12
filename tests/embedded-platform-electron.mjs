@@ -90,23 +90,9 @@ try{
   const backend=process.mainModule.require(app.getAppPath()+'/electron/main.cjs').getBackend();
   backend.engine.aiClient.onDeliveryFailure({reason:'send_unconfirmed',storeId:id,uid:'fixture-buyer',buyerName:'核对买家',buyerMessage:'测试问题',reply:'测试待核对回复'});
  },storeId);
- let floating;
- for(let attempt=0;attempt<50;attempt++){
-  floating=await app.evaluate(async({app,BrowserWindow},id)=>{
-   const api=process.mainModule.require(app.getAppPath()+'/electron/main.cjs');
-   const issue=api.getIssueView(),store=api.getBackend().manager.views.get(id).view;
-   const main=BrowserWindow.getAllWindows()[0],children=main.contentView.children;
-   return {top:store.getBounds().y,visible:issue.getVisible(),above:children.indexOf(issue)>children.indexOf(store),text:await issue.webContents.executeJavaScript('document.body.innerText')};
-  },storeId);
-  if(floating.visible&&floating.text.includes('测试待核对回复'))break;
-  await new Promise(resolve=>setTimeout(resolve,100));
- }
- assert.equal(floating.top,72);
- assert.equal(floating.visible,true);
- assert.equal(floating.above,true);
- assert.match(floating.text,/核对买家/);
- assert.match(floating.text,/测试待核对回复/);
- console.log('PASS: embedded view, selected store switching, overlay hiding, scoped notification checks and requests, host cleanup, and real native overlay above shop without changing its top bound');
+ const qualityState=await app.evaluate(({app,BrowserWindow},id)=>{const api=process.mainModule.require(app.getAppPath()+'/electron/main.cjs');const backend=api.getBackend(),store=backend.manager.views.get(id).view;return {top:store.getBounds().y,issueView:!!api.getIssueView(),quality:backend.snapshot().quality,modelIssue:backend.snapshot().modelIssue};},storeId);
+ assert.equal(qualityState.top,72);assert.equal(qualityState.issueView,false);assert.equal(qualityState.modelIssue,null);assert.equal(qualityState.quality.at(-1).events.at(-1).reply,'测试待核对回复');
+ console.log('PASS: embedded view, selected store switching, overlay hiding, scoped notification checks and requests, host cleanup, and conversation-local review without an interrupting overlay');
 }finally{
  if(app){await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});}
  await new Promise(resolve=>server.close(resolve));
