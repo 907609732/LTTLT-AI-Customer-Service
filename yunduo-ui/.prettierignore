@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-electron
+artifacts
+coverage
+package-lock.json
+src/styles/legacy
+vendor/
