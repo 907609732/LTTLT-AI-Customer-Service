@@ -618,6 +618,7 @@ class PddWebAdapter {
     if (!uid) return fail('input_not_found', 'uid_required');
     try {
       const goods = await this._callHook('consultGoods', [String(uid)], { timeoutMs: this.timeouts.history });
+      if (goods?.ok === false) return fail(goods.reason || 'hook_not_ready', goods.detail || 'consult_goods_failed');
       return ok({ goods: goods || null });
     } catch (err) {
       return this._failOrThrow('consultGoods', err);

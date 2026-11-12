@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VER = 5;
+  var VER = 6;
   window.__PDD_WEB_VER = VER;
 
   var PREV = window.__pddWeb;
@@ -1675,7 +1675,7 @@
         var out = [];
         for (var i = 0; i < rows.length; i++) {
           var node = normalizeNode(rows[i]);
-          if (node) out.push(node.message);
+          if (node && node.uid === key) out.push(node.message);
         }
         return out.slice(-n);
       } catch (e) {
@@ -1684,19 +1684,19 @@
       }
     },
     consultGoods: async function (uid) {
-      try {
-        var r = await pageJson('/latitude/goods/recommendGoods', { query: { uid: String(uid || '') } });
-        if (!apiOk(r)) return null;
-        var list = (r.data && r.data.result && (r.data.result.goodsList || r.data.result.list)) || [];
-        var g = list[0] || null;
-        if (!g) return null;
-        return {
-          goodsId: trimStr(g.goods_id || g.goodsId || ''),
-          goodsName: trimStr(g.goods_name || g.goodsName || ''),
-        };
-      } catch (e) {
-        return null;
+      var key = String(uid || '');
+      if (!key) return { ok: false, reason: 'invalid_payload' };
+      var history = await api.conversationHistory(key, 100);
+      if (!Array.isArray(history)) return history;
+      var row = state.pendingByUid.get(key) || state.claimedRows.get(key);
+      var messages = history.concat(row && Array.isArray(row.messages) ? row.messages : []);
+      messages.sort(function (a, b) { return Number(b.ts || 0) - Number(a.ts || 0); });
+      for (var i = 0; i < messages.length; i++) {
+        var m = messages[i];
+        if (m.from !== 'buyer' || !m.goodsId || !m.goodsTitle || !(m.ts > 0) || !m.msgId) continue;
+        return { goodsId: m.goodsId, goodsName: m.goodsTitle, source: 'conversation-message', messageId: m.msgId, observedAt: m.ts };
       }
+      return null;
     },
     goodsContext: function (uid) {
       var row = state.pendingByUid.get(String(uid || '')) || state.claimedRows.get(String(uid || ''));

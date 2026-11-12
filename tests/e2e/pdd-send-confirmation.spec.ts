@@ -9,3 +9,21 @@ test('new seller DOM echo confirms even when ingestion watermark treats it as re
 for(const mode of ['old','empty','wrong'])test(`does not confirm from ${mode} evidence`,async({page})=>{await setup(page,mode);const r=await page.evaluate(()=>(window as any).__pddWeb.sendText('buyer','测试回答'));expect(r.ok).toBe(false);expect(await page.evaluate(()=>(window as any).clicks)).toBe(1);});
 
 test('send wrapper and unrelated send controls do not swallow the composer click',async({page})=>{await setup(page,'new');await page.evaluate(()=>{const button=document.getElementById('send')!;const wrapper=document.createElement('div');wrapper.className='send-message-wrapper';button.before(wrapper);wrapper.append(button);wrapper.prepend(document.createTextNode('快捷操作 '));const other=document.createElement('button');other.className='send-order';other.textContent='发送订单';wrapper.before(other)});const r=await page.evaluate(()=>(window as any).__pddWeb.sendText('buyer','测试回答'));expect(r.ok).toBe(true);expect(await page.evaluate(()=>(window as any).clicks)).toBe(1);});
+
+test('consulted goods comes from newest explicit buyer product message, never the first recommendation',async({page})=>{
+ await setup(page,'new');await page.evaluate(()=>{(window as any).captureRequests=[];window.fetch=async(input:any)=>{(window as any).captureRequests.push(String(input));const messages=[
+ {from:{uid:'buyer',role:'buyer'},to:{uid:'merchant'},goods_id:'old',goods_name:'旧咨询商品',msg_id:'old',ts:10,content:'旧商品'},
+ {from:{uid:'merchant',role:'seller'},to:{uid:'buyer'},goods_id:'seller-promo',goods_name:'客服推荐',msg_id:'promo',ts:30,content:'推荐商品'},
+ {from:{uid:'buyer',role:'buyer'},to:{uid:'merchant'},goods_id:'actual',goods_name:'明确咨询的门锁',msg_id:'actual-message',ts:20,content:'这款可以吗'},
+ {from:{uid:'other',role:'buyer'},to:{uid:'merchant'},goods_id:'foreign',goods_name:'其他顾客商品',msg_id:'foreign-message',ts:40,content:'另一位顾客'}];return {ok:true,status:200,text:async()=>JSON.stringify({result:{messages,goodsList:[{goods_id:'wrong',goods_name:'推荐首项'}]}})} as Response;};});
+ const result=await page.evaluate(()=>(window as any).__pddWeb.consultGoods('buyer'));
+ expect(result).toMatchObject({goodsId:'actual',goodsName:'明确咨询的门锁',messageId:'actual-message',observedAt:20000,source:'conversation-message'});
+ expect((await page.evaluate(()=>(window as any).captureRequests)).every((url:string)=>!url.includes('recommendGoods'))).toBe(true);
+});
+
+test('missing product identity remains missing and history failures remain explicit',async({page})=>{
+ await setup(page,'new');await page.evaluate(()=>{window.fetch=async()=>({ok:true,status:200,text:async()=>JSON.stringify({result:{messages:[],goodsList:[{goods_id:'wrong',goods_name:'不能猜的推荐'}]}})}) as Response;});
+ expect(await page.evaluate(()=>(window as any).__pddWeb.consultGoods('buyer'))).toBeNull();
+ await page.evaluate(()=>{window.fetch=async()=>({ok:false,status:403,text:async()=>JSON.stringify({success:false})}) as Response;});
+ expect(await page.evaluate(()=>(window as any).__pddWeb.consultGoods('buyer'))).toMatchObject({ok:false});
+});

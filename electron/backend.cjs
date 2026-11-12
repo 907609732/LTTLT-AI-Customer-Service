@@ -43,6 +43,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  if(fs.existsSync(bannedFile)){try{bannedWords=bannedFileSchema.parse(JSON.parse(fs.readFileSync(bannedFile,'utf8'))).rules}catch{throw Error('AI 禁用词配置损坏，请恢复备份后重试；原文件未改动')}}
  const workOrders=createWorkOrders(path.join(dataDir,'work-orders.json'));
  const products=createProductKnowledge(path.join(dataDir,'product-knowledge.json'));
+  const productCaptures=new Map();
  const intents=createIntentKnowledge(path.join(dataDir,'intent-knowledge.json'));
  const modelProfiles=createModelProfiles(path.join(dataDir,'model-profiles.json'));
  const welcome=createWelcome(path.join(dataDir,'store-welcome.json'));
@@ -159,7 +160,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   const storeId=reviewContext?.storeId;if(!registry.get(storeId))return [];
   const question=[...(thread||[])].reverse().find(m=>m.from==='buyer')?.content||'';
   const productId=products.getByProductId(storeId,reviewContext?.productId)?.productId||products.identifyTitle(storeId,goodsTitle);
-  return [...products.search(storeId,[goodsTitle,question].filter(Boolean).join(' '),3).map(x=>({...x,source:'product'})),...intents.search(storeId,question,productId)];
+   return [...products.references(storeId,[goodsTitle,question].filter(Boolean).join(' '),productId),...intents.search(storeId,question,productId)];
  }});
  if(!modelClient.onGenerationFailure)modelClient.onGenerationFailure=(error,context)=>{if(/^vision_/.test(error?.code||''))reportConversationIssue(new ManagedSessionError(error.code),context);};
  if(modelMode==='managed'){
@@ -256,9 +257,36 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    case 'list-products':storeOf(command.storeId);data=products.list(command.storeId,v);break;
    case 'save-product':storeOf(command.storeId);data=products.save({...v,storeId:command.storeId});message='商品知识已保存。';break;
    case 'remove-product':storeOf(command.storeId);products.remove(command.storeId,v.id,v.version,v.confirmed);message='商品知识已删除，平台商品未改动。';break;
-   case 'preview-product-import':storeOf(command.storeId);data=products.previewImport(command.storeId,v.csv);break;
-   case 'import-products':storeOf(command.storeId);data=products.importCsv(command.storeId,v.csv,v);message='商品知识已导入。';break;
-   case 'export-products':storeOf(command.storeId);data={csv:products.exportCsv(command.storeId)};break;
+   case 'preview-product-import':{storeOf(command.storeId);const format=z.enum(['csv','json']).parse(v.format??'csv');data=products.previewImport(command.storeId,format==='json'?v.json:v.csv,format);break;}
+   case 'import-products':{storeOf(command.storeId);const format=z.enum(['csv','json']).parse(v.format??'csv');data=format==='json'?products.importJson(command.storeId,v.json,v):products.importCsv(command.storeId,v.csv,v);message='商品知识已导入。';break;}
+   case 'export-products':{storeOf(command.storeId);const format=z.enum(['csv','json']).parse(v.format??'csv');data=format==='json'?{json:products.exportJson(command.storeId)}:{csv:products.exportCsv(command.storeId)};break;}
+   case 'preview-consulted-product':{
+    const store=storeOf(command.storeId),uid=command.conversationId;
+    if(!conversations.some(c=>c.storeId===store.id&&c.uid===uid))throw Error('请选择本店有效会话');
+    if(!manager.stateOf(store.id)?.online)throw Error('请先登录店铺并保持在线，再采集会话商品');
+    const adapter=adapterFor(store);if(typeof adapter.consultGoods!=='function')throw Error('当前平台尚未接入会话商品采集');
+    const result=await adapter.consultGoods(uid);
+    if(disposed)throw Error('服务已关闭');
+    storeOf(store.id);if(!manager.stateOf(store.id)?.online)throw Error('店铺已离线，请重新登录后预览');
+    if(!result?.ok)throw Error('会话商品读取失败，请确认店铺登录与网络后重试');
+    const parsed=z.object({goodsId:z.string().trim().min(1).max(100),goodsName:z.string().trim().min(1).max(200),source:z.literal('conversation-message'),messageId:z.string().trim().min(1).max(200),observedAt:z.number().finite().positive()}).safeParse(result.goods);
+    if(!parsed.success)throw Error('该顾客最近消息中没有明确的商品编号和名称，暂不能采集；请手动录入');
+    const goods=parsed.data,old=products.getRecord(store.id,goods.goodsId),now=Date.now(),token=randomUUID();
+    const product={...(old||{}),storeId:store.id,productId:goods.goodsId,title:goods.goodsName,enabled:old?.enabled??true};
+    const source={kind:'conversation',uid,messageId:goods.messageId,observedAt:goods.observedAt,capturedAt:now};
+    for(const [key,item] of productCaptures)if(item.expiresAt<=now)productCaptures.delete(key);
+    while(productCaptures.size>=100)productCaptures.delete(productCaptures.keys().next().value);
+    const capture={storeId:store.id,uid,product,source,revision:products.summary().revision,expiresAt:now+300000};productCaptures.set(token,capture);
+    data={token,product,source,existing:!!old,expiresAt:capture.expiresAt};break;
+   }
+   case 'confirm-consulted-product':{
+    storeOf(command.storeId);const input=z.object({token:z.string().uuid(),confirmed:z.boolean()}).strict().parse(v),capture=productCaptures.get(input.token);
+    if(!input.confirmed)throw Error('请先核对并确认录入会话商品');
+    if(!capture||capture.expiresAt<=Date.now())throw Error('采集预览已过期或已使用，请重新预览');
+    if(capture.storeId!==command.storeId||capture.uid!==command.conversationId)throw Error('采集预览与当前店铺或会话不匹配');
+    if(capture.revision!==products.summary().revision)throw Error('商品知识已更新，请重新预览后确认');
+    data=products.save(capture.product,{source:capture.source});productCaptures.delete(input.token);message='会话商品已录入本店知识；平台商品与 AI 开关未改变。';break;
+   }
    case 'search-product-knowledge':storeOf(command.storeId);data={items:products.search(command.storeId,v.query)};break;
    case 'create-work-order':{const store=storeOf(v.storeId);const item=workOrders.create(v,store);data={id:item.id};message='工单已登记在本机。';break;}
    case 'set-work-order-status':{const input=z.object({id:z.string().uuid(),status:z.enum(['pending','working','waiting','done'])}).strict().parse(v);workOrders.status(input.id,input.status);message='工单状态已更新。';break;}
@@ -345,6 +373,6 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   }
   if(disposed)throw Error('服务已关闭');changed();return {status:'ok',message,data};
  }
- return {snapshot,execute,ingest,stopAi,dispose(){disposed=true;diagnostics?.dispose();modelClient.dispose?.();for(const client of probes)client.dispose();probes.clear();for(const c of generations)c.abort();generations.clear();engine.stopAll();monitor.stopAll();manager.closeAll();},manager,monitor,engine};
+  return {snapshot,execute,ingest,stopAi,dispose(){disposed=true;productCaptures.clear();diagnostics?.dispose();modelClient.dispose?.();for(const client of probes)client.dispose();probes.clear();for(const c of generations)c.abort();generations.clear();engine.stopAll();monitor.stopAll();manager.closeAll();},manager,monitor,engine};
 }
 module.exports={createBackend};
