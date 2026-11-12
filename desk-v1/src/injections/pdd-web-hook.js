@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VER = 3;
+  var VER = 4;
   window.__PDD_WEB_VER = VER;
 
   var PREV = window.__pddWeb;
@@ -1404,6 +1404,14 @@
   /* ------------------------------------------------------------------ *
    * 对外能力对象
    * ------------------------------------------------------------------ */
+  var nativeTextSend = null;
+  var cancelledNativeTextSends = new Set();
+  function clearNativeTextSend() {
+    if (!nativeTextSend) return;
+    document.removeEventListener('keydown', nativeTextSend.guard, true);
+    clearTimeout(nativeTextSend.timer);
+    nativeTextSend = null;
+  }
   var api = {
     ver: VER,
     global: '__pddWeb',
@@ -1739,6 +1747,62 @@
     openChat: async function (uid) {
       return api.focusConversation(uid);
     },
+    cancelNativeTextSend: function (uid, operationId) {
+      if (typeof operationId !== 'string' || !operationId) return false;
+      cancelledNativeTextSends.add(operationId);
+      if (cancelledNativeTextSends.size > 100) cancelledNativeTextSends.delete(cancelledNativeTextSends.values().next().value);
+      if (nativeTextSend && nativeTextSend.uid === normUid(uid) && nativeTextSend.token === operationId) clearNativeTextSend();
+      return true;
+    },
+    prepareNativeTextSend: async function (uid, text, operationId) {
+      if (typeof operationId !== 'string' || !operationId || cancelledNativeTextSends.has(operationId)) return { ok: false, reason: 'cancelled' };
+      if (nativeTextSend) return { ok: false, reason: 'input_busy' };
+      var key = normUid(uid), content = trimStr(text, 900);
+      if (!content) return { ok: false, reason: 'invalid_payload' };
+      if (resolveActiveUid() !== key) {
+        var focused = await api.focusConversation(uid);
+        if (!focused.ok || resolveActiveUid() !== key) return { ok: false, reason: 'conversation_not_found' };
+        if (cancelledNativeTextSends.has(operationId)) return { ok: false, reason: 'cancelled' };
+      }
+      var el = findInput();
+      if (!el) return { ok: false, reason: 'input_not_found' };
+      if (trimStr(readEditor(el))) return { ok: false, reason: 'input_busy' };
+      var ctx = { uid: key, text: content, editor: el, baseline: sellerEchoCount(uid, content),
+        at: Date.now(), token: operationId, attempted: false, cancelled: false };
+      setEditor(el, content);
+      await sleep(80);
+      if (cancelledNativeTextSends.has(operationId)) return { ok: false, reason: 'cancelled' };
+      if (resolveActiveUid() !== key || readEditor(el).trim() !== content) return { ok: false, reason: 'conversation_not_found' };
+      el.focus();
+      ctx.guard = function (event) {
+        if (event.key !== 'Enter' && event.keyCode !== 13) return;
+        if (!event.isTrusted || ctx.cancelled || ctx.attempted || resolveActiveUid() !== key ||
+            document.activeElement !== el || readEditor(el).trim() !== content || Date.now() - ctx.at > 10000) {
+          event.preventDefault(); event.stopImmediatePropagation(); ctx.cancelled = true; return;
+        }
+        ctx.attempted = true;
+        noteSelfSend(uid, content);
+      };
+      nativeTextSend = ctx;
+      document.addEventListener('keydown', ctx.guard, true);
+      // Keep the guard installed on expiry so a late native event cannot reach another buyer.
+      ctx.timer = setTimeout(function () { ctx.cancelled = true; }, 10000);
+      state.stats.sends++;
+      return { ok: true, token: ctx.token };
+    },
+    confirmNativeTextSend: async function (uid, token) {
+      var ctx = nativeTextSend;
+      if (!ctx || ctx.uid !== normUid(uid) || ctx.token !== token) return { ok: false, reason: 'send_unconfirmed' };
+      try {
+        var confirmed = await waitForEcho(uid, ctx.text, CONF.sendConfirmMs, ctx.at, ctx.baseline);
+        if (!confirmed || !ctx.attempted || ctx.cancelled) return { ok: false, reason: 'send_unconfirmed', detail: 'no_native_send_echo' };
+        var msgId = 'ui-' + Date.now().toString(36) + '-' + hash32(ctx.text);
+        pushSent(uid, { msgId: msgId, from: 'seller', type: 'text', content: ctx.text, ts: Date.now() });
+        try { markConversation(uid, 0); } catch (e) {}
+        emit('sent', { uid: ctx.uid, message: { msgId: msgId, content: ctx.text } });
+        return { ok: true, method: 'native', msgId: msgId };
+      } finally { if (nativeTextSend === ctx) clearNativeTextSend(); }
+    },
     sendText: async function (uid, text) {
       var content = trimStr(text, 900);
       if (!content) return { ok: false, reason: 'invalid_payload' };
@@ -1902,6 +1966,7 @@
       return api.conversationHistory(uid, 20);
     },
     dispose: function () {
+      clearNativeTextSend();
       state.timers.forEach(function (t) {
         try {
           clearInterval(t);

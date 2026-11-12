@@ -17,6 +17,7 @@
  */
 
 const fs = require('node:fs');
+const { randomUUID } = require('node:crypto');
 const path = require('node:path');
 const contract = require('../shared/adapter-contract');
 const { buildIdentityScript } = require('./pdd-identity');
@@ -336,11 +337,26 @@ class PddWebAdapter {
     if (!uid) throw new TypeError('sendText: uid 不能为空');
     const content = String(text == null ? '' : text).trim();
     if (!content) throw new TypeError('sendText: text 不能为空');
+    if (this._sendingNativeText) return fail('input_busy', 'send_in_progress');
+    this._sendingNativeText = true;
+    const operationId = randomUUID();
     try {
-      const raw = await this._callHook('sendText', [String(uid), content], {
-        label: 'sendText',
+      const wc = this._wc();
+      if (typeof wc.sendInputEvent !== 'function') return fail('hook_not_ready', 'native_input_unavailable');
+      const prepared = await this._callHook('prepareNativeTextSend', [String(uid), content, operationId], {
         timeoutMs: Number(opts && opts.timeoutMs) || this.timeouts.send,
       });
+      let raw = prepared;
+      if (prepared?.ok) {
+        wc.focus();
+        // Chromium-generated events are trusted; DOM .click() is rejected by PDD.
+        // Submit exactly once. Never fall back to another click/Enter after this.
+        wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+        wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+        raw = await this._callHook('confirmNativeTextSend', [String(uid), prepared.token], {
+          timeoutMs: Number(opts && opts.timeoutMs) || this.timeouts.send,
+        });
+      }
       if (!raw || raw.ok !== true) {
         const reason = raw && raw.reason;
         if (contract.isFailureReason(reason)) return fail(reason, raw.detail);
@@ -349,6 +365,9 @@ class PddWebAdapter {
       return raw.msgId ? ok({ msgId: String(raw.msgId) }) : ok();
     } catch (err) {
       return this._sendFailOrThrow('sendText', err);
+    } finally {
+      try { await this._callHook('cancelNativeTextSend', [String(uid), operationId]); } catch {}
+      this._sendingNativeText = false;
     }
   }
 

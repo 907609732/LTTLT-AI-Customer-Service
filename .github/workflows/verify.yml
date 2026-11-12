@@ -52,6 +52,8 @@ jobs:
       - run: npm run test:integration
       - name: PDD login integration
         run: node tests/pdd-login-electron.mjs
+      - name: Trusted PDD text submission regression (isolated platform)
+        run: node tests/pdd-native-send-electron.mjs
       - name: Managed session and native client ownership integration
         run: |
           node tests/managed-electron.mjs
