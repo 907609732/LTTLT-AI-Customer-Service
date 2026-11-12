@@ -413,6 +413,15 @@ class StoreWorker {
         return;
       }
 
+      // Pacing is a queue delay, not a failed delivery or a manual takeover.
+      const pacing = this.#sendGate(uid);
+      if (!pacing.ok) {
+        this.stats.throttled += 1;
+        this.onEvent?.({ type: 'reply:throttled', storeId: this.store.id, uid,
+          reason: pacing.reason, retryAfterMs: pacing.retryAfterMs });
+        await dispose(() => this.adapter.release(uid));
+        return;
+      }
       await this.adapter.focusConversation(uid).catch(() => null);
 
       const generated = await this.#generate(row, latest, generation);
@@ -438,6 +447,10 @@ class StoreWorker {
       let sent;
       try{sent=await this.#sendText(uid,text,{generation});}
       catch(error){if(typeof this.aiClient.onDeliveryFailure!=='function')throw error;sent={ok:false,reason:'send_unconfirmed'};}
+      if (sent.throttled) {
+        if (sent.reason !== 'cancelled') await dispose(() => this.adapter.release(uid));
+        return;
+      }
       if(!sent.ok&&typeof this.aiClient.onDeliveryFailure==='function'){
         if(sent.reason==='cancelled')return;
         this.stats.failed+=1;

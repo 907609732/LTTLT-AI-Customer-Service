@@ -1162,17 +1162,22 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
   function findSendButton() {
-    var byText = [];
+    // Select an actual send action, never a broad .send* composer wrapper.
     var buttons = document.querySelectorAll('button,[role="button"],[class*="send"],[class*="btn"]');
     for (var i = 0; i < buttons.length; i++) {
       var b = buttons[i];
-      if (!visible(b)) continue;
+      if (!visible(b) || b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
       var t = trimStr(b.innerText || b.textContent || '');
-      var cls = String(b.className || '');
-      if (/发送|send/i.test(t) || /send/i.test(cls)) byText.push(b);
+      if (/^(发送|send)(?:\s*[(（][^()（）]*[)）])?$/i.test(t)) {
+        // A wrapper with the same text can contain the real button.
+        var child = b.querySelector('button,[role="button"]');
+        if (child && visible(child)) continue;
+        return b;
+      }
     }
-    return byText[0] || null;
+    return null;
   }
+
   function pressEnter(el) {
     var opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
     el.dispatchEvent(new KeyboardEvent('keydown', opts));
