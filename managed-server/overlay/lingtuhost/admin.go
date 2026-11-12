@@ -191,34 +191,7 @@ func (h *Host) saveConfig(c *gin.Context) {
 	case "model_connection":
 		err = h.saveModelConnection(c, request)
 	case "trial":
-		policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
-		if loadErr != nil {
-			err = loadErr
-			break
-		}
-		policy.Calls = request.Calls
-		policy.Days = request.Days
-		policy.DailyCalls = request.DailyCalls
-		policy.MaxTokens = request.MaxTokens
-		policy.DefaultModel = request.Model
-		if request.PerAccountConcurrent != nil {
-			policy.PerAccountConcurrent = *request.PerAccountConcurrent
-		}
-		if request.RequestsPerMinute != nil {
-			policy.RequestsPerMinute = *request.RequestsPerMinute
-		}
-		if request.GlobalConcurrent != nil {
-			policy.GlobalConcurrent = *request.GlobalConcurrent
-		}
-		if policy.Calls < 0 || policy.Calls > 1000000 || policy.Days < 1 || policy.Days > 365 || policy.DailyCalls < 1 || policy.DailyCalls > 100000 || policy.MaxTokens < 1 || policy.MaxTokens > 8192 || policy.PerAccountConcurrent < 1 || policy.PerAccountConcurrent > 4 || policy.RequestsPerMinute < 1 || policy.RequestsPerMinute > 120 || policy.GlobalConcurrent < 1 || policy.GlobalConcurrent > 16 || !validManagedModel(policy.DefaultModel) {
-			err = lingtu.ErrInvalidTrialInput
-			break
-		}
-		var value []byte
-		value, err = common.Marshal(policy)
-		if err == nil {
-			err = putSetting("trial_policy", string(value))
-		}
+		err = h.saveTrialConfiguration(request)
 	case "account":
 		err = h.saveAccount(request)
 	case "reconcile":

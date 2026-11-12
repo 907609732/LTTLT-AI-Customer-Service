@@ -256,6 +256,10 @@
     {
       "before": "common.SysLog(common.LogText(\"testing channel #%d, response: \\n%s\", channel.Id, string(respBody)))",
       "after": "if !c.GetBool(\"lingtu_internal\") { common.SysLog(common.LogText(\"testing channel #%d, response: \\n%s\", channel.Id, string(respBody))) }"
+    },
+    {
+      "before": "if httpResp.StatusCode != http.StatusOK {",
+      "after": "if httpResp.StatusCode != http.StatusOK {\n if c.GetBool(\"lingtu_internal\") {\n _ = httpResp.Body.Close()\n err := errors.New(\"managed model connection test failed\")\n return testResult{context:c,localErr:err,newAPIError:types.NewOpenAIError(err,types.ErrorCodeBadResponse,http.StatusBadGateway)}\n }"
     }
   ],
   "controller/relay.go": [
@@ -419,6 +423,10 @@
       "before": "dataChan, stopChan, err := xunfeiMakeRequest(textRequest, domain, authUrl, appId)",
       "after": "if c.GetBool(\"lingtu_internal\") { c.Set(\"lingtu_upstream_started\",true) }\n\tdataChan, stopChan, err := xunfeiMakeRequest(textRequest, domain, authUrl, appId)\n\tif c.GetBool(\"lingtu_internal\") && err==nil {c.Set(\"lingtu_upstream_status\",200)}",
       "count": 2
+    },
+    {
+      "before": "func xunfeiHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, appId string, apiSecret string, apiKey string) (*dto.Usage, *types.NewAPIError) {",
+      "after": "func xunfeiHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, appId string, apiSecret string, apiKey string) (*dto.Usage, *types.NewAPIError) {\n if c.GetBool(\"lingtu_internal\") { return managedSparkHandler(c,textRequest,appId,apiSecret,apiKey) }"
     }
   ]
 }

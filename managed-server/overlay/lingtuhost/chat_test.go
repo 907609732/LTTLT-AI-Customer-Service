@@ -283,8 +283,20 @@ func seedManagedChatIdentity(t *testing.T, db *gorm.DB) {
 func TestLingtuNativeGatewayUsesPinnedChannel(t *testing.T) {
 	t.Run("legacy", func(t *testing.T) { testLingtuNativeGateway(t, false) })
 	t.Run("independent-native-vllm", func(t *testing.T) { testLingtuNativeGateway(t, true) })
+	t.Run("independent-native-spark", func(t *testing.T) { testLingtuNativeGateway(t, true, "spark") })
+	t.Run("native-spark-customer-rejected", func(t *testing.T) { testLingtuNativeGateway(t, true, "spark-rejected-customer") })
 }
-func testLingtuNativeGateway(t *testing.T, managed bool) {
+func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
+	providerName := "vllm"
+	spark := false
+	rejectCustomer := false
+	if len(providers) > 0 {
+		spark = strings.HasPrefix(providers[0], "spark")
+		if spark {
+			providerName = "spark"
+		}
+		rejectCustomer = providers[0] == "spark-rejected-customer"
+	}
 	// InitLogDB also initializes native SQL identifier quoting; keep it on this
 	// already-verified isolated fixture connection and skip unrelated migrations.
 	db := chatFixtureDB(t)
@@ -342,6 +354,18 @@ func testLingtuNativeGateway(t *testing.T, managed bool) {
 	}))
 	defer provider.Close()
 	base := provider.URL
+	var rejectSpark atomic.Bool
+	if spark {
+		calls := installSparkFixture(t, func() string {
+			invocations.Add(1)
+			if rejectSpark.Load() {
+				return "business-error"
+			}
+			return "success"
+		})
+		_ = calls
+		base = "https://spark-api.xf-yun.com"
+	}
 	channel := model.Channel{Name: "lingtu-deepseek", Type: 1, Status: 1, Key: "fixture-provider-secret", Models: "deepseek-flash", Group: "default", BaseURL: &base}
 	if !managed {
 		if err := db.Create(&channel).Error; err != nil {
@@ -351,7 +375,13 @@ func testLingtuNativeGateway(t *testing.T, managed bool) {
 			t.Fatal(err)
 		}
 	} else {
-		if err := h.saveModelConnection(nil, configurationRequest{Section: "model_connection", Action: "save", Provider: "vllm", Name: "secondary fixture", Secret: channel.Key, BaseURL: base, UpstreamModel: "fixture-upstream-model", Enabled: true}); err != nil {
+		upstream := "fixture-upstream-model"
+		secret := channel.Key
+		if spark {
+			upstream = "SparkDesk-v3.5"
+			secret = "fixture-app|fixture-secret|fixture-key"
+		}
+		if err := h.saveModelConnection(nil, configurationRequest{Section: "model_connection", Action: "save", Provider: providerName, Name: "secondary fixture", Secret: secret, BaseURL: base, UpstreamModel: upstream, Enabled: true}); err != nil {
 			t.Fatal(err)
 		}
 		var meta lingtu.ModelConnection
@@ -361,7 +391,7 @@ func testLingtuNativeGateway(t *testing.T, managed bool) {
 		probeContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 		probeContext.Request = httptest.NewRequest("POST", "/test", nil)
 		probeContext.Set("id", root.Id)
-		if err := h.saveModelConnection(probeContext, configurationRequest{Section: "model_connection", Action: "test", Provider: "vllm", ConnectionID: meta.ChannelID, Revision: meta.Revision}); err != nil {
+		if err := h.saveModelConnection(probeContext, configurationRequest{Section: "model_connection", Action: "test", Provider: providerName, ConnectionID: meta.ChannelID, Revision: meta.Revision}); err != nil {
 			t.Fatal("real native connection probe", err)
 		}
 		var usageCount int64
@@ -369,7 +399,7 @@ func testLingtuNativeGateway(t *testing.T, managed bool) {
 		if usageCount != 0 {
 			t.Fatal("probe counted as customer request")
 		}
-		if err := h.saveModelConnection(nil, configurationRequest{Section: "model_connection", Action: "select", Provider: "vllm", ConnectionID: meta.ChannelID, Revision: meta.Revision}); err != nil {
+		if err := h.saveModelConnection(nil, configurationRequest{Section: "model_connection", Action: "select", Provider: providerName, ConnectionID: meta.ChannelID, Revision: meta.Revision}); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.First(&channel, meta.ChannelID).Error; err != nil {
@@ -380,6 +410,7 @@ func testLingtuNativeGateway(t *testing.T, managed bool) {
 			t.Fatal("native probe did not use exactly one API call", invocations.Load())
 		}
 		invocations.Store(0)
+		rejectSpark.Store(rejectCustomer)
 	}
 	oldMemory := common.MemoryCacheEnabled
 	common.MemoryCacheEnabled = false
@@ -403,6 +434,17 @@ func testLingtuNativeGateway(t *testing.T, managed bool) {
 	request.Header.Set("X-Evil", "root")
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
+	if rejectCustomer {
+		if response.Code != 503 || strings.Contains(response.Body.String(), "spark-secret-sentinel") || invocations.Load() != 1 {
+			t.Fatal("Spark customer rejection accepted, leaked, or retried", response.Code, response.Body.String(), invocations.Load())
+		}
+		var usage managedUsage
+		db.First(&usage, "user_id = ? AND request_id = ?", 99, "native-one")
+		if usage.Diagnostic != "upstream_rejected" {
+			t.Fatal("Spark business rejection not recorded as rejected", usage.Diagnostic)
+		}
+		return
+	}
 	var rootAfter model.User
 	if err := db.First(&rootAfter, root.Id).Error; err != nil || rootAfter.Quota != 0 || rootAfter.UsedQuota != 0 {
 		t.Fatal("native billing debited root", rootAfter.Quota, rootAfter.UsedQuota, err)
@@ -419,7 +461,7 @@ func testLingtuNativeGateway(t *testing.T, managed bool) {
 	}
 	if managed {
 		var usage managedUsage
-		if err := db.First(&usage, "user_id = ? AND request_id = ?", 99, "native-one").Error; err != nil || usage.ChannelID != channel.Id || usage.ChannelName != "secondary fixture" || usage.UpstreamModel != "fixture-upstream-model" || !strings.HasPrefix(usage.Model, "managed-") {
+		if err := db.First(&usage, "user_id = ? AND request_id = ?", 99, "native-one").Error; err != nil || usage.ChannelID != channel.Id || usage.ChannelName != "secondary fixture" || usage.UpstreamModel != channel.Models || !strings.HasPrefix(usage.Model, "managed-") {
 			t.Fatal("missing exact channel usage snapshot", usage.ChannelID, usage.ChannelName, err)
 		}
 	}

@@ -43,7 +43,13 @@ type modelConnectionView struct {
 }
 
 func channelHash(ch model.Channel) string {
-	raw, _ := json.Marshal([]any{ch.Type, ch.Key, ch.GetBaseURL(), ch.Models, ch.Other, ch.OtherSettings, ch.ParamOverride, ch.ModelMapping, ch.ChannelInfo, ch.Group})
+	stringValue := func(value *string) string {
+		if value == nil {
+			return ""
+		}
+		return *value
+	}
+	raw, _ := json.Marshal([]any{ch.Type, ch.Key, stringValue(ch.BaseURL), ch.GetBaseURL(), ch.Models, ch.Other, ch.OtherSettings, stringValue(ch.ParamOverride), stringValue(ch.ModelMapping), ch.ChannelInfo, ch.Group, stringValue(ch.HeaderOverride), stringValue(ch.Setting), stringValue(ch.OpenAIOrganization), ch.GetStatusCodeMapping(), ch.GetAutoBan()})
 	hash := sha256.Sum256(raw)
 	return hex.EncodeToString(hash[:])
 }
@@ -311,7 +317,11 @@ func validateConnection(p modelProvider, ch model.Channel, enabled bool) error {
 	if !modelIdentifier(ch.Models) || strings.TrimSpace(ch.Models) != ch.Models || ch.Group != "default" || ch.ChannelInfo.IsMultiKey {
 		return lingtu.ErrInvalidTrialInput
 	}
-	if err := validateModelURL(p, ch.GetBaseURL(), false); err != nil {
+	base := ""
+	if ch.BaseURL != nil {
+		base = *ch.BaseURL
+	}
+	if err := validateModelURL(p, base, false); err != nil {
 		return err
 	}
 	if err := validateModelCredential(p, ch); err != nil {
@@ -352,11 +362,63 @@ func saveModelPolicy(tx *gorm.DB, selected string) error {
 		return err
 	}
 	policy.DefaultModel = selected
+	return persistTrialPolicy(tx, policy)
+}
+
+// Both administrator entry points share this transaction-bound selection gate.
+// Legacy aliases retain their migration allowance; unchanged defaults can be
+// retained while editing limits even when their channel is currently unavailable.
+func persistTrialPolicy(tx *gorm.DB, policy lingtu.TrialPolicy) error {
+	previous, err := lingtu.LoadTrialPolicy(tx)
+	if err != nil {
+		return err
+	}
+	if previous.DefaultModel != policy.DefaultModel && strings.HasPrefix(policy.DefaultModel, "managed-") {
+		var row lingtu.ModelConnection
+		var ch model.Channel
+		if err := tx.First(&row, "model_id = ?", policy.DefaultModel).Error; err != nil {
+			return err
+		}
+		if err := tx.First(&ch, row.ChannelID).Error; err != nil {
+			return err
+		}
+		p, ok := managedProvider(row.Provider)
+		if !ok || !row.Enabled || ch.Status != common.ChannelStatusEnabled || row.ConfigHash != channelHash(ch) || row.TestStatus != "success" || row.TestedHash != row.ConfigHash || !credentialConfigured(p, ch) {
+			return errors.New("connection not tested and ready")
+		}
+	}
 	raw, err := common.Marshal(policy)
 	if err != nil {
 		return err
 	}
 	return tx.Save(&lingtu.ManagedSetting{Name: "trial_policy", Value: string(raw)}).Error
+}
+
+func (h *Host) saveTrialConfiguration(r configurationRequest) error {
+	return model.DB.Transaction(func(tx *gorm.DB) error {
+		policy, err := lingtu.LoadTrialPolicy(tx)
+		if err != nil {
+			return err
+		}
+		policy.Calls = r.Calls
+		policy.Days = r.Days
+		policy.DailyCalls = r.DailyCalls
+		policy.MaxTokens = r.MaxTokens
+		policy.DefaultModel = r.Model
+		if r.PerAccountConcurrent != nil {
+			policy.PerAccountConcurrent = *r.PerAccountConcurrent
+		}
+		if r.RequestsPerMinute != nil {
+			policy.RequestsPerMinute = *r.RequestsPerMinute
+		}
+		if r.GlobalConcurrent != nil {
+			policy.GlobalConcurrent = *r.GlobalConcurrent
+		}
+		if policy.Calls < 0 || policy.Calls > 1000000 || policy.Days < 1 || policy.Days > 365 || policy.DailyCalls < 1 || policy.DailyCalls > 100000 || policy.MaxTokens < 1 || policy.MaxTokens > 8192 || policy.PerAccountConcurrent < 1 || policy.PerAccountConcurrent > 4 || policy.RequestsPerMinute < 1 || policy.RequestsPerMinute > 120 || policy.GlobalConcurrent < 1 || policy.GlobalConcurrent > 16 || !validManagedModelWithDB(tx, policy.DefaultModel) {
+			return lingtu.ErrInvalidTrialInput
+		}
+		return persistTrialPolicy(tx, policy)
+	})
 }
 func (h *Host) saveModelConnection(c *gin.Context, r configurationRequest) error {
 	return h.executeModelConnection(c, r, controller.TestManagedChannel)
@@ -435,6 +497,9 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 		// Migrated legacy adapter/parameters remain intact on edits. New connections
 		// always use their actual native provider adapter.
 		if ch.Id == 0 {
+			// Materialize the native database default before fingerprinting.
+			autoBan := 1
+			ch.AutoBan = &autoBan
 			ch.Type = p.ChannelType
 			ch.Group = "default"
 			ch.CreatedTime = time.Now().Unix()
@@ -556,9 +621,12 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 }
 
 func validManagedModel(selected string) bool {
+	return validManagedModelWithDB(model.DB, selected)
+}
+func validManagedModelWithDB(db *gorm.DB, selected string) bool {
 	if selected == "deepseek-flash" || selected == "qwen-plus" || selected == visionModel {
 		return true
 	}
 	var count int64
-	return model.DB.Model(&lingtu.ModelConnection{}).Where("model_id = ?", selected).Count(&count).Error == nil && count == 1
+	return db.Model(&lingtu.ModelConnection{}).Where("model_id = ?", selected).Count(&count).Error == nil && count == 1
 }
