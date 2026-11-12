@@ -25,6 +25,16 @@ import (
 var adminConfigurationMu sync.Mutex
 
 type configurationRequest struct {
+	Provider             string `json:"provider"`
+	ConnectionID         int    `json:"connection_id"`
+	Name                 string `json:"name"`
+	BaseURL              string `json:"base_url"`
+	UpstreamModel        string `json:"upstream_model"`
+	Action               string `json:"action"`
+	Revision             int    `json:"revision"`
+	APIVersion           string `json:"api_version"`
+	Region               string `json:"region"`
+	AccountID            string `json:"account_id"`
 	Section              string `json:"section"`
 	AppID                string `json:"app_id"`
 	Secret               string `json:"secret"`
@@ -96,8 +106,16 @@ func (h *Host) adminConfig(c *gin.Context) {
 	}
 	common.OptionMapRWMutex.RLock()
 	smtp := gin.H{"server": common.OptionMap["SMTPServer"], "account": common.OptionMap["SMTPAccount"], "from": common.OptionMap["SMTPFrom"], "configured": common.OptionMap["SMTPToken"] != "" || common.OptionMap["SMTPPassword"] != ""}
+	smtp["enabled"] = common.EmailVerificationEnabled && (common.OptionMap["EmailProvider"] == "" || common.OptionMap["EmailProvider"] == "smtp")
+	smtp["registration_enabled"] = common.RegisterEnabled && common.PasswordRegisterEnabled
+	smtp["email_verification"] = common.EmailVerificationEnabled
 	common.OptionMapRWMutex.RUnlock()
-	c.JSON(200, gin.H{"policy": policy, "login_providers": providers, "model_providers": models, "smtp": smtp})
+	connections, err := modelConnectionViews(model.DB, policy.DefaultModel)
+	if err != nil {
+		clientFailure(c, 503, "configuration_unavailable")
+		return
+	}
+	c.JSON(200, gin.H{"policy": policy, "login_providers": providers, "model_providers": models, "smtp": smtp, "model_catalog": managedModelCatalog(), "model_connections": connections})
 }
 func (h *Host) adminAccounts(c *gin.Context) {
 	page, ok := positiveQuery(c, "page", 1)
@@ -170,6 +188,8 @@ func (h *Host) saveConfig(c *gin.Context) {
 		err = h.saveSocial(request)
 	case "deepseek", "qwen", "qwen-vision":
 		err = h.saveModel(c, request)
+	case "model_connection":
+		err = h.saveModelConnection(c, request)
 	case "trial":
 		policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
 		if loadErr != nil {
@@ -190,7 +210,7 @@ func (h *Host) saveConfig(c *gin.Context) {
 		if request.GlobalConcurrent != nil {
 			policy.GlobalConcurrent = *request.GlobalConcurrent
 		}
-		if policy.Calls < 0 || policy.Calls > 1000000 || policy.Days < 1 || policy.Days > 365 || policy.DailyCalls < 1 || policy.DailyCalls > 100000 || policy.MaxTokens < 1 || policy.MaxTokens > 8192 || policy.PerAccountConcurrent < 1 || policy.PerAccountConcurrent > 4 || policy.RequestsPerMinute < 1 || policy.RequestsPerMinute > 120 || policy.GlobalConcurrent < 1 || policy.GlobalConcurrent > 16 || (policy.DefaultModel != "deepseek-flash" && policy.DefaultModel != "qwen-plus" && policy.DefaultModel != visionModel) {
+		if policy.Calls < 0 || policy.Calls > 1000000 || policy.Days < 1 || policy.Days > 365 || policy.DailyCalls < 1 || policy.DailyCalls > 100000 || policy.MaxTokens < 1 || policy.MaxTokens > 8192 || policy.PerAccountConcurrent < 1 || policy.PerAccountConcurrent > 4 || policy.RequestsPerMinute < 1 || policy.RequestsPerMinute > 120 || policy.GlobalConcurrent < 1 || policy.GlobalConcurrent > 16 || !validManagedModel(policy.DefaultModel) {
 			err = lingtu.ErrInvalidTrialInput
 			break
 		}
@@ -217,7 +237,42 @@ func (h *Host) saveConfig(c *gin.Context) {
 		return
 	}
 	if err != nil {
+		if request.Section == "model_connection" && request.Action == "test" && request.ConnectionID > 0 {
+			policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
+			if loadErr != nil {
+				clientFailure(c, 503, "configuration_update_unconfirmed")
+				return
+			}
+			connections, loadErr := modelConnectionViews(model.DB, policy.DefaultModel)
+			if loadErr != nil {
+				clientFailure(c, 503, "configuration_update_unconfirmed")
+				return
+			}
+			saved := false
+			for _, v := range connections {
+				if v.ConnectionID == request.ConnectionID && v.Provider == request.Provider {
+					saved = true
+					break
+				}
+			}
+			c.JSON(400, gin.H{"saved": saved, "tested": false, "error": "model_connection_test_failed", "policy": policy, "model_connections": connections})
+			return
+		}
 		clientFailure(c, 400, "configuration_update_failed")
+		return
+	}
+	if request.Section == "model_connection" {
+		policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
+		if loadErr != nil {
+			clientFailure(c, 503, "configuration_update_unconfirmed")
+			return
+		}
+		connections, loadErr := modelConnectionViews(model.DB, policy.DefaultModel)
+		if loadErr != nil {
+			clientFailure(c, 503, "configuration_update_unconfirmed")
+			return
+		}
+		c.JSON(200, gin.H{"saved": true, "tested": request.Action == "test", "model_connections": connections, "policy": policy})
 		return
 	}
 	c.JSON(200, gin.H{"saved": true})
@@ -287,6 +342,9 @@ func (h *Host) saveSocial(r configurationRequest) error {
 	return nil
 }
 func (h *Host) saveModel(c *gin.Context, r configurationRequest) error {
+	if r.Section == "model_connection" {
+		return h.saveModelConnection(c, r)
+	}
 	if (r.Section != "deepseek" && r.Section != "qwen" && r.Section != "qwen-vision") || (r.MakeDefault && (!r.Enabled || r.ClearSecret)) {
 		return lingtu.ErrInvalidTrialInput
 	}
@@ -374,6 +432,9 @@ func persistManagedModel(channel *model.Channel, makeDefault bool) error {
 				return err
 			}
 		}
+		if err := syncLegacyModelBinding(tx, channel); err != nil {
+			return err
+		}
 		if makeDefault {
 			policy, err := lingtu.LoadTrialPolicy(tx)
 			if err != nil {
@@ -400,7 +461,7 @@ func (h *Host) saveAccount(r configurationRequest) error {
 	if r.UserID <= 0 || r.Calls < 0 || r.Calls > 1000000 || len(strings.TrimSpace(r.Reason)) < 1 || len(r.Reason) > 256 || (r.Status != "enabled" && r.Status != "disabled") || r.ExpiresAt <= 0 {
 		return lingtu.ErrInvalidTrialInput
 	}
-	if r.Model != "" && r.Model != "deepseek-flash" && r.Model != "qwen-plus" && r.Model != visionModel {
+	if r.Model != "" && !validManagedModel(r.Model) {
 		return lingtu.ErrInvalidTrialInput
 	}
 	err := model.DB.Transaction(func(tx *gorm.DB) error {

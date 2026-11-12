@@ -91,14 +91,17 @@ func (b *relayBuffer) Pusher() http.Pusher      { return nil }
 func (b *relayBuffer) CloseNotify() <-chan bool { return make(chan bool) }
 
 type managedUsage struct {
-	UserID       int    `gorm:"primaryKey;autoIncrement:false"`
-	RequestID    string `gorm:"type:varchar(128);primaryKey"`
-	Model        string `gorm:"type:varchar(128)"`
-	InputTokens  int
-	OutputTokens int
-	UsageKnown   bool   `gorm:"not null;default:false"`
-	Diagnostic   string `gorm:"type:varchar(64)"`
-	CreatedAt    int64  `gorm:"autoCreateTime:false;index"`
+	UserID        int    `gorm:"primaryKey;autoIncrement:false"`
+	RequestID     string `gorm:"type:varchar(128);primaryKey"`
+	Model         string `gorm:"type:varchar(128)"`
+	ChannelID     int    `gorm:"not null;default:0;index"`
+	ChannelName   string `gorm:"type:varchar(128)"`
+	UpstreamModel string `json:"upstream_model" gorm:"type:varchar(128)"`
+	InputTokens   int
+	OutputTokens  int
+	UsageKnown    bool   `gorm:"not null;default:false"`
+	Diagnostic    string `gorm:"type:varchar(64)"`
+	CreatedAt     int64  `gorm:"autoCreateTime:false;index"`
 }
 
 func (managedUsage) TableName() string { return "lingtu_usage" }
@@ -191,6 +194,25 @@ func parseChat(r io.Reader) (chatInput, string, error) {
 	return in, hex.EncodeToString(digest[:]), nil
 }
 func selectedChannel(selected string) (model.Channel, error) {
+	var binding lingtu.ModelConnection
+	err := model.DB.First(&binding, "model_id = ?", selected).Error
+	if err == nil {
+		var channel model.Channel
+		if err := model.DB.First(&channel, binding.ChannelID).Error; err != nil {
+			return channel, err
+		}
+		provider, ok := managedProvider(binding.Provider)
+		if !ok || !binding.Enabled || channel.Status != common.ChannelStatusEnabled || binding.ConfigHash != channelHash(channel) || !credentialConfigured(provider, channel) {
+			return channel, errors.New("model not ready")
+		}
+		if err := validateModelURL(provider, channel.GetBaseURL(), true); err != nil {
+			return channel, err
+		}
+		return channel, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return model.Channel{}, err
+	}
 	name := ""
 	switch selected {
 	case "deepseek-flash":
@@ -215,6 +237,20 @@ func selectedChannel(selected string) (model.Channel, error) {
 		}
 	}
 	return channel, errors.New("model missing")
+}
+
+// The persistent internal token remains restricted to its legacy allowlist.
+// Only a prepared managed request narrows the per-request native limit to the
+// exact upstream model of its already pinned channel. No client field controls it.
+func (h *Host) restrictManagedModelLimit(c *gin.Context) {
+	upstream := c.GetString("lingtu_upstream_model")
+	if !c.GetBool("lingtu_internal") || c.GetInt("lingtu_channel") <= 0 || !modelIdentifier(upstream) {
+		clientFailure(c, 403, "model_not_ready")
+		return
+	}
+	c.Set("token_model_limit_enabled", true)
+	c.Set("token_model_limit", map[string]bool{upstream: true})
+	c.Next()
 }
 func resolveInternalToken() (model.Token, error) {
 	internalTokenMu.Lock()
@@ -389,7 +425,12 @@ func (h *Host) prepareChat(c *gin.Context) {
 		}
 		return
 	}
-	usage := managedUsage{UserID: uid, RequestID: in.RequestID, Model: selected, Diagnostic: "pending", CreatedAt: time.Now().Unix()}
+	channelName := channel.Name
+	var binding lingtu.ModelConnection
+	if model.DB.First(&binding, "channel_id = ?", channel.Id).Error == nil {
+		channelName = binding.Name
+	}
+	usage := managedUsage{UserID: uid, RequestID: in.RequestID, Model: selected, ChannelID: channel.Id, ChannelName: channelName, UpstreamModel: channel.Models, Diagnostic: "pending", CreatedAt: time.Now().Unix()}
 	if err = model.DB.Create(&usage).Error; err != nil {
 		_ = h.trials.Settle(uid, in.RequestID, "failed")
 		clientFailure(c, 503, "temporarily_unavailable")
@@ -408,11 +449,12 @@ func (h *Host) prepareChat(c *gin.Context) {
 	c.Request.URL.Path = "/v1/chat/completions"
 	c.Request.URL.RawQuery = ""
 	c.Request.RequestURI = "/v1/chat/completions"
-	requestBody, _ := json.Marshal(gin.H{"model": selected, "messages": in.Messages, "stream": false, "max_tokens": policy.MaxTokens})
+	requestBody, _ := json.Marshal(gin.H{"model": channel.Models, "messages": in.Messages, "stream": false, "max_tokens": policy.MaxTokens})
 	c.Request.Body = io.NopCloser(bytes.NewReader(requestBody))
 	c.Request.ContentLength = int64(len(requestBody))
 	c.Set("lingtu_internal", true)
 	c.Set("lingtu_channel", channel.Id)
+	c.Set("lingtu_upstream_model", channel.Models)
 	c.Set(common.RequestIdKey, safeRequestID)
 	// All exits, including panic, settle conservatively and restore the real writer.
 	defer func() {

@@ -63,7 +63,7 @@ func hostDB(t *testing.T) *gorm.DB {
 			// CI service image's database defaults. The DSN charset only sets the connection.
 			db = db.Set("gorm:table_options", "CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci").Session(&gorm.Session{})
 		}
-		if err = db.Migrator().DropTable(&lingtu.TrialIdentityClaim{}, &lingtu.TrialVerifiedEmail{}, &model.UserOAuthBinding{}, &lingtu.TrialRequest{}, &lingtu.TrialGrant{}, &lingtu.ManagedSetting{}, &lingtu.ManagedAccount{}, &lingtu.ManagedAudit{}, &model.CustomOAuthProvider{}, &accountUserFixture{}); err != nil {
+		if err = db.Migrator().DropTable(&lingtu.ModelConnection{}, &lingtu.TrialIdentityClaim{}, &lingtu.TrialVerifiedEmail{}, &model.UserOAuthBinding{}, &lingtu.TrialRequest{}, &lingtu.TrialGrant{}, &lingtu.ManagedSetting{}, &lingtu.ManagedAccount{}, &lingtu.ManagedAudit{}, &model.CustomOAuthProvider{}, &accountUserFixture{}); err != nil {
 			t.Fatal(err)
 		}
 	}

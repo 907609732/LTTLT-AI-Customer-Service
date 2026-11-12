@@ -248,6 +248,14 @@
     {
       "before": "cache.WriteContext(c)\n\tc.Set(\"id\", testUserID)",
       "after": "cache.WriteContext(c)\n\tif strings.HasPrefix(channel.Name, \"lingtu-\") { setting := cache.GetSetting(); setting.AcceptUnsetRatioModel = true; common.SetContextKey(c,constant.ContextKeyUserSetting,setting); c.Set(\"lingtu_internal\",true) }\n\tc.Set(\"id\", testUserID)"
+    },
+    {
+      "before": "common.SysLog(common.LogText(\"testing channel %d with model %s , info %+v \", channel.Id, testModel, info.ToString()))",
+      "after": "if !c.GetBool(\"lingtu_internal\") { common.SysLog(common.LogText(\"testing channel %d with model %s , info %+v \", channel.Id, testModel, info.ToString())) }"
+    },
+    {
+      "before": "common.SysLog(common.LogText(\"testing channel #%d, response: \\n%s\", channel.Id, string(respBody)))",
+      "after": "if !c.GetBool(\"lingtu_internal\") { common.SysLog(common.LogText(\"testing channel #%d, response: \\n%s\", channel.Id, string(respBody))) }"
     }
   ],
   "controller/relay.go": [
@@ -388,6 +396,29 @@
     {
       "before": "\tlogger.LogDebug(c, \"upstream response body: %s\", responseBody)",
       "after": "\tif c.GetBool(\"lingtu_internal\") {\n input, output, known := lingtu.ParseTokenUsage(responseBody)\n c.Set(\"lingtu_provider_usage_seen\", true); c.Set(\"lingtu_provider_usage_known\", known); c.Set(\"lingtu_provider_input_tokens\", input); c.Set(\"lingtu_provider_output_tokens\", output)\n }\n\tlogger.LogDebug(c, \"upstream response body: %s\", responseBody)"
+    }
+  ],
+  "relay/channel/aws/relay-aws.go": [
+    {
+      "before": "return client, nil",
+      "after": "if c.GetBool(\"lingtu_internal\") { client = bedrockruntime.New(client.Options(), func(o *bedrockruntime.Options) { o.RetryMaxAttempts = 1; o.Retryer = aws.NopRetryer{} }) }\n\treturn client, nil"
+    },
+    {
+      "before": "awsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput))",
+      "after": "if c.GetBool(\"lingtu_internal\") { c.Set(\"lingtu_upstream_started\",true) }\n\tawsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput))\n\tif c.GetBool(\"lingtu_internal\") { status:=200; if err!=nil {status=getAwsErrorStatusCode(err)};c.Set(\"lingtu_upstream_status\",status) }",
+      "count": 2
+    },
+    {
+      "before": "awsResp, err := a.AwsClient.InvokeModelWithResponseStream(ctx, a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput))",
+      "after": "if c.GetBool(\"lingtu_internal\") { c.Set(\"lingtu_upstream_started\",true) }\n\tawsResp, err := a.AwsClient.InvokeModelWithResponseStream(ctx, a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput))\n\tif c.GetBool(\"lingtu_internal\") { status:=200; if err!=nil {status=getAwsErrorStatusCode(err)};c.Set(\"lingtu_upstream_status\",status) }",
+      "count": 1
+    }
+  ],
+  "relay/channel/xunfei/relay-xunfei.go": [
+    {
+      "before": "dataChan, stopChan, err := xunfeiMakeRequest(textRequest, domain, authUrl, appId)",
+      "after": "if c.GetBool(\"lingtu_internal\") { c.Set(\"lingtu_upstream_started\",true) }\n\tdataChan, stopChan, err := xunfeiMakeRequest(textRequest, domain, authUrl, appId)\n\tif c.GetBool(\"lingtu_internal\") && err==nil {c.Set(\"lingtu_upstream_status\",200)}",
+      "count": 2
     }
   ]
 }

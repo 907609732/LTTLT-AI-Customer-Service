@@ -7,11 +7,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
 
 func TestLingtuClientTrafficCannotExhaustBrowserLogin(t *testing.T) {
-	hostDB(t)
+	db := hostDB(t)
+	if err := db.AutoMigrate(&model.Channel{}, &model.Ability{}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Migrator().DropTable(&model.Ability{}, &model.Channel{}) })
 	t.Setenv("LINGTU_API_ORIGIN", "https://api.test")
 	t.Setenv("LINGTU_PORTAL_ORIGIN", "https://portal.test")
 	oldSecure, oldCritical, oldGlobal := common.SessionCookieSecure, common.CriticalRateLimitEnable, common.GlobalApiRateLimitEnable

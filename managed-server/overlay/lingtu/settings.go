@@ -137,7 +137,7 @@ func RuntimeVault() (*Vault, error) {
 	return vault, nil
 }
 func MigrateManaged(db *gorm.DB) error {
-	if err := db.AutoMigrate(&ManagedSetting{}, &ManagedAccount{}, &ManagedAudit{}, &TrialIdentityClaim{}, &TrialVerifiedEmail{}); err != nil {
+	if err := db.AutoMigrate(&ManagedSetting{}, &ManagedAccount{}, &ManagedAudit{}, &TrialIdentityClaim{}, &TrialVerifiedEmail{}, &ModelConnection{}); err != nil {
 		return err
 	}
 	return NewTrialStore(db).Migrate()

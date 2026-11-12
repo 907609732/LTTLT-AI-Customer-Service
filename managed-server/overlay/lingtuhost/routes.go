@@ -56,6 +56,9 @@ func Register(router *gin.Engine) error {
 	if err = h.migrateChat(); err != nil {
 		return err
 	}
+	if err = model.DB.Transaction(migrateLegacyModelConnections); err != nil {
+		return err
+	}
 	h.startChatCleanup()
 	oauth.SetManagedProviderResolver(h.socialConfig)
 	group := router.Group("/api/client", middleware.DisableCache(), middleware.GlobalAPIRateLimit())
@@ -67,7 +70,7 @@ func Register(router *gin.Engine) error {
 	group.POST("/auth/device/token", middleware.LingtuIPRateLimit("device-poll", 120, 60), h.poll)
 	group.POST("/auth/refresh", middleware.LingtuIPRateLimit("client-refresh", 120, 60), h.refresh)
 	authenticated := group.Group("", h.clientAuth)
-	authenticated.POST("/chat/completions", h.prepareChat, h.injectInternalToken, middleware.TokenAuth(), middleware.Distribute(), h.nativeChat)
+	authenticated.POST("/chat/completions", h.prepareChat, h.injectInternalToken, middleware.TokenAuth(), h.restrictManagedModelLimit, middleware.Distribute(), h.nativeChat)
 	authenticated.GET("/me", h.me)
 	authenticated.GET("/config", h.config)
 	authenticated.POST("/auth/logout", h.logout)
