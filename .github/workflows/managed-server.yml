@@ -2,7 +2,7 @@ name: Managed server checks
 on:
   workflow_dispatch:
   push:
-    branches: [codex/managed-model-access]
+    branches: [codex/managed-model-access, codex/managed-admin-real-ui-20261113]
     paths: ['managed-server/**', 'scripts/prepare-managed-server.mjs', '.github/workflows/managed-server.yml']
 permissions:
   contents: read
@@ -51,7 +51,7 @@ jobs:
             export LINGTU_TEST_ENGINE=postgres
             export LINGTU_TEST_DSN='host=127.0.0.1 user=postgres password=isolated-ci-password dbname=lingtu_test port=5432 sslmode=disable'
           fi
-          go test -race -p 1 ./lingtu ./lingtuhost ./middleware ./controller ./service ./common ./relay/helper -run 'Test(Device|Desktop|Trial|Concurrent|Settlement|Social|Credential|GORM|Lingtu)' -count=1 -v -timeout=180s
+          go test -race -p 1 ./lingtu ./lingtuhost ./middleware ./controller ./service ./common ./relay/helper ./relay/channel/aws ./relay/channel/xunfei -run 'Test(Device|Desktop|Trial|Concurrent|Settlement|Social|Credential|GORM|Lingtu)' -count=1 -v -timeout=180s
   web:
     runs-on: ubuntu-latest
     steps:
