@@ -54,17 +54,17 @@ try{
  const windows=app.windows();
  if(windows.length!==2)throw Error('Auxiliary must open its own 300x900 window; windows='+windows.length);
  const aux=windows.find(w=>w!==page);
- await aux.locator('[data-figma-node="2:177"]').waitFor();
+ await aux.getByRole('main',{name:'AI辅助中心'}).waitFor();
  const sizes=await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().map(w=>w.getContentSize()));
  if(!sizes.some(s=>s[0]===300&&s[1]===900))throw Error('Auxiliary content viewport is wrong: '+JSON.stringify(sizes));
  console.log('Auxiliary source loaded, closing check');
- await aux.getByRole('button',{name:'关闭',exact:true}).click();
+ await aux.getByRole('button',{name:'关闭辅助中心',exact:true}).click();
  await aux.getByRole('button',{name:'取消',exact:true}).click();
- await aux.locator('[data-figma-node="2:177"]').waitFor();
- await aux.getByRole('button',{name:'关闭',exact:true}).click();
+ await aux.getByRole('main',{name:'AI辅助中心'}).waitFor();
+ await aux.getByRole('button',{name:'关闭辅助中心',exact:true}).click();
  await Promise.all([
   aux.waitForEvent('close',{timeout:5000}),
-  aux.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).click().catch(error=>{if(!aux.isClosed())throw error;})
+  aux.getByRole('dialog').getByRole('button',{name:'确认关闭',exact:true}).click().catch(error=>{if(!aux.isClosed())throw error;})
  ]);
  await page.waitForTimeout(300);
  if(app.windows().length!==1)throw Error('Confirm close did not close only the auxiliary window');

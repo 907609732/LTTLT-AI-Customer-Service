@@ -36,8 +36,10 @@ export function AuxiliaryCenter({initialScreen}:{initialScreen:string}){
  const send=async()=>{if(!current||!text.trim()||busy.current||focusBusy.current)return;busy.current=true;setSending(true);setStatus('');const target=current,original=text,targetKey=key;try{await queue.current;await b.execute({action:'select-conversation',storeId:target.storeId,conversationId:target.uid});const result=await run({action:'send-reply',storeId:target.storeId,conversationId:target.uid,values:{reply:original}});if(result&&alive.current){setDrafts(old=>old[targetKey]===original?{...old,[targetKey]:''}:old);setStatus(result.message||'回复已发送');try{await persist({action:'save-auxiliary-draft',storeId:target.storeId,conversationId:target.uid,values:{text:''}})}catch{setError('回复已发送，但本机草稿清理失败，请勿重复发送。')}}}catch(e){if(alive.current)setError(e instanceof Error?e.message:String(e))}finally{busy.current=false;if(alive.current)setSending(false)}};
  const close=async()=>{if(closeBusy.current)return;closeBusy.current=true;setClosingPending(true);try{await queue.current;
   // Retry current drafts before destroying the renderer, so a previous disk failure cannot silently lose text.
+  if(b.snapshot.workspaceMode!=='locked'){
   for(const c of all){const text=drafts[keyOf(c)];if(text!==undefined)await persist({action:'save-auxiliary-draft',storeId:c.storeId,conversationId:c.uid,values:{text}})}
-  await save({screen,filterStore:storeFilter,scroll:scroll.current});await window.lingtu?.windowAction('close');
+  await save({screen,filterStore:storeFilter,scroll:scroll.current});}
+  await window.lingtu?.windowAction('close');
  }catch(e){setError('关闭失败，草稿仍保留在窗口：'+(e instanceof Error?e.message:String(e)));setClosing(false)}finally{closeBusy.current=false;if(alive.current)setClosingPending(false)}};
  const rememberScroll=(part:string,value:number)=>{scroll.current[part]=value;clearTimeout(scrollTimer.current);scrollTimer.current=setTimeout(()=>{void save({scroll:scroll.current}).catch(()=>{})},180)};
  const blocked=closing||clearing;

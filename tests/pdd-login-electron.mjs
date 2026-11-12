@@ -28,13 +28,13 @@ try{
  await page.getByRole('button',{name:'添加店铺',exact:true}).click();await page.getByRole('button',{name:'多多店铺 · 网页',exact:true}).click();await page.getByRole('button',{name:'确认添加',exact:true}).click();
  await page.waitForFunction(async()=>{const s=(await window.lingtu.backendSnapshot()).stores[0];return s?.runtime.open&&s.runtime.authenticated===false});
  assert.equal(await page.getByLabel('店铺名称',{exact:true}).count(),0);
- await page.getByRole('combobox',{name:'当前店铺'}).waitFor();
- assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getFocusedWindow()?.getTitle()),'灵兔客服 · 店铺平台');
+ await page.getByRole('region',{name:'真实店铺列表'}).getByRole('button',{name:/拼多多店铺 · 待登录/}).waitFor();
  let snap=await page.evaluate(()=>window.lingtu.backendSnapshot());assert.equal(snap.stores.length,1);assert.equal(snap.stores[0].storeName,'');assert.equal(snap.stores[0].runtime.online,false);const id=snap.stores[0].id;
+ const embedded=await app.evaluate(({app,BrowserWindow},id)=>{const main=BrowserWindow.getAllWindows()[0],wc=process.mainModule.require(app.getAppPath()+'/electron/main.cjs').getBackend().manager.webContentsOf(id);return {windows:BrowserWindow.getAllWindows().length,attached:main.contentView.children.some(view=>view.webContents?.id===wc.id)}},id);assert.equal(embedded.windows,1);assert.equal(embedded.attached,true);
  const loginText=await app.evaluate(async({app},id)=>process.mainModule.require(app.getAppPath()+'/electron/main.cjs').getBackend().manager.webContentsOf(id).executeJavaScript('document.body.innerText'),id);assert.match(loginText,/扫码登录/);
  await app.evaluate(async({app},id)=>{globalThis.pddFixture.loggedIn=true;const b=process.mainModule.require(app.getAppPath()+'/electron/main.cjs').getBackend();await b.manager.webContentsOf(id).loadURL('https://mms.pinduoduo.com/chat-merchant/index.html');},id);
  await page.waitForFunction(async()=>{const s=(await window.lingtu.backendSnapshot()).stores[0];return s?.storeName==='受控旗舰店'&&s.runtime.online},{},{timeout:15000});
- await page.getByRole('combobox',{name:'当前店铺'}).filter({hasText:'受控旗舰店'}).waitFor();
+ await page.getByRole('region',{name:'真实店铺列表'}).getByRole('button',{name:/受控旗舰店.*受控客服01/}).waitFor();
  snap=await page.evaluate(()=>window.lingtu.backendSnapshot());assert.equal(snap.stores[0].mallId,'10086');assert.equal(snap.stores[0].customerServiceName,'受控客服01');assert.equal(snap.stores[0].aiEnabled,false);
  assert.equal(JSON.parse(fs.readFileSync(path.join(data,'backend','stores.json'),'utf8')).stores[0].storeName,'受控旗舰店');
  await app.evaluate(async({app},id)=>{globalThis.pddFixture.fail=true;await process.mainModule.require(app.getAppPath()+'/electron/main.cjs').getBackend().manager.open(id)},id);

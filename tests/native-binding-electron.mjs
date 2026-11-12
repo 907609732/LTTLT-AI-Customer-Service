@@ -9,8 +9,11 @@ async function close(){await app.evaluate(({app})=>app.exit(0));await app.close(
 try{
  await launch();await act('login');let state=await loginReady();assert.equal(state.workspace.externalClient.status,'unclaimed');assert.equal(fs.existsSync(marker),false);
  await assert.rejects(nativeAdd(),/绑定/);assert.equal(fs.existsSync(marker),false);
- const claim=page.getByRole('button',{name:'将本机抖店客户端绑定当前灵兔账号',exact:true});await claim.click();const review=page.getByRole('alertdialog',{name:'确认绑定本机抖店客户端'});await review.waitFor();assert.equal(fs.existsSync(marker),false);fs.mkdirSync('test-results',{recursive:true});await review.screenshot({path:'test-results/native-binding-review.png'});await review.getByRole('button',{name:'暂不绑定'}).click();assert.equal(fs.existsSync(marker),false);
- await claim.click();await page.getByRole('alertdialog').getByRole('button',{name:'确认绑定',exact:true}).click();
+ await page.evaluate(()=>window.lingtu.openMain('UX03'));
+ const card=page.getByRole('button',{name:/抖店店铺 · 客户端/});await card.click();await page.getByRole('button',{name:'确认添加',exact:true}).click();
+ const review=page.getByRole('region',{name:'本机抖店客户端绑定'});await review.waitFor();assert.equal(await page.getByLabel('店铺名称',{exact:true}).count(),0);assert.equal(fs.existsSync(marker),false);fs.mkdirSync('test-results',{recursive:true});await review.screenshot({path:'test-results/native-binding-review.png'});
+ await page.getByRole('button',{name:'返回平台选择',exact:true}).click();assert.equal(fs.existsSync(marker),false);
+ await card.click();await page.getByRole('button',{name:'确认添加',exact:true}).click();await page.getByRole('button',{name:'确认绑定本机抖店客户端',exact:true}).click();
  for(let i=0;i<100&&!fs.existsSync(marker);i++)await new Promise(r=>setTimeout(r,50));assert.equal(fs.existsSync(marker),true);state=await page.evaluate(()=>window.lingtu.managedSnapshot());assert.equal(state.workspace.externalClient.allowed,true);
  await nativeAdd();const owner=JSON.parse(fs.readFileSync(marker,'utf8')).owner;await close();
  await launch();state=await loginReady();assert.equal(state.session.account.userId,1);assert.equal(state.workspace.externalClient.allowed,true);assert.equal(JSON.parse(fs.readFileSync(marker,'utf8')).owner,owner);assert.equal((await page.evaluate(()=>window.lingtu.backendSnapshot())).stores[0].aiEnabled,false);
