@@ -36,10 +36,11 @@
 - [ ] Run targeted Go tests GREEN; review query/totals and commit.
 
 ### Task 3: Approved clear React UI wired to real APIs
-**Files:** managed-server/overlay/web/src/features/lingtu/{admin-page,admin-usage,admin-light.css} and focused new components/tests; managed-server/translations.json.
+**Files:** managed-server/overlay/web/src/features/lingtu/{admin-page,admin-usage,admin-light.css} and focused new components/tests; managed-server/translations.json. A small integration extension in lingtuhost/admin.go, admin_models.go, focused connection tests and docs/MANAGED_MODEL_API.md provides one proof-bound save-and-test operation for the approved primary button.
 **Interfaces:** Consume docs/MANAGED_MODEL_API.md and docs/MANAGED_USAGE_API.md and existing secure save callback; no fake statuses or stats. Reuse existing chart library, native dialog/inputs, no new heavyweight dependencies.
 - [ ] Write behavior tests independent API editing, drafts, secret omission, defaults, login card status, usage days/model filters, errors/empty states and navigation.
 - [ ] Port v10 clear sidebar/cards/modal and overview to React with real config/status; preserve account/trial/reconcile/audit functionality and translations. General fields dark/readable 14px; model names 19px, titles 26px; mobile no page overflow.
+- [ ] Preserve approved one-button Save and test without collecting/reusing administrator passwords in app code: add optional `test_after_save:true` to action=save, protected by the same exact-body proof. Default save remains network-free. Reuse existing native saved-config test once after successful persistence, do not change defaults, return connection_id plus saved/tested/current sanitized state. Probe failure returns saved:true/tested:false with retained disabled failed configuration; validation/persistence failure must not claim saved or issue a probe. Existing test/select/delete actions remain backward compatible. Add RED/GREEN success(single probe/no default), failure(retention/no-secret), stale revision and exact proof tests; update DTO. Frontend submits one protected POST for this button, not two password prompts.
 - [ ] Run frontend typecheck, Vitest, build and route/browser checks. Self-review and commit owned files.
 
 ### Task 4: Integration, CI artifact acceptance and deployment
