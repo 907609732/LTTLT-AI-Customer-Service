@@ -471,7 +471,8 @@ class StoreWorker {
       }
       if (sent.ok) {
         this.replied.set(uid, lastKey);
-        this.lastMerchantAt.set(uid, this.now());
+        // Only actual manual replies advance lastMerchantAt; a new buyer message
+        // may have arrived while this AI reply was being generated.
         this.attempts.delete(uid);
         this.stats.replied += 1;
         await dispose(() => this.adapter.discard(uid));

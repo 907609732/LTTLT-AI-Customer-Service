@@ -691,3 +691,8 @@ test('manual takeover blocks only that conversation in flight',async()=>{
  await worker.tick();worker.manualSuppressed.add('manual');pending.resolve();await worker.settle();
  assert.deepEqual(state.sent.map(s=>s.uid),['other']);
 });
+
+test('生成期间到达的新买家问题不能被前一条AI回复误判为人工已处理',async()=>{
+ let clock=NOW;const first=gate(),questions=[];const ai={reply:async payload=>{questions.push(payload.thread.filter(m=>m.from==='buyer').at(-1).content);if(questions.length===1)await first.promise;return {reply:'answer '+questions.length}}};const {worker,state}=workerFor({rows:[buyerRow('u1','first','第一问',NOW-1000)],ai,now:()=>clock,config:baseConfig({reply:{maxInflight:1,perUidMinIntervalMs:0}})});
+ await worker.tick();await waitFor(()=>questions.length===1);state.queue.push(buyerRow('u1','second','第二问',NOW+500));clock=NOW+1000;first.resolve();await worker.settle();await worker.tick();await worker.settle();assert.deepEqual(questions,['第一问','第二问']);assert.equal(state.sent.length,2);assert.equal(worker.stats.replied,2);
+});
