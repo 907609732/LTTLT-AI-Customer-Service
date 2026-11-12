@@ -424,6 +424,7 @@ class StoreWorker {
       }
       await this.adapter.focusConversation(uid).catch(() => null);
 
+      this.logger?.debug(`会话 ${uid} [回复阶段] 正在生成`);
       const generated = await this.#generate(row, latest, generation);
       if (!this.#active(generation)) return;
       if (!generated.ok) {
@@ -444,9 +445,11 @@ class StoreWorker {
         await dispose(() => this.adapter.release(uid));
         return;
       }
+      this.logger?.debug(`会话 ${uid} [回复阶段] 生成完成，准备发送`);
       let sent;
       try{sent=await this.#sendText(uid,text,{generation});}
       catch(error){if(typeof this.aiClient.onDeliveryFailure!=='function')throw error;sent={ok:false,reason:'send_unconfirmed'};}
+      this.logger?.debug(`会话 ${uid} [回复阶段] 发送结果：${sent.ok?'已确认':sent.reason||'未知'}`);
       if (sent.throttled) {
         if (sent.reason !== 'cancelled') await dispose(() => this.adapter.release(uid));
         return;

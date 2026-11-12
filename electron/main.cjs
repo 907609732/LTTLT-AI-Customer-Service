@@ -1,5 +1,6 @@
 const {app,BrowserWindow,WebContentsView,ipcMain,dialog,session,screen,shell,safeStorage}=require('electron');
 const path=require('node:path');
+const sourceDiagnostics=!app.isPackaged&&process.argv.includes('--source-diagnostics');
 const fs=require('node:fs/promises');
 const {pathToFileURL,fileURLToPath}=require('node:url');
 const crypto=require('node:crypto');
@@ -44,7 +45,8 @@ function createIssueView(){
  else void issueView.webContents.loadFile(path.join(__dirname,'../dist/index.html'),{query:{notice:'model-issue'}});
 }
 function managedSnapshot(){return {session:managed.snapshot(),workspace:runtime.view(),message:workspaceMessage};}
-function managedChanged(){if(managed&&runtime)broadcast('managed:state',managedSnapshot());}
+let lastSourceSession='';
+function managedChanged(){if(managed&&runtime){if(sourceDiagnostics){const state='[账号状态] '+managed.snapshot().status+' / 工作区='+runtime.view().mode;if(state!==lastSourceSession){console.log(state);lastSourceSession=state;}}broadcast('managed:state',managedSnapshot());}}
 const DEV_URL='http://127.0.0.1:5173/';
 const isDev=!app.isPackaged&&process.argv.includes('--dev');
 const entry=pathToFileURL(path.join(__dirname,'../dist/index.html')).href;
@@ -98,7 +100,7 @@ app.whenReady().then(async()=>{
  const workspaces=require('./account-workspaces.cjs').createAccountWorkspaces({dataRoot,origin:'https://api-kefu.lttlt.top'});
  runtime=require('./workspace-runtime.cjs').createWorkspaceRuntime({workspaces,
   createHost:options=>require('./platform-host.cjs').createPlatformHost({...options,getWindow:()=>win}),
-  createBackend:options=>require('./backend.cjs').createBackend({...options,safeStorage,openExternal:url=>shell.openExternal(url)}),
+  createBackend:options=>require('./backend.cjs').createBackend({...options,safeStorage,sourceDiagnostics,openExternal:url=>shell.openExternal(url)}),
   managedChat:(payload,options)=>managed.chat(payload,options),
   onEvent:event=>broadcast('backend:event',event),
   onReset:event=>broadcast('backend:event',event),onChange:managedChanged});

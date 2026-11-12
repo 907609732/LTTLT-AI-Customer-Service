@@ -7,6 +7,7 @@ const {Config}=require('../desk-v1/src/main/config');
 const {StoreRegistry}=require('../desk-v1/src/main/store-registry');
 const {SecretStore}=require('../desk-v1/src/main/secrets');
 const {Logger}=require('../desk-v1/src/main/logger');
+const {createSourceDiagnostics}=require('./source-diagnostics.cjs');
 const {AiClient}=require('../desk-v1/src/main/ai-client');
 const {ReplyEngine,filterBannedWords}=require('../desk-v1/src/main/reply-engine');
 const {MessageMonitor}=require('../desk-v1/src/main/message-monitor');
@@ -16,10 +17,13 @@ const {createAuxiliaryState}=require('./auxiliary-state.cjs');
 const {createConversationQuality}=require('./conversation-quality.cjs');
 const platforms=[{id:'pdd-web',label:'拼多多'},{id:'doudian-client',label:'抖店'}];
 const Command=z.object({action:z.string().min(1).max(60),screenId:z.string().max(30).optional(),storeId:z.string().max(64).optional(),conversationId:z.string().max(200).optional(),values:z.record(z.string(),z.unknown()).optional()});
-function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},allowExternalClient=true,externalClientReady=()=>{}}={}){
+function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},allowExternalClient=true,externalClientReady=()=>{},sourceDiagnostics=false}={}){
  if(!dataDir)throw Error('data_directory_required');
- const logger=new Logger({dir:path.join(dataDir,'logs'),console:false});
+ const logger=new Logger({dir:path.join(dataDir,'logs'),console:sourceDiagnostics,level:sourceDiagnostics?'debug':'info'});
+ let diagnostics=null;
  const config=new Config({file:path.join(dataDir,'config.json'),logger});
+ logger.setMaskPii(config.all().privacy?.maskPii);
+ if(sourceDiagnostics)logger.info('[源码诊断] 已开启详细日志；日志文件：'+logger.file);
  const registry=new StoreRegistry({file:path.join(dataDir,'stores.json'),logger});
  const handoffFile=path.join(dataDir,'store-handoff.json');
  const keywordsSchema=z.array(z.string().trim().min(1).max(30)).max(100);
@@ -93,7 +97,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  }
  const adapterFor=store=>{if(!adapters.has(store.id)){if(!adapterFactory)throw Error('平台服务尚未就绪');adapters.set(store.id,adapterFactory(store,{config:config.all(),logger}));}return adapters.get(store.id)};
  const snapshot=()=>structuredClone({revision,modelIssue,quality:quality.list(),auxiliary:auxiliary.snapshot(),stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
- function changed(){if(disposed)return;revision++;onEvent({type:'backend:changed',revision});}
+ function changed(){if(disposed)return;logger.setMaskPii(config.all().privacy?.maskPii);revision++;onEvent({type:'backend:changed',revision});diagnostics?.status();}
  async function startCollection(id){
   const state=manager.stateOf(id);
   if(!state?.open||state.authenticated===false||state.authenticated===null)return;
@@ -103,6 +107,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  }
  function ingest(event){
   if(disposed)return;
+  diagnostics?.event(event);
   const store=registry.get(event.storeId);
   if(store&&event.type==='shop:login_state'&&event.authenticated===true&&event.online)void startCollection(store.id).catch(()=>{});
   if(store&&(['shop:navigating','shop:crash','shop:open_failed','shop:account_changed'].includes(event.type)||(event.type==='shop:login_state'&&event.authenticated===false))){
@@ -161,6 +166,8 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  }
  engine=new ReplyEngine({registry,adapterFactory:adapterFor,aiClient:modelClient,getConfig:(storeId)=>{const current=config.all(),entry=handoff.stores[storeId];return {...current,...(modelMode==='managed'?{reply:{...current.reply,maxInflight:1}}:{}),safety:{...current.safety,bannedWords,...(entry?{handoffKeywords:entry.keywords}:{})}};},logger,onEvent:ingest});
  monitor=new MessageMonitor({registry,adapterFactory:adapterFor,getConfig:()=>config.all(),logger,onEvent:ingest});
+ diagnostics=createSourceDiagnostics({enabled:sourceDiagnostics,write:text=>logger.info(text),getState:()=>{const workers=engine.status();return {mode:modelMode,issue:modelIssue?.code||'',stores:registry.list().map(s=>({name:s.storeName,online:!!manager.stateOf(s.id)?.online,ai:s.aiEnabled,inflight:workers[s.id]?.inflight,replied:workers[s.id]?.replied,failed:workers[s.id]?.failed,throttled:workers[s.id]?.throttled,suppressed:workers[s.id]?.manualSuppressed,collectionError:collectionErrors.has(s.id)}))}}});
+
  function storeOf(id){const s=registry.get(id);if(!s)throw Error('请先选择有效店铺');return s;}
  function stopAi(){for(const c of generations)c.abort();generations.clear();engine.stopAll();for(const s of registry.list()){aiEpoch.set(s.id,(aiEpoch.get(s.id)||0)+1);if(s.aiEnabled)registry.setAi(s.id,false);}config.update({reply:{enabled:false}});changed();}
  async function setAi(id,enabled){
@@ -288,6 +295,6 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   }
   if(disposed)throw Error('服务已关闭');changed();return {status:'ok',message,data};
  }
- return {snapshot,execute,ingest,stopAi,dispose(){disposed=true;modelClient.dispose?.();for(const client of probes)client.dispose();probes.clear();for(const c of generations)c.abort();generations.clear();engine.stopAll();monitor.stopAll();manager.closeAll();},manager,monitor,engine};
+ return {snapshot,execute,ingest,stopAi,dispose(){disposed=true;diagnostics?.dispose();modelClient.dispose?.();for(const client of probes)client.dispose();probes.clear();for(const c of generations)c.abort();generations.clear();engine.stopAll();monitor.stopAll();manager.closeAll();},manager,monitor,engine};
 }
 module.exports={createBackend};
