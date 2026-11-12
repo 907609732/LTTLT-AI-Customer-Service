@@ -233,9 +233,9 @@ class AiClient {
   }
 
   /** 生成一条已清洗的回复；失败抛错，由引擎决定归还或放弃。 */
-  async reply({ systemPrompt, thread, goodsTitle, orderId, goodsName, timeoutMs, reviewContext }) {
+  async reply({ systemPrompt, thread, goodsTitle, orderId, goodsName, timeoutMs, reviewContext, isCurrent }) {
     const messages = buildMessages({ systemPrompt, thread, goodsTitle, orderId, goodsName });
-    const raw = await this.complete({ messages, timeoutMs, reviewContext });
+    const raw = await this.complete({ messages, timeoutMs, reviewContext, isCurrent });
     const parsed = extractJson(raw);
     const normalized = normalizeReply(parsed ?? raw, {
       maxChars: this.getConfig().reply?.maxReplyChars ?? 200,

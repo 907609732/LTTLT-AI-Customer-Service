@@ -581,6 +581,7 @@ class StoreWorker {
       const result = await this.aiClient.reply({
         systemPrompt,
         thread,
+        isCurrent:()=>this.#active(generation)&&!this.manualSuppressed.has(String(row.uid)),
         reviewContext:{storeId:this.store.id,uid:row.uid,buyerName:row.username||row.name||'',buyerMessage:latest.content},
         goodsTitle: row.goodsTitle,
         orderId: row.orderId,
@@ -589,6 +590,7 @@ class StoreWorker {
       if (!result || !result.reply) return { ok: false, fatal: false };
       return { ok: true, result };
     } catch (err) {
+      if(err?.code==='queued_canceled')return {ok:false,fatal:false};
       const message = String(err?.message || err);
       this.aiClient.onGenerationFailure?.(err,{storeId:this.store.id,uid:row.uid,buyerName:row.username||row.name||'',buyerMessage:latest.content});
       this.logger?.warn(`AI 生成失败：${message}`);

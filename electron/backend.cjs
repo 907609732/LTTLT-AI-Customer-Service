@@ -110,14 +110,20 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   modelClient.suppressFallback=true;
   modelClient.onGenerationFailure=(error,context)=>{if(disposed)return;retainIssue(new ManagedSessionError(error?.code||'generation_failed'),{...context,storeName:registry.get(context?.storeId)?.storeName||''});stopAi();};
   modelClient.onDeliveryFailure=result=>{if(disposed)return;retainIssue(new ManagedSessionError(result.reason==='send_unconfirmed'?'delivery_unconfirmed':result.throttled?'delivery_blocked':'delivery_failed'),{...result,storeName:registry.get(result.storeId)?.storeName||''});stopAi();};
-  modelClient.complete=async({messages,timeoutMs,reviewContext})=>{
+  let managedQueue=Promise.resolve();
+  modelClient.complete=({messages,timeoutMs,reviewContext,isCurrent})=>{
+   const operation=managedQueue.then(async()=>{
    if(disposed)throw Error('服务已关闭');
+   if(typeof isCurrent==='function'&&!isCurrent())throw Object.assign(Error('排队任务已取消'),{code:'queued_canceled'});
+   if(modelIssue)throw new ManagedSessionError(modelIssue.code);
    if(!managedChat)throw Error('托管服务尚未连接');
    const c=new AbortController();generations.add(c);const timer=setTimeout(()=>c.abort(),timeoutMs||60000);timer.unref?.();
    const requestId=randomUUID();
    try{managedReady();const result=await managedChat({client_request_id:requestId,messages},{signal:c.signal});if(disposed||c.signal.aborted)throw Error('生成已取消');const content=result?.choices?.[0]?.message?.content;if(typeof content!=='string'||!content.trim())throw Error('托管模型未返回可用回复');return content;}
    catch(e){if(!disposed){retainIssue(e,{...reviewContext,requestId,storeName:registry.get(reviewContext?.storeId)?.storeName||''});stopAi();}throw e;}
    finally{clearTimeout(timer);generations.delete(c);}
+   });
+   managedQueue=operation.catch(()=>{});return operation;
   };
  }
  engine=new ReplyEngine({registry,adapterFactory:adapterFor,aiClient:modelClient,getConfig:(storeId)=>{const current=config.all(),entry=handoff.stores[storeId];return {...current,safety:{...current.safety,bannedWords,...(entry?{handoffKeywords:entry.keywords}:{})}};},logger,onEvent:ingest});
