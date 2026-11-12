@@ -428,5 +428,11 @@
       "before": "func xunfeiHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, appId string, apiSecret string, apiKey string) (*dto.Usage, *types.NewAPIError) {",
       "after": "func xunfeiHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, appId string, apiSecret string, apiKey string) (*dto.Usage, *types.NewAPIError) {\n if c.GetBool(\"lingtu_internal\") { return managedSparkHandler(c,textRequest,appId,apiSecret,apiKey) }"
     }
+  ],
+  "service/channel_select.go": [
+    {
+      "before": "constraints := GetChannelConstraints(c)\n\tif pin, found, overridden := constraints.ResolvedPin(); found {",
+      "after": "constraints := GetChannelConstraints(c)\n\tif admitted, handled, err := selectLingtuAdmittedChannel(c, modelName, constraints); handled {\n\t\treturn admitted, \"\", err\n\t}\n\tif pin, found, overridden := constraints.ResolvedPin(); found {"
+    }
   ]
 }

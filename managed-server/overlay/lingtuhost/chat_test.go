@@ -283,6 +283,9 @@ func seedManagedChatIdentity(t *testing.T, db *gorm.DB) {
 func TestLingtuNativeGatewayUsesPinnedChannel(t *testing.T) {
 	t.Run("legacy", func(t *testing.T) { testLingtuNativeGateway(t, false) })
 	t.Run("independent-native-vllm", func(t *testing.T) { testLingtuNativeGateway(t, true) })
+	for _, mutation := range []string{"key", "endpoint", "key-and-endpoint", "key-redaction"} {
+		t.Run("admitted-"+mutation, func(t *testing.T) { testLingtuNativeGateway(t, true, "vllm", mutation) })
+	}
 	t.Run("independent-native-spark", func(t *testing.T) { testLingtuNativeGateway(t, true, "spark") })
 	t.Run("native-spark-customer-rejected", func(t *testing.T) { testLingtuNativeGateway(t, true, "spark-rejected-customer") })
 }
@@ -344,16 +347,28 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 		t.Fatal(err)
 	}
 	var invocations atomic.Int32
+	var echoCredential atomic.Bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		invocations.Add(1)
 		if r.Header.Get("Authorization") != "Bearer fixture-provider-secret" || r.Header.Get("X-Evil") != "" {
 			t.Error("wrong upstream headers")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"id":"fixture","object":"chat.completion","created":1,"model":"deepseek-flash","choices":[{"index":0,"message":{"role":"assistant","content":"native answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`)
+		body := `{"id":"fixture","object":"chat.completion","created":1,"model":"deepseek-flash","choices":[{"index":0,"message":{"role":"assistant","content":"native answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`
+		if echoCredential.Load() {
+			body = strings.Replace(body, "native answer", "fixture-provider-secret", 1)
+		}
+		io.WriteString(w, body)
 	}))
 	defer provider.Close()
 	base := provider.URL
+	var changedInvocations atomic.Int32
+	changedProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changedInvocations.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"untested endpoint"}}]}`)
+	}))
+	defer changedProvider.Close()
 	var rejectSpark atomic.Bool
 	if spark {
 		calls := installSparkFixture(t, func() string {
@@ -410,6 +425,9 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 			t.Fatal("native probe did not use exactly one API call", invocations.Load())
 		}
 		invocations.Store(0)
+		if len(providers) > 1 && providers[1] == "key-redaction" {
+			echoCredential.Store(true)
+		}
 		rejectSpark.Store(rejectCustomer)
 	}
 	oldMemory := common.MemoryCacheEnabled
@@ -427,6 +445,24 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 		if b, ok := c.Writer.(*relayBuffer); ok && b.Status() >= 400 {
 			t.Log("native fixture rejection", b.body.String())
 		}
+	}, func(c *gin.Context) {
+		if len(providers) > 1 {
+			var changed model.Channel
+			if err := db.First(&changed, channel.Id).Error; err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(providers[1], "key") {
+				changed.Key = "changed-untested-key"
+			}
+			if strings.Contains(providers[1], "endpoint") {
+				changed.BaseURL = &changedProvider.URL
+			}
+			if err := db.Save(&changed).Error; err != nil {
+				t.Fatal(err)
+			}
+			model.InitChannelCache()
+		}
+		c.Next()
 	}, h.injectInternalToken, middleware.TokenAuth(), h.restrictManagedModelLimit, middleware.Distribute(), h.nativeChat)
 	request := httptest.NewRequest("POST", "/chat?channel=999", strings.NewReader(`{"client_request_id":"native-one","model":"evil","messages":[{"role":"user","content":"hello"}]}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -434,6 +470,19 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 	request.Header.Set("X-Evil", "root")
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
+	if changedInvocations.Load() != 0 {
+		t.Fatal("used untested endpoint", changedInvocations.Load())
+	}
+	if echoCredential.Load() {
+		if response.Code != 503 || strings.Contains(response.Body.String(), "fixture-provider-secret") || strings.Contains(response.Body.String(), "changed-untested-key") || invocations.Load() != 1 {
+			t.Fatal("admitted credential not redacted, or retried", response.Code, invocations.Load())
+		}
+		var usage managedUsage
+		if err := db.First(&usage, "user_id = ? AND request_id = ?", 99, "native-one").Error; err != nil || !usage.UsageKnown || usage.InputTokens != 2 || usage.OutputTokens != 3 || usage.ChannelID != channel.Id || usage.UpstreamModel != channel.Models || usage.Diagnostic != "upstream_uncertain" {
+			t.Fatal("redacted response lost admitted usage snapshot", err)
+		}
+		return
+	}
 	if rejectCustomer {
 		if response.Code != 503 || strings.Contains(response.Body.String(), "spark-secret-sentinel") || invocations.Load() != 1 {
 			t.Fatal("Spark customer rejection accepted, leaked, or retried", response.Code, response.Body.String(), invocations.Load())

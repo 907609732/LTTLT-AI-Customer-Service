@@ -24,6 +24,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -412,6 +413,12 @@ func (h *Host) prepareChat(c *gin.Context) {
 	}
 	if containsImages(in.Messages) && selected != visionModel {
 		clientFailure(c, 400, "vision_unavailable")
+		return
+	}
+	// The same admitted config supplies native dispatch, usage and sanitization,
+	// even if an administrator changes the channel before TokenAuth/Distribute.
+	if err = service.BindLingtuAdmittedChannel(c, &channel); err != nil {
+		clientFailure(c, 503, "model_not_ready")
 		return
 	}
 	reservation, err := h.trials.ReserveWithLimits(uid, in.RequestID, digest, time.Now(), lingtu.TrialLimits{PerAccountConcurrent: policy.PerAccountConcurrent, RequestsPerMinute: policy.RequestsPerMinute, GlobalConcurrent: policy.GlobalConcurrent, DailyCalls: policy.DailyCalls})
