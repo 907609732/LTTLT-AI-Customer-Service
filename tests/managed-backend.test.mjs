@@ -138,3 +138,10 @@ test('商品专用意图在训练中必须指定有效本店商品',async t=>{
  await backend.execute({action:'start-training',storeId:id,values:{question:'安装方法',history:[],productId:'sku'}});assert.match(messages[1].content,/专用安装方法ABC/);
  await assert.rejects(backend.execute({action:'start-training',storeId:id,values:{question:'安装方法',history:[],productId:'missing'}}),/商品/);
 });
+
+test('correction learning validates conversation version, records source and is idempotent',async t=>{
+ const {backend}=await setup(t);await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'纠错店'}});const id=backend.snapshot().stores[0].id;backend.ingest({type:'message:in',storeId:id,uid:'buyer',from:'buyer',content:'何时发货',msgId:'q',ts:Date.now()});const row=backend.snapshot().quality[0];const message=backend.snapshot().conversations[0].messages[0];
+ const command={action:'learn-conversation-correction',storeId:id,conversationId:'buyer',values:{recordId:row.id,version:row.version,question:message.content,messageTs:message.ts,answer:'48小时内发货',confirmed:true}};
+ await assert.rejects(backend.execute({...command,conversationId:'wrong'}),/会话/);await assert.rejects(backend.execute({...command,values:{...command.values,version:0}}),/更新/);await assert.rejects(backend.execute({...command,values:{...command.values,confirmed:false}}),/确认/);
+ await backend.execute(command);await backend.execute(command);const packs=(await backend.execute({action:'list-intent-packs'})).data.packs;assert.equal(packs.length,1);assert.equal(packs[0].source.uid,'buyer');assert.equal(packs[0].source.recordId,row.id);assert.deepEqual(packs[0].storeIds,[id]);assert.equal(backend.snapshot().conversations[0].messages.length,1);assert.equal(backend.snapshot().stores[0].aiEnabled,false);
+});
