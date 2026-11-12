@@ -437,6 +437,9 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 	if r.Action != "save" && (r.ConnectionID == 0 || r.Secret != "" || r.ClearSecret) {
 		return lingtu.ErrInvalidTrialInput
 	}
+	if r.TestAfterSave && r.Action != "save" {
+		return lingtu.ErrInvalidTrialInput
+	}
 	var row lingtu.ModelConnection
 	var ch model.Channel
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
@@ -558,6 +561,19 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 	})
 	if err != nil {
 		return err
+	}
+	if r.Action == "save" {
+		if c != nil {
+			c.Set("lingtu_connection_saved", true)
+			c.Set("lingtu_saved_connection_id", row.ChannelID)
+		}
+		model.InitChannelCache()
+		if r.TestAfterSave {
+			// Reuse the saved-config path, with no credential/form fields, and bind
+			// the probe to exactly the revision committed by this authorized save.
+			return h.executeModelConnection(c, configurationRequest{Section: "model_connection", Action: "test", Provider: r.Provider, ConnectionID: row.ChannelID, Revision: row.Revision}, probe)
+		}
+		return nil
 	}
 	if r.Action == "test" {
 		// Testing only persisted revision; unsaved form changes never masquerade as tested.

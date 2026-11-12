@@ -41,6 +41,7 @@ type configurationRequest struct {
 	ClearSecret          bool   `json:"clear_secret"`
 	Enabled              bool   `json:"enabled"`
 	MakeDefault          bool   `json:"make_default"`
+	TestAfterSave        bool   `json:"test_after_save"`
 	Model                string `json:"model"`
 	Calls                int    `json:"calls"`
 	Days                 int    `json:"days"`
@@ -211,7 +212,11 @@ func (h *Host) saveConfig(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		if request.Section == "model_connection" && request.Action == "test" && request.ConnectionID > 0 {
+		if request.Section == "model_connection" && ((request.Action == "test" && request.ConnectionID > 0) || c.GetBool("lingtu_connection_saved")) {
+			connectionID := request.ConnectionID
+			if c.GetBool("lingtu_connection_saved") {
+				connectionID = c.GetInt("lingtu_saved_connection_id")
+			}
 			policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
 			if loadErr != nil {
 				clientFailure(c, 503, "configuration_update_unconfirmed")
@@ -224,12 +229,12 @@ func (h *Host) saveConfig(c *gin.Context) {
 			}
 			saved := false
 			for _, v := range connections {
-				if v.ConnectionID == request.ConnectionID && v.Provider == request.Provider {
+				if v.ConnectionID == connectionID && v.Provider == request.Provider {
 					saved = true
 					break
 				}
 			}
-			c.JSON(400, gin.H{"saved": saved, "tested": false, "error": "model_connection_test_failed", "policy": policy, "model_connections": connections})
+			c.JSON(400, gin.H{"saved": saved, "tested": false, "connection_id": connectionID, "error": "model_connection_test_failed", "policy": policy, "model_connections": connections})
 			return
 		}
 		clientFailure(c, 400, "configuration_update_failed")
@@ -246,7 +251,11 @@ func (h *Host) saveConfig(c *gin.Context) {
 			clientFailure(c, 503, "configuration_update_unconfirmed")
 			return
 		}
-		c.JSON(200, gin.H{"saved": true, "tested": request.Action == "test", "model_connections": connections, "policy": policy})
+		connectionID := request.ConnectionID
+		if c.GetBool("lingtu_connection_saved") {
+			connectionID = c.GetInt("lingtu_saved_connection_id")
+		}
+		c.JSON(200, gin.H{"saved": true, "tested": request.Action == "test" || request.TestAfterSave, "connection_id": connectionID, "model_connections": connections, "policy": policy})
 		return
 	}
 	c.JSON(200, gin.H{"saved": true})

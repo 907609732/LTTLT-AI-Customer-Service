@@ -48,10 +48,13 @@ type ModelConnectionRequest = {
   base_url?: string; upstream_model?: string; enabled?: boolean;
   api_version?: string; region?: string; account_id?: string;
   make_default?: boolean;
+  test_after_save?: boolean; // action=save only; optional one-proof save + saved-config probe
 }
 ```
 
-Save sends the complete editable form (`name`, endpoint, upstream model, enabled and applicable platform fields). Blank/omitted `secret` retains the current encrypted credential. `clear_secret:true` clears it; it is mutually exclusive with a nonempty secret. Clearing while enabling fails for providers that require credentials. Selfhost keys are optional. Changed saved configuration invalidates the prior test, disables its native channel and increments revision. Save is persistent without a network call and never changes the default. `make_default:true` on save is rejected: save, test and explicitly select are separate operations.
+Save sends the complete editable form (`name`, endpoint, upstream model, enabled and applicable platform fields). Blank/omitted `secret` retains the current encrypted credential. `clear_secret:true` clears it; it is mutually exclusive with a nonempty secret. Clearing while enabling fails for providers that require credentials. Selfhost keys are optional. Changed saved configuration invalidates the prior test, disables its native channel and increments revision. By default save is persistent without a network call and never changes the default. `make_default:true` on save is rejected: save, test and explicitly select are separate operations.
+
+The approved primary button sends `action:'save',test_after_save:true` in **one** exact-body proof-protected POST. After a successful persistence transaction, the server binds the committed connection ID/revision and invokes the existing saved-config test once. It never switches defaults. Validation, stale-revision or persistence failures never probe or claim a successful save. A failed probe retains the encrypted saved configuration and disabled native channel; its response is HTTP 400 with `saved:true,tested:false,connection_id` and the sanitized current state. The new connection's ID is returned even on a failed probe, so clients must bind that ID rather than infer a new row by name. Default save without the flag remains network-free. `test_after_save` is invalid on test/select/delete.
 
 Test sends `connection_id`, `provider`, optional expected `revision`, and action only. It tests the saved configuration with the native adapter. It never saves unsaved form edits, routes another connection, enables a different connection, changes defaults, counts as a customer call or exposes upstream error text. A successful current test enables the native channel only when `enabled` is true. A failed test leaves the saved configuration present and marks the test failed. A configuration changed during the probe cannot receive the result for an earlier revision.
 
@@ -61,7 +64,7 @@ Changing the global default through the retained `section:'trial'` action uses t
 
 Delete removes only the selected connection metadata, its native Channel and abilities in a transaction. The current global default and any connection explicitly assigned to an account cannot be deleted. There is no automatic substitute/fallback.
 
-Success returns `{saved:true,tested:action==='test',policy,model_connections}` (sanitized). Refresh this state after every action. Validation/selection errors are HTTP 400 `configuration_update_failed`; no raw provider error is returned. A failed saved-connection test returns HTTP 400 `{saved:true,tested:false,error:'model_connection_test_failed',policy,model_connections}`; `saved` is false if that connection does not exist. A network test failure is a failed test of the previously saved configuration, not evidence that the earlier save failed. Fetch config after any unconfirmed response.
+Success returns `{saved:true,tested:action==='test'||test_after_save,connection_id,policy,model_connections}` (sanitized). `connection_id` identifies the exact affected connection, including a newly created row. On delete it identifies the removed row. Refresh this state after every action. Validation/selection errors are HTTP 400 `configuration_update_failed`; no raw provider error is returned. A failed saved-connection test returns HTTP 400 `{saved:true,tested:false,connection_id,error:'model_connection_test_failed',policy,model_connections}`; `saved` is false if that connection does not exist. A network test failure is a failed test of the previously saved configuration, not evidence that the earlier save failed. Fetch config after any unconfirmed response.
 
 ## Specialized credentials
 
