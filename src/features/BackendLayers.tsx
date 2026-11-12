@@ -1,3 +1,4 @@
+import {ModelProfiles} from './ModelProfiles';
 import {IntentKnowledge} from './IntentKnowledge';
 import {ConversationQuality} from './ConversationQuality';
 import {StoreWorkspaceGate} from './StoreWorkspaceGate';
@@ -25,6 +26,7 @@ export function useBackendLayers(screen:string,notice:(s:string)=>void,openAccou
   if((screen==='UX01'&&n.id==='11:84')||(screen==='UX02'&&n.name==='平台店铺 / 9 个渠道'))return <StoreWorkspaceGate><StoreList notice={notice}/></StoreWorkspaceGate>;
   if((screen==='UX04'&&n.id==='8801:448')||(screen==='UX05'&&n.id==='8801:596')||(screen==='UX06'&&n.id==='8801:773'))return <LiveDashboard/>;
   if(screen==='UX08'&&n.id==='8801:838')return <HandoffPage notice={notice} drafts={handoffDrafts}/>;
+  if(screen==='UX17'&&n.id==='8801:1892')return <ModelProfiles/>;
   if(screen==='UX15'&&n.id==='8801:1533')return <IntentKnowledge/>;
   if(screen==='UX12'&&n.id==='8801:1260')return <AutomationSettings notice={notice}/>;
   if(screen==='UX03'&&n.id==='8801:3075')return <AddStore notice={notice}/>;

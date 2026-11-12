@@ -15,6 +15,7 @@ const {readJson,writeJson}=require('../desk-v1/src/main/json-store');
 const {createWorkOrders}=require('./work-orders.cjs');
 const {createProductKnowledge}=require('./product-knowledge.cjs');
 const {createIntentKnowledge}=require('./intent-knowledge.cjs');
+const {createModelProfiles}=require('./model-profiles.cjs');
 const {createAuxiliaryState}=require('./auxiliary-state.cjs');
 const {createConversationQuality}=require('./conversation-quality.cjs');
 const platforms=[{id:'pdd-web',label:'拼多多'},{id:'doudian-client',label:'抖店'}];
@@ -42,6 +43,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  const workOrders=createWorkOrders(path.join(dataDir,'work-orders.json'));
  const products=createProductKnowledge(path.join(dataDir,'product-knowledge.json'));
  const intents=createIntentKnowledge(path.join(dataDir,'intent-knowledge.json'));
+ const modelProfiles=createModelProfiles(path.join(dataDir,'model-profiles.json'));
  const auxiliary=createAuxiliaryState(path.join(dataDir,'auxiliary-state.json'));
  const quality=createConversationQuality(path.join(dataDir,'conversation-quality.json'));
  const secrets=new SecretStore({file:path.join(dataDir,'secrets.json'),safeStorage});
@@ -173,7 +175,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    managedQueue=operation.catch(()=>{});return operation;
   };
  }
- engine=new ReplyEngine({registry,adapterFactory:adapterFor,aiClient:modelClient,getConfig:(storeId)=>{const current=config.all(),entry=handoff.stores[storeId];return {...current,...(modelMode==='managed'?{reply:{...current.reply,maxInflight:1}}:{}),safety:{...current.safety,bannedWords,...(entry?{handoffKeywords:entry.keywords}:{})}};},logger,onEvent:ingest});
+ engine=new ReplyEngine({registry,adapterFactory:adapterFor,aiClient:modelClient,getConfig:(storeId)=>{const current=modelProfiles.resolve(storeId,config.all()),entry=handoff.stores[storeId];return {...current,...(modelMode==='managed'?{reply:{...current.reply,maxInflight:1}}:{}),safety:{...current.safety,bannedWords,...(entry?{handoffKeywords:entry.keywords}:{})}};},logger,onEvent:ingest});
  monitor=new MessageMonitor({registry,adapterFactory:adapterFor,getConfig:()=>config.all(),logger,onEvent:ingest});
  diagnostics=createSourceDiagnostics({enabled:sourceDiagnostics,write:text=>logger.info(text),getState:()=>{const workers=engine.status();return {mode:modelMode,issue:modelIssue?.code||'',stores:registry.list().map(s=>({name:s.storeName,online:!!manager.stateOf(s.id)?.online,ai:s.aiEnabled,inflight:workers[s.id]?.inflight,replied:workers[s.id]?.replied,failed:workers[s.id]?.failed,throttled:workers[s.id]?.throttled,suppressed:workers[s.id]?.manualSuppressed,collectionError:collectionErrors.has(s.id)}))}}});
 
@@ -222,6 +224,10 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
     if(input.enabled&&!input.text)throw Error('开启兜底前请填写兜底话术。');
     config.update({reply:{fallbackAfterMs:input.enabled?input.seconds*1000:0,fallbackText:input.text}});message='自动回复兜底设置已保存，应用于全部店铺。';break;
    }
+   case 'list-model-profiles':data={...modelProfiles.snapshot(),globalPrompt:config.all().ai.systemPrompt,globalMaxReplyChars:config.all().reply.maxReplyChars};break;
+   case 'save-model-profile':data=modelProfiles.save(v);message='模型规则方案已保存，绑定店铺后生效。';break;
+   case 'bind-model-profile':storeOf(command.storeId);modelProfiles.bind(command.storeId,z.string().max(64).parse(v.profileId),v.revision);message='店铺规则绑定已更新，AI开关未改变。';break;
+   case 'remove-model-profile':modelProfiles.remove(v.id,v.version,v.confirmed);message='方案已删除，原绑定店铺恢复全局规则。';break;
    case 'learn-conversation-correction':{
     const store=storeOf(command.storeId),uid=command.conversationId;
     const input=z.object({recordId:z.string().uuid(),version:z.number().int().nonnegative(),question:z.string().trim().min(1).max(1000),messageTs:z.number().finite(),answer:z.string().trim().min(1).max(4000),confirmed:z.boolean()}).strict().parse(v);
@@ -251,10 +257,11 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
     if(modelMode==='managed'&&modelIssue)throw Error('请先核对托管请求状态并确认清除提示，再进行测试。');
     const input=z.object({question:z.string().trim().min(1).max(2000),productId:z.string().trim().max(100).optional(),history:z.array(z.object({from:z.enum(['buyer','seller']),content:z.string().min(1).max(2000)}).strict()).max(20)}).strict().parse(v);
     if(command.storeId)storeOf(command.storeId);
+    const trainingConfig=modelProfiles.resolve(command.storeId,config.all());
     const trainingProduct=input.productId?products.getByProductId(command.storeId,input.productId):null;if(input.productId&&!trainingProduct)throw Error('请选择当前店铺已启用的有效商品');
     const thread=[...input.history.map(m=>({...m,type:'text'})),{from:'buyer',type:'text',content:input.question}];
-    let result;try{result=await modelClient.reply({systemPrompt:config.all().ai.systemPrompt,thread,goodsTitle:trainingProduct?.title,reviewContext:command.storeId?{storeId:command.storeId,productId:trainingProduct?.productId}:undefined,timeoutMs:config.all().ai.timeoutMs})}catch(error){if(modelMode==='managed'&&!disposed&&!modelIssue)modelClient.onGenerationFailure?.(error);const reason=String(error?.message||'');throw Error(modelMode==='managed'?'托管模型请求未完成，请查看界面上的托管 AI 提示。':reason==='ai_base_url_missing'?'请先配置模型接口地址':reason==='ai_api_key_missing'?'请先配置模型 API Key':/^ai_http_40[13]/.test(reason)?'模型密钥无效或没有访问权限':reason.startsWith('ai_http_402')?'模型账户余额不足':reason.startsWith('ai_http_429')?'模型请求受限，请稍后重试':reason==='llm_timeout'?'模型响应超时，请稍后重试':'模型连接失败，请检查模型设置和网络')}
-    const reply=filterBannedWords(String(result.reply||''),bannedWords).trim().slice(0,config.all().reply.maxReplyChars).trim();
+    let result;try{result=await modelClient.reply({systemPrompt:trainingConfig.ai.systemPrompt,thread,goodsTitle:trainingProduct?.title,reviewContext:command.storeId?{storeId:command.storeId,productId:trainingProduct?.productId}:undefined,timeoutMs:config.all().ai.timeoutMs})}catch(error){if(modelMode==='managed'&&!disposed&&!modelIssue)modelClient.onGenerationFailure?.(error);const reason=String(error?.message||'');throw Error(modelMode==='managed'?'托管模型请求未完成，请查看界面上的托管 AI 提示。':reason==='ai_base_url_missing'?'请先配置模型接口地址':reason==='ai_api_key_missing'?'请先配置模型 API Key':/^ai_http_40[13]/.test(reason)?'模型密钥无效或没有访问权限':reason.startsWith('ai_http_402')?'模型账户余额不足':reason.startsWith('ai_http_429')?'模型请求受限，请稍后重试':reason==='llm_timeout'?'模型响应超时，请稍后重试':'模型连接失败，请检查模型设置和网络')}
+    const reply=filterBannedWords(String(result.reply||''),bannedWords).trim().slice(0,trainingConfig.reply.maxReplyChars).trim();
     if(!reply)throw Error('回复被禁用词过滤为空，请调整规则后重试');
     data={reply};message='模拟回复已生成。';break;
    }
@@ -282,7 +289,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    case 'pause-ai':storeOf(command.storeId);if(!engine.pause(command.storeId))throw Error('该店铺AI尚未运行');break;
    case 'resume-ai':storeOf(command.storeId);if(!engine.resume(command.storeId))throw Error('该店铺AI尚未运行');break;
    case 'batch':{const results=[];for(const s of registry.list()){try{if(v.operation==='open')await execute({action:'open-store',storeId:s.id});else if(v.operation==='pause')await execute({action:'pause-ai',storeId:s.id});else if(v.operation==='close')await execute({action:'close-store',storeId:s.id});else if(['enable','disable'].includes(v.operation))await setAi(s.id,v.operation==='enable');else throw Error('不支持的批量操作');results.push({id:s.id,ok:true});}catch(e){results.push({id:s.id,ok:false,message:e.message});}}data={results};message=results.length?`操作完成：${results.filter(r=>r.ok).length}/${results.length}家成功。`:'尚未添加店铺。';break;}
-   case 'save-config':if(command.screenId==='UX17'){config.update({ai:{systemPrompt:z.string().max(8000).parse(v.prompt)}});message='全局模型规则已保存。';}else if(command.screenId==='UX08'){config.update({safety:{handoffKeywords:z.array(z.string().min(1).max(30)).max(100).parse(v.handoffKeywords)}});message='全局转人工关键词已保存。';}else throw Error('该页面的后端能力尚未接入');break;
+   case 'save-config':if(command.screenId==='UX17'){if(v.expectedPrompt!==undefined&&v.expectedPrompt!==config.all().ai.systemPrompt)throw Error('全局规则已更新，请重新载入后保存');config.update({ai:{systemPrompt:z.string().max(8000).parse(v.prompt)}});message='全局模型规则已保存。';}else if(command.screenId==='UX08'){config.update({safety:{handoffKeywords:z.array(z.string().min(1).max(30)).max(100).parse(v.handoffKeywords)}});message='全局转人工关键词已保存。';}else throw Error('该页面的后端能力尚未接入');break;
    case 'open-model-key-page':{const {modelProviders}=await import('../shared/model-providers.mjs');const provider=z.enum(['deepseek','qwen']).parse(v.provider);if(!openExternal)throw Error('浏览器打开功能尚未就绪');await openExternal(modelProviders[provider].keyUrl);message='已打开官方密钥页面。';break;}
    case 'save-model-settings':{
     if(modelMode!=='local')throw Error('请先明确切换为自己的 Key 模式');

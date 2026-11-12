@@ -145,3 +145,8 @@ test('correction learning validates conversation version, records source and is 
  await assert.rejects(backend.execute({...command,conversationId:'wrong'}),/会话/);await assert.rejects(backend.execute({...command,values:{...command.values,version:0}}),/更新/);await assert.rejects(backend.execute({...command,values:{...command.values,confirmed:false}}),/确认/);
  await backend.execute(command);await backend.execute(command);const packs=(await backend.execute({action:'list-intent-packs'})).data.packs;assert.equal(packs.length,1);assert.equal(packs[0].source.uid,'buyer');assert.equal(packs[0].source.recordId,row.id);assert.deepEqual(packs[0].storeIds,[id]);assert.equal(backend.snapshot().conversations[0].messages.length,1);assert.equal(backend.snapshot().stores[0].aiEnabled,false);
 });
+
+test('store-bound rule profiles drive both workers and training without enabling reception',async t=>{
+ let messages;const {backend}=await setup(t,{managedChat:async p=>{messages=p.messages;return {choices:[{message:{content:'{"reply":"测试"}'}}]};}});await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'规则店'}});const id=backend.snapshot().stores[0].id;const saved=await backend.execute({action:'save-model-profile',values:{name:'规则方案',prompt:'当前店铺独有规则ABC',maxReplyChars:100}});const list=await backend.execute({action:'list-model-profiles'});await backend.execute({action:'bind-model-profile',storeId:id,values:{profileId:saved.data.id,revision:list.data.revision}});
+ assert.equal(backend.engine.getConfig(id).ai.systemPrompt,'当前店铺独有规则ABC');await backend.execute({action:'start-training',storeId:id,values:{question:'你好',history:[]}});assert.match(messages[0].content,/当前店铺独有规则ABC/);assert.equal(backend.snapshot().stores[0].aiEnabled,false);
+});
