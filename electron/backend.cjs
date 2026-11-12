@@ -67,13 +67,17 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   const store=registry.get(modelIssue.context.storeId);if(store){quality.issue(store,modelIssue.context,modelIssue.code,'legacy:'+modelIssue.at,modelIssue.at);modelIssue=null;}
  }
  for(const c of conversations)if(!quality.list().some(r=>r.storeId===c.storeId&&r.uid===c.uid))quality.observe(registry.get(c.storeId),c);
- let migratedConversation=false;for(const c of conversations)if(quality.blocked(c.storeId,c.uid)&&c.status!=='handoff'){c.status='handoff';migratedConversation=true}if(migratedConversation)writeJson(archiveFile,conversations);
+ let migratedConversation=false;for(const c of conversations){
+  const buyerAt=Math.max(0,...c.messages.filter(m=>m.from==='buyer').map(m=>Number(m.ts)||0));
+  if(quality.advance(c.storeId,c.uid,buyerAt)&&!quality.blocked(c.storeId,c.uid)&&c.status==='handoff'){c.status='pending';migratedConversation=true}
+  if(quality.blocked(c.storeId,c.uid)&&c.status!=='handoff'){c.status='handoff';migratedConversation=true}
+ }if(migratedConversation)writeJson(archiveFile,conversations);
  function reportConversationIssue(error,context){
   const store=registry.get(context?.storeId);
   if(!store||!context?.uid||accountIssueCodes.has(error.code)){retainIssue(error,context);stopAi();return;}
   const c=conversations.find(c=>c.storeId===store.id&&c.uid===context.uid);
   // Suppress in memory before any filesystem write can fail.
-  engine?.worker(store.id)?.takeOver(context.uid);
+  engine?.worker(store.id)?.takeOver(context.uid,'quality');
   if(c)c.status='handoff';
   try{quality.issue(store,context,error.code,context.requestId||randomUUID());if(c)writeJson(archiveFile,conversations)}
   catch{retainIssue(new ManagedSessionError('storage_unavailable'),context);stopAi();}
@@ -116,7 +120,13 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    const from=event.type==='reply:sent'?'seller':event.from,content=String(event.content??event.text??'').slice(0,10000),ts=Number(event.ts)||Date.now();
    const msgId=String(event.msgId||'');
    const duplicate=c.messages.some(m=>msgId?m.msgId===msgId:m.from===from&&m.content===content&&Math.abs(m.ts-ts)<8000);
-   if(!duplicate&&from==='buyer')auxiliary.reveal({storeId:store.id,uid});
+   if(!duplicate&&from==='buyer'){
+    auxiliary.reveal({storeId:store.id,uid});
+    if(quality.advance(store.id,uid,ts)&&!quality.blocked(store.id,uid)){
+     const worker=engine?.worker(store.id),released=!worker||worker.clearManualSuppression?.(uid,'quality');
+     if(released&&c.status==='handoff')c.status='pending';
+    }
+   }
    if(!duplicate){c.messages.push({from,content,ts,msgId});if(ts>=(c.updatedAt||0)){if(c.status!=='handoff'||event.manual)c.status=from==='buyer'?'pending':'replied';c.updatedAt=ts;quality.observe(store,c);}}
    if(event.manual&&from==='seller'&&ts>=(c.updatedAt||0)){c.status='replied';c.updatedAt=ts;}
    c.messages=c.messages.slice(-100);

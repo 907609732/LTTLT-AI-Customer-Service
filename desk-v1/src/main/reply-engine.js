@@ -113,6 +113,7 @@ class StoreWorker {
     this.lastSentAt = new Map();
     this.sendWindow = [];
     this.manualSuppressed = new Set();
+    this.suppressionSources = new Map();
     this.manualEpoch = new Map();
     this.degraded = false;
     this.recoveredAt = 0;
@@ -159,12 +160,16 @@ class StoreWorker {
   }
 
   /** D-07 的唯一恢复入口：显式清除后 AI 才会重新接管该会话。 */
-  takeOver(uid) {
-    uid=String(uid);this.manualEpoch.set(uid,(this.manualEpoch.get(uid)||0)+1);this.manualSuppressed.add(uid);
+  takeOver(uid,source='manual') {
+    uid=String(uid);const previous=this.manualSuppressed.has(uid)?this.suppressionSources.get(uid)||'manual':null;
+    this.manualEpoch.set(uid,(this.manualEpoch.get(uid)||0)+1);this.manualSuppressed.add(uid);
+    this.suppressionSources.set(uid,previous==='manual'?'manual':source);
   }
 
-  clearManualSuppression(uid) {
-    return this.manualSuppressed.delete(String(uid));
+  clearManualSuppression(uid,source) {
+    uid=String(uid);if(source&&!this.manualSuppressed.has(uid))return true;
+    if(source&&(this.suppressionSources.get(uid)||'manual')!==source)return false;
+    this.suppressionSources.delete(uid);return this.manualSuppressed.delete(uid);
   }
 
   #schedule() {
@@ -286,6 +291,7 @@ class StoreWorker {
   #suppressManual(uid, keyword, source) {
     const first = !this.manualSuppressed.has(uid);
     this.manualSuppressed.add(uid);
+    this.suppressionSources.set(uid,'manual');
     if (first) this.stats.manualSuppressed += 1;
     this.logger?.info(`会话 ${uid} 客服手动回复命中关键词「${keyword}」，取消 AI 自动回复`);
     this.onEvent?.({
@@ -435,7 +441,7 @@ class StoreWorker {
       if(!sent.ok&&typeof this.aiClient.onDeliveryFailure==='function'){
         if(sent.reason==='cancelled')return;
         this.stats.failed+=1;
-        this.takeOver(uid);
+        this.takeOver(uid,'quality');
         // Claim disposition must happen even if storing the review record fails.
         try{this.aiClient.onDeliveryFailure({reason:sent.reason||'send_unconfirmed',throttled:!!sent.throttled,storeId:this.store.id,uid,buyerName:row.username||row.name||'',buyerMessage:latest.content,reply:text});}
         finally{await dispose(()=>sent.reason==='send_unconfirmed'?this.adapter.discard(uid):this.adapter.release(uid));}

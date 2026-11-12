@@ -22,6 +22,7 @@ function createConversationQuality(file){
    replace({...row,status:'pending',version:row.version+1,updatedAt:Math.max(row.updatedAt,at),events:[...row.events,event].slice(-50)});
   },
   review(values){const input=z.object({id:z.string().uuid(),version:z.number().int().nonnegative(),status:z.enum(['passed','problem','pending']),note:z.string().trim().max(2000)}).strict().parse(values);const row=state.rows.find(r=>r.id===input.id);if(!row)throw Error('会话质检记录不存在');if(row.version!==input.version)throw Error('会话已有更新，请重新查看后再保存质检结果');replace({...row,status:input.status,note:input.note,reviewedAt:Date.now(),version:row.version+1})},
+  advance(storeId,uid,buyerAt){const row=state.rows.find(r=>r.storeId===storeId&&r.uid===uid);if(!row||!row.events.some(e=>!e.resolved&&buyerAt>e.at))return false;replace({...row,version:row.version+1,events:row.events.map(e=>!e.resolved&&buyerAt>e.at?{...e,resolved:true}:e)});return true},
   resolve(storeId,uid){const row=state.rows.find(r=>r.storeId===storeId&&r.uid===uid);if(row)replace({...row,version:row.version+1,events:row.events.map(e=>({...e,resolved:true}))})},
   blocked(storeId,uid){const row=state.rows.find(r=>r.storeId===storeId&&r.uid===uid);return !!row?.events.some(e=>!e.resolved)}
  };
