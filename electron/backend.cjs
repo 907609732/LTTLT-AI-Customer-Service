@@ -241,12 +241,12 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    case 'remove-model-profile':modelProfiles.remove(v.id,v.version,v.confirmed);message='方案已删除，原绑定店铺恢复全局规则。';break;
    case 'learn-conversation-correction':{
     const store=storeOf(command.storeId),uid=command.conversationId;
-    const input=z.object({recordId:z.string().uuid(),version:z.number().int().nonnegative(),question:z.string().trim().min(1).max(1000),messageTs:z.number().finite(),answer:z.string().trim().min(1).max(4000),confirmed:z.boolean()}).strict().parse(v);
+     const input=z.object({recordId:z.string().uuid(),version:z.number().int().nonnegative(),question:z.string().trim().min(1).max(1000),messageTs:z.number().finite(),answer:z.string().trim().min(1).max(4000),targetPackId:z.string().uuid().optional(),targetVersion:z.number().int().positive().optional(),confirmed:z.boolean()}).strict().refine(x=>(x.targetPackId===undefined)===(x.targetVersion===undefined),{message:'请选择目标知识包并携带对应版本'}).parse(v);
     const record=quality.list().find(r=>r.id===input.recordId&&r.storeId===store.id&&r.uid===uid);
     if(!record)throw Error('会话质检记录不存在');if(record.version!==input.version)throw Error('会话已有更新，请重新核对后保存');if(!input.confirmed)throw Error('请确认将标准答案保存为本店知识');
     const conversation=conversations.find(c=>c.storeId===store.id&&c.uid===uid);
     if(!conversation?.messages.some(m=>m.from==='buyer'&&m.ts===input.messageTs&&m.content.trim()===input.question))throw Error('原买家消息已更新或未保留，请重新查看会话');
-    data=intents.learnCorrection({question:input.question,answer:input.answer,source:{type:'quality',recordId:record.id,qualityVersion:record.version,storeId:store.id,uid,messageTs:input.messageTs,savedAt:Date.now()}});message='标准答案已保存为本店知识；未发送消息，AI状态未改变。';break;
+     data=intents.learnCorrection({question:input.question,answer:input.answer,targetPackId:input.targetPackId,targetVersion:input.targetVersion,source:{type:'quality',recordId:record.id,qualityVersion:record.version,storeId:store.id,uid,messageTs:input.messageTs,savedAt:Date.now()}});message='标准答案已保存到知识包；未发送消息，AI状态未改变。';break;
    }
    case 'list-intent-packs':data={packs:intents.list(),...intents.summary()};break;
    case 'save-intent-pack':{for(const id of z.array(z.string()).parse(v.storeIds))storeOf(id);data=intents.save(v);message='意图知识包已保存。';break;}

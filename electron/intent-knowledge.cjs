@@ -4,7 +4,8 @@ const text=n=>z.string().trim().min(1).max(n);
 const entry=z.object({question:text(1000),keywords:z.array(text(100)).max(30),answer:text(4000),enabled:z.boolean()}).strict();
 const input=z.object({name:text(100),enabled:z.boolean(),storeIds:z.array(text(64)).max(100),productIds:z.array(text(100)).max(1000),entries:z.array(entry).min(1).max(500)}).strict();
 const sourceSchema=z.object({type:z.literal('quality'),recordId:z.string().uuid(),qualityVersion:z.number().int().nonnegative(),storeId:text(64),uid:text(200),messageTs:z.number().finite(),savedAt:z.number().finite()}).strict();
-const row=input.extend({id:z.string().uuid(),version:z.number().int().positive(),updatedAt:z.number().int().nonnegative(),source:sourceSchema.optional()});
+const correctionSchema=z.object({question:text(1000),answer:text(4000),source:sourceSchema}).strict();
+const row=input.extend({id:z.string().uuid(),version:z.number().int().positive(),updatedAt:z.number().int().nonnegative(),source:sourceSchema.optional(),corrections:z.array(correctionSchema).max(500).default([])});
 const schema=z.object({version:z.literal(1),revision:z.number().int().nonnegative(),packs:z.array(row).max(100)}).strict();
 const segmenter=new Intl.Segmenter('zh-CN',{granularity:'word'});const tokenize=s=>[...segmenter.segment(String(s).toLowerCase())].filter(x=>x.isWordLike).map(x=>x.segment);
 function createIntentKnowledge(file){
@@ -15,13 +16,26 @@ function createIntentKnowledge(file){
  function parse(json){if(typeof json!=='string'||Buffer.byteLength(json)>1048576)throw Error('导入文件最大 1 MB');return z.array(input).max(100).parse(JSON.parse(json));}
  return {
   list:()=>structuredClone(state.packs),summary:()=>({revision:state.revision,total:state.packs.length}),
-  save(value){const {id,version,updatedAt,source,...data}=value;const parsed=input.parse(data);const old=id?state.packs.find(x=>x.id===id):null;if(id&&!old)throw Error('知识包不存在');if(old&&old.version!==version)throw Error('知识包已更新，请刷新');const next={...parsed,id:old?.id||randomUUID(),version:(old?.version||0)+1,updatedAt:Date.now(),...(old?.source?{source:old.source}:{})};commit(old?state.packs.map(x=>x.id===id?next:x):[...state.packs,next]);return structuredClone(next);},
-  learnCorrection({question,answer,source}){const provenance=sourceSchema.parse(source),data=input.parse({name:'人工纠错 · '+question.slice(0,70),enabled:true,storeIds:[source.storeId],productIds:[],entries:[{question,keywords:[],answer,enabled:true}]});const prior=state.packs.find(p=>p.source?.recordId===source.recordId&&p.source.qualityVersion===source.qualityVersion&&p.source.messageTs===source.messageTs&&p.entries[0]?.question===question&&p.entries[0]?.answer===answer);if(prior)return structuredClone(prior);const next={...data,id:randomUUID(),version:1,updatedAt:Date.now(),source:provenance};commit([...state.packs,next]);return structuredClone(next);},
+  save(value){const {id,version,updatedAt,source,corrections,...data}=value;const parsed=input.parse(data);const old=id?state.packs.find(x=>x.id===id):null;if(id&&!old)throw Error('知识包不存在');if(old&&old.version!==version)throw Error('知识包已更新，请刷新');const next={...parsed,id:old?.id||randomUUID(),version:(old?.version||0)+1,updatedAt:Date.now(),corrections:old?.corrections||[],...(old?.source?{source:old.source}:{})};commit(old?state.packs.map(x=>x.id===id?next:x):[...state.packs,next]);return structuredClone(next);},
+  learnCorrection({question,answer,source,targetPackId,targetVersion}){
+   const provenance=sourceSchema.parse(source),item=entry.parse({question,keywords:[],answer,enabled:true});
+   const target=targetPackId?state.packs.find(p=>p.id===targetPackId):null;
+   if(targetPackId&&(!target||!target.enabled||!target.storeIds.includes(provenance.storeId)||target.productIds.length))throw Error('目标知识包必须启用、绑定当前店铺且不限制商品');
+   const sameSource=s=>s&&s.recordId===provenance.recordId&&s.qualityVersion===provenance.qualityVersion&&s.storeId===provenance.storeId&&s.uid===provenance.uid&&s.messageTs===provenance.messageTs;
+   const legacyMatch=p=>sameSource(p.source)&&p.entries[0]?.enabled&&p.entries[0]?.question===item.question&&p.entries[0]?.answer===item.answer;
+   const activeEntry=target?.entries.some(e=>e.enabled&&e.question===item.question&&e.answer===item.answer);
+   const prior=target?(activeEntry&&(target.corrections.some(c=>sameSource(c.source)&&c.question===item.question&&c.answer===item.answer)||legacyMatch(target))?target:null):state.packs.find(legacyMatch);
+   if(prior)return structuredClone(prior);
+   if(target&&target.version!==targetVersion)throw Error('目标知识包已更新，请重新载入并核对');
+   const audit={question:item.question,answer:item.answer,source:provenance};
+   const next=target?{...target,entries:[...target.entries,item],corrections:[...target.corrections,audit],version:target.version+1,updatedAt:Date.now()}:{...input.parse({name:'人工纠错 · '+item.question.slice(0,70),enabled:true,storeIds:[provenance.storeId],productIds:[],entries:[item]}),id:randomUUID(),version:1,updatedAt:Date.now(),source:provenance,corrections:[audit]};
+   commit(target?state.packs.map(p=>p.id===target.id?next:p):[...state.packs,next]);return structuredClone(next);
+  },
   remove(id,version,confirmed){if(confirmed!==true)throw Error('请确认删除知识包');const old=state.packs.find(x=>x.id===id);if(!old)throw Error('知识包不存在');if(old.version!==version)throw Error('知识包已更新，请刷新');commit(state.packs.filter(x=>x.id!==id));},
   search(storeId,query,productId=''){const allowed=new Set(docs.filter(d=>d.storeIds.includes(storeId)&&(!d.productIds.length||(productId&&d.productIds.includes(productId)))).map(d=>d.id));return index.search(String(query).slice(0,2000),{prefix:true,combineWith:'OR'}).filter(x=>allowed.has(x.id)).slice(0,5).map(x=>{const d=docs.find(d=>d.id===x.id);return {source:'intent',packId:d.packId,packName:d.packName,question:d.question,answer:d.answer};});},
   previewImport(json){const packs=parse(json);return {revision:state.revision,count:packs.length,entries:packs.reduce((n,p)=>n+p.entries.length,0),packs};},
   importJson(json,{revision,confirmed}={}){if(confirmed!==true)throw Error('请预览并确认导入');if(revision!==state.revision)throw Error('知识包已更新，请重新预览');const packs=parse(json).map(p=>({...p,id:randomUUID(),version:1,updatedAt:Date.now()}));commit([...state.packs,...packs]);return {imported:packs.length};},
-  exportJson(){return JSON.stringify(state.packs.map(({id,version,updatedAt,source,...data})=>data),null,2);},
+  exportJson(){return JSON.stringify(state.packs.map(({id,version,updatedAt,source,corrections,...data})=>data),null,2);},
  };
 }
 module.exports={createIntentKnowledge};

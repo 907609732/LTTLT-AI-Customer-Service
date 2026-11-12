@@ -192,3 +192,13 @@ test('product JSON IPC round-trips SKU data only into the chosen store and selec
  assert.equal((await backend.execute({action:'list-products',storeId:b.id})).data.items[0].skus[0].stock,2);
  await backend.execute({action:'start-training',storeId:b.id,values:{question:'有现货吗',productId:'g',history:[]}});assert.match(messages[1].content,/CODE/);assert.match(messages[1].content,/红色/);assert.match(messages[1].content,/参考库存|非实时/);
 });
+
+test('correction IPC appends to the explicitly chosen eligible pack and preserves conversation protections',async t=>{
+ const {backend}=await setup(t);await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'指定纠错店'}});const storeId=backend.snapshot().stores[0].id;
+ const target=(await backend.execute({action:'save-intent-pack',values:{name:'指定知识包',enabled:true,storeIds:[storeId],productIds:[],entries:[{question:'原条目',keywords:[],answer:'原答案',enabled:true}]}})).data;
+ backend.ingest({type:'message:in',storeId,uid:'buyer',from:'buyer',content:'保修多久',ts:123});const record=backend.snapshot().quality[0];
+ const command={action:'learn-conversation-correction',storeId,conversationId:'buyer',values:{targetPackId:target.id,targetVersion:target.version,recordId:record.id,version:record.version,question:'保修多久',messageTs:123,answer:'人工核对答案',confirmed:true}};
+ await assert.rejects(backend.execute({...command,values:{...command.values,targetPackId:undefined}}),/知识包|版本/);
+ await assert.rejects(backend.execute({...command,values:{...command.values,targetVersion:undefined}}),/知识包|版本/);
+ await backend.execute(command);await backend.execute(command);const packs=(await backend.execute({action:'list-intent-packs'})).data.packs;assert.equal(packs.length,1);assert.equal(packs[0].id,target.id);assert.equal(packs[0].entries.length,2);assert.equal(packs[0].corrections[0].source.uid,'buyer');assert.equal(backend.snapshot().conversations[0].messages.length,1);assert.equal(backend.snapshot().quality[0].status,'pending');assert.equal(backend.snapshot().stores[0].aiEnabled,false);
+});
