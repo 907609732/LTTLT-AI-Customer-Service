@@ -28,6 +28,8 @@ function createProductKnowledge(file){
  }
  return {
   summary,
+  identifyTitle(storeId,title){const rows=state.items.filter(x=>x.storeId===storeId&&x.enabled&&x.title===title);return rows.length===1?rows[0].productId:'';},
+  getByProductId(storeId,productId){return structuredClone(state.items.find(x=>x.storeId===storeId&&x.productId===productId&&x.enabled)||null);},
   list(storeId,{offset=0,limit=100}={}){const all=state.items.filter(x=>x.storeId===storeId);return {revision:state.revision,total:all.length,items:structuredClone(all.slice(z.number().int().nonnegative().parse(offset),offset+z.number().int().min(1).max(100).parse(limit)))};},
   save(value){const {id,version,updatedAt,...fields}=value;const data=input.parse(fields);const old=id?state.items.find(x=>x.id===id&&x.storeId===data.storeId):null;if(id&&!old)throw Error('商品不存在');if(old&&version!==old.version)throw Error('商品已更新，请刷新后再修改');if(state.items.some(x=>x.storeId===data.storeId&&x.productId===data.productId&&x.id!==id))throw Error('该店铺商品编号已存在');const next=row.parse({...data,id:old?.id||randomUUID(),version:(old?.version||0)+1,updatedAt:Date.now()});commit(old?state.items.map(x=>x.id===id?next:x):[...state.items,next]);return structuredClone(next);},
   remove(storeId,id,version,confirmed){if(confirmed!==true)throw Error('请确认删除商品知识');const old=state.items.find(x=>x.storeId===storeId&&x.id===id);if(!old)throw Error('商品不存在');if(old.version!==version)throw Error('商品已更新，请刷新');commit(state.items.filter(x=>x.id!==id));},

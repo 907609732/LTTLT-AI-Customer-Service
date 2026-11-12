@@ -12,18 +12,18 @@ function displayError(value:unknown){
 }
 export function TrainingGround(){
  const backend=useBackend(),[history,setHistory]=useState<Message[]>([]),[question,setQuestion]=useState(''),[pending,setPending]=useState(false),[error,setError]=useState('');
- const busy=useRef(false),[storeId,setStoreId]=useState('');
+ const busy=useRef(false),[storeId,setStoreId]=useState(''),[productId,setProductId]=useState('');
  useEffect(()=>{setHistory([]);setQuestion('');setStoreId('');setError('');},[backend.snapshot.workspaceId]);
  const send=async(e?:FormEvent)=>{e?.preventDefault();const text=question.trim();if(!text||busy.current)return;busy.current=true;setPending(true);setError('');try{
-  const result=await backend.execute({action:'start-training',...(storeId?{storeId}:{}),values:{question:text,history:history.slice(-20)}});
+  const result=await backend.execute({action:'start-training',...(storeId?{storeId}:{}),values:{question:text,...(productId.trim()?{productId:productId.trim()}:{}),history:history.slice(-20)}});
   const reply=String(result.data?.reply||'');if(!reply)throw Error('模型没有返回可显示的回复');
   setHistory(old=>[...old,{from:'buyer',content:text},{from:'seller',content:reply}]);setQuestion('');
  }catch(e){setError(displayError(e))}finally{busy.current=false;setPending(false)}};
  const onKeyDown=(e:KeyboardEvent<HTMLTextAreaElement>)=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();void send()}};
  return <section className="training-ground" aria-label="AI 训练场">
-  <header><h1>AI 训练场</h1><p>模拟买家提问，测试当前全局模型规则和 AI 禁用词；不会向买家发送消息。</p><label>测试店铺<select aria-label="测试店铺" value={storeId} disabled={pending} onChange={e=>{setStoreId(e.target.value);setHistory([]);setQuestion('');setError('');}}><option value="">仅全局规则</option>{backend.snapshot.stores.map(s=><option key={s.id} value={s.id}>{s.storeName}</option>)}</select></label></header>
+  <header><h1>AI 训练场</h1><p>模拟买家提问，测试当前全局模型规则和 AI 禁用词；不会向买家发送消息。</p><label>测试店铺<select aria-label="测试店铺" value={storeId} disabled={pending} onChange={e=>{setStoreId(e.target.value);setProductId('');setHistory([]);setQuestion('');setError('');}}><option value="">仅全局规则</option>{backend.snapshot.stores.map(s=><option key={s.id} value={s.id}>{s.storeName}</option>)}</select></label><label>测试商品编号（可选）<input aria-label="测试商品编号" value={productId} disabled={!storeId||pending} maxLength={100} onChange={e=>{setProductId(e.target.value);setHistory([]);}}/></label></header>
   <div className="training-conversation" aria-label="模拟对话" aria-live="polite">
-   {history.length===0?<div className="training-empty"><b>以买家身份发一句话试试</b><p>使用当前配置的模型生成模拟回复。</p><p>选择店铺后使用该店铺已启用的商品知识；意图知识尚未接入。</p></div>:history.map((item,i)=><div className={'training-message '+item.from} key={i}><small>{item.from==='buyer'?'模拟买家':'AI 客服'}</small><p>{item.content}</p></div>)}
+   {history.length===0?<div className="training-empty"><b>以买家身份发一句话试试</b><p>使用当前配置的模型生成模拟回复。</p><p>选择店铺后使用已启用的商品知识与意图问答；指定商品编号可测试专用问答。</p></div>:history.map((item,i)=><div className={'training-message '+item.from} key={i}><small>{item.from==='buyer'?'模拟买家':'AI 客服'}</small><p>{item.content}</p></div>)}
   </div>
   {error&&<div className="training-error" role="alert">{error}</div>}
   <form className="training-input" onSubmit={e=>void send(e)}><textarea aria-label="模拟买家问题" placeholder="输入问题，Enter 发送，Shift+Enter 换行" maxLength={2000} value={question} disabled={pending} onChange={e=>setQuestion(e.target.value)} onKeyDown={onKeyDown}/><button disabled={pending||!question.trim()}>{pending?'生成中…':'发送测试'}</button></form>

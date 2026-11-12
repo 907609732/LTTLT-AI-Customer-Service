@@ -14,6 +14,7 @@ const {MessageMonitor}=require('../desk-v1/src/main/message-monitor');
 const {readJson,writeJson}=require('../desk-v1/src/main/json-store');
 const {createWorkOrders}=require('./work-orders.cjs');
 const {createProductKnowledge}=require('./product-knowledge.cjs');
+const {createIntentKnowledge}=require('./intent-knowledge.cjs');
 const {createAuxiliaryState}=require('./auxiliary-state.cjs');
 const {createConversationQuality}=require('./conversation-quality.cjs');
 const platforms=[{id:'pdd-web',label:'拼多多'},{id:'doudian-client',label:'抖店'}];
@@ -40,6 +41,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  if(fs.existsSync(bannedFile)){try{bannedWords=bannedFileSchema.parse(JSON.parse(fs.readFileSync(bannedFile,'utf8'))).rules}catch{throw Error('AI 禁用词配置损坏，请恢复备份后重试；原文件未改动')}}
  const workOrders=createWorkOrders(path.join(dataDir,'work-orders.json'));
  const products=createProductKnowledge(path.join(dataDir,'product-knowledge.json'));
+ const intents=createIntentKnowledge(path.join(dataDir,'intent-knowledge.json'));
  const auxiliary=createAuxiliaryState(path.join(dataDir,'auxiliary-state.json'));
  const quality=createConversationQuality(path.join(dataDir,'conversation-quality.json'));
  const secrets=new SecretStore({file:path.join(dataDir,'secrets.json'),safeStorage});
@@ -144,7 +146,12 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   changed();
  }
  manager=managerFactory?.({registry,config,adapterFor,logger,onEvent:ingest})||{stateOf:()=>({open:false,online:false}),closeAll(){}};
- const modelClient=aiClient||new AiClient({getConfig:()=>config.all(),logger,secretReader:n=>secrets.get(n),fetchImpl,contextProvider:({thread,goodsTitle,reviewContext})=>registry.get(reviewContext?.storeId)?products.search(reviewContext.storeId,[goodsTitle,[...(thread||[])].reverse().find(m=>m.from==='buyer')?.content].filter(Boolean).join(' '),3):[]});
+ const modelClient=aiClient||new AiClient({getConfig:()=>config.all(),logger,secretReader:n=>secrets.get(n),fetchImpl,contextProvider:({thread,goodsTitle,reviewContext})=>{
+  const storeId=reviewContext?.storeId;if(!registry.get(storeId))return [];
+  const question=[...(thread||[])].reverse().find(m=>m.from==='buyer')?.content||'';
+  const productId=products.getByProductId(storeId,reviewContext?.productId)?.productId||products.identifyTitle(storeId,goodsTitle);
+  return [...products.search(storeId,[goodsTitle,question].filter(Boolean).join(' '),3).map(x=>({...x,source:'product'})),...intents.search(storeId,question,productId)];
+ }});
  if(modelMode==='managed'){
   modelClient.suppressFallback=true;
   modelClient.onGenerationFailure=(error,context)=>{if(disposed)return;reportConversationIssue(new ManagedSessionError(error?.code||'generation_failed'),{...context,storeName:registry.get(context?.storeId)?.storeName||''});};
@@ -215,6 +222,12 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
     if(input.enabled&&!input.text)throw Error('开启兜底前请填写兜底话术。');
     config.update({reply:{fallbackAfterMs:input.enabled?input.seconds*1000:0,fallbackText:input.text}});message='自动回复兜底设置已保存，应用于全部店铺。';break;
    }
+   case 'list-intent-packs':data={packs:intents.list(),...intents.summary()};break;
+   case 'save-intent-pack':{for(const id of z.array(z.string()).parse(v.storeIds))storeOf(id);data=intents.save(v);message='意图知识包已保存。';break;}
+   case 'remove-intent-pack':intents.remove(v.id,v.version,v.confirmed);message='知识包已删除。';break;
+   case 'preview-intent-import':{data=intents.previewImport(v.json);for(const pack of data.packs)for(const id of pack.storeIds)storeOf(id);break;}
+   case 'import-intent-packs':{const preview=intents.previewImport(v.json);for(const pack of preview.packs)for(const id of pack.storeIds)storeOf(id);data=intents.importJson(v.json,v);message='知识包已导入。';break;}
+   case 'export-intent-packs':data={json:intents.exportJson()};break;
    case 'list-products':storeOf(command.storeId);data=products.list(command.storeId,v);break;
    case 'save-product':storeOf(command.storeId);data=products.save({...v,storeId:command.storeId});message='商品知识已保存。';break;
    case 'remove-product':storeOf(command.storeId);products.remove(command.storeId,v.id,v.version,v.confirmed);message='商品知识已删除，平台商品未改动。';break;
@@ -227,10 +240,11 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    case 'add-work-order-note':{const input=z.object({id:z.string().uuid(),text:z.string().trim().min(1).max(2000)}).strict().parse(v);workOrders.note(input.id,input.text);message='跟进记录已保存。';break;}
    case 'start-training':{
     if(modelMode==='managed'&&modelIssue)throw Error('请先核对托管请求状态并确认清除提示，再进行测试。');
-    const input=z.object({question:z.string().trim().min(1).max(2000),history:z.array(z.object({from:z.enum(['buyer','seller']),content:z.string().min(1).max(2000)}).strict()).max(20)}).strict().parse(v);
+    const input=z.object({question:z.string().trim().min(1).max(2000),productId:z.string().trim().max(100).optional(),history:z.array(z.object({from:z.enum(['buyer','seller']),content:z.string().min(1).max(2000)}).strict()).max(20)}).strict().parse(v);
     if(command.storeId)storeOf(command.storeId);
+    const trainingProduct=input.productId?products.getByProductId(command.storeId,input.productId):null;if(input.productId&&!trainingProduct)throw Error('请选择当前店铺已启用的有效商品');
     const thread=[...input.history.map(m=>({...m,type:'text'})),{from:'buyer',type:'text',content:input.question}];
-    let result;try{result=await modelClient.reply({systemPrompt:config.all().ai.systemPrompt,thread,reviewContext:command.storeId?{storeId:command.storeId}:undefined,timeoutMs:config.all().ai.timeoutMs})}catch(error){if(modelMode==='managed'&&!disposed&&!modelIssue)modelClient.onGenerationFailure?.(error);const reason=String(error?.message||'');throw Error(modelMode==='managed'?'托管模型请求未完成，请查看界面上的托管 AI 提示。':reason==='ai_base_url_missing'?'请先配置模型接口地址':reason==='ai_api_key_missing'?'请先配置模型 API Key':/^ai_http_40[13]/.test(reason)?'模型密钥无效或没有访问权限':reason.startsWith('ai_http_402')?'模型账户余额不足':reason.startsWith('ai_http_429')?'模型请求受限，请稍后重试':reason==='llm_timeout'?'模型响应超时，请稍后重试':'模型连接失败，请检查模型设置和网络')}
+    let result;try{result=await modelClient.reply({systemPrompt:config.all().ai.systemPrompt,thread,goodsTitle:trainingProduct?.title,reviewContext:command.storeId?{storeId:command.storeId,productId:trainingProduct?.productId}:undefined,timeoutMs:config.all().ai.timeoutMs})}catch(error){if(modelMode==='managed'&&!disposed&&!modelIssue)modelClient.onGenerationFailure?.(error);const reason=String(error?.message||'');throw Error(modelMode==='managed'?'托管模型请求未完成，请查看界面上的托管 AI 提示。':reason==='ai_base_url_missing'?'请先配置模型接口地址':reason==='ai_api_key_missing'?'请先配置模型 API Key':/^ai_http_40[13]/.test(reason)?'模型密钥无效或没有访问权限':reason.startsWith('ai_http_402')?'模型账户余额不足':reason.startsWith('ai_http_429')?'模型请求受限，请稍后重试':reason==='llm_timeout'?'模型响应超时，请稍后重试':'模型连接失败，请检查模型设置和网络')}
     const reply=filterBannedWords(String(result.reply||''),bannedWords).trim().slice(0,config.all().reply.maxReplyChars).trim();
     if(!reply)throw Error('回复被禁用词过滤为空，请调整规则后重试');
     data={reply};message='模拟回复已生成。';break;

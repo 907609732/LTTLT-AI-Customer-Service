@@ -18,3 +18,10 @@
 - 现有Config、StoreRegistry、AiClient、ReplyEngine、atomic JSON、backend snapshot/commands。
 - MiniSearch https://github.com/lucaong/minisearch （MIT，Node/浏览器，支持自定义中文tokenizer）；PapaParse https://github.com/mholt/PapaParse （MIT，CSV解析不自行重写）。
 - 跨平台SDK与媒体/转接能力将在各自任务开始前核对官方文档、许可证和实际登录环境。
+
+## Task 3 brief：意图知识包
+- 输入：包名、启用状态、店铺ID绑定、可选商品编号绑定；条目含问法、关键词、标准答案、启用状态。
+- 输出：严格版本化本地记录、CRUD/JSON预览导入、仅匹配当前店铺/商品的检索；与商品参考一同送入实际回复及训练。
+- 不自动向买家发送固定话术，不自动开启AI；模型仍须遵守全局规则。
+- RED：跨店隔离、同编号不同店铺、商品限制、禁用/过期版本、坏文件不覆盖；managed transport的实际messages必须出现匹配条目。
+- GREEN：服务→backend→UX15；根/引擎/build/浏览器/Electron验证后提交。

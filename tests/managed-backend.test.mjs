@@ -122,3 +122,19 @@ test('product knowledge reaches managed reception and training only for its stor
  assert.match(calls.at(-1)[1].content,/仅甲店支持 NFC/);
  await assert.rejects(backend.execute({action:'list-products',storeId:'missing'}),/有效店铺/);
 });
+
+test('intent binding reaches managed replies and training without leaking other stores',async t=>{
+ let messages;const {backend}=await setup(t,{managedChat:async payload=>{messages=payload.messages;return {choices:[{message:{content:'{"reply":"测试"}'}}]};}});
+ await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'意图测试'}});const id=backend.snapshot().stores[0].id;
+ await backend.execute({action:'save-intent-pack',values:{name:'发货包',enabled:true,storeIds:[id],productIds:[],entries:[{question:'何时发货',keywords:['发货'],answer:'本店48小时发货',enabled:true}]}});
+ await backend.execute({action:'start-training',storeId:id,values:{question:'何时发货',history:[]}});assert.match(messages[1].content,/本店48小时发货/);
+ await assert.rejects(backend.execute({action:'save-intent-pack',values:{name:'坏绑定',enabled:true,storeIds:['missing'],productIds:[],entries:[{question:'发货',keywords:[],answer:'错误',enabled:true}]}}),/有效店铺/);
+});
+
+test('商品专用意图在训练中必须指定有效本店商品',async t=>{
+ let messages;const {backend}=await setup(t,{managedChat:async payload=>{messages=payload.messages;return {choices:[{message:{content:'{"reply":"测试"}'}}]};}});await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'测试'}});const id=backend.snapshot().stores[0].id;
+ await backend.execute({action:'save-product',storeId:id,values:{productId:'sku',title:'型号专用门锁'}});
+ await backend.execute({action:'save-intent-pack',values:{name:'专用',enabled:true,storeIds:[id],productIds:['sku'],entries:[{question:'安装方法',keywords:['安装'],answer:'专用安装方法ABC',enabled:true}]}});
+ await backend.execute({action:'start-training',storeId:id,values:{question:'安装方法',history:[],productId:'sku'}});assert.match(messages[1].content,/专用安装方法ABC/);
+ await assert.rejects(backend.execute({action:'start-training',storeId:id,values:{question:'安装方法',history:[],productId:'missing'}}),/商品/);
+});
