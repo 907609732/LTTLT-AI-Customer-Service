@@ -696,3 +696,15 @@ test('生成期间到达的新买家问题不能被前一条AI回复误判为人
  let clock=NOW;const first=gate(),questions=[];const ai={reply:async payload=>{questions.push(payload.thread.filter(m=>m.from==='buyer').at(-1).content);if(questions.length===1)await first.promise;return {reply:'answer '+questions.length}}};const {worker,state}=workerFor({rows:[buyerRow('u1','first','第一问',NOW-1000)],ai,now:()=>clock,config:baseConfig({reply:{maxInflight:1,perUidMinIntervalMs:0}})});
  await worker.tick();await waitFor(()=>questions.length===1);state.queue.push(buyerRow('u1','second','第二问',NOW+500));clock=NOW+1000;first.resolve();await worker.settle();await worker.tick();await worker.settle();assert.deepEqual(questions,['第一问','第二问']);assert.equal(state.sent.length,2);assert.equal(worker.stats.replied,2);
 });
+
+test('新会话欢迎与正文共用一次发送，后续问题不重复欢迎',async()=>{
+ const {worker,state}=workerFor({rows:[buyerRow('u','m1')],config:baseConfig({reply:{perUidMinIntervalMs:0}})});let claims=0;
+ worker.welcomePolicy={claim:({storeId,uid,thread})=>{assert.equal(storeId,'s1');assert.equal(uid,'u');assert.equal(thread.at(-1).content,'在吗');return claims++===0?'欢迎光临':'';}};
+ await worker.tick();await worker.settle();assert.deepEqual(state.sent,[{uid:'u',text:'欢迎光临\n您好'}]);state.queue.push(buyerRow('u','m2'));await worker.tick();await worker.settle();assert.equal(state.sent[1].text,'您好');
+});
+test('发送抖动期间人工接管不会消耗欢迎资格',async()=>{
+ const pause=gate();const {worker,state}=workerFor({rows:[buyerRow('u','m1')],sleep:()=>pause.promise});let claims=0;worker.welcomePolicy={claim:()=>{claims++;return '欢迎';}};
+ await worker.tick();await waitFor(()=>worker.inflight===1);await new Promise(r=>setTimeout(r,10));worker.takeOver('u');pause.resolve();await worker.settle();assert.equal(claims,0);assert.equal(state.sent.length,0);
+});
+test('历史读取失败时不把旧顾客误当新顾客，正文仍正常回复',async()=>{const {worker,state}=workerFor({rows:[buyerRow('u','m1')]});worker.adapter.conversationHistory=async()=>({ok:false,reason:'offline'});let claims=0;worker.welcomePolicy={claim:()=>{claims++;return '欢迎';}};await worker.tick();await worker.settle();assert.equal(claims,0);assert.equal(state.sent[0].text,'您好');});
+test('已经发送兜底话术后正文不再追加欢迎',async()=>{const pause=gate(),ai=makeAi({reply:'正文',gate:pause}),{worker,state}=workerFor({rows:[buyerRow('u','m')],ai,config:baseConfig({reply:{fallbackAfterMs:5}})});let consumed=false;worker.welcomePolicy={claim:()=>consumed?'':'欢迎',noteOutbound:()=>{consumed=true;}};await worker.tick();await waitFor(()=>state.sent.length===1);pause.resolve();await worker.settle();assert.deepEqual(state.sent.map(x=>x.text),['稍等','正文']);});

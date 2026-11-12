@@ -16,6 +16,7 @@ const {createWorkOrders}=require('./work-orders.cjs');
 const {createProductKnowledge}=require('./product-knowledge.cjs');
 const {createIntentKnowledge}=require('./intent-knowledge.cjs');
 const {createModelProfiles}=require('./model-profiles.cjs');
+const {createWelcome}=require('./store-welcome.cjs');
 const {createAuxiliaryState}=require('./auxiliary-state.cjs');
 const {createConversationQuality}=require('./conversation-quality.cjs');
 const platforms=[{id:'pdd-web',label:'拼多多'},{id:'doudian-client',label:'抖店'}];
@@ -44,6 +45,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  const products=createProductKnowledge(path.join(dataDir,'product-knowledge.json'));
  const intents=createIntentKnowledge(path.join(dataDir,'intent-knowledge.json'));
  const modelProfiles=createModelProfiles(path.join(dataDir,'model-profiles.json'));
+ const welcome=createWelcome(path.join(dataDir,'store-welcome.json'));
  const auxiliary=createAuxiliaryState(path.join(dataDir,'auxiliary-state.json'));
  const quality=createConversationQuality(path.join(dataDir,'conversation-quality.json'));
  const secrets=new SecretStore({file:path.join(dataDir,'secrets.json'),safeStorage});
@@ -51,6 +53,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  const archiveFile=path.join(dataDir,'conversations.json');
  let conversations=readJson(archiveFile,[]);if(!Array.isArray(conversations))conversations=[];
  conversations=conversations.filter(c=>registry.get(c.storeId)&&typeof c.uid==='string'&&Array.isArray(c.messages)).slice(-200);
+ welcome.seed(conversations);
  let selection={storeId:registry.list()[0]?.id||'',conversationId:''},revision=0,disposed=false,modelSaving=false,manager,engine,monitor;
  const collectionErrors=new Map();
  const adapters=new Map(),sending=new Set(),aiEpoch=new Map(),starting=new Set(),opening=new Set(),openEpoch=new Map();
@@ -102,7 +105,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   catch{modelIssue.message+=' 本机未能保存暂停提示，请在重启前核对原请求。';}
  }
  const adapterFor=store=>{if(!adapters.has(store.id)){if(!adapterFactory)throw Error('平台服务尚未就绪');adapters.set(store.id,adapterFactory(store,{config:config.all(),logger}));}return adapters.get(store.id)};
- const snapshot=()=>structuredClone({revision,products:products.summary(),modelIssue,quality:quality.list(),auxiliary:auxiliary.snapshot(),stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
+ const snapshot=()=>structuredClone({revision,welcomeByStore:welcome.snapshot(),products:products.summary(),modelIssue,quality:quality.list(),auxiliary:auxiliary.snapshot(),stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
  function changed(){if(disposed)return;logger.setMaskPii(config.all().privacy?.maskPii);revision++;onEvent({type:'backend:changed',revision});diagnostics?.status();}
  async function startCollection(id){
   const state=manager.stateOf(id);
@@ -126,6 +129,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   if(store&&((event.type==='message:in'&&['buyer','seller'].includes(event.from))||event.type==='reply:sent')){
    const uid=String(event.uid||'');if(!uid)return;
    let c=conversations.find(x=>x.storeId===store.id&&x.uid===uid);
+   welcome.observe({storeId:store.id,uid,ts:Number(event.ts)||0,existing:!!c||event.from!=='buyer'});
    if(!c){c={storeId:store.id,uid,name:String(event.username||uid).slice(0,100),messages:[],status:'pending'};conversations.push(c);}
    if(quality.blocked(store.id,uid))c.status='handoff';
    const from=event.type==='reply:sent'?'seller':event.from,content=String(event.content??event.text??'').slice(0,10000),ts=Number(event.ts)||Date.now();
@@ -175,7 +179,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    managedQueue=operation.catch(()=>{});return operation;
   };
  }
- engine=new ReplyEngine({registry,adapterFactory:adapterFor,aiClient:modelClient,getConfig:(storeId)=>{const current=modelProfiles.resolve(storeId,config.all()),entry=handoff.stores[storeId];return {...current,...(modelMode==='managed'?{reply:{...current.reply,maxInflight:1}}:{}),safety:{...current.safety,bannedWords,...(entry?{handoffKeywords:entry.keywords}:{})}};},logger,onEvent:ingest});
+ engine=new ReplyEngine({registry,adapterFactory:adapterFor,aiClient:modelClient,welcomePolicy:{noteOutbound:args=>welcome.noteOutbound(args),claim:args=>{const times=(args.thread||[]).filter(m=>m.from==='buyer').map(m=>Number(m.ts));welcome.observe({storeId:args.storeId,uid:args.uid,ts:times.length?Math.min(...times):0,existing:conversations.some(c=>c.storeId===args.storeId&&c.uid===args.uid)});return welcome.claim(args);}},getConfig:(storeId)=>{const current=modelProfiles.resolve(storeId,config.all()),entry=handoff.stores[storeId];return {...current,...(modelMode==='managed'?{reply:{...current.reply,maxInflight:1}}:{}),safety:{...current.safety,bannedWords,...(entry?{handoffKeywords:entry.keywords}:{})}};},logger,onEvent:ingest});
  monitor=new MessageMonitor({registry,adapterFactory:adapterFor,getConfig:()=>config.all(),logger,onEvent:ingest});
  diagnostics=createSourceDiagnostics({enabled:sourceDiagnostics,write:text=>logger.info(text),getState:()=>{const workers=engine.status();return {mode:modelMode,issue:modelIssue?.code||'',stores:registry.list().map(s=>({name:s.storeName,online:!!manager.stateOf(s.id)?.online,ai:s.aiEnabled,inflight:workers[s.id]?.inflight,replied:workers[s.id]?.replied,failed:workers[s.id]?.failed,throttled:workers[s.id]?.throttled,suppressed:workers[s.id]?.manualSuppressed,collectionError:collectionErrors.has(s.id)}))}}});
 
@@ -224,6 +228,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
     if(input.enabled&&!input.text)throw Error('开启兜底前请填写兜底话术。');
     config.update({reply:{fallbackAfterMs:input.enabled?input.seconds*1000:0,fallbackText:input.text}});message='自动回复兜底设置已保存，应用于全部店铺。';break;
    }
+   case 'save-welcome':storeOf(command.storeId);data=welcome.save(command.storeId,v);message='本店新会话欢迎已保存，AI接待开关未改变。';break;
    case 'list-model-profiles':data={...modelProfiles.snapshot(),globalPrompt:config.all().ai.systemPrompt,globalMaxReplyChars:config.all().reply.maxReplyChars};break;
    case 'save-model-profile':data=modelProfiles.save(v);message='模型规则方案已保存，绑定店铺后生效。';break;
    case 'bind-model-profile':storeOf(command.storeId);modelProfiles.bind(command.storeId,z.string().max(64).parse(v.profileId),v.revision);message='店铺规则绑定已更新，AI开关未改变。';break;

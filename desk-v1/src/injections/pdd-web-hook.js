@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VER = 4;
+  var VER = 5;
   window.__PDD_WEB_VER = VER;
 
   var PREV = window.__pddWeb;
@@ -1666,11 +1666,12 @@
         var r = await pageJson('/latitude/search/message/getMessages', {
           query: { uid: key, page: 1, page_size: n },
         });
-        if (!apiOk(r)) return [];
+        if (!apiOk(r)) return {ok:false,reason:'hook_not_ready',detail:'history_request_failed'};
         var rows =
           (r.data && (r.data.result && (r.data.result.messages || r.data.result.list))) ||
           (r.data && r.data.messages) ||
-          [];
+          null;
+        if (!Array.isArray(rows)) return {ok:false,reason:'hook_not_ready',detail:'history_invalid_response'};
         var out = [];
         for (var i = 0; i < rows.length; i++) {
           var node = normalizeNode(rows[i]);
@@ -1679,7 +1680,7 @@
         return out.slice(-n);
       } catch (e) {
         fail('conversationHistory', e);
-        return [];
+        return {ok:false,reason:'hook_not_ready',detail:'history_request_failed'};
       }
     },
     consultGoods: async function (uid) {

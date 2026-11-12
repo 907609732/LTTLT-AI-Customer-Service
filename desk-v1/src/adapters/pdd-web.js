@@ -316,6 +316,7 @@ class PddWebAdapter {
         label: 'conversationHistory',
         timeoutMs: this.timeouts.history,
       });
+      if (!Array.isArray(list)) return fail('hook_not_ready','history_unavailable');
       const messages = (Array.isArray(list) ? list : []).map(toMessage).sort((a, b) => a.ts - b.ts);
       return ok({ messages: messages.slice(-limit) });
     } catch (err) {

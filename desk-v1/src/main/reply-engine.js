@@ -77,6 +77,7 @@ class StoreWorker {
     sleep = null,
     random = Math.random,
     selfSendLedger = null,
+    welcomePolicy = null,
   }) {
     if (!store?.id) throw new Error('store_required');
     if (!aiClient || typeof aiClient.reply !== 'function') throw new Error('ai_client_required');
@@ -98,6 +99,7 @@ class StoreWorker {
             });
     this.random = typeof random === 'function' ? random : Math.random;
     this.selfSend = selfSendLedger || new SelfSendLedger({ now });
+    this.welcomePolicy = welcomePolicy;
 
     this.running = false;
     this.generation = 0;
@@ -307,11 +309,11 @@ class StoreWorker {
   async #history(uid) {
     try {
       const result = await this.adapter.conversationHistory(uid, { limit: 20 });
-      if (result && result.ok === true && Array.isArray(result.messages)) return result.messages;
+      if (result && result.ok === true && Array.isArray(result.messages)) return {messages:result.messages,known:true};
     } catch (err) {
       this.logger?.debug(`读取会话历史失败：${err?.message || err}`);
     }
-    return [];
+    return {messages:[],known:false};
   }
 
   #recoverWindowMs() {
@@ -439,7 +441,7 @@ class StoreWorker {
       }
 
       const originalText = String(generated.result.reply || '').trim();
-      const text = filterBannedWords(originalText, this.safety.bannedWords).trim().slice(0,this.cfg.maxReplyChars ?? 200).trim();
+      let text = filterBannedWords(originalText, this.safety.bannedWords).trim().slice(0,this.cfg.maxReplyChars ?? 200).trim();
       if (!text) {
         if(originalText){this.stats.failed+=1;await dispose(()=>this.adapter.discard(uid));this.onEvent?.({type:'reply:failed',storeId:this.store.id,uid,reason:'banned_empty'});this.onEvent?.({type:'reply:needs-manual',storeId:this.store.id,uid,reason:'banned_empty'});return;}
         await dispose(() => this.adapter.release(uid));
@@ -447,7 +449,10 @@ class StoreWorker {
       }
       this.logger?.debug(`会话 ${uid} [回复阶段] 生成完成，准备发送`);
       let sent;
-      try{sent=await this.#sendText(uid,text,{generation});}
+      try{sent=await this.#sendText(uid,text,{generation,decorate:body=>{
+        try{const greeting=filterBannedWords(generated.historyKnown?(this.welcomePolicy?.claim({storeId:this.store.id,uid,thread:generated.thread})||''):'',this.safety.bannedWords).trim();text=greeting&&!body.startsWith(greeting)?`${greeting}\n${body}`.slice(0,2000):body;return text;}
+        catch{this.logger?.warn('欢迎记录保存失败，本条仅发送正文');return body;}
+      }});if(sent.actualText)text=sent.actualText;}
       catch(error){if(typeof this.aiClient.onDeliveryFailure!=='function')throw error;sent={ok:false,reason:'send_unconfirmed'};}
       this.logger?.debug(`会话 ${uid} [回复阶段] 发送结果：${sent.ok?'已确认':sent.reason||'未知'}`);
       if (sent.throttled) {
@@ -544,7 +549,7 @@ class StoreWorker {
    * bypassUidInterval 只给兜底话术用：D-07 要求兜底与 AI 正文都发，
    * 二者属于同一次应答，不能互相被 60s 间隔挡住；仍受单店分钟上限约束。
    */
-  async #sendText(uid, text, { bypassUidInterval = false, jitter = true, generation } = {}) {
+  async #sendText(uid, text, { bypassUidInterval = false, jitter = true, generation, decorate } = {}) {
     if (!this.#active(generation)||this.manualSuppressed.has(String(uid))) return {ok:false,throttled:true,reason:"cancelled"};
     const gate = this.#sendGate(uid, { bypassUidInterval });
     if (!gate.ok) {
@@ -568,15 +573,17 @@ class StoreWorker {
       }
     }
     if (!this.#active(generation)||this.manualSuppressed.has(String(uid))) return {ok:false,throttled:true,reason:"cancelled"};
+    if(decorate)text=decorate(String(text));
     const result = await this.adapter.sendText(uid, String(text));
     assertResult(result, 'sendText');
     if (result.ok || result.reason === 'send_unconfirmed') {
+      try{this.welcomePolicy?.noteOutbound?.({storeId:this.store.id,uid});}catch{this.logger?.warn('欢迎去重状态未能写入，请检查磁盘');}
       const at = this.now();
       if (!bypassUidInterval) this.lastSentAt.set(uid, at);
       this.sendWindow.push(at);
       this.selfSend.record({ uid, msgId: result.msgId, text, at });
     }
-    return result;
+    return {...result,actualText:String(text)};
   }
 
   async #generate(row, latest, generation) {
@@ -599,7 +606,7 @@ class StoreWorker {
     }
     try {
       const history = await this.#history(row.uid);
-      const thread = mergeThread(row.messages, history);
+      const thread = mergeThread(row.messages, history.messages);
       const systemPrompt = `${this.getConfig()?.ai?.systemPrompt || '你是店铺客服。'}\n当前店铺：${this.store.storeName}`;
       const result = await this.aiClient.reply({
         systemPrompt,
@@ -611,7 +618,7 @@ class StoreWorker {
         timeoutMs: this.getConfig()?.ai?.timeoutMs ?? 60000,
       });
       if (!result || !result.reply) return { ok: false, fatal: false };
-      return { ok: true, result };
+      return { ok: true, result, thread, historyKnown:history.known };
     } catch (err) {
       if(err?.code==='queued_canceled')return {ok:false,fatal:false};
       const message = String(err?.message || err);
@@ -643,7 +650,7 @@ class StoreWorker {
 }
 
 class ReplyEngine {
-  constructor({ registry, adapterFactory, aiClient, getConfig, logger, onEvent = null, now = Date.now, sleep = null, random = Math.random }) {
+  constructor({ registry, adapterFactory, aiClient, getConfig, logger, onEvent = null, now = Date.now, sleep = null, random = Math.random, welcomePolicy = null }) {
     if (typeof adapterFactory !== 'function') throw new Error('adapter_factory_required');
     this.registry = registry;
     this.adapterFactory = adapterFactory;
@@ -654,6 +661,7 @@ class ReplyEngine {
     this.now = now;
     this.sleep = sleep;
     this.random = random;
+    this.welcomePolicy = welcomePolicy;
     this.workers = new Map();
   }
 
@@ -687,6 +695,7 @@ class ReplyEngine {
       now: this.now,
       sleep: this.sleep,
       random: this.random,
+      welcomePolicy: this.welcomePolicy,
     });
     this.workers.set(storeId, worker);
     await adapter.syncAiEnabled(store.aiEnabled !== false).catch((err) => {
