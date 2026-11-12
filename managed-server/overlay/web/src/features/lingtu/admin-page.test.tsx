@@ -21,7 +21,9 @@ import { useAuthStore } from '@/stores/auth-store'
 import { AdminPage } from './admin-page'
 
 const { verify } = vi.hoisted(() => ({
-  verify: vi.fn(async () => ({ proof_token: 'fixture-proof' })),
+  verify: vi.fn(async (): Promise<{ proof_token: string } | null> => ({
+    proof_token: 'fixture-proof',
+  })),
 }))
 vi.mock('@/features/auth/secure-verification', () => ({
   useSecureVerification: () => ({
@@ -1035,8 +1037,299 @@ it('shows required native platform fields and preserves multiline credentials on
   fireEvent.click(screen.getByRole('button', { name: 'Show' }))
   expect(credential.classList.contains('secret-masked')).toBe(false)
   expect(screen.getByLabelText('Upstream model ID')).toBeTruthy()
-  for (let index = 0; index < localStorage.length; index++)
-    {expect(localStorage.getItem(localStorage.key(index) || '')).not.toContain(
+  for (let index = 0; index < localStorage.length; index++) {
+    expect(localStorage.getItem(localStorage.key(index) || '')).not.toContain(
       'service_account'
-    )}
+    )
+  }
+})
+
+it('recovers a committed response-lost existing API only after explicit confirmed reload and preserves other drafts', async () => {
+  allowProtectedSave()
+  const posts: Record<string, unknown>[] = []
+  let current = { ...connection }
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') {
+      const body = JSON.parse(request.data)
+      posts.push(body)
+      if (posts.length === 1) {
+        current = {
+          ...current,
+          name: 'Committed server API',
+          revision: 3,
+          ready: false,
+          test_status: 'never',
+        }
+        throw new Error('response lost after commit')
+      }
+      if (body.revision !== current.revision) {
+        throw new AxiosError('stale', 'ERR_BAD_REQUEST', request, undefined, {
+          data: { error: 'configuration_update_failed' },
+          status: 400,
+          statusText: 'Bad Request',
+          headers: {},
+          config: request,
+        })
+      }
+      current = { ...current, name: String(body.name), revision: 4 }
+      return {
+        data: {
+          saved: true,
+          tested: true,
+          connection_id: 7,
+          model_connections: [current],
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: request,
+      }
+    }
+    return {
+      data: fixtureData(request.url || '', request.params, {
+        ...config,
+        model_catalog: catalog,
+        model_connections: [current],
+      }),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  renderAdmin()
+  await modelView()
+  fireEvent.change(screen.getByLabelText('Model key'), {
+    target: { value: 'keep-until-confirmed' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Add API' }))
+  fireEvent.change(screen.getByLabelText('Model key'), {
+    target: { value: 'other-api-secret' },
+  })
+  fireEvent.change(screen.getByRole('combobox', { name: 'API connection' }), {
+    target: { value: 'saved-7' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save and test' }))
+  await screen.findByRole('button', { name: 'Reload saved API' })
+  expect(posts).toHaveLength(1)
+  expect(posts[0].revision).toBe(2)
+  expect((screen.getByLabelText('Model key') as HTMLInputElement).value).toBe(
+    'keep-until-confirmed'
+  )
+  expect(
+    screen
+      .getByRole('button', { name: 'Save and test' })
+      .hasAttribute('disabled')
+  ).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Save and test' }))
+  expect(posts).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Configure DeepSeek' }))
+  expect((screen.getByLabelText('Model key') as HTMLInputElement).value).toBe(
+    'keep-until-confirmed'
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Reload saved API' }))
+  fireEvent.click(
+    within(screen.getByRole('alertdialog')).getByRole('button', {
+      name: 'Cancel',
+    })
+  )
+  expect((screen.getByLabelText('Model key') as HTMLInputElement).value).toBe(
+    'keep-until-confirmed'
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Reload saved API' }))
+  fireEvent.click(
+    within(screen.getByRole('alertdialog')).getByRole('button', {
+      name: 'Discard this draft and reload',
+    })
+  )
+  expect((screen.getByLabelText('Model key') as HTMLInputElement).value).toBe(
+    ''
+  )
+  fireEvent.click(screen.getByText('More settings (usually unchanged)'))
+  expect((screen.getByLabelText('API name') as HTMLInputElement).value).toBe(
+    'Committed server API'
+  )
+  fireEvent.change(screen.getByLabelText('API name'), {
+    target: { value: 'Reviewed and edited' },
+  })
+  fireEvent.change(screen.getByLabelText('Model key'), {
+    target: { value: 'new-reviewed-secret' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save and test' }))
+  await waitFor(() => expect(posts).toHaveLength(2))
+  expect(posts[1]).toMatchObject({
+    connection_id: 7,
+    revision: 3,
+    name: 'Reviewed and edited',
+    secret: 'new-reviewed-secret',
+  })
+  await waitFor(() =>
+    expect((screen.getByLabelText('Model key') as HTMLInputElement).value).toBe(
+      ''
+    )
+  )
+  fireEvent.change(screen.getByRole('combobox', { name: 'API connection' }), {
+    target: { value: 'draft-1' },
+  })
+  expect((screen.getByLabelText('Model key') as HTMLInputElement).value).toBe(
+    'other-api-secret'
+  )
+})
+
+it('warns about unconfirmed creation and reviews saved APIs without guessing the new ID or discarding its secret', async () => {
+  allowProtectedSave()
+  let connections: (typeof connection)[] = []
+  const posts: Record<string, unknown>[] = []
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data))
+      connections = [
+        { ...connection, connection_id: 29, name: 'API 1', is_default: false },
+      ]
+      throw new Error('created but response lost')
+    }
+    return {
+      data: fixtureData(request.url || '', request.params, {
+        ...config,
+        model_catalog: catalog,
+        model_connections: connections,
+      }),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  renderAdmin()
+  await modelView()
+  fireEvent.change(screen.getByLabelText('Model key'), {
+    target: { value: 'unconfirmed-creation-secret' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save and test' }))
+  await screen.findByText(
+    'A new API may already have been saved. Review saved APIs before creating another. No connection is matched automatically.'
+  )
+  expect(
+    (
+      screen.getByRole('combobox', {
+        name: 'API connection',
+      }) as HTMLSelectElement
+    ).value
+  ).toBe('draft-1')
+  expect((screen.getByLabelText('Model key') as HTMLInputElement).value).toBe(
+    'unconfirmed-creation-secret'
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Review saved APIs' }))
+  expect(
+    (
+      screen.getByRole('combobox', {
+        name: 'API connection',
+      }) as HTMLSelectElement
+    ).value
+  ).toBe('draft-1')
+  expect(screen.getAllByRole('option', { name: /API 1/ })).toHaveLength(2)
+  fireEvent.change(screen.getByRole('combobox', { name: 'API connection' }), {
+    target: { value: 'saved-29' },
+  })
+  expect((screen.getByLabelText('Model key') as HTMLInputElement).value).toBe(
+    ''
+  )
+  fireEvent.change(screen.getByRole('combobox', { name: 'API connection' }), {
+    target: { value: 'draft-1' },
+  })
+  expect((screen.getByLabelText('Model key') as HTMLInputElement).value).toBe(
+    'unconfirmed-creation-secret'
+  )
+  expect(posts).toHaveLength(1)
+})
+
+it('allows retry after canceled verification and known rejected creation without discarding its credential', async () => {
+  allowProtectedSave()
+  verify.mockResolvedValueOnce(null)
+  let attempts = 0
+  let connections: (typeof connection)[] = []
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') {
+      attempts++
+      if (attempts === 1)
+        {throw new AxiosError(
+          'validation',
+          'ERR_BAD_REQUEST',
+          request,
+          undefined,
+          {
+            data: { error: 'configuration_update_failed' },
+            status: 400,
+            statusText: 'Bad Request',
+            headers: {},
+            config: request,
+          }
+        )}
+      connections = [{ ...connection, connection_id: 39, is_default: false }]
+      return {
+        data: {
+          saved: true,
+          tested: true,
+          connection_id: 39,
+          model_connections: connections,
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: request,
+      }
+    }
+    return {
+      data: fixtureData(request.url || '', request.params, {
+        ...config,
+        model_catalog: catalog,
+        model_connections: connections,
+      }),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  renderAdmin()
+  await modelView()
+  fireEvent.change(screen.getByLabelText('Model key'), {
+    target: { value: 'retryable-secret' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save and test' }))
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole('button', { name: 'Save and test' })
+        .hasAttribute('disabled')
+    ).toBe(false)
+  )
+  expect(attempts).toBe(0)
+  expect(screen.queryByRole('button', { name: 'Review saved APIs' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Save and test' }))
+  await waitFor(() => expect(attempts).toBe(1))
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole('button', { name: 'Save and test' })
+        .hasAttribute('disabled')
+    ).toBe(false)
+  )
+  expect((screen.getByLabelText('Model key') as HTMLInputElement).value).toBe(
+    'retryable-secret'
+  )
+  expect(screen.queryByRole('button', { name: 'Review saved APIs' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Save and test' }))
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole('combobox', {
+          name: 'API connection',
+        }) as HTMLSelectElement
+      ).value
+    ).toBe('saved-39')
+  )
+  expect(attempts).toBe(2)
 })

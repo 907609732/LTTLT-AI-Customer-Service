@@ -163,6 +163,7 @@
   flex-shrink: 0;
 }
 .lingtu-admin-shell .admin-navigation {
+  flex-direction: column;
   width: 100%;
   background: transparent;
   padding: 0;

@@ -288,5 +288,14 @@
  "Optional bearer key; explicit URL and model ID required": "密钥可选；必须填写接口地址与模型 ID",
  "API Key; explicit public HTTPS endpoint and model ID required": "API 密钥；必须填写公共 HTTPS 接口地址与模型 ID",
  "AppID|SecretID|SecretKey (native TC3)": "AppID|SecretID|SecretKey（原生 TC3）",
- "AppID|APISecret|APIKey (native WebSocket; explicit SparkDesk-v1.1/v2.1/v3.1/v3.5/v4.0 model; fixed official endpoint)": "AppID|APISecret|APIKey（原生 WebSocket；请填写 SparkDesk-v1.1/v2.1/v3.1/v3.5/v4.0 模型；使用固定官方端点）"
+ "AppID|APISecret|APIKey (native WebSocket; explicit SparkDesk-v1.1/v2.1/v3.1/v3.5/v4.0 model; fixed official endpoint)": "AppID|APISecret|APIKey（原生 WebSocket；请填写 SparkDesk-v1.1/v2.1/v3.1/v3.5/v4.0 模型；使用固定官方端点）",
+ "The saved API changed. Reload its current settings before saving again. This draft has not been discarded.": "服务端 API 配置已变化，请重新载入当前配置后再保存。此草稿尚未丢弃。",
+ "Saved API": "已保存的 API",
+ "Revision": "版本",
+ "Reload saved API": "重新载入已保存的 API",
+ "A new API may already have been saved. Review saved APIs before creating another. No connection is matched automatically.": "新 API 可能已经保存，请先检查已保存的 API，再决定是否另建。不会自动匹配连接。",
+ "Review saved APIs": "检查已保存的 API",
+ "Discard only this API draft, including its typed credential, and load the latest saved settings. Other API drafts are kept. This does not change the server.": "仅丢弃这条 API 的草稿（包括已输入的凭据），载入最新保存的配置。其他 API 草稿会保留，不会修改服务端。",
+ "Discard this draft and reload": "丢弃此草稿并重新载入",
+ "Saved API reloaded. Review the current settings before editing again.": "已重新载入服务端配置，请核对当前设置后再修改。"
 }

@@ -49,7 +49,13 @@ export interface SaveResult {
   connection_id?: number
   model_connections?: ModelConnection[]
 }
-export type ModelSave = (payload: Payload) => Promise<SaveResult | false>
+export interface SaveFailure {
+  saved: false
+  unconfirmed: boolean
+}
+export type ModelSave = (
+  payload: Payload
+) => Promise<SaveResult | SaveFailure | false>
 interface Draft {
   key: string
   connection_id: number
@@ -64,6 +70,7 @@ interface Draft {
   account_id: string
   enabled: boolean
   dirty: boolean
+  unconfirmedCreation?: boolean
 }
 const commonProviders = new Set([
   'doubao',
@@ -116,6 +123,7 @@ export function AdminModels(props: {
   const [selection, setSelection] = useState<Record<string, string>>({})
   const [visible, setVisible] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [reloading, setReloading] = useState(false)
   const [resultMessage, setResultMessage] = useState('')
   const serial = useRef(0)
   const submitting = useRef(false)
@@ -175,6 +183,33 @@ export function AdminModels(props: {
   const saved = props.connections.find(
     (row) => row.connection_id === active?.connection_id
   )
+  const revisionConflict = !!saved && saved.revision !== active?.revision
+  const requiresRecovery = revisionConflict || !!active?.unconfirmedCreation
+  function markUnconfirmed(captured: Draft, owner: string) {
+    if (captured.connection_id !== 0) return
+    setDrafts((old) => ({
+      ...old,
+      [owner]: old[owner].map((row) =>
+        row.key === captured.key ? { ...row, unconfirmedCreation: true } : row
+      ),
+    }))
+  }
+  function reloadSaved() {
+    if (!provider || !active || !saved || props.busy) return
+    // This is an explicit local discard, never an automatic revision advance.
+    // Only this API's draft/credential is replaced; no server write is made.
+    setDrafts((old) => ({
+      ...old,
+      [provider.provider]: old[provider.provider].map((row) =>
+        row.key === active.key ? fromSaved(saved) : row
+      ),
+    }))
+    setVisible(false)
+    setReloading(false)
+    setResultMessage(
+      'Saved API reloaded. Review the current settings before editing again.'
+    )
+  }
   function edit(patch: Partial<Draft>) {
     if (!provider || !active) return
     setDrafts((old) => ({
@@ -196,6 +231,7 @@ export function AdminModels(props: {
     testAfterSave = false
   ) {
     if (!provider || !active || props.busy || submitting.current) return
+    if (action === 'save' && requiresRecovery) return
     submitting.current = true
     setResultMessage('')
     const owner = provider.provider
@@ -223,7 +259,9 @@ export function AdminModels(props: {
     }
     try {
       const result = await props.save(payload)
-      if (!result) {
+      if (!result || !result.saved) {
+        if (action === 'save' && result && result.unconfirmed)
+          {markUnconfirmed(captured, owner)}
         setResultMessage(
           'Save could not be confirmed. Refresh configuration and review before retrying.'
         )
@@ -244,6 +282,7 @@ export function AdminModels(props: {
             row.connection_id === result.connection_id && row.provider === owner
         )
         if (!persisted) {
+          markUnconfirmed(captured, owner)
           setResultMessage(
             'Save could not be confirmed. Refresh configuration and review before retrying.'
           )
@@ -491,6 +530,42 @@ export function AdminModels(props: {
                   {t('Add API')}
                 </Button>
               </div>
+              {revisionConflict && saved && (
+                <div className='admin-message' role='alert'>
+                  <p>
+                    {t(
+                      'The saved API changed. Reload its current settings before saving again. This draft has not been discarded.'
+                    )}
+                  </p>
+                  <p className='admin-help'>
+                    {t('Saved API')}: {saved.name} · {saved.upstream_model} ·{' '}
+                    {t('Revision')} {saved.revision}
+                  </p>
+                  <Button
+                    variant='outline'
+                    disabled={props.busy}
+                    onClick={() => setReloading(true)}
+                  >
+                    {t('Reload saved API')}
+                  </Button>
+                </div>
+              )}
+              {active.unconfirmedCreation && (
+                <div className='admin-message' role='alert'>
+                  <p>
+                    {t(
+                      'A new API may already have been saved. Review saved APIs before creating another. No connection is matched automatically.'
+                    )}
+                  </p>
+                  <Button
+                    variant='outline'
+                    disabled={props.busy}
+                    onClick={() => open(provider)}
+                  >
+                    {t('Review saved APIs')}
+                  </Button>
+                </div>
+              )}
               <div className='simple-key-label'>
                 <Label htmlFor='connection-secret'>{t('Model key')}</Label>
                 <a
@@ -664,7 +739,9 @@ export function AdminModels(props: {
                   <div className='flex flex-wrap gap-2'>
                     <Button
                       variant='outline'
-                      disabled={props.busy || !active.name.trim()}
+                      disabled={
+                        props.busy || requiresRecovery || !active.name.trim()
+                      }
                       onClick={() => void submit('save')}
                     >
                       {t('Save without testing')}
@@ -707,6 +784,7 @@ export function AdminModels(props: {
                 <Button
                   disabled={
                     props.busy ||
+                    requiresRecovery ||
                     !active.name.trim() ||
                     !active.upstream_model.trim()
                   }
@@ -719,6 +797,18 @@ export function AdminModels(props: {
           )}
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        className='lingtu-admin-light lingtu-admin-shell'
+        open={reloading}
+        onOpenChange={setReloading}
+        title={t('Reload saved API')}
+        desc={t(
+          'Discard only this API draft, including its typed credential, and load the latest saved settings. Other API drafts are kept. This does not change the server.'
+        )}
+        confirmText={t('Discard this draft and reload')}
+        disabled={props.busy}
+        handleConfirm={reloadSaved}
+      />
       <ConfirmDialog
         className='lingtu-admin-light lingtu-admin-shell'
         confirmText={t('Delete this API')}

@@ -39,6 +39,7 @@ import {
   type ModelConnection,
   type ModelSave,
   type SaveResult,
+  type SaveFailure,
 } from './admin-models'
 import { AccountUsageSummary, AdminOverview } from './admin-usage'
 
@@ -1157,11 +1158,14 @@ export function AdminPage() {
     setUsageUserId(userId)
     selectTab('usage')
   }
-  async function save(payload: Payload): Promise<SaveResult | false> {
+  async function save(
+    payload: Payload
+  ): Promise<SaveResult | SaveFailure | false> {
     if (saving.current) return false
     saving.current = true
     setBusy(true)
     setMessage('')
+    let submitted = false
     function apply(result: SaveResult) {
       const connections = result.model_connections
       if (connections) {
@@ -1185,6 +1189,7 @@ export function AdminPage() {
         title: t('Verify administrator identity to save changes'),
       })
       if (!proof) return false
+      submitted = true
       const result = await api.post<SaveResult>(
         '/api/lingtu/admin/config',
         body,
@@ -1228,13 +1233,23 @@ export function AdminPage() {
       setMessage(
         'Save could not be confirmed. Refresh configuration and review before retrying.'
       )
-      return false
+      return {
+        saved: false,
+        unconfirmed:
+          submitted &&
+          (!isAxiosError(error) ||
+            !error.response ||
+            error.response.status >= 500),
+      }
     } finally {
       saving.current = false
       setBusy(false)
     }
   }
-  const legacySave: Save = async (payload) => Boolean(await save(payload))
+  const legacySave: Save = async (payload) => {
+    const result = await save(payload)
+    return !!result && result.saved
+  }
   const modelSave: ModelSave = save
   const languageControl = (
     <div
