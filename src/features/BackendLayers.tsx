@@ -99,10 +99,11 @@ function HandoffKeywords({notice,drafts}:{notice:(s:string)=>void;drafts:RefObje
 }
 
 function HandoffPage({notice,drafts}:{notice:(s:string)=>void;drafts:RefObject<Record<string,string>>}){
- const b=useBackend();
- return <section className="handoff-page" aria-label="转接人工配置"><header><h1>转接人工</h1><p>设置需要人工处理的关键词；当前会话会标记预警并暂停 AI。</p></header>
+ const b=useBackend(),[switching,setSwitching]=useState(false),switchBusy=useRef(false);
+ const selectStore=async(storeId:string)=>{if(switchBusy.current)return;switchBusy.current=true;setSwitching(true);try{await b.execute({action:'select-store',storeId})}catch(e){notice(e instanceof Error?e.message:String(e))}finally{switchBusy.current=false;setSwitching(false)}};
+ return <section className="handoff-page" aria-label="转接人工配置"><header><h1>转接人工</h1><p>设置需要人工处理的关键词；当前会话会标记预警并暂停 AI。</p>{b.snapshot.stores.length>0&&<label className="handoff-store-picker">配置店铺<select aria-label="转人工配置店铺" value={b.snapshot.selection.storeId} disabled={switching} onChange={e=>void selectStore(e.target.value)}><option value="" disabled>请选择店铺</option>{b.snapshot.stores.map(s=><option key={s.id} value={s.id}>{storeDisplayName(s)}</option>)}</select></label>}</header>
   <article className="handoff-card"><div className="handoff-row"><div><h2>平台自动转接</h2><p>平台自动转接尚未接入，命中关键词后需要人工接手。</p></div><button type="button" role="switch" aria-label="平台自动转接" aria-checked={false} disabled>暂未接入</button></div></article>
-  <article className="handoff-card"><h2>关键词触发</h2><p>买家消息包含关键词时，标记会话并暂停该会话的 AI 自动回复。</p>{b.loading?<p>正在读取关键词…</p>:b.error?<p role="alert">关键词读取失败，请稍后重试。</p>:<HandoffKeywords key={b.snapshot.selection.storeId||'global'} notice={notice} drafts={drafts}/>}</article>
+  <article className="handoff-card"><h2>关键词触发</h2><p>买家消息包含关键词时，标记会话并暂停该会话的 AI 自动回复。</p>{b.loading?<p>正在读取关键词…</p>:b.error?<p role="alert">关键词读取失败，请稍后重试。</p>:<fieldset className="handoff-scope-fields" disabled={switching}><HandoffKeywords key={b.snapshot.selection.storeId||'global'} notice={notice} drafts={drafts}/></fieldset>}</article>
   <article className="handoff-card"><div className="handoff-row"><div><h2>客服接收与无人在线兜底</h2><p>客服名单、平台转接及无人在线兜底正在接入。</p></div><span>暂未接入</span></div></article>
  </section>;
 }

@@ -4,5 +4,5 @@ test('PDD confirm directly creates login session without requesting a shop name'
  await page.goto('/?screen=UX03');await page.getByRole('button',{name:'多多店铺 · 网页',exact:true}).click();await page.getByRole('button',{name:'确认添加',exact:true}).click();
  await expect(page.getByLabel('店铺名称',{exact:true})).toHaveCount(0);await expect(page.getByRole('region',{name:'添加店铺 · 平台选择'})).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).calls)).toEqual([{action:'add-store',values:{platform:'pdd-web',openAfterAdd:true}}]);
- await expect(page.getByRole('combobox',{name:'当前店铺'})).toContainText('拼多多店铺 · 待登录');
+ const stores=page.getByRole('region',{name:'真实店铺列表'});await expect(stores.locator('article.selected')).toHaveCount(1);await expect(stores.getByRole('button',{name:/拼多多店铺 · 待登录/})).toBeVisible();await expect(stores.getByText('拼多多 · 请完成登录',{exact:true})).toBeVisible();await expect(stores.getByRole('switch')).toHaveAttribute('aria-checked','false');
 });
