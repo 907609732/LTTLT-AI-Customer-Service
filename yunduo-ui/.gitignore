@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-electron/
+artifacts/
+coverage/
+release/
+server/.upstream/
+server/artifacts/
+server/runtime/
+server/bin/
+.env
+.env.*
+!.env.example
+*.log
