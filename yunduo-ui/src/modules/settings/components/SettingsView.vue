@@ -4,6 +4,7 @@ import RuntimePanel from '@/shared/ui/RuntimePanel.vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import { modelPresets } from '../model-presets'
+import ModelSourceSettings from './ModelSourceSettings.vue'
 const runtime = useRuntimeStore(),
   task = useTask()
 const baseUrl = ref(''),
@@ -93,14 +94,24 @@ onBeforeUnmount(() => {
 <template>
   <RuntimePanel
     title="模型与本机设置"
-    description="使用自己的模型 API Key，无需登录软件账号。店铺平台仍需分别登录。"
+    description="选择本机自带 Key 或托管服务。店铺平台仍需分别登录，切换模式不会自动开启 AI。"
     :error="task.error.value || pacingTask.error.value"
     :message="task.message.value || pacingTask.message.value"
   >
-    <el-tag :type="runtime.snapshot.capabilities.apiKeyConfigured ? 'success' : 'info'">{{
-      runtime.snapshot.capabilities.apiKeyConfigured ? '本机已加密保存密钥' : '尚未保存密钥'
-    }}</el-tag>
-    <form class="runtime-form" @submit.prevent="save(false)">
+    <ModelSourceSettings />
+    <el-divider />
+    <el-tag
+      v-if="runtime.snapshot.capabilities.modelMode === 'local'"
+      :type="runtime.snapshot.capabilities.apiKeyConfigured ? 'success' : 'info'"
+      >{{
+        runtime.snapshot.capabilities.apiKeyConfigured ? '本机已加密保存密钥' : '尚未保存密钥'
+      }}</el-tag
+    >
+    <form
+      v-if="runtime.snapshot.capabilities.modelMode === 'local'"
+      class="runtime-form"
+      @submit.prevent="save(false)"
+    >
       <label
         >模型服务商<el-select
           v-model="provider"
@@ -196,6 +207,8 @@ onBeforeUnmount(() => {
       商品知识、配置、工单与会话保存在本机独立工作区。每次启动 AI
       接待保持关闭，保存模型设置不会自动开启店铺 AI。
     </p>
-    <p>托管账号、额度与软件充值未启用。定时任务、更多平台及未实现的自动操作继续明确保持未接入。</p>
+    <p>
+      托管模式可登录服务端账号并查看分配额度；软件充值、定时任务、更多平台及未实现的自动操作继续保持未接入。
+    </p>
   </RuntimePanel>
 </template>

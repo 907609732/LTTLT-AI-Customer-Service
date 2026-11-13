@@ -1,0 +1,472 @@
+{
+  "repository": "https://github.com/907609732/LTTLT-AI-Customer-Service",
+  "branch": "codex/managed-admin-real-ui-20261113",
+  "commit": "fd45e3832f3cceefefa64f8ff43d05da2cffe5e9",
+  "files": [
+    {
+      "path": "deploy/bootstrap-private.py",
+      "upstreamPath": "managed-server/deploy/bootstrap-private.py",
+      "sha256": "02a01d6ad542688641e25c7b6f8f9f9dbdc13f4062851040b95c1d8b46538edd"
+    },
+    {
+      "path": "deploy/lingtu-kefu-acme-deploy",
+      "upstreamPath": "managed-server/deploy/lingtu-kefu-acme-deploy",
+      "sha256": "ef1061a4690d2bf23476a98bf772a25d5829e916a57e1dee5a4d74935d8095de"
+    },
+    {
+      "path": "deploy/lingtu-kefu-acme-renew",
+      "upstreamPath": "managed-server/deploy/lingtu-kefu-acme-renew",
+      "sha256": "1d07244bd29459e6deb2948b799448b75fb0c864eb4eaceb3747d4488681f611"
+    },
+    {
+      "path": "deploy/lingtu-kefu-acme-renew.service",
+      "upstreamPath": "managed-server/deploy/lingtu-kefu-acme-renew.service",
+      "sha256": "3268cfb2ad7e1a202faa09c764de4768f56fc558221ae55f76e6c46fc67819e5"
+    },
+    {
+      "path": "deploy/lingtu-kefu-acme-renew.timer",
+      "upstreamPath": "managed-server/deploy/lingtu-kefu-acme-renew.timer",
+      "sha256": "a568eb6b09a2c21ee8f646532bfe16f9882efb32f12a2fa24d687d47b7b2c50d"
+    },
+    {
+      "path": "deploy/lingtu-kefu.nginx.conf",
+      "upstreamPath": "managed-server/deploy/lingtu-kefu.nginx.conf",
+      "sha256": "eaf5657e5e5aed067e0331f4ab9932f0ce8f6e736fcaa46a07646d560e1c20f1"
+    },
+    {
+      "path": "deploy/lingtu-kefu.service",
+      "upstreamPath": "managed-server/deploy/lingtu-kefu.service",
+      "sha256": "3ce137b0f9f2367ac30ce8f182d7930550a64c7e99d26c9770197f52b658eb36"
+    },
+    {
+      "path": "deploy/service.env.example",
+      "upstreamPath": "managed-server/deploy/service.env.example",
+      "sha256": "08dbb075cc5124006dfaaba482b9c190d218326ed72d5d72355a11d9b7ec06f2"
+    },
+    {
+      "path": "overlay/common/lingtu_password_test.go",
+      "upstreamPath": "managed-server/overlay/common/lingtu_password_test.go",
+      "sha256": "64f70114d6dd57708e996a232a3ef5b91066b7e0865355b9beea215d6eda10bc"
+    },
+    {
+      "path": "overlay/controller/lingtu_channel.go",
+      "upstreamPath": "managed-server/overlay/controller/lingtu_channel.go",
+      "sha256": "17603806d64349e70c4087e26e3039f557e79624ed8ed12db990d34218f7485e"
+    },
+    {
+      "path": "overlay/controller/lingtu_encryption_test.go",
+      "upstreamPath": "managed-server/overlay/controller/lingtu_encryption_test.go",
+      "sha256": "562a6545d50975b0b0720b23250760f092525c68831184dc8a2cbc36ec460482"
+    },
+    {
+      "path": "overlay/controller/lingtu_registration_test.go",
+      "upstreamPath": "managed-server/overlay/controller/lingtu_registration_test.go",
+      "sha256": "668cd17330dc65380434e171fc9c5708bc76018ea122367510cd07a2569574b0"
+    },
+    {
+      "path": "overlay/lingtu/credentials.go",
+      "upstreamPath": "managed-server/overlay/lingtu/credentials.go",
+      "sha256": "f788a7d0563bbf8ee2181401dfd975f03b993d1a28599da91a214660494565a7"
+    },
+    {
+      "path": "overlay/lingtu/credentials_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/credentials_test.go",
+      "sha256": "7c65e9e38892a0827476c9d5167f3a272e269840aa7f9436202f774669276df5"
+    },
+    {
+      "path": "overlay/lingtu/device.go",
+      "upstreamPath": "managed-server/overlay/lingtu/device.go",
+      "sha256": "81e26842acba322e80542ff6a6b03857a66c1721aca05332cfc62e3b13c1b40e"
+    },
+    {
+      "path": "overlay/lingtu/device_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/device_test.go",
+      "sha256": "7b9bab096ff2122363d67a09055dfe08ced4d50207ef34ce793c8c62f5b1e1a0"
+    },
+    {
+      "path": "overlay/lingtu/encryption_migration.go",
+      "upstreamPath": "managed-server/overlay/lingtu/encryption_migration.go",
+      "sha256": "f8018d4e7b9f7b73ee7e819915ed1717172103b95d45861e016e0f60ace963e7"
+    },
+    {
+      "path": "overlay/lingtu/encryption_migration_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/encryption_migration_test.go",
+      "sha256": "fd7aeec2984baa10bea5ef2edef33bd582e8fd010c04ef85e974f8f2a695f820"
+    },
+    {
+      "path": "overlay/lingtu/identity.go",
+      "upstreamPath": "managed-server/overlay/lingtu/identity.go",
+      "sha256": "49704b2a3d25ae483cdb7e00f189a5f81df695f7a41d0d25dd9e42e0b42bbc0e"
+    },
+    {
+      "path": "overlay/lingtu/identity_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/identity_test.go",
+      "sha256": "4d3d0cfa783d36cc3b8a79ac8f12429905380a55950b98757aee0ff6147f3476"
+    },
+    {
+      "path": "overlay/lingtu/limits.go",
+      "upstreamPath": "managed-server/overlay/lingtu/limits.go",
+      "sha256": "da0a5f14b896e73479a582824661885442cf6fa70f73b436047a628887e32bb9"
+    },
+    {
+      "path": "overlay/lingtu/limits_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/limits_test.go",
+      "sha256": "01057677df673103d2386f8636a9f2ae7df84dc8c3fbde7ca42ed1644ec21b63"
+    },
+    {
+      "path": "overlay/lingtu/model_connection.go",
+      "upstreamPath": "managed-server/overlay/lingtu/model_connection.go",
+      "sha256": "bf9471281b65e7abedee230273d04ae12340a2c8b70884503bb5c682c1579496"
+    },
+    {
+      "path": "overlay/lingtu/secret_serializer.go",
+      "upstreamPath": "managed-server/overlay/lingtu/secret_serializer.go",
+      "sha256": "45e3c3e9df6c144b4fe310f78255674c0dd681da0b4472a688977d4ac97b2daf"
+    },
+    {
+      "path": "overlay/lingtu/secret_serializer_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/secret_serializer_test.go",
+      "sha256": "2eb0e54c676a3feb8aef46a9e1524ae9008a8b965546f48f761be005ca45bc17"
+    },
+    {
+      "path": "overlay/lingtu/session.go",
+      "upstreamPath": "managed-server/overlay/lingtu/session.go",
+      "sha256": "06c565eae3eda18e59ef73d0374a67828cf13f15b526bdfcce4e21ab5326233c"
+    },
+    {
+      "path": "overlay/lingtu/session_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/session_test.go",
+      "sha256": "2c3b4d97c32dca04af184ee039344e481824f62e61b665d0d3b9fa1c4ef99a0d"
+    },
+    {
+      "path": "overlay/lingtu/settings.go",
+      "upstreamPath": "managed-server/overlay/lingtu/settings.go",
+      "sha256": "abe3a0d51749548fc1643503a89a0be8968d4ab09223dbcd2d9daac60c54d48d"
+    },
+    {
+      "path": "overlay/lingtu/social.go",
+      "upstreamPath": "managed-server/overlay/lingtu/social.go",
+      "sha256": "788a675ba10d2ea3c73f9cac28f8c29e7869fa2d41aa61be0d9bd0866a03a534"
+    },
+    {
+      "path": "overlay/lingtu/social_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/social_test.go",
+      "sha256": "7c00a82942bb47e4ecb774a698a65ec3dc5bb43f9a69e909631313ed55323675"
+    },
+    {
+      "path": "overlay/lingtu/token_usage.go",
+      "upstreamPath": "managed-server/overlay/lingtu/token_usage.go",
+      "sha256": "2192e4992dd8697c90695b1f1c48bf0514c40f2fad200f930e6fb18ad49413a2"
+    },
+    {
+      "path": "overlay/lingtu/token_usage_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/token_usage_test.go",
+      "sha256": "06e2084e83295b0b46b62a8a07b4f07317ec2d1c68702fb4bc0d11ebea5b79a8"
+    },
+    {
+      "path": "overlay/lingtu/trial.go",
+      "upstreamPath": "managed-server/overlay/lingtu/trial.go",
+      "sha256": "0b6035bacc7645f2d44b4b011b6fed9c39d69506017a9d1c44dfee45d9a88f24"
+    },
+    {
+      "path": "overlay/lingtu/trial_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/trial_test.go",
+      "sha256": "601d8f4b40ee0c81b7838e86acee5a539fd62e17065e39db84dd84bbb6f24736"
+    },
+    {
+      "path": "overlay/lingtuhost/admin.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin.go",
+      "sha256": "2fe0a91291e4b657105d3f052f01a7f41015c240e000acb8e2a4f20966e245ab"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_connections_review_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_connections_review_test.go",
+      "sha256": "ffeb366f2e15e1a04b7bb695c9657887768a328beaf34b74586e6b47a9b626cc"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_connections_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_connections_test.go",
+      "sha256": "9e0eb7846a20901e2eda8f98db61ff8dccaa9b6427fd705a0241b5e7dad8e88f"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_models.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_models.go",
+      "sha256": "f6508c9bc6ac755deb30b563315572f32ca5c4480b5dff33ee7f700f62d41015"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_model_default_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_model_default_test.go",
+      "sha256": "db4e9a5f13f2ea14dafa80098cafc898fb232e4743c2357c5526736ac7a94663"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_save_test_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_save_test_test.go",
+      "sha256": "047bf18f53d253bae540bca41389655568032b35ea69ebb14fa5bc7ff8955bf7"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_test.go",
+      "sha256": "449bcdc0686398980572603b969a6365ece81412578ab79e6131dd9fbf375bf4"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_usage.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_usage.go",
+      "sha256": "7723b158d8ec38dee28627e79e78a37f86e29b741e2ad152f49cd7bacebd1faf"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_usage_daily.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_usage_daily.go",
+      "sha256": "473f177917e9a5cb6e1d6999000e1e4981cc8db1ce97163281acba04d27fcb6e"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_usage_daily_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_usage_daily_test.go",
+      "sha256": "60085fc63010180a56f00ef0781e6e18a7f72bdc3aef44e5216d009c957387a0"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_usage_summary_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_usage_summary_test.go",
+      "sha256": "8616ec657b6e24c699393474f115a28b6276b78345a23ac6bc16cfd78225f4db"
+    },
+    {
+      "path": "overlay/lingtuhost/admin_usage_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/admin_usage_test.go",
+      "sha256": "df11154d0bcccd38139737b4a8d5b0d4994a967ee19002891aeff3d376771535"
+    },
+    {
+      "path": "overlay/lingtuhost/chat.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/chat.go",
+      "sha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650"
+    },
+    {
+      "path": "overlay/lingtuhost/chat_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/chat_test.go",
+      "sha256": "68d971b36114e9bb06682511db70b011cac71b784037b1dd161446e2195d768f"
+    },
+    {
+      "path": "overlay/lingtuhost/chat_usage_rejection_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/chat_usage_rejection_test.go",
+      "sha256": "a98b09ee57c783c2aab1700cab689f4248354bc67815285c21e18230b038e7a8"
+    },
+    {
+      "path": "overlay/lingtuhost/device_approval_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/device_approval_test.go",
+      "sha256": "c2f861ee2df86eba2421a3ee7dd9f43996d4d8bca2f658a7437a31359162d6c0"
+    },
+    {
+      "path": "overlay/lingtuhost/model_catalog.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/model_catalog.go",
+      "sha256": "195f1ec5346f1dbe40fbb2548ffffb4082096cbbc0c55849fab0ef65154626db"
+    },
+    {
+      "path": "overlay/lingtuhost/rate_limit_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/rate_limit_test.go",
+      "sha256": "164b8f95b596194781e23373744b40e0defe446a36784d20ee32daa6d7fab5fd"
+    },
+    {
+      "path": "overlay/lingtuhost/routes.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/routes.go",
+      "sha256": "0be8e181b0df26ded2ce2e2a4ed5e84ebeb226fdf67880652712e29a27405525",
+      "upstreamSha256": "06864f9097cc5e2c7010927b6f5ba3d3bba95e0099ff771abbaaebc73932d5c4",
+      "localPatch": "Explicit numeric-loopback HTTP support for user-requested local startup; HTTPS remains mandatory for remote origins."
+    },
+    {
+      "path": "overlay/lingtuhost/vision.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/vision.go",
+      "sha256": "2214879fd65f1c14f1bdb82f8a7120af3f628a9ede833207730266664f16912d"
+    },
+    {
+      "path": "overlay/lingtuhost/vision_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/vision_test.go",
+      "sha256": "ebfe3a1bc0ced501e1ec2cfef23a91f561fcea5b06d882e271505dbb02adac27"
+    },
+    {
+      "path": "overlay/middleware/lingtu.go",
+      "upstreamPath": "managed-server/overlay/middleware/lingtu.go",
+      "sha256": "6ae8d41d53ab9caf183a33553c99dd96d3a9ac0700c2699e41dd5b82478e1af4"
+    },
+    {
+      "path": "overlay/middleware/lingtu_cors_test.go",
+      "upstreamPath": "managed-server/overlay/middleware/lingtu_cors_test.go",
+      "sha256": "2744f59db9decf861f88ac37a4bb7e2a5d1ae4425a35008f2960c52af64dfe1e"
+    },
+    {
+      "path": "overlay/middleware/lingtu_rate_limit.go",
+      "upstreamPath": "managed-server/overlay/middleware/lingtu_rate_limit.go",
+      "sha256": "b380bfdf44f51c1a10979a4c6799c2981b33a3825644942ac983e0b46f451f27"
+    },
+    {
+      "path": "overlay/middleware/lingtu_test.go",
+      "upstreamPath": "managed-server/overlay/middleware/lingtu_test.go",
+      "sha256": "f84317a6351a3f930855644ce47cb9be10dff75e2de5e5831793b8e03d8496c1"
+    },
+    {
+      "path": "overlay/oauth/lingtu.go",
+      "upstreamPath": "managed-server/overlay/oauth/lingtu.go",
+      "sha256": "9a14ef59fbf800fde72f0d45c6ca8f5ba545f1e30ca8f8a5e05f6f2543f769fb"
+    },
+    {
+      "path": "overlay/relay/channel/aws/lingtu_managed_test.go",
+      "upstreamPath": "managed-server/overlay/relay/channel/aws/lingtu_managed_test.go",
+      "sha256": "9b8c7cd9f12da3284b6ec01521ac7e0e4c85d5fe6da0f905d73489bbb64eb2e8"
+    },
+    {
+      "path": "overlay/relay/channel/xunfei/lingtu_managed.go",
+      "upstreamPath": "managed-server/overlay/relay/channel/xunfei/lingtu_managed.go",
+      "sha256": "c3a6a4c44b084c330d3b4a6abcd2de9ca6c6abed0b2b890274599fda0197692c"
+    },
+    {
+      "path": "overlay/relay/channel/xunfei/lingtu_managed_test.go",
+      "upstreamPath": "managed-server/overlay/relay/channel/xunfei/lingtu_managed_test.go",
+      "sha256": "919ea6279698a1ba179ffcdd75ad5fe8dd28ba3159d2e94f1b203fa792f3107f"
+    },
+    {
+      "path": "overlay/relay/helper/lingtu_price_test.go",
+      "upstreamPath": "managed-server/overlay/relay/helper/lingtu_price_test.go",
+      "sha256": "eecbf04d80283404d5c9166548fba69b4f56b9570597852a48999cbc9e191b36"
+    },
+    {
+      "path": "overlay/service/lingtu_admission.go",
+      "upstreamPath": "managed-server/overlay/service/lingtu_admission.go",
+      "sha256": "b3892a86272a31b71abfe304a1249a9e8ea570febfc574a8dd366117e0b52686"
+    },
+    {
+      "path": "overlay/service/lingtu_admission_test.go",
+      "upstreamPath": "managed-server/overlay/service/lingtu_admission_test.go",
+      "sha256": "33bc686ca287df021559b3a2b2fe73cb5a4f59566000c0eb1107f7bcb945f5f3"
+    },
+    {
+      "path": "overlay/service/lingtu_verification.go",
+      "upstreamPath": "managed-server/overlay/service/lingtu_verification.go",
+      "sha256": "3a5c49c03de8e31991f2027013d926e5a3494a09b98fd01cf7eaa6ec307217af"
+    },
+    {
+      "path": "overlay/service/lingtu_verification_test.go",
+      "upstreamPath": "managed-server/overlay/service/lingtu_verification_test.go",
+      "sha256": "5906a2cbe8992ac580172df870112bf35120be8b83f1d5fd4b05b0b98bf4b5db"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/admin-light.css",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-light.css",
+      "sha256": "11c6f13fdbd728be7725ad5d26a4b8b165f873932b4078862a236e4c20a9415f"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/admin-login-hint.test.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-login-hint.test.tsx",
+      "sha256": "6683fdec123e026dc0fa08b3143b34650d99bc3256416b84bd8a696e14edea51"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/admin-models.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-models.tsx",
+      "sha256": "ab82b618d1b731bfd6cd46dde8bcd4dcc25bac75ed3ca31c8dd60881cb585f72"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/admin-page.test.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.test.tsx",
+      "sha256": "31faaa4b3b87915c7a18bf03df0114717110648dd169606c741b749785c0aabf"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/admin-page.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.tsx",
+      "sha256": "47c9d379bc0749edd50d6dd598452074525a69308d3f9702eb65b3d16837111a"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/admin-usage.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-usage.tsx",
+      "sha256": "ca6b43a3155423553bb911ba1062077b4450a262f52a6a91ef5c303b98355364"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/api-origin.test.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/api-origin.test.tsx",
+      "sha256": "44160eb3c28adb81a11dc7336f566f3934630cd6a04e1557808884288bedbd89"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/device-page.test.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/device-page.test.tsx",
+      "sha256": "f7bd70dd4de3eafed3a4c25d7024fc58cb921352e4bea505dc7c98b32c0903bd"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/device-page.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/device-page.tsx",
+      "sha256": "127e98c00e6598e6c6820feb23bff2797997877e590f2f975dd7fb5cc8983441"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/email-registration-unavailable.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/email-registration-unavailable.tsx",
+      "sha256": "de4d2918a379dceb1602399031842f99391e38244385676d1c724828946bd456"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/rate-limit-message.test.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/rate-limit-message.test.tsx",
+      "sha256": "9641f5067b9555a818305d7e4b952af042b31c4a13cb83992ee5bf7f3e7f3b9b"
+    },
+    {
+      "path": "overlay/web/src/features/lingtu/registration-availability.test.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/features/lingtu/registration-availability.test.tsx",
+      "sha256": "ffd1ffcf846ed21adbb4b633d2463c2a183b9c63fcb110f49e9b98f74fbed227"
+    },
+    {
+      "path": "overlay/web/src/lib/managed-api-origin.ts",
+      "upstreamPath": "managed-server/overlay/web/src/lib/managed-api-origin.ts",
+      "sha256": "888a608af24c7e05bce77b87b5fdd7e8be10b8bbf7646dd194b1052a84334f79"
+    },
+    {
+      "path": "overlay/web/src/routes/lingtu/admin.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/routes/lingtu/admin.tsx",
+      "sha256": "250f0730724bbd27a7375173e845d295921bf9f1afda1225c71ec1b98d9de2ad"
+    },
+    {
+      "path": "overlay/web/src/routes/lingtu/device.tsx",
+      "upstreamPath": "managed-server/overlay/web/src/routes/lingtu/device.tsx",
+      "sha256": "8596172246fa7e74e9e3d8a007f4fbfe6ae763be64a391f08f3cec314c095148"
+    },
+    {
+      "path": "patches.json",
+      "upstreamPath": "managed-server/patches.json",
+      "sha256": "b618ce9bebc8e70ac681fcc2ed3c965692e214c41c0bca630b9d83778dddd011",
+      "upstreamSha256": "edbf75acd4311588cf91b84e0377f76cd879d8c5c7a84a35ef88117d3b8120e8",
+      "localPatch": "Explicit local HTTP uses same-origin loopback guard; remote HTTPS CORS unchanged."
+    },
+    {
+      "path": "portal-site/.openai/hosting.json",
+      "upstreamPath": "managed-server/portal-site/.openai/hosting.json",
+      "sha256": "19f451d7c6dd810c56061d970078357da49e4a3d486ecd3aa039997aac5c8f61"
+    },
+    {
+      "path": "portal-site/README.md",
+      "upstreamPath": "managed-server/portal-site/README.md",
+      "sha256": "33a19b4decfa1b76f9e9086503027d1523590b7101c7ed018770f3c3f771fbd2"
+    },
+    {
+      "path": "README.upstream.md",
+      "upstreamPath": "managed-server/README.md",
+      "sha256": "c22adf2f9c45e92812d0085cee8398b3940df64998e25a51569e996947d4d2b8"
+    },
+    {
+      "path": "tests/preparation.test.mjs",
+      "upstreamPath": "managed-server/tests/preparation.test.mjs",
+      "sha256": "99e20584cce82b016e17cbcddf886c8cf4c8c6d238d31b71a976a5235f03d598"
+    },
+    {
+      "path": "translations.json",
+      "upstreamPath": "managed-server/translations.json",
+      "sha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149"
+    },
+    {
+      "path": "upstream.lock.json",
+      "upstreamPath": "managed-server/upstream.lock.json",
+      "sha256": "08c83d68746b13a13b513fbd1a9df1ae597188d97b2c5af98f2797ff93138c3f"
+    },
+    {
+      "path": "scripts/prepare.mjs",
+      "upstreamPath": "scripts/prepare-managed-server.mjs",
+      "upstreamSha256": "03e976d28615fcd07499f0cd6f81b94461c39eac7ff0c42e3fe00b5865b8042a",
+      "sha256": "9a0761f0815ee23f5cfb126f0a3e006861a85bca3c7cb3aeace0c41fa08798e1",
+      "localPatch": "Relocate folder resolution so the server is self-contained."
+    },
+    {
+      "path": "LICENSE-LTTLT",
+      "sha256": "79735a75d0274d2a5dcc240d11a0f81e34cfc3533939b7fce8e84e35a150a238"
+    }
+  ]
+}

@@ -1,5 +1,9 @@
 # 上游来源与维护边界
 
+## 2026-11-13：用户授权新增可选托管装配
+
+原本机装配仍默认保留；用户明确要求合并 PR #21 服务端后，云朵的 TypeScript 控制器复用已有 managed-session 和 managed 后端注入，不替换运行时或混用上游 React 桌面。backend.cjs 的唯一新增兼容点是把 complete 的可选 traceId 转交 managedChat 的本机 options，未写入 HTTP 正文；提交诊断由自有控制器在实际 chat fetch 前发出。原始来源与最新实际摘要保留在 source-files.json。账号隔离与新服务端来源见 docs/MANAGED_SERVICE.md 和 server/PROVENANCE.md。
+
 来源：https://github.com/907609732/LTTLT-AI-Customer-Service/pull/18
 
 固定提交：5b6293cc9c75e6e25fdaa16d6187effb0a9d1a5e。
@@ -37,3 +41,11 @@ source-files.json 为此文件同时记录 upstreamGitBlob、upstreamSha256、�
 - desk-v1/src/main/reply-engine.js：在统一发送入口的欢迎语装饰后调用可选 beforeSend，确认后复核状态、频率、会话定位及人工接管；拒绝时暂停该会话，不自动重发。事件记录最终发送结果。
 
 新增策略、日志缓冲及状态机全部位于本工程 TypeScript；第三方只保留这些必要注入点。上游未传入这些选项时行为不变。三处文件均保留原始哈希、补丁说明及实际哈希，升级须复核统一发送边界。详见 docs/RUNTIME_LOGS.md 与 tests/review-engine.test.ts。
+
+## 附加平台注入（2026-11-13）
+
+本机模拟店铺：electron/backend.cjs 的 createBackend 新增可选 extraPlatforms，只把注入项合并进 allPlatforms（按 /^[a-z0-9][a-z0-9-]{0,39}$/ 过滤），用于 capabilities.platforms 快照与 add-store 的平台校验；未注入时 allPlatforms 与上游 platforms 完全一致，拼多多/抖店的默认清单、accessModeFor 与 createAdapter 表均未改动。云朵在 electron/local-runtime.ts 注入唯一一项 sim-local（本机模拟店铺），其适配器、门店管理器与模拟顾客页全部位于本工程 TypeScript（electron/sim-*.ts）与渲染层模块 src/modules/simulation/。
+
+此注入只放开“平台 id 白名单”，不给模拟店铺任何真实登录、真实买家或平台发送能力；模拟消息仍走上游同一套 ingest → 会话快照 → 回复引擎 → 逐条确认门 → send-reply 链路。source-files.json 中该文件的 localPatch 说明与实际 sha256 已随补丁更新（当前 fb2ffd7d531500a2579961ec282015b0ccd0657cf47c9325f68a18e180c158c6）。升级上游时必须重新审查该注入点，不能只更新哈希。
+
+2026-11-14 用户要求本机 HTTP 预览：managed-session.cjs 的来源校验仅额外允许显式、带端口的 http://127.0.0.1。远程 HTTP、localhost 名称、伪装域名、路径及凭据仍拒绝；主进程同步校验。source-files.json 保留原始 upstreamSha256 和实际 sha256。没有关闭 TLS 校验或创建证书。

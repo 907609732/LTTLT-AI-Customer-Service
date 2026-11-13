@@ -1,7 +1,15 @@
 import { z } from 'zod'
 import { reviewSnapshotSchema, emptyReview } from './review'
+import { managedStateSchema, emptyManagedState } from './managed'
 
 export const actions = [
+  'save-model-source',
+  'managed-login',
+  'managed-cancel-login',
+  'managed-refresh',
+  'managed-logout',
+  'open-managed-admin',
+  'acknowledge-model-issue',
   'add-store',
   'open-runtime-logs',
   'review-reply',
@@ -204,6 +212,25 @@ export const workOrderSchema = z.object({
 })
 export type WorkOrder = z.infer<typeof workOrderSchema>
 export const snapshotSchema = z.object({
+  managed: managedStateSchema.default(emptyManagedState),
+  modelIssue: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+      at: z.number(),
+      requiresReview: z.boolean(),
+      context: z
+        .object({
+          requestId: z.string().max(100).optional(),
+          storeId: z.string().max(64).optional(),
+          uid: z.string().max(200).optional(),
+          storeName: z.string().max(120).optional(),
+          buyerName: z.string().max(120).optional(),
+        })
+        .optional(),
+    })
+    .nullable()
+    .default(null),
   review: reviewSnapshotSchema.default(emptyReview),
   workspaceId: z.string(),
   revision: z.number(),
@@ -221,7 +248,7 @@ export const snapshotSchema = z.object({
   }),
   capabilities: z.object({
     apiKeyConfigured: z.boolean(),
-    modelMode: z.literal('local'),
+    modelMode: z.enum(['local', 'managed']),
     platforms: z.array(z.object({ id: z.string(), label: z.string() })),
     vision: z.object({
       supported: z.boolean(),
@@ -281,6 +308,8 @@ export interface BackendBridge {
 
 export function emptySnapshot(): BackendSnapshot {
   return {
+    managed: emptyManagedState(),
+    modelIssue: null,
     review: emptyReview(),
     workspaceId: '',
     revision: 0,

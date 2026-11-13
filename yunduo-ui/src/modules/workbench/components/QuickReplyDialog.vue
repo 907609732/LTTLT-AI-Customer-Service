@@ -1,262 +1,195 @@
-<!-- QuickReplyDialog：保留还原样式标记，业务能力由模块服务逐步接入。 -->
+<!-- Keep legacy data-v markers; local styles only adapt the built-in phrase cards. -->
 <script setup lang="ts">
-import { notifyUnavailable } from '@/shared/ui/feedback'
+import { computed, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import IconSearch from '@/shared/icons/IconSearch.vue'
-import IconDownload from '@/shared/icons/IconDownload.vue'
-import IconUpload from '@/shared/icons/IconUpload.vue'
-import IconPlus from '@/shared/icons/IconPlus.vue'
-import IconFolderAdd from '@/shared/icons/IconFolderAdd.vue'
-import IconEditPen from '@/shared/icons/IconEditPen.vue'
-import IconDelete from '@/shared/icons/IconDelete.vue'
-import { ref, computed } from 'vue'
-import { createQuickReplyDialogDemo } from '@/modules/workbench/demo/QuickReplyDialog'
-const demo = createQuickReplyDialogDemo()
-interface Props {
-  modelValue?: boolean
-  enterToSend?: boolean
-  clearAfterSend?: boolean
-}
-const props = withDefaults(defineProps<Props>(), {
-  modelValue: false,
-  enterToSend: false,
-  clearAfterSend: false,
-})
-const __stub = notifyUnavailable
-const qrBody = ref(true)
-const inputValue = ref(demo.modelValue)
-const button = ref(demo.button)
-const rows = ref(demo.rows)
-const template = ref(demo.template)
-const modelValueState = ref(demo.modelValueState)
-const select = ref(demo.select)
-const rowsSummary = computed(() => demo.rowsSummary)
-const qrItemItems = computed(() => demo.qrItemItems)
-const maxlength = ref(demo.maxlength)
+import {
+  browseGenericPhrases,
+  genericPhrases,
+  genericScenes,
+  type GenericPhrase,
+} from '@/shared/customer-service/library'
+import { copyGenericPhrase } from '../services/generic-phrases'
 
-const emit = defineEmits<{
-  'update:modelValue': [visible: boolean]
-  'update:enterToSend': [enabled: boolean]
-  'update:clearAfterSend': [enabled: boolean]
-}>()
+const props = withDefaults(defineProps<{ modelValue?: boolean }>(), { modelValue: false })
+const emit = defineEmits<{ 'update:modelValue': [visible: boolean] }>()
+const query = ref('')
+const scene = ref('')
+const copying = ref('')
+const rows = computed(() => browseGenericPhrases(query.value, scene.value))
+const categories = genericScenes.map((name) => ({
+  name,
+  count: genericPhrases.filter((row) => row.scene === name).length,
+}))
+
+function resetFilters() {
+  query.value = ''
+  scene.value = ''
+}
+
+async function copy(row: GenericPhrase) {
+  if (copying.value) return
+  copying.value = row.id
+  try {
+    await copyGenericPhrase(row)
+    ElMessage.success('话术已复制，请结合当前会话核对后使用')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '复制失败，请选中话术手动复制')
+  } finally {
+    copying.value = ''
+  }
+}
 </script>
 
 <template>
   <el-dialog
     :model-value="props.modelValue"
-    @update:modelValue="emit('update:modelValue', $event)"
-    title="快捷回复"
-    width="680px"
-    append-to-body=""
-    align-center=""
-    :close-on-click-modal="!1"
+    title="快捷回复 · 通用话术"
+    width="min(860px, calc(100vw - 40px))"
+    append-to-body
+    align-center
+    :close-on-click-modal="false"
     class="quick-reply-dialog"
     data-v-7dfc4df5=""
-    ><div v-show="qrBody" class="qr-body" data-v-7dfc4df5="">
+    @update:model-value="emit('update:modelValue', $event)"
+  >
+    <div class="qr-body" data-v-7dfc4df5="" data-testid="generic-phrases">
       <div class="qr-hint" data-v-7dfc4df5="">
-        <strong data-v-7dfc4df5="">怎么批量添加？</strong>
+        <strong data-v-7dfc4df5=""
+          >内置 {{ genericPhrases.length }} 条通用话术 · {{ categories.length }} 个场景</strong
+        >
         <p data-v-7dfc4df5="">
-          1. 点「模板」下载表格 → 2. 用 Excel 填两列「分类」「回复内容」→ 3. 保存后点「导入」。
-          每条最多 <b data-v-7dfc4df5="">{{ maxlength }}</b> 字，也支持直接点「新增」手动添加。
+          用于询问需求、安抚情绪和引导核实。AI
+          回复会参考相关表达；商品、订单和售后结论以本店资料为准。
+          点击复制后可自行修改，不会直接发送给买家。
         </p>
       </div>
-      <div class="qr-toolbar" data-v-7dfc4df5="">
-        <el-input
-          v-model="inputValue"
-          clearable=""
-          placeholder="搜索分类或回复内容"
-          :prefix-icon="IconSearch"
-          data-v-7dfc4df5=""
-        ></el-input
-        ><button
+      <el-input
+        v-model="query"
+        clearable
+        aria-label="搜索通用话术"
+        placeholder="搜索场景、问题或回复，例如：物流、着急、退货"
+        :prefix-icon="IconSearch"
+        class="phrase-search"
+      />
+      <div class="qr-cats" data-v-7dfc4df5="" aria-label="话术场景">
+        <button
           type="button"
-          class="qr-btn"
-          title="下载 Excel 表格模板"
-          @click="__stub('此操作')"
+          :class="['qr-cat', { active: !scene }]"
+          :aria-pressed="!scene"
           data-v-7dfc4df5=""
+          @click="scene = ''"
         >
-          <el-icon data-v-7dfc4df5=""
-            ><component :is="IconDownload" data-v-7dfc4df5=""></component
-          ></el-icon>
-          模板</button
-        ><button
+          全部 <em data-v-7dfc4df5="">{{ genericPhrases.length }}</em>
+        </button>
+        <button
+          v-for="category in categories"
+          :key="category.name"
           type="button"
-          class="qr-btn"
-          title="导入 CSV 表格"
-          @click="__stub('此操作')"
+          :class="['qr-cat', { active: scene === category.name }]"
+          :aria-pressed="scene === category.name"
           data-v-7dfc4df5=""
+          @click="scene = category.name"
         >
-          <el-icon data-v-7dfc4df5=""
-            ><component :is="IconUpload" data-v-7dfc4df5=""></component
-          ></el-icon>
-          导入</button
-        ><button
-          type="button"
-          class="qr-btn"
-          title="导出为 CSV 表格"
-          @click="__stub('此操作')"
-          data-v-7dfc4df5=""
-        >
-          <el-icon data-v-7dfc4df5=""
-            ><component :is="IconDownload" data-v-7dfc4df5=""></component
-          ></el-icon>
-          导出</button
-        ><button type="button" class="qr-btn primary" @click="__stub('此操作')" data-v-7dfc4df5="">
-          <el-icon data-v-7dfc4df5=""
-            ><component :is="IconPlus" data-v-7dfc4df5=""></component
-          ></el-icon>
-          新增</button
-        ><input
-          type="file"
-          accept=".csv,.txt,.tsv,text/csv,application/vnd.ms-excel,application/json,.json"
-          hidden=""
-          @change="__stub('此操作')"
-          data-v-7dfc4df5=""
-        />
-      </div>
-      <div class="qr-cats" data-v-7dfc4df5="">
-        <template :key="entryIndex" v-for="(item, entryIndex) in rowsSummary"
-          ><button
-            type="button"
-            :class="['qr-cat', { active: button === item?.['id'] }]"
-            @click="__stub('此操作')"
-            data-v-7dfc4df5=""
-          >
-            {{ item?.['name'] + ' ' }}<em data-v-7dfc4df5="">{{ item?.['count'] }}</em>
-          </button></template
-        ><button type="button" class="qr-cat add" @click="__stub('此操作')" data-v-7dfc4df5="">
-          <el-icon data-v-7dfc4df5=""
-            ><component :is="IconFolderAdd" data-v-7dfc4df5=""></component
-          ></el-icon>
-          分类
+          {{ category.name }} <em data-v-7dfc4df5="">{{ category.count }}</em>
         </button>
       </div>
-      <template v-if="props.modelValue"
-        ><div class="qr-cat-actions" data-v-7dfc4df5="">
-          <span data-v-7dfc4df5=""></span
-          ><button type="button" @click="__stub('此操作')" data-v-7dfc4df5="">重命名</button
-          ><button type="button" class="danger" @click="__stub('此操作')" data-v-7dfc4df5="">
-            删除分类
-          </button>
-        </div></template
-      >
+      <p class="phrase-count" aria-live="polite">
+        找到 {{ rows.length }} 条话术 · 使用前请核对适用条件
+      </p>
       <div class="qr-list" data-v-7dfc4df5="">
-        <template v-if="template === '__new__'"
-          ><div class="qr-edit-card" data-v-7dfc4df5="">
-            <div class="qr-edit-meta" data-v-7dfc4df5="">
-              <span data-v-7dfc4df5="">分类</span
-              ><select v-show="select" @update:modelValue="__stub('此操作')" data-v-7dfc4df5="">
-                <template :key="entryIndex" v-for="(item, entryIndex) in rows"
-                  ><option :value="item?.['id']" data-v-7dfc4df5="">
-                    {{ item?.['name'] }}
-                  </option></template
-                >
-              </select>
-            </div>
-            <el-input
-              :model-value="modelValueState"
-              @update:modelValue="__stub('此操作')"
-              type="textarea"
-              rows="2"
-              :maxlength="maxlength"
-              show-word-limit=""
-              :placeholder="'输入常用回复，最多 ' + maxlength + ' 字'"
-              @keydown="__stub('此操作')"
-              data-v-7dfc4df5=""
-            ></el-input>
-            <div class="qr-edit-actions" data-v-7dfc4df5="">
-              <el-button size="small" @click="emit('update:modelValue', false)" data-v-7dfc4df5=""
-                >取消</el-button
-              ><el-button type="primary" size="small" @click="__stub('此操作')" data-v-7dfc4df5=""
-                >保存</el-button
-              >
-            </div>
-          </div></template
-        ><template :key="entryIndex" v-for="(item, entryIndex) in qrItemItems"
-          ><article class="qr-item" data-v-7dfc4df5="">
-            <template v-if="template === item?.['id']"
-              ><div class="qr-edit-meta" data-v-7dfc4df5="">
-                <span data-v-7dfc4df5="">分类</span
-                ><select v-show="select" @update:modelValue="__stub('此操作')" data-v-7dfc4df5="">
-                  <template :key="entryIndex" v-for="(item, entryIndex) in rows"
-                    ><option :value="item?.['id']" data-v-7dfc4df5="">
-                      {{ item?.['name'] }}
-                    </option></template
-                  >
-                </select>
-              </div>
-              <el-input
-                :model-value="modelValueState"
-                @update:modelValue="__stub('此操作')"
-                type="textarea"
-                rows="2"
-                :maxlength="maxlength"
-                show-word-limit=""
-                @keydown="__stub('此操作')"
-                data-v-7dfc4df5=""
-              ></el-input>
-              <div class="qr-edit-actions" data-v-7dfc4df5="">
-                <el-button size="small" @click="emit('update:modelValue', false)" data-v-7dfc4df5=""
-                  >取消</el-button
-                ><el-button type="primary" size="small" @click="__stub('此操作')" data-v-7dfc4df5=""
-                  >保存</el-button
-                >
-              </div></template
-            ><template v-else
-              ><span class="qr-tag" data-v-7dfc4df5=""></span
-              ><button
-                type="button"
-                class="qr-text"
-                :title="item?.['text']"
-                @click="__stub('此操作')"
-                data-v-7dfc4df5=""
-              >
-                {{ item?.['text'] }}</button
-              ><span class="qr-len" data-v-7dfc4df5="">{{ item?.['text']?.['length'] }}</span>
-              <div class="qr-item-actions" data-v-7dfc4df5="">
-                <button type="button" title="使用" @click="__stub('此操作')" data-v-7dfc4df5="">
-                  使用</button
-                ><button type="button" title="编辑" @click="__stub('此操作')" data-v-7dfc4df5="">
-                  <el-icon data-v-7dfc4df5=""
-                    ><component :is="IconEditPen" data-v-7dfc4df5=""></component
-                  ></el-icon></button
-                ><button
-                  type="button"
-                  class="danger"
-                  title="删除"
-                  @click="__stub('此操作')"
-                  data-v-7dfc4df5=""
-                >
-                  <el-icon data-v-7dfc4df5=""
-                    ><component :is="IconDelete" data-v-7dfc4df5=""></component
-                  ></el-icon>
-                </button></div
-            ></template></article></template
-        ><template v-if="!qrItemItems?.['length'] && template !== '__new__'"
-          ><div class="qr-empty" data-v-7dfc4df5="">
-            <p data-v-7dfc4df5="">{{ '没有匹配的快捷回复' }}</p>
-            <button type="button" class="qr-empty-add" @click="__stub('此操作')" data-v-7dfc4df5="">
-              手动添加一条
-            </button>
-          </div></template
+        <article
+          v-for="row in rows"
+          :key="row.id"
+          class="qr-item phrase-card"
+          data-v-7dfc4df5=""
+          :data-phrase-id="row.id"
         >
+          <div class="phrase-heading">
+            <span class="qr-tag" data-v-7dfc4df5="">{{ row.scene }}</span>
+            <strong>{{ row.intent }}</strong>
+            <el-button
+              size="small"
+              :loading="copying === row.id"
+              :disabled="Boolean(copying)"
+              :aria-label="'复制：' + row.intent"
+              @click="copy(row)"
+              >复制话术</el-button
+            >
+          </div>
+          <p class="phrase-reply">{{ row.reply }}</p>
+          <p class="phrase-triggers">常见问法：{{ row.triggers.join(' / ') }}</p>
+          <details class="phrase-conditions">
+            <summary>适用条件与注意事项</summary>
+            <p>{{ row.context_required.join('；') || '阅读当前会话后使用，避免重复追问。' }}</p>
+            <p>{{ row.avoid }}</p>
+          </details>
+        </article>
+        <div v-if="!rows.length" class="qr-empty" data-v-7dfc4df5="">
+          <p>没有匹配的话术，可以换个词或查看全部场景。</p>
+          <el-button size="small" @click="resetFilters">查看全部</el-button>
+        </div>
       </div>
-      <div class="qr-options" data-v-7dfc4df5="">
-        <label class="qr-check" data-v-7dfc4df5=""
-          ><input
-            type="checkbox"
-            :checked="props?.['enterToSend']"
-            @change="__stub('此操作')"
-            data-v-7dfc4df5=""
-          /><span data-v-7dfc4df5="">回车发送</span></label
-        ><label class="qr-check" data-v-7dfc4df5=""
-          ><input
-            type="checkbox"
-            :checked="props?.['clearAfterSend']"
-            @change="__stub('此操作')"
-            data-v-7dfc4df5=""
-          /><span data-v-7dfc4df5="">发送后清空输入框</span></label
-        >
-      </div>
-    </div></el-dialog
-  >
+    </div>
+  </el-dialog>
 </template>
+
+<style scoped>
+.phrase-search {
+  margin-bottom: 12px;
+}
+.phrase-count {
+  margin: 10px 0;
+  color: #6b7c93;
+  font-size: 12px;
+}
+.qr-list[data-v-7dfc4df5] {
+  max-height: min(48vh, 480px);
+  gap: 10px;
+}
+.qr-item.phrase-card {
+  display: block;
+  /* The list scrolls; cards must not shrink and clip their reply/usage conditions. */
+  flex: 0 0 auto;
+  padding: 14px 16px;
+  border: 1px solid #e2ebf7;
+  background: #f8fbff;
+}
+.phrase-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #243656;
+}
+.phrase-heading strong {
+  flex: 1;
+}
+.phrase-heading .qr-tag {
+  max-width: 140px;
+  flex-shrink: 0;
+}
+.phrase-reply {
+  margin: 12px 0 8px;
+  color: #1f2a37;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.phrase-triggers,
+.phrase-conditions {
+  margin: 8px 0 0;
+  color: #6b7c93;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.phrase-conditions summary {
+  cursor: pointer;
+  color: #376db1;
+}
+.phrase-conditions p {
+  margin: 6px 0 0;
+}
+</style>

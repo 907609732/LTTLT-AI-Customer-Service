@@ -11,11 +11,13 @@ import {
 } from '@/modules/knowledge'
 import { QcReplyPanel, ShopWorkOrderPanel, ShopWipPanel } from '@/modules/quality'
 import { ShopAccountPanel } from '@/modules/billing'
+import { SimConsoleView } from '@/modules/simulation'
 
 /** 标题、面板和菜单共用此注册表；不再维护三份相互漂移的映射。 */
 export const panelRegistry = {
   home: { title: '数据看板', component: ShopHomePanel },
   shops: { title: '店铺与商品', component: ShopGoodsPanel },
+  sim: { title: '模拟客服台', component: SimConsoleView },
   goods: { title: '店铺商品', component: ShopGoodsPanel },
   desk: { title: '店铺工作台', component: ShopGoodsPanel },
   transfer: { title: '转接人工', component: ShopOpsPanel },
@@ -57,7 +59,10 @@ const item = (key: PanelKey, children?: PanelKey[]): NavItem => ({
 })
 export const navGroups: { label: string; items: NavItem[] }[] = [
   { label: '数据中心', items: [item('home')] },
-  { label: '开店准备', items: [item('shops', ['transfer', 'welcome', 'auto', 'image'])] },
+  {
+    label: '开店准备',
+    items: [item('shops', ['transfer', 'welcome', 'auto', 'image']), item('sim')],
+  },
   {
     label: '教AI回答',
     items: [

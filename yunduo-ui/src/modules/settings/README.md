@@ -8,7 +8,7 @@ SettingsView 新增 AI 回复间隔表单：当前保存值、0～3600 整数秒
 
 界面入口：SettingsView、GeneralPanel。
 
-当前业务状态：SettingsView 已接服务商预设、自定义兼容接口、系统加密 Key 存储与连接测试。GeneralPanel 保留为未接线的旧还原视图。
+当前业务状态：SettingsView 已接服务商预设、自定义兼容接口、系统加密 Key 存储与连接测试。ModelSourceSettings 新增默认本机/显式托管选择、公开来源、设备授权登录、恢复/刷新额度、退出、管理后台和明确核对后清除暂停提示；动作经运行时白名单，不在组件访问网络/凭据。切换来源/账号需重启，托管工作区按验证身份隔离。见 docs/MANAGED_SERVICE.md。GeneralPanel 保留为未接线的旧还原视图。
 
 接入流程见根目录 docs/LOCAL_INTEGRATION.md。demo 是旧视图数据，不是 API DTO；新增能力在所属模块建立服务与类型，经过本地运行时契约，不直接访问 IPC、网络或文件系统。
 

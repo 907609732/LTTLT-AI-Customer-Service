@@ -1,21 +1,39 @@
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow, safeStorage, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, safeStorage, shell, type IpcMainInvokeEvent } from 'electron'
+import {
+  createManagedController,
+  type ManagedSessionFactory,
+  type ManagedTransport,
+} from './managed-controller'
 import {
   commandSchema,
   snapshotSchema,
   resultSchema,
+  emptySnapshot,
   type BackendCommand,
   type BackendEvent,
+  type BackendResult,
 } from '../src/shared/contracts/backend'
 import { isTrustedRenderer, isAppWebContents, createWindow, loadRenderer } from './windows'
 import { localVisionCapability } from './model-capabilities'
 import { ReviewConsole, type SendProposal } from './review-console'
 import { configureDomTextAdapter } from './dom-text-adapter'
-import { createContextCompressor } from './context-compression'
+import { createAssistedContext } from './generic-phrases'
 import { createConversationThread } from './conversation-context'
 import type { WorkerObservation } from './message-diagnostics'
+import {
+  SIM_PLATFORM_ID,
+  SIM_PLATFORM_LABEL,
+  type SimulatorActionResult,
+  type SimulatorStatus,
+} from '../src/shared/contracts/simulation'
+import { SimHub } from './sim-hub'
+import { emptyReview } from '../src/shared/contracts/review'
+import { createSimAdapter } from './sim-adapter'
+import { createSimManagerFactory } from './sim-manager'
+import { createSimServer } from './sim-server'
 
 interface UpstreamBackend {
   engine?: { worker(storeId: string): WorkerObservation | null }
@@ -64,26 +82,59 @@ export function requireAppFrame(event: IpcMainInvokeEvent): BrowserWindow {
 export function createLocalRuntime(options: {
   dataDir: string
   getWindow: () => BrowserWindow | undefined
+  /** Test-only dependency injection; production has no environment or renderer override. */
+  managedTransport?: ManagedTransport
 }) {
   const workspaceId = randomUUID()
   const listeners = new Set<(event: BackendEvent) => void>()
   let closed = false
   // 上游工厂可能在装配期间产生回调，引用就绪前不读取其快照。
   const backendRef: { current?: UpstreamBackend } = {}
+  const managed = createManagedController({
+    rootDir: options.dataDir,
+    factory: loadFactory<ManagedSessionFactory>(
+      'electron/managed-session.cjs',
+      'createManagedSession',
+    ),
+    safeStorage,
+    openExternal: (url) => shell.openExternal(url),
+    stopAi: () => backendRef.current?.stopAi(),
+    changed: () => {
+      if (!closed) for (const listener of listeners) listener({ type: 'managed:changed' })
+    },
+    submitted: (traceId) => review.trace({ type: 'submitted', traceId }),
+    transport: options.managedTransport,
+  })
+  const dataDir = managed.dataDir
   let logWindow: BrowserWindow | undefined
   const notifyReview = () => {
     if (!closed) for (const listener of listeners) listener({ type: 'review:changed' })
   }
-  const read = () =>
-    snapshotSchema.parse({
-      ...(backendRef.current?.snapshot() as Record<string, unknown>),
+  const read = () => {
+    const masked = emptySnapshot()
+    masked.capabilities.modelMode = managed.active.mode
+    // A newly signed-in account must not see or mutate the previous account's records before restart.
+    return snapshotSchema.parse({
+      ...(managed.canAccessWorkspace()
+        ? (backendRef.current?.snapshot() as Record<string, unknown>)
+        : masked),
       workspaceId,
+      managed: managed.snapshot(),
     })
+  }
   const review = new ReviewConsole(
     read,
     notifyReview,
     (id) => backendRef.current?.engine?.worker(id) ?? undefined,
   )
+  const traceModel = (event: unknown) => {
+    if (managed.active.mode === 'managed' && event && typeof event === 'object')
+      return review.trace({
+        ...event,
+        model: managed.snapshot().session.account?.capabilities?.model || '托管模型（待授权）',
+      })
+    return review.trace(event)
+  }
   async function openLogs() {
     if (logWindow && !logWindow.isDestroyed()) {
       logWindow.show()
@@ -109,12 +160,33 @@ export function createLocalRuntime(options: {
       throw error
     }
   }
+  // 本机模拟店铺的数据只落在本地数据目录：主进程独占读写，渲染层只经业务快照看到结果。
+  const simHub = new SimHub({ file: path.join(dataDir, 'simulator-stores.json') })
+  const simStores = () => {
+    if (closed) return []
+    return read()
+      .stores.filter((store) => store.platform === SIM_PLATFORM_ID)
+      .map((store) => ({ storeId: store.id, storeName: store.storeName }))
+  }
+  // 顾客模拟页只监听回环地址、只服务本机模拟店铺，地址里带本次运行的一次性口令。
+  const simServer = createSimServer({
+    hub: simHub,
+    listStores: simStores,
+    ensureStore(storeId: string) {
+      const store = simStores().find((item) => item.storeId === storeId)
+      if (!store) return false
+      // 页面能在店铺关闭后继续加载，但消息只有在店铺打开（采集启动）后才会进入业务会话。
+      if (!simHub.isOpen(storeId)) simHub.attach(storeId, store.storeName)
+      return true
+    },
+    log: (message: string) => console.log(`[模拟顾客页] ${message}`),
+  })
   const host = loadFactory<PlatformFactory>(
     'electron/platform-host.cjs',
     'createPlatformHost',
   ).createPlatformHost({
-    dataDir: options.dataDir,
-    partitionNamespace: 'yunduo-local',
+    dataDir,
+    partitionNamespace: managed.partitionNamespace,
     allowExternalClient: true,
     getWindow: options.getWindow,
   })
@@ -122,14 +194,28 @@ export function createLocalRuntime(options: {
     'electron/backend.cjs',
     'createBackend',
   ).createBackend({
-    dataDir: options.dataDir,
-    adapterFactory: (store: { platform: string }, deps: unknown) =>
-      configureDomTextAdapter(store.platform, host.adapterFactory(store, deps)),
-    managerFactory: host.managerFactory,
+    dataDir,
+    // 项目自有平台 id 由这里注入，拼多多/抖店等真实平台的默认清单不受影响。
+    extraPlatforms: [{ id: SIM_PLATFORM_ID, label: SIM_PLATFORM_LABEL }],
+    adapterFactory: (store: { id: string; storeName?: string; platform: string }, deps: unknown) =>
+      store.platform === SIM_PLATFORM_ID
+        ? createSimAdapter(store, simHub)
+        : // 必须先做文案改写再交给厂商工厂：厂商适配器表里没有 sim-local，未知平台会直接抛错。
+          configureDomTextAdapter(store.platform, host.adapterFactory(store, deps)),
+    managerFactory: createSimManagerFactory(
+      host.managerFactory as (deps: Record<string, unknown>) => never,
+      simHub,
+    ),
     safeStorage,
-    modelMode: 'local',
+    modelMode: managed.active.mode,
+    managedChat: (
+      payload: { client_request_id: string; messages: unknown },
+      requestOptions: { signal?: AbortSignal; traceId?: string },
+    ) => managed.chat(payload, requestOptions),
+    managedReady: () => managed.ready(),
+    managedCapabilities: () => managed.capabilities(),
     localVisionSupport: localVisionCapability,
-    prepareModelContext: createContextCompressor((event) => review.trace(event)),
+    prepareModelContext: createAssistedContext(traceModel),
     resolveConversationThread: createConversationThread(() => read().conversations),
     beforeSend: (proposal: SendProposal) => {
       const decision = review.propose(proposal)
@@ -137,7 +223,7 @@ export function createLocalRuntime(options: {
       void openLogs().catch(() => notifyReview())
       return decision
     },
-    onModelTrace: (event: unknown) => review.trace(event),
+    onModelTrace: traceModel,
     onRuntimeEvent: (event: unknown) => review.event(event),
     allowExternalClient: true,
     onEvent(event: unknown) {
@@ -157,12 +243,46 @@ export function createLocalRuntime(options: {
   const localBackend = backend
   review.sync()
   return {
-    start: () => host.start(),
-    snapshot: () => snapshotSchema.parse({ ...read(), review: review.snapshot() }),
-    async execute(input: BackendCommand) {
+    start: async () => {
+      await managed.init()
+      await host.start()
+    },
+    snapshot: () =>
+      snapshotSchema.parse({
+        ...read(),
+        review: managed.canAccessWorkspace() ? review.snapshot() : emptyReview(),
+      }),
+    async execute(input: BackendCommand): Promise<BackendResult> {
       if (closed) throw new Error('本地服务已关闭')
       const command = commandSchema.parse(input)
       if (command.workspaceId !== workspaceId) throw new Error('本地服务已重启，请刷新后重试')
+      if (
+        [
+          'save-model-source',
+          'managed-login',
+          'managed-cancel-login',
+          'managed-refresh',
+          'managed-logout',
+          'open-managed-admin',
+        ].includes(command.action)
+      )
+        return managed.execute(command.action, command.values)
+      if (
+        !managed.canAccessWorkspace() &&
+        !(command.action === 'review-reply' && command.values.approve === false)
+      )
+        throw new Error(
+          managed.snapshot().restartRequired
+            ? '账号工作区已改变，请重启软件后操作'
+            : '请先登录并恢复托管账号，再操作该账号的店铺数据',
+        )
+      const startsAi =
+        ['resume-ai', 'resume-conversation', 'start-training'].includes(command.action) ||
+        (command.action === 'set-ai' && command.values.enabled !== false) ||
+        (command.action === 'batch' && command.values.operation !== 'disable') ||
+        (command.action === 'review-reply' && command.values.approve === true)
+      if (managed.snapshot().restartRequired && startsAi)
+        throw new Error('模型来源或账号已改变，请重启软件；旧候选不能继续发送')
       if (command.action === 'open-runtime-logs') {
         await openLogs()
         return { status: 'ok' as const, message: '日志窗口已打开', data: {} }
@@ -180,7 +300,40 @@ export function createLocalRuntime(options: {
         throw new Error('系统加密不可用，密钥未保存')
       const { workspaceId: _workspaceId, ...raw } = command
       void _workspaceId
-      return resultSchema.parse(await localBackend.execute(raw))
+      const result = resultSchema.parse(await localBackend.execute(raw))
+      // 删除店铺时同步清空本机模拟数据，避免残留顾客被下一次同名店铺复用。
+      if (command.action === 'remove-store' && command.storeId) simHub.forget(command.storeId)
+      return result
+    },
+    simulatorStatus(): SimulatorStatus {
+      const status = simServer.status()
+      return status.running ? status : { ...status, error: status.error || simHub.persistError }
+    },
+    async openSimulatorPage(): Promise<SimulatorActionResult> {
+      if (closed) return { ok: false, message: '本地服务已关闭，请重启桌面端' }
+      const stores = simStores()
+      if (!stores.length)
+        return {
+          ok: false,
+          message: '还没有本机模拟店铺，请先在“添加店铺”里选择“本机模拟店铺”。',
+        }
+      const target = stores.find((store) => simHub.isOpen(store.storeId)) ?? stores[0]!
+      if (!simHub.isOpen(target.storeId)) {
+        // 走正常业务命令打开店铺，采集链路才会随之启动，模拟顾客消息才能进入真实会话。
+        try {
+          await localBackend.execute({ action: 'open-store', storeId: target.storeId })
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          return { ok: false, message: `模拟店铺打开失败：${reason}` }
+        }
+      }
+      const status = await simServer.start()
+      if (!status.running)
+        return { ok: false, message: status.error || '模拟顾客页启动失败，请稍后重试' }
+      return {
+        ok: true,
+        message: `模拟顾客页已就绪（${target.storeName}）：${status.url}`,
+      }
     },
     subscribe(listener: (event: BackendEvent) => void) {
       listeners.add(listener)
@@ -199,9 +352,11 @@ export function createLocalRuntime(options: {
     async dispose() {
       if (closed) return
       closed = true
+      managed.dispose()
       review.dispose()
       if (logWindow && !logWindow.isDestroyed()) logWindow.destroy()
       listeners.clear()
+      await simServer.dispose()
       localBackend.dispose()
       await host.close()
     },

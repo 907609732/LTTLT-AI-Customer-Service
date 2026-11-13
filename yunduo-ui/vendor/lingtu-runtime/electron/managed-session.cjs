@@ -38,7 +38,9 @@ const userId = v => (Number.isSafeInteger(v) && v > 0) || (typeof v === 'string'
 const text = (v, max = 512) => typeof v === 'string' && v.length > 0 && v.length <= max;
 function httpsOrigin(value) {
   const u = new URL(value);
-  if (u.protocol !== 'https:' || u.username || u.password || u.pathname !== '/' || u.search || u.hash) throw error('invalid_request');
+  // Local HTTP is restricted to an explicitly configured numeric loopback and port.
+  const localHttp = u.protocol === 'http:' && u.hostname === '127.0.0.1' && !!u.port;
+  if ((u.protocol !== 'https:' && !localHttp) || u.username || u.password || u.pathname !== '/' || u.search || u.hash) throw error('invalid_request');
   return u.origin;
 }
 

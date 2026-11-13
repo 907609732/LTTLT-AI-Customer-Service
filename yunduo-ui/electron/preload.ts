@@ -11,6 +11,7 @@ const api: DesktopApi = {
   move: (point) => ipcRenderer.send('win:move', point),
   endMove: () => ipcRenderer.send('win:end-move'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
+  copyGenericPhrase: (id) => ipcRenderer.invoke('app:copy-generic-phrase', id),
   backendSnapshot: () => ipcRenderer.invoke('business:snapshot'),
   backendExecute: (command) => ipcRenderer.invoke('business:execute', command),
   onBackendEvent: (listener) => {
@@ -23,5 +24,7 @@ const api: DesktopApi = {
   },
   presentStore: (storeId, visible) =>
     ipcRenderer.invoke('business:present-store', { storeId, visible }),
+  simulatorStatus: () => ipcRenderer.invoke('sim:status'),
+  openSimulatorPage: () => ipcRenderer.invoke('sim:open-page'),
 }
 contextBridge.exposeInMainWorld('yunduoDesktop', Object.freeze(api))

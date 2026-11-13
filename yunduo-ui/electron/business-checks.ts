@@ -345,6 +345,23 @@ export async function businessChecks(options: {
       }
       assert.ok((await snapshot()).review.traces.length > 0, '关窗不应清除本次运行日志')
     })
+    await check('business:generic-phrases-in-actual-model-context', '/shop/manage', async () => {
+      const before = calls.length
+      await execute({
+        action: 'start-training',
+        storeId: storeA,
+        values: { question: '物流不动了', history: [] },
+      })
+      assert.equal(calls.length, before + 1, '短上下文不额外发起话术模型请求')
+      const body = JSON.stringify(calls.at(-1))
+      assert.ok(body.includes('[通用客服表达参考]'))
+      assert.ok(body.includes('物流未更新'))
+      assert.ok(body.includes('不是商品、订单或商家政策知识'))
+      const traces = (await snapshot()).review.traces
+      assert.ok(
+        traces.some((trace) => JSON.stringify(trace.messages).includes('[通用客服表达参考]')),
+      )
+    })
     await check('business:knowledge-profiles-welcome-vision', '/shop/manage', async () => {
       const pack = await execute({
         action: 'save-intent-pack',
@@ -570,6 +587,12 @@ export async function businessChecks(options: {
         assert.equal(
           await outsider.webContents.executeJavaScript(
             'window.yunduoDesktop.backendSnapshot().then(()=>false,()=>true)',
+          ),
+          true,
+        )
+        assert.equal(
+          await outsider.webContents.executeJavaScript(
+            'window.yunduoDesktop.copyGenericPhrase("unknown").then(()=>false,()=>true)',
           ),
           true,
         )

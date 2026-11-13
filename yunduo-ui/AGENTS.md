@@ -1,6 +1,6 @@
 # AI 开发入口
 
-修改前依次阅读 `docs/CONSTRAINTS.md`、`docs/ARCHITECTURE.md`、`docs/HANDOFF.md`、`docs/LOCAL_INTEGRATION.md` 和相关模块 README；搜索已有实现，检查工作区改动。桌面已接入自带模型密钥的本地后端，浏览器保持只读预览。
+修改前依次阅读 `docs/CONSTRAINTS.md`、`docs/ARCHITECTURE.md`、`docs/HANDOFF.md`、`docs/LOCAL_INTEGRATION.md` 和相关模块 README；搜索已有实现，检查工作区改动。桌面支持默认本机 Key 和显式托管模式；托管改动先读 MANAGED_SERVICE.md，server 导入例外与原生检查见该目录 AGENTS/CONSTRAINTS。浏览器保持业务只读预览。
 
 - 依赖方向：app → modules → shared。跨模块只引用 index.ts；禁止 shared 引用上层。
 - Vue 使用 script setup lang="ts"；不得用 any、ts-ignore、跳过类型检查解决错误。

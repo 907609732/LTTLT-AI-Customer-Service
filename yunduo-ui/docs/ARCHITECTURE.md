@@ -19,6 +19,7 @@
 | src/modules/billing       | 充值、订单、算力与账户聚合界面           |
 | src/modules/settings      | 软件偏好和设置                           |
 | src/modules/auxiliary     | 辅助中心、聚合后台、助手及弹层           |
+| src/modules/simulation    | 本机模拟店铺客服台与会话回复界面         |
 | src/shared                | 类型契约、桌面适配、图标、公共 UI        |
 | src/styles/legacy         | 还原样式兼容层，不直接重生成             |
 | tests / electron/smoke.ts | 逻辑测试 / 真实桌面冒烟                  |
@@ -28,6 +29,8 @@
 
 ## 数据与接口
 
+shared/customer-service 保存内置 80 条通用改写及纯检索函数，workbench 快捷回复按场景浏览并通过受控 copyGenericPhrase(id) 复制。主进程 generic-phrases.ts 以最新买家文字召回最多 3 条静态表达，先加入用途限制与使用条件，再交给原压缩器计量；正式回复/训练均经 local-runtime 的同一装配。来源、IPC 与事实边界见 GENERIC_PHRASES.md。
+
 electron/conversation-context.ts 在主进程按店铺和买家读取最新归档，合并平台历史/当前批次并排序去重，再交给 AiClient 与统一压缩器；不再受上游 mergeThread 最近 20 条限制。local-runtime 注入 resolveConversationThread，backend 仅转接给 modelClient.resolveThread；未注入时上游默认行为不变。历史上下文不改变当前批次的诊断引用和审批网页基线。
 
 message-diagnostics.ts 将采集消息与引擎 decision、正式请求 submitted、生成结果及确认状态关联；只输出 LogEntry.ai DTO，不把 worker 的 Set/Map 或运行时对象传给渲染层。证据早于采集日志时使用有界缓存补关联，不同店铺/买家/真实消息 ID 隔离。SettingsView 的 REPLY_PACING 是现有配置命令的受限适配，秒/毫秒转换和旧值检查在后端完成。
@@ -36,13 +39,13 @@ message-diagnostics.ts 将采集消息与引擎 decision、正式请求 submitte
 
 上下文在 AiClient 完整组装 messages 后交给注入的 electron/context-compression.ts：16K 估算触发，原系统及近期消息保护，使用当前模型摘要旧资料，正式请求目标 8K。摘要与正式请求各自 trace，review 契约携带计量与摘要元数据；待发送候选只关联正式回复 trace。全程不新增 IPC 或跨会话摘要缓存。细节见 CONTEXT_COMPRESSION.md。
 
-桌面由 electron/local-runtime.ts 装配固定的 vendor/lingtu-runtime 本地后端，模型模式始终为 local。electron/business-ipc.ts 提供白名单 snapshot/execute/event；共享契约校验输入和快照，过滤密钥等非公开字段。
+桌面由 electron/local-runtime.ts 装配固定运行时，默认 local，可按公开来源配置显式选择 managed。managed-controller 复用受限设备会话协议，按服务/已验证账号定位独立数据与平台分区；模式/账号切换需停 AI 并重启。server/ 独立保留 Go 与原生管理网页，不替换 Vue。business-ipc 继续提供白名单 snapshot/execute/event，契约过滤凭据；见 MANAGED_SERVICE.md。
 
 渲染层由 shared/platform/backend.ts 适配桌面桥，shared/state/runtime.ts 的 Pinia store 共享快照、店铺选择及平台展示。模块组件保留自己的编辑草稿；商品服务在模块内转换分页和校验响应。真实保存使用后端版本检查，不将页面显示或夹具结果视为真实买家操作成功。
 
 app/services.ts 兼容原有页面查询及浏览器预览，新增真实业务以 backend 契约为准，不继续向旧演示接口增加网络操作。未接线的 demo 工厂仅用于旧视图，不能用作真实 DTO。
 
-数据与用户密钥都留在本机独立工作区；不接入上游账号/额度服务器。完整能力和使用步骤见 LOCAL_INTEGRATION.md。
+local 模式资料与服务商密钥留在本机独立目录，模型请求交给用户配置的服务商；managed 模式使用显式配置的账号/额度服务，只加密保存受限会话。调用所需上下文发往选定托管服务，不额外上传调试快照；原始本机资料不迁移进托管账号。完整能力和步骤见 LOCAL_INTEGRATION.md、MANAGED_SERVICE.md。
 
 ## 桌面隔离
 
@@ -57,6 +60,20 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 `shared/contracts/desktop.ts` 与 `shared/contracts/backend.ts` 是渲染层与桌面的类型边界；渲染层经 `getDesktop()` 调用。窗口控制 IPC 保留原方法名称，主进程负责来源及参数验证。preload 单独打包为 CJS，在 sandbox 环境运行。
 
 浏览器预览的窗口能力不执行原生操作；真实接口错误应在调用入口反馈。不要把 BrowserWindow 或 ipcRenderer 传给页面。
+
+## 本机模拟店铺
+
+模拟店铺不是独立的假聊天：平台 id `sim-local` 经上游 `createBackend` 的可选 `extraPlatforms` 注入点进入平台白名单（未注入时上游行为不变，补丁见 vendor/PROVENANCE.md），随后完全走既有链路 —— 适配器 → 上游 ingest → 采集监控 → 会话快照 → 回复引擎 → 逐条确认门 → `send-reply` → 适配器 `sendText`。
+
+- electron/sim-hub.ts 是模拟数据的唯一持有者：每店一组顾客（默认三位）与消息线程，写入本机工作区的 `simulator-stores.json`，事件按序号单调递增供采集监控增量拉取；容量有界（事件 600、线程 200）。
+- electron/sim-adapter.ts 实现适配器契约，把 hub 的线程转成上游会话与消息；`sendImage`/`sendVideo` 明确失败，`reviewHistory` 明确回答“模拟店铺没有平台网页，无法做网页复核”，不伪造能力。
+- electron/sim-manager.ts 只对 `sim-local` 覆写门店状态：打开即在线，且刻意不声明 `authenticated`（没有登录就不假装登录）；其他平台全部委派上游 manager。
+- electron/sim-server.ts 是主进程内的回环 HTTP 服务：仅监听 127.0.0.1、仅服务模拟店铺、仅在一次运行内有效；一次性口令只存主进程内存并随用户复制的链接下发，`/api/*` 全部校验，页面响应带 CSP 与 `no-store`/`nosniff`，请求体与字段长度有上限。端口占用时列出占用端口并如实失败。
+- electron/sim-page.ts 返回整份自包含页面（无外部资源、动态文本一律 `textContent`），SSE 仅作为“有变化”信号，失败降级为轮询，口令失效即停止重连。
+- IPC 只有两个入口：`sim:status` 与 `sim:open-page`（都要求受信应用主框架）。打开页面时会先打开店铺以启动采集，并返回带口令的地址；渲染层不接触 HTTP、端口或口令本身。
+- src/modules/simulation 的客服台只经 shared 契约与模块服务使用这两种能力，会话与回复使用既有的 `select-conversation` / `send-reply` 命令，因此“逐条人工确认才能发送”对模拟店铺同样生效。
+
+诚实边界：模拟店铺的消息只写在本机记录里，不连接真实平台、不产生真实买家，也不代表平台已送达；界面与页面都必须写明这一点。
 
 ## 导航与兼容
 

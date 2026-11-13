@@ -11,6 +11,16 @@ const browserDesktop: DesktopApi = {
   move: () => {},
   endMove: () => {},
   openExternal: async () => {},
+  simulatorStatus: async () => ({
+    running: false,
+    port: 0,
+    url: '',
+    error: '此操作需要桌面版；浏览器仅提供界面预览',
+  }),
+  openSimulatorPage: async () => ({
+    ok: false,
+    message: '此操作需要桌面版；浏览器仅提供界面预览',
+  }),
 }
 
 export function getDesktop(): DesktopApi {

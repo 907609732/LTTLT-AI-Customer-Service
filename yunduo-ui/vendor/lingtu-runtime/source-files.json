@@ -106,7 +106,7 @@
       "upstreamGitBlob": "1bcf9b117d9d4ed0743b38819799fad508b0e633",
       "sha256": "555fc6cbce33b0c88043aec744bcbc294547ee254ea853758132839740ca0c95",
       "upstreamSha256": "b73b29daca7d13c8681b0d0dfdc33eff8a145b76bc02df284de290a1ec0eb523",
-      "localPatch": "optional human approval at the final shared send entry; thread supplied and activity rechecked after approval; capture DOM approval baseline before generation; provide fresh page reader to review gate; propagate active-generation cancellation through progressive typing; per-message decision evidence and no permanent review suppression when superseded by new buyer input; optional resolveConversationThread injection to merge retained per-shop/buyer archive before model generation"
+      "localPatch": "optional human approval at the final shared send entry; thread supplied and activity rechecked after approval; capture DOM approval baseline before generation; provide fresh page reader to review gate; propagate active-generation cancellation through progressive typing; per-message decision evidence and no permanent review suppression when superseded by new buyer input; optional resolveConversationThread injection to merge retained per-shop/buyer archive before model generation; optional extraPlatforms injection to register project-owned simulator platform keys (validation and capabilities read the merged list, upstream defaults unchanged)"
     },
     {
       "path": "desk-v1/src/main/secrets.js",
@@ -236,9 +236,9 @@
     {
       "path": "electron/backend.cjs",
       "upstreamGitBlob": "02d899c8fa2cd3fb87a5a7ece5cba5dedbf63c3f",
-      "sha256": "45dc99bc74ddfd52892663c77d8e537a363d989e91bbb6a06f6b98de74533c9d",
+      "sha256": "c1fba1b2543ff5973923b0f01c39d52ae71f6b59000f2c78eeccdff6f051269c",
       "upstreamSha256": "8fc3fc527fcb2a5b095e1ba719882fcee8a615b8cc4e5102d8e8ee59357897e1",
-      "localPatch": "local vision policy + optional human approval, model trace and runtime event injection; original defaults retained; optional context compression injection before wire trace; validated REPLY_PACING save-config adapter with optimistic old-value check; optional resolveConversationThread injection to merge retained per-shop/buyer archive before model generation"
+      "localPatch": "local vision policy + optional human approval, model trace and runtime event injection; original defaults retained; optional context compression injection before wire trace; validated REPLY_PACING save-config adapter with optimistic old-value check; optional resolveConversationThread injection to merge retained per-shop/buyer archive before model generation; optional extraPlatforms injection to register project-owned simulator platform keys (validation and capabilities read the merged list, upstream defaults unchanged); forward traceId to injected managedChat options without serializing it in the wire payload, enabling TypeScript transport submission diagnostics"
     },
     {
       "path": "electron/conversation-quality.cjs",
@@ -253,7 +253,9 @@
     {
       "path": "electron/managed-session.cjs",
       "upstreamGitBlob": "a945cdf591869f4b591de6ab258747d806ce056e",
-      "sha256": "b08a03062b73e55bbf272db0eb1e5caf0ce60e9b6919f8cf16edeaed8e339a9f"
+      "sha256": "0825255b38dbc119f0657c26d00ecc0bd1f7c7f313ca84a9f89fc83fc6739bfa",
+      "upstreamSha256": "b08a03062b73e55bbf272db0eb1e5caf0ce60e9b6919f8cf16edeaed8e339a9f",
+      "localPatch": "Explicit numeric-loopback HTTP support for user-requested local startup; HTTPS remains mandatory for remote origins."
     },
     {
       "path": "electron/model-profiles.cjs",

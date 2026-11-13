@@ -21,6 +21,15 @@ export function registerBusinessIpc(runtime: LocalRuntime): () => void {
       .parse(input)
     runtime.presentStore(value.storeId, value.visible)
   })
+  // 模拟顾客页的状态与启动入口：只返回端口/地址，页面口令留在主进程内存与用户复制的那条链接里。
+  ipcMain.handle('sim:status', (event) => {
+    requireAppFrame(event)
+    return runtime.simulatorStatus()
+  })
+  ipcMain.handle('sim:open-page', (event) => {
+    requireAppFrame(event)
+    return runtime.openSimulatorPage()
+  })
   const off = runtime.subscribe((event) => {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed() && isAppWebContents(win.webContents.id)) {
@@ -36,7 +45,13 @@ export function registerBusinessIpc(runtime: LocalRuntime): () => void {
   })
   return () => {
     off()
-    for (const name of ['business:snapshot', 'business:execute', 'business:present-store'])
+    for (const name of [
+      'business:snapshot',
+      'business:execute',
+      'business:present-store',
+      'sim:status',
+      'sim:open-page',
+    ])
       ipcMain.removeHandler(name)
   }
 }

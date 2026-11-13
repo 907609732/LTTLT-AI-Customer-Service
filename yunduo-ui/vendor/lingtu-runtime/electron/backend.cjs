@@ -21,8 +21,11 @@ const {createAuxiliaryState}=require('./auxiliary-state.cjs');
 const {createConversationQuality}=require('./conversation-quality.cjs');
 const platforms=[{id:'pdd-web',label:'拼多多'},{id:'doudian-client',label:'抖店'}];
 const Command=z.object({action:z.string().min(1).max(60),screenId:z.string().max(30).optional(),storeId:z.string().max(64).optional(),conversationId:z.string().max(200).optional(),values:z.record(z.string(),z.unknown()).optional()});
-function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},managedCapabilities=()=>({}),allowExternalClient=true,externalClientReady=()=>{},sourceDiagnostics=false,localVisionSupport,beforeSend,onModelTrace,onRuntimeEvent,prepareModelContext,resolveConversationThread}={}){
+function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},managedCapabilities=()=>({}),allowExternalClient=true,externalClientReady=()=>{},sourceDiagnostics=false,localVisionSupport,beforeSend,onModelTrace,onRuntimeEvent,prepareModelContext,resolveConversationThread,extraPlatforms}={}){
  if(!dataDir)throw Error('data_directory_required');
+ // 云朵本地兼容补丁：可选的 extraPlatforms 只追加本机自有的模拟店铺平台 id，供本项目适配器使用；
+ // 未注入时平台枚举、校验与上游完全一致，不会放行任意平台。
+ const allPlatforms=platforms.concat((Array.isArray(extraPlatforms)?extraPlatforms:[]).filter(p=>p&&typeof p.id==='string'&&/^[a-z0-9][a-z0-9-]{0,39}$/.test(p.id)&&!platforms.some(x=>x.id===p.id)).map(p=>({id:p.id,label:String(p.label||p.id).slice(0,40)})));
  const logger=new Logger({dir:path.join(dataDir,'logs'),console:sourceDiagnostics,level:sourceDiagnostics?'debug':'info'});
  let diagnostics=null;
  const config=new Config({file:path.join(dataDir,'config.json'),logger});
@@ -108,7 +111,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   catch{modelIssue.message+=' 本机未能保存暂停提示，请在重启前核对原请求。';}
  }
  const adapterFor=store=>{if(!adapters.has(store.id)){if(!adapterFactory)throw Error('平台服务尚未就绪');adapters.set(store.id,adapterFactory(store,{config:config.all(),logger}));}return adapters.get(store.id)};
- const snapshot=()=>structuredClone({revision,visionByStore:visionSettings.stores,welcomeByStore:welcome.snapshot(),products:products.summary(),modelIssue,quality:quality.list(),auxiliary:auxiliary.snapshot(),stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{vision:visionSupport(),platforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
+ const snapshot=()=>structuredClone({revision,visionByStore:visionSettings.stores,welcomeByStore:welcome.snapshot(),products:products.summary(),modelIssue,quality:quality.list(),auxiliary:auxiliary.snapshot(),stores:registry.list().map(s=>({...s,runtime:{...(manager?.stateOf?.(s.id)||{open:false,online:false}),collectionError:collectionErrors.get(s.id)||''}})),config:config.all(),bannedWords,workOrders:workOrders.list(),handoffByStore:Object.fromEntries(Object.entries(handoff.stores).filter(([id])=>registry.get(id))),engine:engine?.status()||{},conversations,selection,capabilities:{vision:visionSupport(),platforms:allPlatforms,externalClientAllowed:allowExternalClient,modelMode,apiKeyConfigured:secrets.has('ai.apiKey'),supportedScreens:['UX08','UX16','UX17','UX19','UX20']}});
  function changed(){if(disposed)return;logger.setMaskPii(config.all().privacy?.maskPii);revision++;onEvent({type:'backend:changed',revision});diagnostics?.status();}
  async function startCollection(id){
   const state=manager.stateOf(id);
@@ -171,7 +174,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   modelClient.onGenerationFailure=(error,context)=>{if(disposed)return;reportConversationIssue(new ManagedSessionError(error?.code||'generation_failed'),{...context,storeName:registry.get(context?.storeId)?.storeName||''});};
   modelClient.onDeliveryFailure=result=>{if(disposed)return;reportConversationIssue(new ManagedSessionError(result.reason==='send_unconfirmed'?'delivery_unconfirmed':result.throttled?'delivery_blocked':'delivery_failed'),{...result,storeName:registry.get(result.storeId)?.storeName||''});};
   let managedQueue=Promise.resolve();
-  modelClient.complete=({messages,timeoutMs,reviewContext,isCurrent})=>{
+  modelClient.complete=({messages,timeoutMs,reviewContext,isCurrent,traceId})=>{
    const operation=managedQueue.then(async()=>{
    if(disposed)throw Error('服务已关闭');
    if(typeof isCurrent==='function'&&!isCurrent())throw Object.assign(Error('排队任务已取消'),{code:'queued_canceled'});
@@ -180,7 +183,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    if(!managedChat)throw Error('托管服务尚未连接');
    const c=new AbortController();generations.add(c);const timer=setTimeout(()=>c.abort(),timeoutMs||60000);timer.unref?.();
    const requestId=randomUUID();
-   try{managedReady();const result=await managedChat({client_request_id:requestId,messages},{signal:c.signal});if(disposed||c.signal.aborted)throw Error('生成已取消');const content=result?.choices?.[0]?.message?.content;if(typeof content!=='string'||!content.trim())throw Error('托管模型未返回可用回复');return content;}
+   try{managedReady();const result=await managedChat({client_request_id:requestId,messages},{signal:c.signal,traceId});if(disposed||c.signal.aborted)throw Error('生成已取消');const content=result?.choices?.[0]?.message?.content;if(typeof content!=='string'||!content.trim())throw Error('托管模型未返回可用回复');return content;}
    catch(e){if(!disposed){reportConversationIssue(e instanceof ManagedSessionError?e:new ManagedSessionError('generation_failed'),{...reviewContext,requestId,storeName:registry.get(reviewContext?.storeId)?.storeName||''});}throw e;}
    finally{clearTimeout(timer);generations.delete(c);}
    });
@@ -207,7 +210,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  async function execute(raw){
   if(disposed)throw Error('服务已关闭');const command=Command.parse(raw);const v=command.values||{};let data={},message='操作完成。';
   switch(command.action){
-   case 'add-store':if(!platforms.some(p=>p.id===v.platform))throw Error('该平台尚未接入');if(v.platform==='doudian-client'){externalClientReady();if(!allowExternalClient)throw Error('请在添加抖店时确认绑定本机抖店客户端。');}data=registry.add(v);selection={storeId:data.id,conversationId:''};message='店铺已添加，AI默认关闭。';if(v.platform==='pdd-web'&&v.openAfterAdd===true){changed();try{await execute({action:'open-store',storeId:data.id});data={...data,opened:true};message='已打开拼多多，请完成登录，店铺名称将自动识别。';}catch{data={...data,opened:false};message='店铺已添加，登录页打开失败，请点击打开重试。';}}break;
+   case 'add-store':if(!allPlatforms.some(p=>p.id===v.platform))throw Error('该平台尚未接入');if(v.platform==='doudian-client'){externalClientReady();if(!allowExternalClient)throw Error('请在添加抖店时确认绑定本机抖店客户端。');}data=registry.add(v);selection={storeId:data.id,conversationId:''};message='店铺已添加，AI默认关闭。';if(v.platform==='pdd-web'&&v.openAfterAdd===true){changed();try{await execute({action:'open-store',storeId:data.id});data={...data,opened:true};message='已打开拼多多，请完成登录，店铺名称将自动识别。';}catch{data={...data,opened:false};message='店铺已添加，登录页打开失败，请点击打开重试。';}}break;
    case 'set-store-group':storeOf(command.storeId);registry.update(command.storeId,{group:z.string().trim().max(30).parse(v.group)});message='店铺分组已保存。';break;
    case 'remove-store':{
     const store=storeOf(command.storeId),id=store.id;

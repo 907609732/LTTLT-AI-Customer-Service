@@ -1,4 +1,41 @@
-# 本机密钥版本验证
+# 客户端与独立服务端验证
+
+## 2026-11-14：本机 HTTP 实际启动
+
+按用户要求不生成、不导入证书。原生管理网页重新构建为 http://127.0.0.1:3000，生成 Windows amd64 可执行文件并实际运行，监听地址已核对为 127.0.0.1。独立 SQLite 位于 server/runtime/local-http；原生 setup API 创建随机密码管理员，未访问生产数据库。
+
+实际账号密码登录成功（管理员 role=100）；使用真实短期令牌读取 self、admin/config、accounts、usage-daily 均返回 200；外部浏览器 Origin 被拒绝 403。用独立 Edge 资料目录实际登录管理网页，概览及每日用量渲染完成，截图 artifacts/local-http-admin.png 已查看。没有配置供应商 Key、发起真实模型请求或发送买家消息。第二次启动实际验证沿用原进程与账号，不重置密码。
+
+完整 npm run check 再次通过（81 项单元、229 项上游回归、类型/静态/格式/来源与构建）；桌面 78/78 再次通过。Go 9 个目标包回归通过；补充本机 HTTP 来源、开关、监听、peer/Host/Origin 边界测试，最终 lingtuhost/middleware 复验通过（同一命令中的 router 正则无匹配，不计作新测试）。日志 local-http-check.log、local-http-desktop.log、server-local-http-go.log、server-local-http-final-go.log、server-local-http-web.log 与 server-local-http-build.log 在 artifacts；真实服务鉴权记录 server/artifacts/local-http-runtime.json。
+
+旧版桌面窗口关闭后后台未在 15 秒内退出，核对 PID/可执行路径后结束该旧进程并启动当前构建；实际窗口标题“工作台 · 云朵客服”，进程响应正常、启动错误日志为空，原有用户数据目录保留。D 盘构建缓存空间不足时，本次 GOCACHE/GOTMPDIR 切到 E 盘专用目录，未删除其他项目文件。前一节 Linux 二进制和网页 SHA 是当时产物；本次 Windows 程序与 HTTP 网页为新构建，不能混用旧摘要。
+
+## 2026-11-13：PR #21 服务端合并及双模式自测
+
+本轮实际执行，不用源分支历史 CI 替代本机结果：
+
+- `npm run check` 通过：15 文件 / 81 项项目单元、229 项上游回归、Vue/主进程/服务端工具 TypeScript、ESLint/模块边界、格式、80 个运行时与 92 个服务端来源文件 SHA256 校验，以及 Vue/Electron 构建。
+- `npm run test:desktop` 最终 78/78 通过。新增 3 项走真实 Electron/safeStorage、临时工作区和回环 HTTP 协议夹具：设备授权后要求切换账号工作区、重启恢复加密会话、托管训练实际请求与 trace、通用话术仍入上下文、真实刷新后的已用 1/剩余 19、请求结果不确定不重发、原请求编号与服务端账本请求一致、必须明确核对才清除提示、退出后隐藏旧 trace。已有逐条确认与模拟台检查继续通过。
+- `npm run server:verify` 本机通过：固定 New API 源码重新准备；9 个目标 Go 包在隔离 SQLite 中回归；2 项生成/翻译覆盖检查；原生网页 1,428 文件 / 2 项目类型检查、改动范围 lint、7 文件 / 36 项托管与认证前端测试；管理网页与 Linux amd64 服务构建成功。
+- 原生网页 1,846 个产物逐文件 SHA256 校验，物理构建缓存与 `server/.upstream/web/dist` 内容一致。二进制 `server/bin/lingtu-managed` 为 ELF64 / amd64，163,482,260 字节，SHA256 `7b6eca049fa3dfb35f24cf994d23bcd593729a77d5329e76bf72ffa477cb34ae`；附 `NEW-API-LICENSE`。
+
+截图已查看：`artifacts/desktop/managed-account-settings.png`、`managed-request-review.png`。最终发现并修正验收的异步路由时序：did-finish-load 不代表 Vue 已挂载，在有界时间内等待真实节点，保留原有空页/错误断言；最终完整桌面复跑通过，没有覆盖基准来掩盖差异。
+
+Windows 工具链适配：本机旧 Bun 1.3.14 出现安装崩溃，改用固定 1.4.4；加密目录/跨盘连接使 bin 链接失败，改在专用未加密物理缓存构建；为子进程显式加入同一个 Bun 的 PATH，避免 typecheck 脚本误用旧全局版本。使用 `YUNDUO_SERVER_BUILD_DIR` 与 `BUN_INSTALL_CACHE_DIR` 指定可再生构建目录，最终产物回写 server；不修改全局工具配置或生产服务。
+
+证据：`artifacts/managed-full-check.log`、`managed-desktop.log`、`server-verification-complete.log`；`server/artifacts/verification.json`、`web-copy.json`、`binary.json`。服务端 JSON 仅在实际步骤全部返回 0 后写 passed。测试不使用生产账号、真实模型 Key 或买家会话，不发邮件/真实买家消息、不部署线上。没有在本机运行 MySQL/PostgreSQL 或 -race，不声称完成 28 家厂商与线上 OAuth/SMTP 验收；Linux 二进制已构建，未在本机 Windows 上运行该 Linux 服务。完整范围与运行约束见 MANAGED_SERVICE.md、server/README.md。
+
+## 2026-11-13：内置通用客服话术
+
+完整 `npm run check` 通过：14 个测试文件、77 项单元、229 项上游回归，TypeScript、ESLint/模块边界、Prettier、80 个固定上游源码完整性和 Vue/Electron 构建均通过。新增 7 项单元覆盖精选来源/字段、文字召回、实际 AiClient 请求与 trace 一致、原店铺知识保留、买家文字不升级为系统指令、图片/无匹配不沿用旧参考、16K/8K 压缩计量、已知 ID 复制及失败呈现、界面搜索与复制交互。
+
+`npm run test:desktop` 75/75 通过。新增桌面检查实际打开「快捷回复」并确认 80 条、10 场景中的筛选结果、搜索单条、适用条件、空态和未知复制 ID 拒绝；使用同一本机运行时执行「物流不动了」训练，核对实际本机 HTTP 请求及 trace 含 `[通用客服表达参考]`，短上下文仅产生原有的一次模型调用。不可信窗口复制同样拒绝，原有确认/取消/过期/发送回归保持通过。
+
+截图：`artifacts/desktop/generic-phrases.png`、`generic-phrases-search.png`，均已查看。截图检查发现多卡片会被 flex 列表压缩，已将卡片设为不收缩、由列表独立滚动；最终桌面检查同时断言首卡正文/适用条件不超出卡片边界、列表实际可滚动。截图等待弹窗进入动画结束。日志：`artifacts/generic-phrases-check.log`、`generic-phrases-desktop.log`。自动验证只使用临时数据和合成对话，不修改日常店铺数据、不读取或改动系统剪贴板、不调用真实付费模型、不向真实买家发送。剪贴板成功/失败的界面单元使用受控测试替身；桌面只验证未知 ID 与不可信窗口拒绝，不把这项说成真实用户剪贴板成功验收。真实语义匹配效果和本店业务结论仍需用户在训练场核对。
+
+维护及约束见 GENERIC_PHRASES.md。本次未更改 vendor、模型凭据、店铺 AI 开关或审批发送策略。
+
+2026-11-13 本机模拟店铺与模拟顾客页：npm run check 通过（13 个测试文件 70 项单元、229 项上游回归、类型/静态与依赖边界/格式、80 个上游文件完整性及渲染层与 Electron 构建）；基于本次构建的真实 Electron 验收 73/73 通过（基线 63），其中新增 9 项模拟店铺检查加 1 项模拟客服台路由截图。覆盖「添加店铺」里可选「本机模拟店铺」且必须填店名、未打开前不报告模拟服务已运行、打开后只监听 127.0.0.1 且带一次性口令（无口令页面 403、接口 401、错误口令 401、CSP 为 default-src 'none'）、顾客页以顾客身份发的消息经真实采集监控进入供应商会话、桌面端确认后 send-reply 一次写入线程且 data.confirmed 为 true、关闭店铺后回复被拒绝并重新打开恢复、`/sim` 客服台显示店铺与已确认回复、侧栏「开店准备 → 模拟客服台」入口（`/shop/manage?panel=sim`）与 `/sim` 两条路径都能打开同一界面。模拟顾客页默认三人设（小雨／阿哲／陈女士）与完整问答在截图里可见。截图 artifacts/desktop/sim-customer-page.png、sim-console-ready.png；日志 artifacts/check.log、artifacts/desktop-run.log。顾客页截图先等到默认顾客和会话真的渲染完再截取，而且聊天记录必须在 role="log" 区域核对，不用左侧会话摘要冒充已打开会话。全部使用本机合成数据与临时工作区：没有真实平台登录、没有向真实买家发送，页面自身写明「不代表真实平台」。新增单元 tests/simulator.test.ts 覆盖中枢认领/持久化、适配器失败枚举、模拟管理器状态、服务口令与参数校验、顾客资料增改删、以及顾客页在店铺尚未打开时也能看到默认顾客（避免页面显示「还没有顾客」误导用户）。
 
 2026-11-12 聊天上下文修复：完整检查通过，新增最后一项请求正文回归后复查类型、改动文件静态/格式并运行全量单元 46/46；上游回归 229/229，Electron 63/63。覆盖平台历史失败仍读取归档、35 条旧聊天不被 20 条窗口截断、买家和客服双方参与、同用户不同店铺隔离、最新归档更新、跨来源去重排序且不修改原归档、不同真实 ID 同文保留，以及实际 AiClient HTTP 正文与调试 messages 一致。真实 StoreWorker 生成前零发送和既有确认门继续通过。日志 artifacts/context-history-check.txt、context-history-unit.txt、context-history-desktop.txt；均为合成数据和本机模型夹具，真实平台尚未重新发送验收。上下文上限与后续采集任务见 CONTEXT_COMPRESSION.md。
 

@@ -35,6 +35,13 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: '云朵助手', float: true },
   },
   {
+    path: '/sim',
+    name: 'sim-console',
+    component: /* lazy module entry */ () =>
+      import('@/modules/simulation').then((m) => m.SimConsoleView),
+    meta: { title: '模拟客服台' },
+  },
+  {
     path: '/shop/manage',
     name: 'shop-manage',
     component: () => import('@/app/layouts/ShopManageView.vue'),

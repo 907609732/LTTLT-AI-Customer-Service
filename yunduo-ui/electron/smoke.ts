@@ -9,6 +9,9 @@ import { createLocalRuntime } from './local-runtime'
 import { registerBusinessIpc } from './business-ipc'
 import { businessChecks } from './business-checks'
 import { domSendChecks } from './dom-send-checks'
+import { simChecks } from './sim-checks'
+import { genericPhraseChecks } from './generic-phrase-checks'
+import { managedChecks } from './managed-checks'
 
 const isolatedRoot =
   process.env.YUNDUO_SMOKE_DATA_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'yunduo-smoke-'))
@@ -26,6 +29,7 @@ const routes = [
   ['shop-forgot', '/shop/forgot-password'],
   ['shop-home', '/shop/home'],
   ['shop-aftersale', '/shop/aftersale-warning'],
+  ['sim-console', '/sim'],
   ['hub', '/hub'],
   ['snap-overlay', '/snap-overlay'],
   ['float-assist', '/float/assist'],
@@ -101,9 +105,18 @@ app
       await win.loadFile(rendererPath, { hash: route, query: { smoke: String(++pageSequence) } })
       await ready()
       await new Promise((resolve) => setTimeout(resolve, 150))
-      const info = (await win.webContents.executeJavaScript(
-        `({ nodes: document.querySelectorAll('#app *').length, text: document.body.innerText, errors: window.__vueErrors || [] })`,
-      )) as PageInfo
+      const inspectPage = () =>
+        win.webContents.executeJavaScript(
+          `({ nodes: document.querySelectorAll('#app *').length, text: document.body.innerText, errors: window.__vueErrors || [] })`,
+        ) as Promise<PageInfo>
+      let info = await inspectPage()
+      // Lazy route chunks can mount after did-finish-load, especially during parallel native builds.
+      // Wait for actual app content within a bound; retain all original error/empty-page assertions.
+      for (let attempt = 0; attempt < 100 && info.nodes === 0; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        await ready()
+        info = await inspectPage()
+      }
       assert.deepEqual(info.errors, [], `${route} Vue 渲染错误`)
       assert.deepEqual(consoleErrors, [], `${route} 控制台错误`)
       assert.ok(info.nodes > 0, `${route} 缺少主体`)
@@ -232,6 +245,7 @@ app
       assert.equal(rejected, true)
       assert.equal(await win.webContents.executeJavaScript(`typeof window.require`), 'undefined')
     })
+    await genericPhraseChecks({ win, load, check })
     await businessChecks({
       win,
       dataDir,
@@ -245,7 +259,19 @@ app
         await load('/settings')
       },
     })
+    await managedChecks({
+      win,
+      dataDir,
+      original: runtime,
+      load,
+      check,
+      bind(next) {
+        disposeBusiness()
+        disposeBusiness = registerBusinessIpc(next)
+      },
+    })
     await domSendChecks(check)
+    await simChecks({ win, check, load })
     const failure = report.some((result) => !result.pass)
     fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2))
     dispose()

@@ -33,9 +33,7 @@ const sidebarCollapsed = ref(false),
   shopStatus = ref('offline'),
   addShopVisible = ref(false),
   quickReplyVisible = ref(false),
-  scheduleVisible = ref(false),
-  enterToSend = ref(true),
-  clearAfterSend = ref(false)
+  scheduleVisible = ref(false)
 const shops = computed(() =>
   runtime.snapshot.stores.filter(
     (shop) =>
@@ -136,7 +134,16 @@ async function openLogs() {
           >
         </button>
         <button class="top-pill model-switch-pill" @click="router.push('/settings')">
-          模型 · {{ runtime.snapshot.capabilities.apiKeyConfigured ? '已配置' : '待配置' }}</button
+          模型 ·
+          {{
+            runtime.snapshot.capabilities.modelMode === 'managed'
+              ? runtime.snapshot.managed.session.status === 'signed_in'
+                ? '托管已登录'
+                : '托管待登录'
+              : runtime.snapshot.capabilities.apiKeyConfigured
+                ? '已配置'
+                : '待配置'
+          }}</button
         ><button
           class="store-control-trigger"
           :disabled="task.pending.value"
@@ -150,7 +157,11 @@ async function openLogs() {
         </button>
         <div class="plan-recharge">
           <button class="plan-badge plan-badge-trigger" @click="router.push('/settings')">
-            本机密钥模式
+            {{
+              runtime.snapshot.capabilities.modelMode === 'managed'
+                ? '托管服务模式'
+                : '本机密钥模式'
+            }}
           </button>
         </div>
         <div class="window-controls" data-no-drag>
@@ -170,6 +181,13 @@ async function openLogs() {
     </header>
     <div class="workbench-body">
       <aside :class="['store-sidebar my-platform', { 'is-collapsed': sidebarCollapsed }]">
+        <el-alert
+          v-if="runtime.snapshot.modelIssue"
+          :title="runtime.snapshot.modelIssue.message"
+          type="error"
+          :closable="false"
+          @click="router.push('/settings')"
+        />
         <el-alert
           v-if="task.error.value || runtime.error"
           :title="task.error.value || runtime.error"
@@ -268,8 +286,6 @@ async function openLogs() {
     </div>
     <AddShopDialog v-model="addShopVisible" /><QuickReplyDialog
       v-model="quickReplyVisible"
-      v-model:enter-to-send="enterToSend"
-      v-model:clear-after-send="clearAfterSend"
     /><ScheduledTasksDialog v-model="scheduleVisible" />
   </div>
 </template>

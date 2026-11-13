@@ -6,7 +6,7 @@
 
 界面入口：DashboardView、EnvHealthBanner、StoreWebWorkspace、QuickReplyDialog、ScheduledTasksDialog、RuntimeDownloadToast、UpdateAvailableDialog、UpdateDownloadDialog。
 
-当前业务状态：DashboardView 已接本机店铺概览与添加入口。QuickReplyDialog、ScheduledTasksDialog 仍只有界面，快捷话术持久化与定时调度未接入。
+当前业务状态：DashboardView 已接本机店铺概览与添加入口。QuickReplyDialog 已接 80 条内置通用话术，支持搜索、场景筛选、适用条件和显式复制，不直接发送。数据与检索复用 shared/customer-service，复制通过模块服务和受控平台适配器。自定义话术持久化和 ScheduledTasksDialog 定时调度仍未接入。详见根目录 docs/GENERIC_PHRASES.md。
 
 接入流程见根目录 docs/LOCAL_INTEGRATION.md。demo 是旧视图数据，不是 API DTO；新增能力在所属模块建立服务与类型，经过本地运行时契约，不直接访问 IPC、网络或文件系统。
 

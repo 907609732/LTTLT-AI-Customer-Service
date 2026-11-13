@@ -1,4 +1,12 @@
-import { BrowserWindow, ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
+import {
+  BrowserWindow,
+  clipboard,
+  ipcMain,
+  shell,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+} from 'electron'
+import { genericPhrases } from '../src/shared/customer-service/library'
 import { isExternalUrl, isScreenPoint } from './policy'
 import { isTrustedRenderer, isAppWebContents } from './windows'
 
@@ -26,6 +34,16 @@ export function registerDesktopIpc(): () => void {
     return win
   }
   const handlers = {
+    'app:copy-generic-phrase': (event: IpcMainInvokeEvent, id: unknown) => {
+      sourceWindow(event)
+      const phrase =
+        typeof id === 'string' && id.length <= 64
+          ? genericPhrases.find((row) => row.id === id)
+          : undefined
+      if (!phrase) throw new Error('通用话术不存在，请刷新后重试')
+      // Sandboxed renderers cannot read the clipboard or write arbitrary data through this IPC.
+      clipboard.writeText(phrase.reply)
+    },
     'win:minimize': (event: IpcMainInvokeEvent) => {
       sourceWindow(event).minimize()
     },
