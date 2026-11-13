@@ -198,7 +198,7 @@ function Field(props: {
         value={props.value}
         onChange={(event) => props.onChange(event.target.value)}
         placeholder={props.placeholder}
-        autoComplete='off'
+        autoComplete={props.type === 'password' ? 'new-password' : 'off'}
       />
     </div>
   )
