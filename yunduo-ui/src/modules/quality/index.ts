@@ -1,4 +1,0 @@
-export { default as QcReplyPanel } from './components/QcReplyPanel.vue'
-export { default as ShopWorkOrderPanel } from './components/ShopWorkOrderPanel.vue'
-export { default as ShopAftersaleWarningView } from './components/ShopAftersaleWarningView.vue'
-export { default as ShopWipPanel } from './components/ShopWipPanel.vue'

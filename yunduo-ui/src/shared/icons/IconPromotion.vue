@@ -1,9 +1,0 @@
-<!-- Element Plus 图标：promotion（从原始包中提取） -->
-<template>
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" aria-hidden="true">
-    <path
-      fill="currentColor"
-      d="m64 448 832-320-128 704-446.08-243.328L832 192 242.816 545.472zm256 512V657.024L512 768z"
-    />
-  </svg>
-</template>

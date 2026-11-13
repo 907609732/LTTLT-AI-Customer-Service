@@ -1,8 +1,0 @@
-[Unit]
-Description=Renew Lingtu customer service certificates
-After=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/flock -n /run/lingtu-acme-renew.lock /usr/local/sbin/lingtu-kefu-acme-renew
-UMask=0077
