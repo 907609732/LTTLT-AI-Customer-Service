@@ -1,0 +1,511 @@
+package lingtuhost
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io"
+	"net/mail"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/controller"
+	"github.com/QuantumNous/new-api/lingtu"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+var adminConfigurationMu sync.Mutex
+
+type configurationRequest struct {
+	Provider             string `json:"provider"`
+	ConnectionID         int    `json:"connection_id"`
+	Name                 string `json:"name"`
+	BaseURL              string `json:"base_url"`
+	UpstreamModel        string `json:"upstream_model"`
+	Action               string `json:"action"`
+	Revision             int    `json:"revision"`
+	APIVersion           string `json:"api_version"`
+	Region               string `json:"region"`
+	AccountID            string `json:"account_id"`
+	Section              string `json:"section"`
+	AppID                string `json:"app_id"`
+	Secret               string `json:"secret"`
+	ClearSecret          bool   `json:"clear_secret"`
+	Enabled              bool   `json:"enabled"`
+	MakeDefault          bool   `json:"make_default"`
+	TestAfterSave        bool   `json:"test_after_save"`
+	Model                string `json:"model"`
+	Calls                int    `json:"calls"`
+	Days                 int    `json:"days"`
+	DailyCalls           int    `json:"daily_calls"`
+	MaxTokens            int    `json:"max_tokens"`
+	PerAccountConcurrent *int   `json:"per_account_concurrent"`
+	RequestsPerMinute    *int   `json:"requests_per_minute"`
+	GlobalConcurrent     *int   `json:"global_concurrent"`
+	UserID               int    `json:"user_id"`
+	ExpiresAt            int64  `json:"expires_at"`
+	Status               string `json:"status"`
+	Reason               string `json:"reason"`
+	Revoke               bool   `json:"revoke"`
+	RequestID            string `json:"request_id"`
+	Outcome              string `json:"outcome"`
+	SMTPServer           string `json:"smtp_server"`
+	SMTPAccount          string `json:"smtp_account"`
+	SMTPFrom             string `json:"smtp_from"`
+}
+
+func (h *Host) registerAdmin(router *gin.Engine) {
+	admin := router.Group("/api/lingtu/admin", middleware.DisableCache(), middleware.AdminAuth())
+	admin.GET("/config", h.adminConfig)
+	admin.GET("/accounts", h.adminAccounts)
+	admin.GET("/audit", h.adminAudit)
+	admin.GET("/usage", h.adminUsage)
+	admin.GET("/usage-summary", h.adminUsageSummary)
+	admin.GET("/usage-daily", h.adminUsageDaily)
+	admin.POST("/config", middleware.LingtuCriticalRateLimit("admin-config"), h.saveConfig)
+}
+func (h *Host) adminConfig(c *gin.Context) {
+	policy, err := lingtu.LoadTrialPolicy(model.DB)
+	if err != nil {
+		clientFailure(c, 503, "configuration_unavailable")
+		return
+	}
+	providers := make([]gin.H, 0, 2)
+	for _, name := range []string{"wechat", "dingtalk"} {
+		slug := "lt" + name
+		var row lingtu.ManagedSetting
+		var config lingtu.SocialConfig
+		err := model.DB.First(&row, "name = ?", slug).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			clientFailure(c, 503, "configuration_unavailable")
+			return
+		}
+		if row.Value != "" && common.UnmarshalJsonStr(row.Value, &config) != nil {
+			clientFailure(c, 503, "configuration_unavailable")
+			return
+		}
+		var native model.CustomOAuthProvider
+		model.DB.Omit("client_secret").First(&native, "slug = ?", slug)
+		providers = append(providers, gin.H{"provider": name, "app_id": config.AppID, "configured": config.Secret != "", "enabled": native.Enabled, "callback": h.portal + "/oauth/" + slug})
+	}
+	models := make([]gin.H, 0, 2)
+	for _, name := range []string{"deepseek", "qwen", "qwen-vision"} {
+		var channel model.Channel
+		err := model.DB.First(&channel, "name = ?", "lingtu-"+name).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			clientFailure(c, 503, "configuration_unavailable")
+			return
+		}
+		models = append(models, gin.H{"provider": name, "configured": channel.Key != "", "model": channel.Models, "enabled": channel.Status == common.ChannelStatusEnabled && channel.Key != ""})
+	}
+	common.OptionMapRWMutex.RLock()
+	smtp := gin.H{"server": common.OptionMap["SMTPServer"], "account": common.OptionMap["SMTPAccount"], "from": common.OptionMap["SMTPFrom"], "configured": common.OptionMap["SMTPToken"] != "" || common.OptionMap["SMTPPassword"] != ""}
+	smtp["enabled"] = common.EmailVerificationEnabled && (common.OptionMap["EmailProvider"] == "" || common.OptionMap["EmailProvider"] == "smtp")
+	smtp["registration_enabled"] = common.RegisterEnabled && common.PasswordRegisterEnabled
+	smtp["email_verification"] = common.EmailVerificationEnabled
+	common.OptionMapRWMutex.RUnlock()
+	connections, err := modelConnectionViews(model.DB, policy.DefaultModel)
+	if err != nil {
+		clientFailure(c, 503, "configuration_unavailable")
+		return
+	}
+	c.JSON(200, gin.H{"policy": policy, "login_providers": providers, "model_providers": models, "smtp": smtp, "model_catalog": managedModelCatalog(), "model_connections": connections})
+}
+func (h *Host) adminAccounts(c *gin.Context) {
+	page, ok := positiveQuery(c, "page", 1)
+	if !ok || page > int(^uint(0)>>1)/20 {
+		clientFailure(c, 400, "invalid_request")
+		return
+	}
+	search := strings.TrimSpace(c.Query("query"))
+	if len(search) > 128 {
+		clientFailure(c, 400, "invalid_request")
+		return
+	}
+	accounts := []struct {
+		UserID       int    `json:"user_id"`
+		Username     string `json:"username"`
+		Role         int    `json:"role"`
+		NativeStatus int    `json:"native_status"`
+		Status       string `json:"status"`
+		Model        string `json:"model"`
+		DisplayName  string `json:"display_name"`
+		Limit        int    `json:"limit" gorm:"column:call_limit"`
+		Used         int    `json:"used"`
+		Reserved     int    `json:"reserved"`
+		ExpiresAt    int64  `json:"expires_at"`
+	}{}
+	query := model.DB.Table("users AS u").Joins("LEFT JOIN lingtu_accounts AS a ON a.user_id = u.id").Joins("LEFT JOIN lingtu_trial_grants AS g ON g.user_id = u.id").Where("u.deleted_at IS NULL")
+	if search != "" {
+		search = strings.ToLower(search)
+		search = strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(search)
+		query = query.Where("(LOWER(u.username) LIKE ? ESCAPE '!' OR LOWER(u.display_name) LIKE ? ESCAPE '!')", "%"+search+"%", "%"+search+"%")
+	}
+	var count int64
+	if query.Count(&count).Error != nil || query.Select("u.id AS user_id,u.username,u.role,u.status AS native_status,CASE WHEN a.user_id IS NULL OR g.user_id IS NULL THEN 'not_authorized' ELSE a.status END AS status,COALESCE(a.model,'') AS model,CASE WHEN COALESCE(u.display_name,'') = '' THEN COALESCE(u.username,'') ELSE u.display_name END AS display_name,COALESCE(g.call_limit,0) AS call_limit,COALESCE(g.used,0) AS used,COALESCE(g.reserved,0) AS reserved,COALESCE(g.expires_at,0) AS expires_at").Order("u.id DESC").Offset((page-1)*20).Limit(20).Scan(&accounts).Error != nil {
+		clientFailure(c, 503, "temporarily_unavailable")
+		return
+	}
+	c.JSON(200, gin.H{"items": accounts, "total": count, "page": page})
+}
+
+func (h *Host) saveConfig(c *gin.Context) {
+	// Only interactive native sessions may authorize sensitive configuration writes.
+	if _, ok := middleware.GetSessionAuthIdentity(c); !ok {
+		clientFailure(c, 403, "interactive_login_required")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 32769))
+	if err != nil || len(body) > 32768 {
+		clientFailure(c, 400, "invalid_request")
+		return
+	}
+	var request configurationRequest
+	if common.Unmarshal(body, &request) != nil {
+		clientFailure(c, 400, "invalid_request")
+		return
+	}
+	digest := sha256.Sum256(body)
+	context, _ := common.Marshal(service.ManagedConfigurationContext{Section: request.Section, RequestHash: hex.EncodeToString(digest[:])})
+	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeManagedConfigure, Context: context}) == nil {
+		return
+	}
+	adminConfigurationMu.Lock()
+	defer adminConfigurationMu.Unlock()
+	audit := lingtu.ManagedAudit{ActorID: c.GetInt("id"), TargetID: request.UserID, Section: request.Section, Outcome: "pending", Reason: request.Reason, CreatedAt: time.Now().Unix()}
+	if err = model.DB.Create(&audit).Error; err != nil {
+		clientFailure(c, 503, "temporarily_unavailable")
+		return
+	}
+	switch request.Section {
+	case "wechat", "dingtalk":
+		err = h.saveSocial(request)
+	case "deepseek", "qwen", "qwen-vision":
+		err = h.saveModel(c, request)
+	case "model_connection":
+		err = h.saveModelConnection(c, request)
+	case "trial":
+		err = h.saveTrialConfiguration(request)
+	case "account":
+		err = h.saveAccount(request)
+	case "reconcile":
+		err = h.reconcileUsage(request)
+	case "smtp":
+		err = h.saveSMTP(request)
+	default:
+		err = lingtu.ErrInvalidTrialInput
+	}
+	outcome := "success"
+	if err != nil {
+		outcome = "failed_or_unconfirmed"
+	}
+	if auditErr := model.DB.Model(&audit).Update("outcome", outcome).Error; auditErr != nil {
+		clientFailure(c, 503, "configuration_update_unconfirmed")
+		return
+	}
+	if err != nil {
+		if request.Section == "model_connection" && ((request.Action == "test" && request.ConnectionID > 0) || c.GetBool("lingtu_connection_saved")) {
+			connectionID := request.ConnectionID
+			if c.GetBool("lingtu_connection_saved") {
+				connectionID = c.GetInt("lingtu_saved_connection_id")
+			}
+			policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
+			if loadErr != nil {
+				clientFailure(c, 503, "configuration_update_unconfirmed")
+				return
+			}
+			connections, loadErr := modelConnectionViews(model.DB, policy.DefaultModel)
+			if loadErr != nil {
+				clientFailure(c, 503, "configuration_update_unconfirmed")
+				return
+			}
+			saved := false
+			for _, v := range connections {
+				if v.ConnectionID == connectionID && v.Provider == request.Provider {
+					saved = true
+					break
+				}
+			}
+			c.JSON(400, gin.H{"saved": saved, "tested": false, "connection_id": connectionID, "error": "model_connection_test_failed", "policy": policy, "model_connections": connections})
+			return
+		}
+		clientFailure(c, 400, "configuration_update_failed")
+		return
+	}
+	if request.Section == "model_connection" {
+		policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
+		if loadErr != nil {
+			clientFailure(c, 503, "configuration_update_unconfirmed")
+			return
+		}
+		connections, loadErr := modelConnectionViews(model.DB, policy.DefaultModel)
+		if loadErr != nil {
+			clientFailure(c, 503, "configuration_update_unconfirmed")
+			return
+		}
+		connectionID := request.ConnectionID
+		if c.GetBool("lingtu_connection_saved") {
+			connectionID = c.GetInt("lingtu_saved_connection_id")
+		}
+		c.JSON(200, gin.H{"saved": true, "tested": request.Action == "test" || request.TestAfterSave, "connection_id": connectionID, "model_connections": connections, "policy": policy})
+		return
+	}
+	c.JSON(200, gin.H{"saved": true})
+}
+func putSetting(name, value string) error {
+	row := lingtu.ManagedSetting{Name: name, Value: value}
+	// Save uses a typed struct so encryption runs on both insert and replacement.
+	return model.DB.Save(&row).Error
+}
+func (h *Host) saveSocial(r configurationRequest) error {
+	slug := "lt" + r.Section
+	var row lingtu.ManagedSetting
+	var config lingtu.SocialConfig
+	err := model.DB.First(&row, "name = ?", slug).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if row.Value != "" && common.UnmarshalJsonStr(row.Value, &config) != nil {
+		return lingtu.ErrInvalidTrialInput
+	}
+	if r.Secret != "" && r.ClearSecret {
+		return lingtu.ErrInvalidTrialInput
+	}
+	if len(r.Secret) > 2048 || len(r.AppID) > 128 {
+		return lingtu.ErrInvalidTrialInput
+	}
+	if r.ClearSecret {
+		config.Secret = ""
+	} else if r.Secret != "" {
+		config.Secret = r.Secret
+	}
+	config.Provider = r.Section
+	config.AppID = strings.TrimSpace(r.AppID)
+	if r.Enabled && (config.AppID == "" || config.Secret == "") {
+		return lingtu.ErrInvalidTrialInput
+	}
+	value, err := common.Marshal(config)
+	if err != nil {
+		return err
+	}
+	endpoint := "https://open.weixin.qq.com/connect/qrconnect"
+	scope := "snsapi_login"
+	name := "微信"
+	if r.Section == "dingtalk" {
+		endpoint = "https://login.dingtalk.com/oauth2/auth"
+		scope = "openid"
+		name = "钉钉"
+	}
+	provider := model.CustomOAuthProvider{Slug: slug, Name: name, ClientId: config.AppID, Enabled: r.Enabled, AuthorizationEndpoint: endpoint, Scopes: scope}
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&lingtu.ManagedSetting{Name: slug, Value: string(value)}).Error; err != nil {
+			return err
+		}
+		var current model.CustomOAuthProvider
+		if err := tx.First(&current, "slug = ?", slug).Error; err == nil {
+			provider.Id = current.Id
+			provider.CreatedAt = current.CreatedAt
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		return tx.Save(&provider).Error
+	})
+	if err != nil {
+		return err
+	}
+	oauth.RegisterOrUpdateCustomProvider(&provider)
+	return nil
+}
+func (h *Host) saveModel(c *gin.Context, r configurationRequest) error {
+	if r.Section == "model_connection" {
+		return h.saveModelConnection(c, r)
+	}
+	if (r.Section != "deepseek" && r.Section != "qwen" && r.Section != "qwen-vision") || (r.MakeDefault && (!r.Enabled || r.ClearSecret)) {
+		return lingtu.ErrInvalidTrialInput
+	}
+	var channel model.Channel
+	err := model.DB.First(&channel, "name = ?", "lingtu-"+r.Section).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if r.Secret != "" && r.ClearSecret {
+		return lingtu.ErrInvalidTrialInput
+	}
+	if len(r.Secret) > 4096 {
+		return lingtu.ErrInvalidTrialInput
+	}
+	if r.ClearSecret {
+		channel.Key = ""
+	} else if r.Secret != "" {
+		channel.Key = strings.TrimSpace(r.Secret)
+	}
+	channel.Name = "lingtu-" + r.Section
+	channel.Type = 1
+	channel.Group = "default"
+	channel.Status = common.ChannelStatusManuallyDisabled
+	base := "https://api.deepseek.com"
+	channel.Models = "deepseek-flash"
+	override := `{"thinking":{"type":"disabled"}}`
+	if r.Section == "qwen" || r.Section == "qwen-vision" {
+		base = "https://dashscope.aliyuncs.com/compatible-mode"
+		channel.Models = "qwen-plus"
+		if r.Section == "qwen-vision" {
+			channel.Models = visionModel
+		}
+		override = `{}`
+	}
+	channel.BaseURL = &base
+	channel.ParamOverride = &override
+	if r.Enabled {
+		if channel.Key == "" {
+			return lingtu.ErrInvalidTrialInput
+		}
+		if err = controller.TestManagedChannel(c.Request.Context(), &channel, c.GetInt("id")); err != nil {
+			return err
+		}
+		channel.Status = common.ChannelStatusEnabled
+		channel.TestTime = time.Now().Unix()
+	}
+	return persistManagedModel(&channel, r.MakeDefault)
+}
+
+// Native channel rows, abilities and the selected default must commit together.
+// The provider probe runs before this helper; it never calls an external service.
+func persistManagedModel(channel *model.Channel, makeDefault bool) error {
+	if channel == nil || channel.Type != 1 || channel.Group != "default" {
+		return lingtu.ErrInvalidTrialInput
+	}
+	selected := ""
+	switch channel.Name {
+	case "lingtu-deepseek":
+		selected = "deepseek-flash"
+	case "lingtu-qwen":
+		selected = "qwen-plus"
+	case "lingtu-qwen-vision":
+		selected = visionModel
+	default:
+		return lingtu.ErrInvalidTrialInput
+	}
+	if channel.Models != selected || (makeDefault && (channel.Status != common.ChannelStatusEnabled || strings.TrimSpace(channel.Key) == "")) {
+		return lingtu.ErrInvalidTrialInput
+	}
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if channel.Id == 0 {
+			channel.CreatedTime = time.Now().Unix()
+			if err := tx.Create(channel).Error; err != nil {
+				return err
+			}
+			if err := channel.AddAbilities(tx); err != nil {
+				return err
+			}
+		} else {
+			// Save includes an intentionally cleared credential; native Update omits it.
+			if err := tx.Save(channel).Error; err != nil {
+				return err
+			}
+			if err := channel.UpdateAbilities(tx); err != nil {
+				return err
+			}
+		}
+		if err := syncLegacyModelBinding(tx, channel); err != nil {
+			return err
+		}
+		if makeDefault {
+			policy, err := lingtu.LoadTrialPolicy(tx)
+			if err != nil {
+				return err
+			}
+			policy.DefaultModel = selected
+			value, err := common.Marshal(policy)
+			if err != nil {
+				return err
+			}
+			if err = tx.Save(&lingtu.ManagedSetting{Name: "trial_policy", Value: string(value)}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err == nil {
+		model.InitChannelCache()
+	}
+	return err
+}
+
+func (h *Host) saveAccount(r configurationRequest) error {
+	if r.UserID <= 0 || r.Calls < 0 || r.Calls > 1000000 || len(strings.TrimSpace(r.Reason)) < 1 || len(r.Reason) > 256 || (r.Status != "enabled" && r.Status != "disabled") || r.ExpiresAt <= 0 {
+		return lingtu.ErrInvalidTrialInput
+	}
+	if r.Model != "" && !validManagedModel(r.Model) {
+		return lingtu.ErrInvalidTrialInput
+	}
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		var native struct {
+			ID     int
+			Status int
+		}
+		if err := tx.Table("users").Select("id", "status").Where("id = ? AND deleted_at IS NULL", r.UserID).Take(&native).Error; err != nil {
+			return err
+		}
+		if native.Status != common.UserStatusEnabled {
+			return lingtu.ErrInvalidTrialInput
+		}
+		// Only this protected, reason-bearing admin save may initialize entitlement.
+		// Ensure preserves existing grants/identity claims; requested values below are
+		// explicit authorization and never reset used or reserved accounting.
+		if err := lingtu.EnsureManagedAccount(tx, r.UserID, time.Now()); err != nil {
+			return err
+		}
+		account := tx.Model(&lingtu.ManagedAccount{}).Where("user_id = ?", r.UserID).Updates(map[string]any{"status": r.Status, "model": r.Model})
+		if account.Error != nil {
+			return account.Error
+		}
+		return tx.Model(&lingtu.TrialGrant{}).Where("user_id = ?", r.UserID).Updates(map[string]any{"call_limit": r.Calls, "expires_at": r.ExpiresAt}).Error
+	})
+	if err != nil {
+		return err
+	}
+	if r.Revoke || r.Status == "disabled" {
+		_, err = model.RevokeAllUserSessions(r.UserID, "managed_admin_revoke")
+	}
+	return err
+}
+
+func (h *Host) adminAudit(c *gin.Context) {
+	page, _ := strconv.Atoi(c.Query("page"))
+	page = max(1, page)
+	var rows []lingtu.ManagedAudit
+	var count int64
+	if model.DB.Model(&lingtu.ManagedAudit{}).Count(&count).Error != nil || model.DB.Order("id DESC").Offset((page-1)*20).Limit(20).Find(&rows).Error != nil {
+		clientFailure(c, 503, "temporarily_unavailable")
+		return
+	}
+	c.JSON(200, gin.H{"items": rows, "total": count, "page": page})
+}
+func (h *Host) saveSMTP(r configurationRequest) error {
+	if r.ClearSecret && r.Secret != "" {
+		return lingtu.ErrInvalidTrialInput
+	}
+	if strings.ContainsAny(r.SMTPServer, "\r\n/ :") || r.SMTPServer == "" || len(r.SMTPServer) > 253 {
+		return lingtu.ErrInvalidTrialInput
+	}
+	if _, err := mail.ParseAddress(r.SMTPAccount); err != nil {
+		return lingtu.ErrInvalidTrialInput
+	}
+	if _, err := mail.ParseAddress(r.SMTPFrom); err != nil {
+		return lingtu.ErrInvalidTrialInput
+	}
+	values := map[string]string{"EmailProvider": "smtp", "SMTPServer": r.SMTPServer, "SMTPAccount": r.SMTPAccount, "SMTPFrom": r.SMTPFrom, "SMTPPort": "465", "SMTPSSLEnabled": "true", "EmailVerificationEnabled": "true"}
+	if r.Secret != "" || r.ClearSecret {
+		values["SMTPToken"] = r.Secret
+	}
+	return model.UpdateOptionsBulk(values)
+}

@@ -1,13 +1,23 @@
-# Agent 开发规则 — 灵兔 AI 电商客服
+# AI 开发入口
 
-1. 只依据 `AI客服-可编辑图层.fig` 的 **我们的设计方案** Canvas 和 `docs/figma-map.json` 开发视觉，不允许使用 `原软件` Canvas 的图片参考代替可编辑图层。
-2. 不复用旧版 Home/Dashboard/Sidebar/Topbar/ConfigDetail 组件；旧版仅保存在历史备份分支以便必要时参考非视觉业务行为。
-3. 设计同步流程：`npm run design:decode -- path/to/file.fig` → `npm run design:prepare` → 检查 `src/design/generated/screens`、`components.json` 和 `figma-map.json`。
-4. 保持图层 ID、组件 ID、宽高、位置、字体、填充、渐变、边框、圆角、阴影、Auto Layout（待支持）与原始可编辑设计对应。PNG 只作视觉验收，不许铺成页面背景。
-5. 复用 Figma Symbol/Instance，未来业务页面应逐步形成真正可维护的 React 组件，而不复制多个外观相同的组件。
-6. 离线的 `.fig` 解码工具是第三方社区库，不承诺支持所有新版格式，解析失败时先检查兼容性，不要暗中降级为参考图猜测。
-7. `UX05/06`、`UX09/10`、`UX13` 分别是三个长页的续段，正式业务 UI 需合并内容而不是简单重复页面。
-8. 真实店铺登录、批量操作、AI 回复、订单处理必须单独实现和经授权验证；v0.3.0已接入desk-v1本地服务，具体范围见docs/INTEGRATION.md；真实外部平台尚未自动验收，禁止在测试中触发真实买家发送。
-9. 禁止提交任何账号凭据、用户聊天数据、完整设计快照或原始 `.fig`。若部署开源，先审查所有 Figma 生成图片及文字。
-10. 每次修改执行 `npm run typecheck`、`npm test`、`npm run build`，涉及画板或路由需执行 `npm run test:e2e`。
-11. 功能分支提交，禁止直接覆盖 `main`。没有完成真实 Figma 视觉验收的页面不得标记为设计完成。
+2026-11-14 最新授权：用户已明确要求建立交付分支并推送/合并到同一仓库 main。本轮允许在本目录初始化 Git、关联 907609732/LTTLT-AI-Customer-Service，按 MAIN_DELIVERY_20261114.md 将本工程直接置于仓库根，保留 Git 历史与现有许可文件，不嵌入旧 React 目录。此前“暂不提交/推送”的限制对本次交付已解除；安装包公开发布、生产部署和真实买家发送仍未授权。
+
+产品名称为“灵兔 AI”，名称与数据兼容规则先读 docs/BRANDING.md。本机品牌改名已获用户授权，包含界面、图片、打包、后台和文档；主目录不移动，既有 userData、安装 appId、登录分区与 IPC 标识按兼容规则保留。本轮提交、推送与 main 合并按最新授权执行，公开发布仍未授权。
+
+唯一主项目根为 `F:\Setupgod\yunduo-ui`；先读 `docs/PROJECT_LAYOUT.md`。`.github`、package.json、src、electron、server、vendor 属于同一个独立工程。不要再将整个 F:\Setupgod 或旧 React 仓库当作本工程，也不要把主工程嵌到旧推送工作区。本轮允许本机维护、品牌改名及已授权的独立根目录交付；后续其他仓库、生产部署和公开发布仍须另行指令。兄弟目录保持原样。
+
+修改前依次阅读 `docs/CONSTRAINTS.md`、`docs/ARCHITECTURE.md`、`docs/HANDOFF.md`、`docs/LOCAL_INTEGRATION.md` 和相关模块 README；搜索已有实现，检查工作区改动。桌面支持默认本机 Key 和显式托管模式；托管改动先读 MANAGED_SERVICE.md，server 导入例外与原生检查见该目录 AGENTS/CONSTRAINTS。浏览器保持业务只读预览。
+
+- 依赖方向：app → modules → shared。跨模块只引用 index.ts；禁止 shared 引用上层。
+- Vue 使用 script setup lang="ts"；不得用 any、ts-ignore、跳过类型检查解决错误。
+- 组件不得直接访问网络、持久化、Electron 或 window.yunduoDesktop。使用模块服务与平台适配器。
+- 未接入能力必须明确提示，不伪造成功、余额、授权或后台执行状态。
+- 注释解释业务约束、公共契约、安全边界和兼容原因；保留旧 CSS 对应的 data-v 属性。
+- 新增模块、依赖、IPC、环境变量或架构例外，必须同步更新文档；重要取舍记入 docs/DECISIONS.md。
+- 完成前运行 npm run check 和 npm run test:desktop；界面修改检查截图。不得通过覆盖基准图掩盖差异。
+- 交接必须记录实际完成范围、验证结果、未解决问题、下一项任务和验收条件。
+- 不运行历史还原生成器覆盖维护中的源码。不修改项目之外的原软件或工具。
+- vendor/lingtu-runtime 是固定提交的第三方源码例外；升级先核对 PROVENANCE 与哈希清单，运行 npm run check:vendor 和 npm run test:upstream。自有新代码仍必须使用 TypeScript。
+- 密钥由用户在桌面设置填写，只在主进程加密保存；自动验证仅使用临时数据与本机模拟模型。平台实店验收与自动测试分开记录。
+- AI 发送及日志相关变更先读 docs/RUNTIME_LOGS.md；本机 AI 回复必须逐条明确批准，禁止绕过统一确认门或恢复自动兜底发送。模型上下文调试只保留有界内存，不记请求头或密钥。
+- 模型上下文修改先读 docs/CONTEXT_COMPRESSION.md；16K 触发、目标 8K 按明确估算口径执行，禁止静默裁剪系统/受保护近期原文、混用不同店铺摘要或在压缩失败时发送原始超限请求。

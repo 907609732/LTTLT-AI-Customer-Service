@@ -1,51 +1,65 @@
-# 灵兔 AI 电商客服
+# 灵兔 AI · 主项目
 
-按最新 Figma 右侧可编辑画板实现的 Electron＋React 前端。正式入口直接显示产品界面；画板索引放在独立验收入口。
+产品名称统一为“灵兔 AI”；窗口、网页、后台、安装包与云端产物的命名及原数据兼容规则见 [品牌与兼容说明](docs/BRANDING.md)。主项目物理目录保留原路径，不影响现有配置。
 
-- 桌面 UX01—25：1440×900；辅助侧栏 UX26—32：300×900。
-- 保留三条长页、原生图层/矢量、组件状态、菜单与浮层；提供真实输入和前端草稿管理。
-- v0.3.0已接入desk-v1本地后端：拼多多网页版、抖店客户端接入、消息采集、人工回复、AI开关和模型/转人工关键词配置。AI每次启动默认关闭。
-- 工单、质检、订单、意图知识库、定时调度等仍未接入；浏览器入口保留离线设计演示。完整范围和真平台验收边界见[接线说明](docs/INTEGRATION.md)。
-- 当前开发分支的最终视觉、桌面窗口与云端产物验收以交接报告为准，不将结构检查当作所有业务已完成。
+Vue 3 + TypeScript + Electron 客服工程，默认使用自己的模型 API Key，也可显式选择托管服务账号。桌面可保存店铺、商品知识、意图、规则、接待配置和本机工单，并接通训练、会话与回复服务；浏览器保持业务预览。
 
-## 本地预览
+主目录：`F:\Setupgod\yunduo-ui`。客户端、独立服务端、固定运行时、云端构建和维护文档均以本目录为根。目录职责及源码/生成文件/私有数据边界见 [目录说明](docs/PROJECT_LAYOUT.md)。本轮已获授权将本目录作为仓库根交付至 main，具体范围见 docs/MAIN_DELIVERY_20261114.md；其他 F:\Setupgod 下的目录保持原样。
 
-Node.js >=22.12（当前验证24）：
+## 启动
 
 ```powershell
+cd F:\Setupgod\yunduo-ui
 npm ci
-npm run dev
+npm run electron:dev
 ```
 
-浏览器预览使用 `npm run dev:web`；产品首页为 `/`，设计验收入口为 `/?design=1`，单页复核可用 `/?screen=UX11`。
+只看浏览器：`npm run dev`；构建并启动桌面：`npm start`。
 
-## GitHub 云端构建
+## 接功能前先读
 
-正式构建、Windows打包、浏览器和Electron检查在 GitHub Actions 的 **Build and verify Electron frontend** 工作流执行。PR更新和main提交会触发，亦可手动运行。通过后下载 `lingtu-windows-frontend-<提交SHA>`，运行其中的 `LingtuCustomerService.exe`。
+从本目录独立开发和运行。需要把功能移植到另一个项目时，再参考 [迁移说明](docs/MERGE_GUIDE.md)，不要将旧仓库结构带入日常开发。
 
-[前端交接与后端接入点](docs/FRONTEND_HANDOFF.md)说明代码结构、服务接口、启动方式、数据边界和验收状态。[Figma页面映射](docs/figma-map.json)记录当前来源、尺寸及逐页视觉状态。
+| 文档                                       | 用途                                   |
+| ------------------------------------------ | -------------------------------------- |
+| [目录说明](docs/PROJECT_LAYOUT.md)         | 主项目根、保留目录、生成文件和私有数据 |
+| [AGENTS.md](AGENTS.md)                     | AI 开工入口与完成规则                  |
+| [项目约束](docs/CONSTRAINTS.md)            | 必须遵守的开发、类型、接口和安全边界   |
+| [架构说明](docs/ARCHITECTURE.md)           | 目录、启动链路、模块和桌面能力         |
+| [开发与接入](docs/DEVELOPMENT.md)          | 如何接第一项真实功能、后续 AI 任务模板 |
+| [交接与待办](docs/HANDOFF.md)              | 当前能力、剩余问题与下一步验收         |
+| [本地运维](docs/OPERATIONS.md)             | 环境、命令、日志与故障排查             |
+| [打包与云端构建](docs/PACKAGING.md)        | 独立根目录工作流、安装包与产物下载     |
+| [架构决策](docs/DECISIONS.md)              | 关键取舍和本轮范围调整                 |
+| [实时日志与发送确认](docs/RUNTIME_LOGS.md) | 消息、实际模型上下文与逐条批准发送     |
+| [历史还原记录](docs/RESTORATION.md)        | 原始界面来源与还原过程，仅供参考       |
 
-## 设计来源与本地同步
+每个 `src/modules/<name>/README.md` 列出该模块职责与公开入口。
 
-只使用 Figma文件 `CR9QYrjZfTfMf6CIBj5yrb` 中 `我们的设计方案` Canvas（2:129）的可编辑结构，左侧参考图不用于铺成页面背景。当前结构由已有本地插件的 JSON_REST_V1 读取，不消耗Figma MCP额度。
+## 检查
 
-当前本地快照预处理：`npm run design:prepare -- --current design/snapshots/<目录>/current.json`。原始 `.fig`、完整快照、真实店铺凭据和顾客数据不得提交；`design/snapshots` 已被Git忽略。
+买家消息下方的 [AI 处理状态与回复间隔设置](docs/MESSAGE_AI_STATUS.md) 说明每条消息是否发起模型请求及未回复原因。
 
-## 许可证与商业授权
+上下文默认启用 [16K → 8K 压缩](docs/CONTEXT_COMPRESSION.md)，压缩回合与正式请求可在实时日志中核对。
 
-本项目原创代码及随附项目文档采用 **[GNU AGPL v3 only（AGPL-3.0-only）](LICENSE)**。分发及修改版本的网络服务须按许可证履行相应的版权保留、同许可及对应源代码提供义务。
+```powershell
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run test:desktop
+```
 
-**遵守 AGPL 的商业使用无需另购商业授权。** 需要不同于 AGPL 条件的闭源交付、指定 SaaS、OEM 或其他商业权利时，可向有权授权的项目权利人申请单独许可；以双方明确签署并生效的授权订单为准。
+`npm run check` 汇总类型、静态、格式、单元测试和构建。桌面检查独立运行，复用实际窗口与 IPC 实现；报告位于 `artifacts/desktop/report.json`，断言失败返回非零退出码。
 
-- [完整开源许可证](LICENSE)
-- [许可适用范围与使用说明](LICENSING.md)
-- [商业授权协议框架（须另行签署）](COMMERCIAL_LICENSE.md)
-- [贡献与再许可规则](CONTRIBUTING.md)
-- [第三方内容与权利说明](THIRD_PARTY_NOTICES.md)
+云端配置已放回 `.github/workflows/lingtu-ai-desktop.yml`，按本项目位于仓库根的结构执行。工作流只构建并上传 Actions Artifacts，没有自动发布 Release。本轮不推送、不触发云端构建；实际云端验证需在用户确认后进行。
 
-第三方依赖、素材和商标继续适用各自条款，商业协议不豁免其义务。商业授权意向可在[本仓库 Issues](https://github.com/907609732/LTTLT-AI-Customer-Service/issues) 中提出。
+## 当前能力边界
 
-## 开发分支
+用户要求的 PR #21 服务端已独立导入 `server/`，包含 Go 托管 API、原生管理网页、固定上游锁和运行约束。设置中可选择模型来源、设备授权登录、刷新额度及打开管理后台；模式/账号切换需重启，账号工作区和平台登录分区独立。默认不连接托管服务、不自动开启 AI。运行 `npm run server:prepare`、`npm run server:verify` 验证服务端；来源、测试和回退见 [托管接入说明](docs/MANAGED_SERVICE.md)。
 
-- [Figma 可编辑画板重构](https://github.com/907609732/LTTLT-AI-Customer-Service/tree/feature/figma-editable-rebuild)
-- [早期 Electron 客户端基础](https://github.com/907609732/LTTLT-AI-Customer-Service/tree/feature/local-electron-foundation)
+侧栏底部「快捷回复」已内置 80 条通用客服表达，可搜索、按场景筛选并复制；AI 回复与训练也会按当前问题参考最多 3 条。话术不替代本店知识，不改变逐条确认发送。维护与边界见 [通用话术说明](docs/GENERIC_PHRASES.md)。
+
+保留原有 hash 路由、导航、窗口操作和主题。无需软件账号：打开设置，选择模型服务商或自定义兼容接口，填写自己的 Key 并测试保存，然后添加店铺与知识，在训练场验证后再连接实际店铺。每次启动 AI 默认关闭。
+
+本机步骤和验证边界见 [本机密钥说明](docs/LOCAL_INTEGRATION.md)，可选托管账号及额度见 [托管接入说明](docs/MANAGED_SERVICE.md)。平台适配复用固定提交，真实平台登录、采集/发送与模型效果还需用户验收；软件计费、更多平台和定时调度仍未接入。
