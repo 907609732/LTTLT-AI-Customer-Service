@@ -1,0 +1,46 @@
+{
+  "appId": "top.lttlt.yunduo.customer.service",
+  "productName": "灵兔 AI",
+  "executableName": "LingtuAI",
+  "asar": true,
+  "npmRebuild": false,
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/main.cjs",
+    "dist-electron/preload.cjs",
+    "vendor/lingtu-runtime/electron/**/*",
+    "vendor/lingtu-runtime/shared/**/*",
+    "vendor/lingtu-runtime/desk-v1/src/**/*",
+    "vendor/lingtu-runtime/desk-v1/package.json",
+    "vendor/lingtu-runtime/package.json",
+    "vendor/lingtu-runtime/PROVENANCE.md",
+    "vendor/lingtu-runtime/source-files.json",
+    "vendor/lingtu-runtime/LICENSE*",
+    "vendor/lingtu-runtime/LICENSING.md",
+    "vendor/lingtu-runtime/*NOTICES*",
+    "package.json",
+    "README.md",
+    "LICENSE",
+    "LICENSING.md",
+    "COMMERCIAL_LICENSE.md",
+    "THIRD_PARTY_NOTICES.md",
+    "docs/PACKAGING.md",
+    "!**/*.map"
+  ],
+  "win": {
+    "target": ["nsis", "zip"],
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "deleteAppDataOnUninstall": false,
+    "artifactName": "LingtuAI-Setup-${version}-win-${arch}.${ext}"
+  },
+  "artifactName": "LingtuAI-${version}-win-${arch}.${ext}"
+}

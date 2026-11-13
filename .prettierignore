@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-electron
+artifacts
+coverage
+release
+package-lock.json
+# Preserve the existing repository's legal text verbatim.
+COMMERCIAL_LICENSE.md
+src/styles/legacy
+vendor/
+server/

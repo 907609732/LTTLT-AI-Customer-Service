@@ -1,0 +1,454 @@
+{
+  "oauth/generic.go": [
+    {
+      "before": "func (p *GenericOAuthProvider) ExchangeToken(ctx context.Context, code string, c *gin.Context) (*OAuthToken, error) {",
+      "after": "func (p *GenericOAuthProvider) ExchangeToken(ctx context.Context, code string, c *gin.Context) (*OAuthToken, error) {\n\tif managedProviderKind(p.config.Slug) != \"\" { return p.exchangeManaged(ctx, code, c) }"
+    },
+    {
+      "before": "func (p *GenericOAuthProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*OAuthUser, error) {",
+      "after": "func (p *GenericOAuthProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*OAuthUser, error) {\n\tif managedProviderKind(p.config.Slug) != \"\" { if token.ManagedUser == nil { return nil, fmt.Errorf(\"managed provider identity missing\") }; return token.ManagedUser, nil }"
+    }
+  ],
+  "oauth/types.go": [
+    {
+      "before": "type OAuthToken struct {",
+      "after": "type OAuthToken struct {\n\tManagedUser *OAuthUser `json:\"-\"`"
+    }
+  ],
+  "controller/oauth.go": [
+    {
+      "before": "data := gin.H{\"flow_token\": state, \"expires_at\": expiresAt.Unix()}",
+      "after": "data := gin.H{\"flow_token\": state, \"expires_at\": expiresAt.Unix()}\n\tif custom, ok := oauth.GetProvider(request.Provider).(*oauth.GenericOAuthProvider); ok {\n\t\turl, err := custom.ManagedAuthorizationURL(state); if err != nil { writeSecurityOperationError(c, err); return }; if url != \"\" { data[\"authorization_url\"] = url }\n\t}"
+    }
+  ],
+  "web/src/features/auth/hooks/use-oauth-login.ts": [
+    {
+      "before": "const state = await createOAuthFlow(provider.slug, 'login')\n      rememberOAuthLoginRedirect(state, redirectTo)",
+      "after": "const authorization = await createOAuthAuthorization(provider.slug, 'login')\n      const state = authorization.state\n      rememberOAuthLoginRedirect(state, redirectTo)\n      if (authorization.authorizationUrl) {\n        window.open(authorization.authorizationUrl, '_self')\n        return\n      }"
+    }
+  ],
+  "main.go": [
+    {
+      "before": "\"github.com/QuantumNous/new-api/common\"",
+      "after": "\"github.com/QuantumNous/new-api/common\"\n\"github.com/QuantumNous/new-api/lingtu\"\n\"github.com/QuantumNous/new-api/lingtuhost\""
+    },
+    {
+      "before": "common.InitEnv()",
+      "after": "common.InitEnv()\n\tif err := lingtu.ConfigureEncryptionFromEnvironment(); err != nil { return err }"
+    },
+    {
+      "before": "Addr:    \":\" + port,",
+      "after": "Addr:    os.Getenv(\"LINGTU_LISTEN_HOST\") + \":\" + port,"
+    },
+    {
+      "before": "defer func() {\n\t\terr := model.CloseDB()",
+      "after": "defer func() {\n\t\tlingtuhost.Shutdown()\n\t\terr := model.CloseDB()"
+    }
+  ],
+  "model/main.go": [
+    {
+      "before": "\"github.com/QuantumNous/new-api/common\"",
+      "after": "\"github.com/QuantumNous/new-api/common\"\n\"github.com/QuantumNous/new-api/lingtu\""
+    },
+    {
+      "before": "DB = db\n\t\t// MySQL",
+      "after": "DB = db\n\t\tif err := lingtu.InstallSecretUpdateProtection(DB); err != nil { return err }\n\t\t// MySQL"
+    },
+    {
+      "before": "err = migrateDB()\n\t\treturn err",
+      "after": "err = migrateDB()\n\t\tif err == nil { err = lingtu.MigrateManaged(DB) }\n\t\treturn err"
+    },
+    {
+      "before": "if err := InitializeUserAuthVersions(); err != nil {",
+      "after": "if err := lingtu.EncryptLegacyCredentials(DB); err != nil { return err }\n\tif err := InitializeUserAuthVersions(); err != nil {"
+    }
+  ],
+  "model/channel.go": [
+    {
+      "before": "`json:\"key\" gorm:\"not null\"`",
+      "after": "`json:\"key\" gorm:\"not null;serializer:lingtu_secret\"`"
+    }
+  ],
+  "model/option.go": [
+    {
+      "before": "Value string `json:\"value\"`",
+      "after": "Value string `json:\"value\" gorm:\"serializer:lingtu_secret\"`"
+    }
+  ],
+  "model/custom_oauth_provider.go": [
+    {
+      "before": "`json:\"-\" gorm:\"type:varchar(512)\"`",
+      "after": "`json:\"-\" gorm:\"type:text;serializer:lingtu_secret\"`"
+    }
+  ],
+  "controller/user.go": [
+    {
+      "before": "\"sync\"",
+      "after": "\"sync\"\n\"time\"\n\"github.com/QuantumNous/new-api/lingtu\""
+    },
+    {
+      "before": "func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBundle) {",
+      "after": "func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBundle) {\n\tif user.Role < common.RoleAdminUser { if err := lingtu.EnsureManagedAccount(model.DB,user.Id,time.Now()); err != nil { writeSecurityOperationError(c,err); return } }"
+    },
+    {
+      "before": "func Register(c *gin.Context) {",
+      "after": "func Register(c *gin.Context) {\n\tif !common.EmailVerificationEnabled { common.ApiErrorT(c, \"Email registration is not configured. Sign in with an existing account or contact the administrator.\"); return }"
+    },
+    {
+      "before": "if err := cleanUser.Insert(inviterId); err != nil {",
+      "after": "if err := model.DB.Transaction(func(tx *gorm.DB) error {\n if err := cleanUser.InsertWithTx(tx, inviterId); err != nil { return err }; if common.EmailVerificationEnabled { return lingtu.RecordVerifiedTrialEmail(tx, cleanUser.Id, cleanUser.Email, time.Now()) }; return nil\n}); err != nil {"
+    },
+    {
+      "before": "// 获取插入后的用户ID",
+      "after": "cleanUser.FinishInsert(inviterId)\n\t// 获取插入后的用户ID"
+    }
+  ],
+  "middleware/auth.go": [
+    {
+      "before": "setDashboardAuthContext(c, user, identity, useAccessToken)\n\tif lookup != nil",
+      "after": "if denyManagedDashboardBypass(c,user.Role) { return }\n\tsetDashboardAuthContext(c, user, identity, useAccessToken)\n\tif lookup != nil"
+    },
+    {
+      "before": "userEnabled := userCache.Status == common.UserStatusEnabled",
+      "after": "if userCache.Role < common.RoleAdminUser || (token.Name == \"lingtu-managed-internal\" && !c.GetBool(\"lingtu_internal\")) { abortWithOpenAiMessage(c,http.StatusForbidden,\"Managed accounts must use the client endpoint\"); return }\n\t\tuserEnabled := userCache.Status == common.UserStatusEnabled"
+    }
+  ],
+  "middleware/cors.go": [
+    {
+      "before": "\"github.com/QuantumNous/new-api/common\"",
+      "after": "\"github.com/QuantumNous/new-api/common\"\n\"os\""
+    },
+    {
+      "before": "config.AllowAllOrigins = true",
+      "after": "config.AllowAllOrigins = false\n\tconfig.AllowOrigins = common.SessionCookieTrustedURLs\n\t// Explicit local HTTP has a single loopback origin; global peer/Host checks still apply.\n\tif os.Getenv(\"LINGTU_LOCAL_HTTP\") == \"1\" { config.AllowOrigins = []string{os.Getenv(\"LINGTU_API_ORIGIN\")} }"
+    },
+    {
+      "before": "config.AllowHeaders = []string{\"*\"}",
+      "after": "config.AllowHeaders = []string{\"Origin\",\"Content-Type\",\"Authorization\",\"Cache-Control\",\"X-Security-Proof\",\"New-Api-User\",\"X-Request-Id\", \"X-Auth-Session\"}"
+    }
+  ],
+  "router/main.go": [
+    {
+      "before": "\"github.com/QuantumNous/new-api/common\"",
+      "after": "\"github.com/QuantumNous/new-api/common\"\n\"github.com/QuantumNous/new-api/lingtuhost\""
+    },
+    {
+      "before": "func SetRouter(router *gin.Engine, assets WebAssets) {",
+      "after": "func SetRouter(router *gin.Engine, assets WebAssets) {\n\t// Local HTTP is same-origin only, enforced by the loopback guard.\n\tif os.Getenv(\"LINGTU_LOCAL_HTTP\") != \"1\" { router.Use(middleware.CORS()) }\n\tif err := lingtuhost.Register(router); err != nil { panic(err) }"
+    }
+  ],
+  "router/relay-router.go": [
+    {
+      "before": "\trouter.Use(middleware.CORS())\n",
+      "after": ""
+    }
+  ],
+  "service/security_verification.go": [
+    {
+      "before": "switch operation.Scope {\n\tcase VerificationScopeChannelKeyRead:",
+      "after": "switch operation.Scope {\n\tcase VerificationScopeManagedConfigure:\n\t\tcontext, err := bindManagedConfiguration(fields); if err != nil { return VerificationBinding{}, err }; normalized = context\n\tcase VerificationScopeChannelKeyRead:"
+    },
+    {
+      "before": "case VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,",
+      "after": "case VerificationScopeManagedConfigure, VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,"
+    }
+  ],
+  "web/src/features/auth/secure-verification/types.ts": [
+    {
+      "before": "  | 'admin.user.binding.clear'",
+      "after": "  | 'admin.user.binding.clear'\n  | 'admin.user.managed_config'"
+    },
+    {
+      "before": "export type VerificationOperation =",
+      "after": "export type VerificationOperation =\n  | {scope:'admin.user.managed_config';context:{section:string;request_hash:string}}"
+    }
+  ],
+  "web/src/routes/oauth/$provider.tsx": [
+    {
+      "before": "    code?: string\n",
+      "after": "    code?: string\n    authCode?: string\n"
+    },
+    {
+      "before": "const code = search.code ?? ''",
+      "after": "const code = search.code ?? (provider === 'ltdingtalk' ? search.authCode : '') ?? ''"
+    },
+    {
+      "before": "    search.code,\n",
+      "after": "    search.code,\n    search.authCode,\n"
+    }
+  ],
+  "web/src/lib/http-client.ts": [
+    {
+      "before": "import axios",
+      "after": "import {managedApiOrigin} from '@/lib/managed-api-origin'\nimport axios"
+    },
+    {
+      "before": "baseURL: '',",
+      "after": "baseURL: managedApiOrigin,"
+    }
+  ],
+  "web/src/lib/auth-session.ts": [
+    {
+      "before": "import axios",
+      "after": "import {managedApiOrigin} from '@/lib/managed-api-origin'\nimport axios"
+    },
+    {
+      "before": "baseURL: '',",
+      "after": "baseURL: managedApiOrigin,"
+    }
+  ],
+  "web/rsbuild.config.ts": [
+    {
+      "before": "source: {\n      entry:",
+      "after": "source: {\n      define: env.publicVars,\n      entry:"
+    }
+  ],
+  "middleware/logger.go": [
+    {
+      "before": "if strings.HasPrefix(path, \"/api/oauth/\") || strings.HasPrefix(path, \"/oauth/\") {",
+      "after": "if strings.HasPrefix(path, \"/api/oauth/\") || strings.HasPrefix(path, \"/oauth/\") || strings.HasPrefix(path, \"/lingtu/\") {"
+    }
+  ],
+  "common/account_password.go": [
+    {
+      "before": "MinAccountPasswordLength = 8",
+      "after": "MinAccountPasswordLength = 15"
+    },
+    {
+      "before": "Password must contain between 8 and 128 characters.",
+      "after": "Password must contain between 15 and 128 characters."
+    }
+  ],
+  "web/src/lib/password-policy.ts": [
+    {
+      "before": "length >= 8 && length <= 128",
+      "after": "length >= 15 && length <= 128"
+    },
+    {
+      "before": "Password must contain between 8 and 128 characters.",
+      "after": "Password must contain between 15 and 128 characters."
+    }
+  ],
+  "web/src/features/auth/constants.ts": [
+    {
+      "before": "PASSWORD_MIN_LENGTH = 8",
+      "after": "PASSWORD_MIN_LENGTH = 15"
+    }
+  ],
+  "web/src/features/setup/setup-wizard.tsx": [
+    {
+      "before": "Password must contain between 8 and 128 characters.",
+      "after": "Password must contain between 15 and 128 characters.",
+      "count": 2
+    }
+  ],
+  "web/src/features/users/components/users-mutate-drawer.tsx": [
+    {
+      "before": "Password must contain between 8 and 128 characters.",
+      "after": "Password must contain between 15 and 128 characters."
+    }
+  ],
+  "controller/channel-test.go": [
+    {
+      "before": "cache.WriteContext(c)\n\tc.Set(\"id\", testUserID)",
+      "after": "cache.WriteContext(c)\n\tif strings.HasPrefix(channel.Name, \"lingtu-\") { setting := cache.GetSetting(); setting.AcceptUnsetRatioModel = true; common.SetContextKey(c,constant.ContextKeyUserSetting,setting); c.Set(\"lingtu_internal\",true) }\n\tc.Set(\"id\", testUserID)"
+    },
+    {
+      "before": "common.SysLog(common.LogText(\"testing channel %d with model %s , info %+v \", channel.Id, testModel, info.ToString()))",
+      "after": "if !c.GetBool(\"lingtu_internal\") { common.SysLog(common.LogText(\"testing channel %d with model %s , info %+v \", channel.Id, testModel, info.ToString())) }"
+    },
+    {
+      "before": "common.SysLog(common.LogText(\"testing channel #%d, response: \\n%s\", channel.Id, string(respBody)))",
+      "after": "if !c.GetBool(\"lingtu_internal\") { common.SysLog(common.LogText(\"testing channel #%d, response: \\n%s\", channel.Id, string(respBody))) }"
+    },
+    {
+      "before": "if httpResp.StatusCode != http.StatusOK {",
+      "after": "if httpResp.StatusCode != http.StatusOK {\n if c.GetBool(\"lingtu_internal\") {\n _ = httpResp.Body.Close()\n err := errors.New(\"managed model connection test failed\")\n return testResult{context:c,localErr:err,newAPIError:types.NewOpenAIError(err,types.ErrorCodeBadResponse,http.StatusBadGateway)}\n }"
+    }
+  ],
+  "controller/relay.go": [
+    {
+      "before": "relayInfo.LastError = nil\n\n\tfor ; retryParam.GetRetry() <= common.RetryTimes;",
+      "after": "relayInfo.LastError = nil\n\tmaxRetries := common.RetryTimes\n\tif c.GetBool(\"lingtu_internal\") { maxRetries = 0 }\n\n\tfor ; retryParam.GetRetry() <= maxRetries;"
+    },
+    {
+      "before": "service.DecideRelayRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry())",
+      "after": "service.DecideRelayRetry(c, newAPIError, maxRetries-retryParam.GetRetry())"
+    }
+  ],
+  "relay/channel/api_request.go": [
+    {
+      "before": "resp, err := relayClient.Do(req)",
+      "after": "if c.GetBool(\"lingtu_internal\") { c.Set(\"lingtu_upstream_started\",true) }\n\tresp, err := relayClient.Do(req)\n\tif c.GetBool(\"lingtu_internal\") && resp != nil { c.Set(\"lingtu_upstream_status\",resp.StatusCode) }"
+    }
+  ],
+  "model/log.go": [
+    {
+      "before": "isStream bool, group string, other *LogOther) {",
+      "after": "isStream bool, group string, other *LogOther) {\n\tif c != nil && c.GetBool(\"lingtu_internal\") { return }"
+    },
+    {
+      "before": "func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {",
+      "after": "func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {\n\tif c != nil && c.GetBool(\"lingtu_internal\") { return }"
+    }
+  ],
+  "logger/logger.go": [
+    {
+      "before": "func logHelper(ctx context.Context, level string, msg string) {",
+      "after": "func logHelper(ctx context.Context, level string, msg string) {\n\tif c, ok := ctx.(*gin.Context); ok && c.GetBool(\"lingtu_internal\") { msg = \"managed relay event\" }"
+    }
+  ],
+  "relay/helper/price.go": [
+    {
+      "before": "func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {",
+      "after": "func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {\n\t// Managed trials have already reserved their independent call ledger.\n\t// This trusted server-only context must not require a second native balance.\n\tif c.GetBool(\"lingtu_internal\") && info != nil { info.PriceData = hosttypes.PriceData{FreeModel:true}; return info.PriceData,nil }"
+    }
+  ],
+  "service/auth_session_test.go": [
+    {
+      "before": "model.ResetUserPasswordByEmail(email, \"new-password\")",
+      "after": "model.ResetUserPasswordByEmail(email, \"new-password-long-fixture\")"
+    }
+  ],
+  "model/user_oauth_binding.go": [
+    {
+      "before": "\"time\"",
+      "after": "\"time\"\n\"github.com/QuantumNous/new-api/lingtu\""
+    },
+    {
+      "before": "return DB.Create(binding).Error",
+      "after": "return DB.Transaction(func(tx *gorm.DB) error {\n if err := tx.Create(binding).Error; err != nil { return err }; return lingtu.RecordTrialOAuthIdentity(tx, binding.UserId, binding.ProviderId, binding.ProviderUserId, time.Now())\n})"
+    },
+    {
+      "before": "return tx.Create(binding).Error",
+      "after": "if err := tx.Create(binding).Error; err != nil { return err }; return lingtu.RecordTrialOAuthIdentity(tx, binding.UserId, binding.ProviderId, binding.ProviderUserId, time.Now())"
+    },
+    {
+      "before": "return DB.Model(&binding).Update(\"provider_user_id\", newProviderUserId).Error",
+      "after": "return DB.Transaction(func(tx *gorm.DB) error {\n if err := tx.Model(&binding).Update(\"provider_user_id\", newProviderUserId).Error; err != nil { return err }; return lingtu.RecordTrialOAuthIdentity(tx, userId, providerId, newProviderUserId, time.Now())\n})"
+    }
+  ],
+  "model/account_security.go": [
+    {
+      "before": "\"errors\"",
+      "after": "\"errors\"\n\"time\"\n\"github.com/QuantumNous/new-api/lingtu\""
+    },
+    {
+      "before": "return tx.Model(&binding).Update(\"provider_user_id\", subject).Error",
+      "after": "if err := tx.Model(&binding).Update(\"provider_user_id\", subject).Error; err != nil { return err }; return lingtu.RecordTrialOAuthIdentity(tx, identity.UserID, providerID, subject, time.Now())"
+    }
+  ],
+  "model/email_binding.go": [
+    {
+      "before": "\"github.com/QuantumNous/new-api/common\"",
+      "after": "\"github.com/QuantumNous/new-api/common\"\n\"github.com/QuantumNous/new-api/lingtu\""
+    },
+    {
+      "before": "return tx.Model(flow).Update(\"consumed_at\", time.Now()).Error",
+      "after": "if err := lingtu.RecordVerifiedTrialEmail(tx, identity.UserID, state.Email, time.Now()); err != nil { return err }; return tx.Model(flow).Update(\"consumed_at\", time.Now()).Error"
+    }
+  ],
+  "web/src/features/setup/components/admin-step.tsx": [
+    {
+      "before": "t('Set a secure password (min. 8 characters)')",
+      "after": "t('Set a secure password (min. 15 characters)')"
+    }
+  ],
+  "web/src/features/auth/sign-up/components/sign-up-form.tsx": [
+    {
+      "before": "import { cn } from '@/lib/utils'",
+      "after": "import { cn } from '@/lib/utils'\nimport { EmailRegistrationUnavailable, emailRegistrationUnavailableMessage } from '@/features/lingtu/email-registration-unavailable'"
+    },
+    {
+      "before": "  async function onSubmit(data: z.infer<typeof registerFormSchema>) {",
+      "after": "  async function onSubmit(data: z.infer<typeof registerFormSchema>) {\n    if (!emailVerificationRequired) {\n      toast.error(t(emailRegistrationUnavailableMessage))\n      return\n    }"
+    },
+    {
+      "before": "        {/* Username Field */}",
+      "after": "        {emailVerificationRequired ? <>\n        {/* Username Field */}"
+    },
+    {
+      "before": "        <LegalConsent\n",
+      "after": "        </> : <EmailRegistrationUnavailable />}\n\n        <LegalConsent\n"
+    },
+    {
+      "before": "        {/* Submit Button */}\n        <Button",
+      "after": "        {/* Submit Button */}\n        {emailVerificationRequired && <Button"
+    },
+    {
+      "before": "          {t('Create account')}\n        </Button>",
+      "after": "          {t('Create account')}\n        </Button>}"
+    },
+    {
+      "before": "placeholder={t('Enter password (8–128 characters)')}",
+      "after": "placeholder={t('Enter password (15–128 characters)')}"
+    }
+  ],
+  "web/src/features/auth/sign-in/index.tsx": [
+    {
+      "before": "          {!status?.self_use_mode_enabled &&\n            status?.register_enabled !== false && (",
+      "after": "          {redirect === '/lingtu/admin' && (\n            <p className='text-muted-foreground text-left text-sm sm:text-base'>\n              {t('Sign in with the administrator username and password created during setup. No new registration or email verification is required.')}\n            </p>\n          )}\n          {redirect !== '/lingtu/admin' && !status?.self_use_mode_enabled &&\n            status?.register_enabled !== false && ("
+    }
+  ],
+  "middleware/rate-limit.go": [
+    {
+      "before": "\tc.Status(http.StatusTooManyRequests)\n\tc.Abort()",
+      "after": "\tc.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{\"success\": false, \"error\": \"rate_limited\", \"message_key\": \"Too many requests. Please wait a moment and try again.\", \"message\": \"Too many requests. Please wait a moment and try again.\"})"
+    }
+  ],
+  "relay/channel/openai/relay-openai.go": [
+    {
+      "before": "\"github.com/QuantumNous/new-api/logger\"",
+      "after": "\"github.com/QuantumNous/new-api/logger\"\n\"github.com/QuantumNous/new-api/lingtu\""
+    },
+    {
+      "before": "\tlogger.LogDebug(c, \"upstream response body: %s\", responseBody)",
+      "after": "\tif c.GetBool(\"lingtu_internal\") {\n input, output, known := lingtu.ParseTokenUsage(responseBody)\n c.Set(\"lingtu_provider_usage_seen\", true); c.Set(\"lingtu_provider_usage_known\", known); c.Set(\"lingtu_provider_input_tokens\", input); c.Set(\"lingtu_provider_output_tokens\", output)\n }\n\tlogger.LogDebug(c, \"upstream response body: %s\", responseBody)"
+    }
+  ],
+  "relay/channel/aws/relay-aws.go": [
+    {
+      "before": "return client, nil",
+      "after": "if c.GetBool(\"lingtu_internal\") { client = bedrockruntime.New(client.Options(), func(o *bedrockruntime.Options) { o.RetryMaxAttempts = 1; o.Retryer = aws.NopRetryer{} }) }\n\treturn client, nil"
+    },
+    {
+      "before": "awsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput))",
+      "after": "if c.GetBool(\"lingtu_internal\") { c.Set(\"lingtu_upstream_started\",true) }\n\tawsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput))\n\tif c.GetBool(\"lingtu_internal\") { status:=200; if err!=nil {status=getAwsErrorStatusCode(err)};c.Set(\"lingtu_upstream_status\",status) }",
+      "count": 2
+    },
+    {
+      "before": "awsResp, err := a.AwsClient.InvokeModelWithResponseStream(ctx, a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput))",
+      "after": "if c.GetBool(\"lingtu_internal\") { c.Set(\"lingtu_upstream_started\",true) }\n\tawsResp, err := a.AwsClient.InvokeModelWithResponseStream(ctx, a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput))\n\tif c.GetBool(\"lingtu_internal\") { status:=200; if err!=nil {status=getAwsErrorStatusCode(err)};c.Set(\"lingtu_upstream_status\",status) }",
+      "count": 1
+    }
+  ],
+  "relay/channel/xunfei/relay-xunfei.go": [
+    {
+      "before": "dataChan, stopChan, err := xunfeiMakeRequest(textRequest, domain, authUrl, appId)",
+      "after": "if c.GetBool(\"lingtu_internal\") { c.Set(\"lingtu_upstream_started\",true) }\n\tdataChan, stopChan, err := xunfeiMakeRequest(textRequest, domain, authUrl, appId)\n\tif c.GetBool(\"lingtu_internal\") && err==nil {c.Set(\"lingtu_upstream_status\",200)}",
+      "count": 2
+    },
+    {
+      "before": "func xunfeiHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, appId string, apiSecret string, apiKey string) (*dto.Usage, *types.NewAPIError) {",
+      "after": "func xunfeiHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, appId string, apiSecret string, apiKey string) (*dto.Usage, *types.NewAPIError) {\n if c.GetBool(\"lingtu_internal\") { return managedSparkHandler(c,textRequest,appId,apiSecret,apiKey) }"
+    }
+  ],
+  "service/channel_select.go": [
+    {
+      "before": "constraints := GetChannelConstraints(c)\n\tif pin, found, overridden := constraints.ResolvedPin(); found {",
+      "after": "constraints := GetChannelConstraints(c)\n\tif admitted, handled, err := selectLingtuAdmittedChannel(c, modelName, constraints); handled {\n\t\treturn admitted, \"\", err\n\t}\n\tif pin, found, overridden := constraints.ResolvedPin(); found {"
+    }
+  ],
+  "common/constants.go": [
+    {
+      "before": "var SystemName = \"New API\"",
+      "after": "var SystemName = \"灵兔 AI\""
+    }
+  ],
+  "web/index.html": [
+    {
+      "before": "<title>New API</title>",
+      "after": "<title>灵兔 AI</title>"
+    }
+  ]
+}

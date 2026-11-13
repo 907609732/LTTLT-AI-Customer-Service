@@ -1,0 +1,8 @@
+export { default as AiAssistCenterView } from './components/AiAssistCenterView.vue'
+export { default as RuntimeLogsView } from './components/RuntimeLogsView.vue'
+export { default as MascotFloatView } from './components/MascotFloatView.vue'
+export { default as SnapOverlayView } from './components/SnapOverlayView.vue'
+export { default as ConsultPanel } from './components/ConsultPanel.vue'
+export { default as BackendHubView } from './components/BackendHubView.vue'
+export { default as HubTabBar } from './components/HubTabBar.vue'
+export { default as HubWebStage } from './components/HubWebStage.vue'

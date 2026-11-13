@@ -1,0 +1,85 @@
+name: Build Lingtu AI Windows desktop
+
+# This project is the repository root. Build artifacts stay in Actions;
+# publishing a Release requires a separate, explicitly authorized action.
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lingtu-ai-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked toolchain
+        run: npm ci
+      - name: Verify source, contracts, regressions and build
+        run: npm run check
+      - name: Verify actual Electron desktop
+        run: npm run test:desktop
+      - name: Package NSIS installer and ZIP in the cloud
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win nsis zip --x64 --publish never --config.electronDist=node_modules/electron/dist
+      - name: Inspect archive and launch the real packaged application
+        run: npm run test:packaged
+      - name: Record exact source and checksums
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          BUILD_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $manifest = [ordered]@{
+            product = '灵兔 AI'; version = $version; platform = 'windows-x64'
+            sourceCommit = $env:SOURCE_SHA; workflow = $env:BUILD_URL
+            signed = $false; serverBundled = $false
+          }
+          $manifest | ConvertTo-Json | Set-Content release/RELEASE-MANIFEST.json -Encoding utf8
+          $packages = @(Get-ChildItem release -File | Where-Object { $_.Extension -in '.exe','.zip' })
+          if (@($packages | Where-Object Extension -eq '.exe').Count -ne 1 -or @($packages | Where-Object Extension -eq '.zip').Count -ne 1) { throw 'Expected exactly one installer and ZIP' }
+          $files = @($packages) + @(Get-Item release/RELEASE-MANIFEST.json)
+          $lines = $files | ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name }
+          $lines | Set-Content release/SHA256SUMS.txt -Encoding ascii
+      - name: Keep build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingtu-ai-windows-${{ github.sha }}
+          path: |
+            release/*.exe
+            release/*.zip
+            release/SHA256SUMS.txt
+            release/RELEASE-MANIFEST.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingtu-ai-verification-${{ github.sha }}
+          path: |
+            artifacts/desktop/report.json
+            artifacts/desktop/managed-account-settings.png
+            artifacts/packaged/
+          if-no-files-found: warn
+          retention-days: 30
