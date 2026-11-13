@@ -1,8 +1,0 @@
-export { default as DashboardView } from './components/DashboardView.vue'
-export { default as EnvHealthBanner } from './components/EnvHealthBanner.vue'
-export { default as StoreWebWorkspace } from './components/StoreWebWorkspace.vue'
-export { default as QuickReplyDialog } from './components/QuickReplyDialog.vue'
-export { default as ScheduledTasksDialog } from './components/ScheduledTasksDialog.vue'
-export { default as RuntimeDownloadToast } from './components/RuntimeDownloadToast.vue'
-export { default as UpdateAvailableDialog } from './components/UpdateAvailableDialog.vue'
-export { default as UpdateDownloadDialog } from './components/UpdateDownloadDialog.vue'

@@ -1,5 +1,0 @@
-export { default as ShopOpsPanel } from './components/ShopOpsPanel.vue'
-export { default as TransferSettings } from './components/TransferSettings.vue'
-export { default as WelcomeSettings } from './components/WelcomeSettings.vue'
-export { default as AutoSettings } from './components/AutoSettings.vue'
-export { default as ImageRecognizeSettings } from './components/ImageRecognizeSettings.vue'
