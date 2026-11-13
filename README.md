@@ -52,7 +52,7 @@ npm run test:desktop
 
 `npm run check` 汇总类型、静态、格式、单元测试和构建。桌面检查独立运行，复用实际窗口与 IPC 实现；报告位于 `artifacts/desktop/report.json`，断言失败返回非零退出码。
 
-云端配置已放回 `.github/workflows/lingtu-ai-desktop.yml`，按本项目位于仓库根的结构执行。工作流只构建并上传 Actions Artifacts，没有自动发布 Release。本轮不推送、不触发云端构建；实际云端验证需在用户确认后进行。
+云端配置已放回 `.github/workflows/lingtu-ai-desktop.yml`，按本项目位于仓库根的结构执行。工作流只构建并上传 Actions Artifacts，没有自动发布 Release。用户已授权本轮分支推送和 main 合并，实际云端结果以对应 PR 为准，不自动发布 Release。
 
 ## 当前能力边界
 

@@ -41,7 +41,7 @@ Windows + Node.js >=24 + npm；依赖版本以 package-lock.json 为准，云端
 
 ## 云端与独立服务端
 
-云端构建配置已收回 .github/workflows/lingtu-ai-desktop.yml，默认只生成 Actions Artifacts，不发布 Release。本轮没有推送或触发云端任务；构建、打包和下载说明见 PACKAGING.md。旧发布和撤回记录保存在 RELEASE_20261114.md，不作为当前待推送方案。
+云端构建配置已收回 .github/workflows/lingtu-ai-desktop.yml，默认只生成 Actions Artifacts，不发布 Release。用户已授权本轮推送与 main 合并，将以对应 PR 的云端检查核对交付；构建、打包和下载说明见 PACKAGING.md。旧发布和撤回记录保存在 RELEASE_20261114.md，不作为当前待推送方案。
 
 本机 HTTP 服务启动：npm run server:start；管理入口 http://127.0.0.1:3000/lingtu/admin，仅监听回环。不要在文档中记录实际账号密码；凭据来源和重复启动行为见 server/README.md。server/.upstream 和 bin 可重建，runtime 是私有数据，不能当作缓存清理。保留用户已有运行服务，不为整理目录而重启。
 

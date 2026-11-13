@@ -8,6 +8,8 @@
 
 保留现有仓库 LICENSE、LICENSING.md、COMMERCIAL_LICENSE.md、THIRD_PARTY_NOTICES.md 原文，以及本项目 vendor/server 的来源、摘要和许可。其他 F:\Setupgod 下的文件夹保持原样，不复制或删除它们。现有用户数据目录、账号、平台分区和安装兼容标识保持 BRANDING.md 所述策略。
 
+商业许可原文不作为维护代码格式化，.prettierignore 仅为 COMMERCIAL_LICENSE.md 添加例外；其他源码和维护文档继续执行原格式、类型、静态与测试检查。
+
 ## 排除范围
 
 node_modules、dist、dist-electron、release、artifacts、覆盖率、server/.upstream、server/bin、server/artifacts、server/runtime、.env、日志、管理员凭据、密钥、数据库、浏览器资料和真实聊天不得提交。提交前核对 Git 暂存清单、来源摘要和本机已知凭据匹配；不输出或复制凭据内容。
