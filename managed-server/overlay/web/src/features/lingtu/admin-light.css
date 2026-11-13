@@ -713,9 +713,6 @@
   height: 100%;
   border-radius: 4px;
 }
-.lingtu-admin-shell .recharts-wrapper {
-  max-width: 100%;
-}
 @media (max-width: 1180px) {
   .lingtu-admin-shell .clear-model-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
