@@ -584,7 +584,7 @@ export function AdminModels(props: {
                     id='connection-secret'
                     disabled={props.busy}
                     aria-label={t('Model key')}
-                    autoComplete='off'
+                    autoComplete='new-password'
                     spellCheck={false}
                     value={active.secret}
                     onChange={(e) =>
@@ -596,7 +596,7 @@ export function AdminModels(props: {
                     id='connection-secret'
                     type={visible ? 'text' : 'password'}
                     disabled={props.busy}
-                    autoComplete='off'
+                    autoComplete='new-password'
                     spellCheck={false}
                     value={active.secret}
                     placeholder={t(
