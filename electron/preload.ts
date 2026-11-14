@@ -26,5 +26,28 @@ const api: DesktopApi = {
     ipcRenderer.invoke('business:present-store', { storeId, visible }),
   simulatorStatus: () => ipcRenderer.invoke('sim:status'),
   openSimulatorPage: () => ipcRenderer.invoke('sim:open-page'),
+  openAssist: () => ipcRenderer.invoke('assist:open'),
+  assistState: () => ipcRenderer.invoke('assist:state'),
+  updateAssistPreferences: (patch, workspaceId) =>
+    ipcRenderer.invoke('assist:update-preferences', { patch, workspaceId }),
+  closeAssist: () => ipcRenderer.invoke('assist:close'),
+  openMainSection: (section) => ipcRenderer.invoke('assist:open-main-section', section),
+  openAssistConversation: (input) => ipcRenderer.invoke('assist:open-conversation', input),
+  assistPlatformSnapshot: () => ipcRenderer.invoke('assist:platform-snapshot'),
+  refreshAssistPlatform: (input) => ipcRenderer.invoke('assist:platform-refresh', input),
+  openAssistPlatformItem: (input) => ipcRenderer.invoke('assist:platform-open-item', input),
+  onAssistState: (listener) => {
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      state: import('../src/shared/contracts/assist').AssistWindowState,
+    ) => listener(state)
+    ipcRenderer.on('assist:state-changed', receive)
+    return () => ipcRenderer.removeListener('assist:state-changed', receive)
+  },
+  onAssistCloseRequest: (listener) => {
+    const receive = () => listener()
+    ipcRenderer.on('assist:request-close', receive)
+    return () => ipcRenderer.removeListener('assist:request-close', receive)
+  },
 }
 contextBridge.exposeInMainWorld('yunduoDesktop', Object.freeze(api))

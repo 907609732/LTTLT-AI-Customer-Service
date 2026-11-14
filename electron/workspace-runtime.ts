@@ -19,6 +19,7 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
   let unavailable: BackendSnapshot | undefined
   let pendingDisposal: LocalRuntime | undefined
   let closed = false
+  let assistActive = false
   const closedSnapshot = emptySnapshot()
   closedSnapshot.workspaceId = randomUUID()
   const listeners = new Set<(event: BackendEvent) => void>()
@@ -101,6 +102,7 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
             session: { ...emptyManagedSession(), message: '工作区暂时不可用，请重试登录切换。' },
             restartRequired: true,
           }
+          current.setAssistPlatformActive(false)
           off()
           pendingDisposal = current
         }
@@ -113,6 +115,7 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
           pendingDisposal = undefined
           unavailable = undefined
           bind()
+          if (!closed) current.setAssistPlatformActive(assistActive)
           emit({ type: 'workspace:changed' })
           return { status: 'ok', message: '登录已生效；AI 保持关闭。', data: {} }
         } catch (error) {
@@ -139,6 +142,29 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
       requireAvailable()
       return current.simulatorStatus()
     },
+    assistPlatformSnapshot() {
+      requireAvailable()
+      return current.assistPlatformSnapshot()
+    },
+    setAssistPlatformActive(active) {
+      assistActive = active
+      if (closed || unavailable) return
+      current.setAssistPlatformActive(active)
+    },
+    refreshAssistPlatform(input) {
+      assertWorkspace(input.workspaceId)
+      requireAvailable()
+      const instance = current
+      return instance.refreshAssistPlatform(input).then((result) => {
+        assertWorkspace(input.workspaceId)
+        return result
+      })
+    },
+    openAssistPlatformItem(input) {
+      assertWorkspace(input.workspaceId)
+      requireAvailable()
+      return current.openAssistPlatformItem(input)
+    },
     openSimulatorPage() {
       const id = snapshot().workspaceId
       return enqueue(async () => {
@@ -150,6 +176,8 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
     dispose() {
       // Stop accepting commands immediately, then drain in-flight work before stopping the host.
       closed = true
+      assistActive = false
+      current.setAssistPlatformActive(false)
       unavailable = emptySnapshot()
       unavailable.workspaceId = randomUUID()
       return enqueue(async () => {

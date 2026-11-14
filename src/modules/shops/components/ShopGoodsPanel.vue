@@ -208,6 +208,7 @@ async function exportCsv() {
     :message="task.message.value"
   >
     <template #actions
+      ><el-button @click="router.push('/shop/manage?panel=shops')">返回店铺列表</el-button
       ><el-button type="primary" @click="adding = true">添加店铺</el-button
       ><el-button :disabled="task.pending.value" @click="runtime.refresh()"
         >刷新店铺</el-button

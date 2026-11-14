@@ -23,6 +23,8 @@ import asset_platform_qianfan_Nuo9E5_N from '@/assets/platform-qianfan-Nuo9E5-N.
 import asset_platform_xianyu_CkI7OnrT from '@/assets/platform-xianyu-CkI7OnrT.png'
 import { ref, computed } from 'vue'
 import { createDashboardViewDemo } from '@/modules/workbench/demo/DashboardView'
+import { getDesktop } from '@/shared/platform/desktop'
+import { useTask } from '@/shared/ui/use-task'
 const demo = createDashboardViewDemo()
 const router = useRouter()
 const addingShop = ref(false)
@@ -32,6 +34,19 @@ const isDivState = ref(demo.isDivState)
 const services = useServices()
 const title = computed(() => services.workbench.getWelcome())
 const homeBizWechat = ref(demo.homeBizWechat)
+const assistTask = useTask()
+async function openAssist() {
+  const desktop = getDesktop()
+  if (!desktop.isElectron) {
+    await router.push('/float/assist')
+    return
+  }
+  const ok = await assistTask.run(async () => {
+    if (!desktop.openAssist) throw new Error('辅助中心窗口尚未接入，请更新桌面程序')
+    await desktop.openAssist()
+  })
+  if (!ok) notifyUnavailable(assistTask.error.value)
+}
 </script>
 
 <template>
@@ -99,9 +114,7 @@ const homeBizWechat = ref(demo.homeBizWechat)
               type="button"
               class="home-action-card"
               data-nav
-              @click="
-                item?.key === 'assist' ? router.push('/float/assist') : router.push('/shop/manage')
-              "
+              @click="item?.key === 'assist' ? openAssist() : router.push('/shop/manage')"
               data-v-8cdf7e6d=""
             >
               <span class="home-action-icon" data-v-8cdf7e6d=""

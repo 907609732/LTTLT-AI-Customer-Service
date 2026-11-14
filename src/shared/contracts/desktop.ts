@@ -1,6 +1,17 @@
 /** 渲染层仅持有此能力接口，不接触 Electron 对象和任意 IPC 通道。 */
 import type { BackendCommand, BackendEvent, BackendResult, BackendSnapshot } from './backend'
 import type { SimulatorActionResult, SimulatorStatus } from './simulation'
+import type {
+  AssistMainSection,
+  AssistPreferencesPatch,
+  AssistWindowState,
+  OpenAssistConversationInput,
+} from './assist'
+import type {
+  OpenAssistPlatformItemInput,
+  PlatformItemsSnapshot,
+  RefreshAssistPlatformInput,
+} from './platform-items'
 
 export interface ScreenPoint {
   screenX: number
@@ -27,6 +38,20 @@ export interface DesktopApi {
   simulatorStatus?(): Promise<SimulatorStatus>
   /** 在系统浏览器打开模拟顾客页；浏览器预览版不具备此能力。 */
   openSimulatorPage?(): Promise<SimulatorActionResult>
+  openAssist?(): Promise<void>
+  assistState?(): Promise<AssistWindowState>
+  updateAssistPreferences?(
+    patch: AssistPreferencesPatch,
+    workspaceId: string,
+  ): Promise<AssistWindowState>
+  onAssistState?(listener: (state: AssistWindowState) => void): () => void
+  onAssistCloseRequest?(listener: () => void): () => void
+  closeAssist?(): Promise<void>
+  openMainSection?(section: AssistMainSection): Promise<void>
+  openAssistConversation?(input: OpenAssistConversationInput): Promise<void>
+  assistPlatformSnapshot?(): Promise<PlatformItemsSnapshot>
+  refreshAssistPlatform?(input: RefreshAssistPlatformInput): Promise<PlatformItemsSnapshot>
+  openAssistPlatformItem?(input: OpenAssistPlatformItemInput): Promise<void>
 }
 
 export interface RenderError {

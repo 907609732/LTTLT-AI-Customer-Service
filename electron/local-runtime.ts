@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow, safeStorage, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, safeStorage, shell, type IpcMainInvokeEvent } from 'electron'
 import {
   createManagedController,
   type ManagedSessionFactory,
@@ -34,6 +34,22 @@ import { emptyReview } from '../src/shared/contracts/review'
 import { createSimAdapter } from './sim-adapter'
 import { createSimManagerFactory } from './sim-manager'
 import { createSimServer } from './sim-server'
+import {
+  assistCollectionUrl,
+  isAllowedAssistUrl,
+  createAssistPlatformHost,
+  type AssistPlatform,
+} from './assist-platform-host'
+import { createAssistPlatformCollector } from './assist-platform-collector'
+import { createAssistPlatformReader } from './assist-platform-reader'
+import { pddTicketDetailId } from './assist-platform-pdd'
+import { registerStoreBrowserEnvironment } from './store-browser'
+import {
+  openAssistPlatformItemSchema,
+  refreshAssistPlatformSchema,
+  type OpenAssistPlatformItemInput,
+  type RefreshAssistPlatformInput,
+} from '../src/shared/contracts/platform-items'
 
 interface UpstreamBackend {
   engine?: { worker(storeId: string): WorkerObservation | null }
@@ -106,6 +122,30 @@ export function createLocalRuntime(options: {
     transport: options.managedTransport,
   })
   const dataDir = managed.dataDir
+  const disposeBrowserEnvironment = registerStoreBrowserEnvironment({
+    app,
+    namespace: managed.partitionNamespace,
+    chromiumVersion: process.versions.chrome,
+    userDataDir: app.getPath('userData'),
+  })
+  const assistHost = createAssistPlatformHost({
+    namespace: managed.partitionNamespace,
+    getParent: options.getWindow,
+    createWindow: (partition) =>
+      new BrowserWindow({
+        width: 1200,
+        height: 850,
+        show: false,
+        autoHideMenuBar: true,
+        webPreferences: {
+          partition,
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          backgroundThrottling: false,
+        },
+      }),
+  })
   let logWindow: BrowserWindow | undefined
   const notifyReview = () => {
     if (!closed) for (const listener of listeners) listener({ type: 'review:changed' })
@@ -121,6 +161,59 @@ export function createLocalRuntime(options: {
       workspaceId,
       managed: managed.snapshot(),
     })
+  }
+  const assistStores = () => {
+    if (closed || !managed.canAccessWorkspace()) return []
+    const raw = backendRef.current?.snapshot() as
+      | { stores?: { id: string; storeName: string; platform: string; mallId?: string }[] }
+      | undefined
+    return (raw?.stores ?? []).map((store) => ({
+      id: store.id,
+      storeName: store.storeName,
+      platform: store.platform,
+      identityId: store.mallId || undefined,
+    }))
+  }
+  const assistDetails = new Map<string, string>()
+  const observedAssistDetails = new Map<string, string>()
+  const assistCollector = createAssistPlatformCollector({
+    workspaceId,
+    stores: assistStores,
+    changed: () => {
+      if (!closed) for (const listener of listeners) listener({ type: 'assist-platform:changed' })
+    },
+    read: createAssistPlatformReader({
+      page: assistHost.page,
+      collectionPage: assistHost.collectionPage,
+      observeTicketDetail: assistHost.observeTicketDetail,
+      rememberDetail: (storeId, kind, id, url) => {
+        observedAssistDetails.set(`${storeId}:${kind}:${id}`, url)
+        if (observedAssistDetails.size > 1000)
+          observedAssistDetails.delete(observedAssistDetails.keys().next().value!)
+      },
+      identityScript: () =>
+        loadFactory<{ buildIdentityScript(options: { timeoutMs: number }): string }>(
+          'desk-v1/src/adapters/pdd-identity.js',
+          'buildIdentityScript',
+        ).buildIdentityScript({ timeoutMs: 5000 }),
+    }),
+  })
+  const assistSnapshot = () => {
+    const snapshot = assistCollector.snapshot()
+    const published = new Set(
+      snapshot.stores.flatMap((store) =>
+        store.items.map((item) => `${store.storeId}:${store.kind}:${item.id}`),
+      ),
+    )
+    for (const key of published) {
+      const target = observedAssistDetails.get(key)
+      if (target) {
+        assistDetails.set(key, target)
+        observedAssistDetails.delete(key)
+      }
+    }
+    for (const key of assistDetails.keys()) if (!published.has(key)) assistDetails.delete(key)
+    return snapshot
   }
   const review = new ReviewConsole(
     read,
@@ -305,6 +398,86 @@ export function createLocalRuntime(options: {
       if (command.action === 'remove-store' && command.storeId) simHub.forget(command.storeId)
       return result
     },
+    assistPlatformSnapshot() {
+      return assistSnapshot()
+    },
+    setAssistPlatformActive(active: boolean) {
+      assistCollector.setActive(active)
+      if (!active) assistHost.stopCollecting()
+    },
+    async refreshAssistPlatform(input: RefreshAssistPlatformInput) {
+      const request = refreshAssistPlatformSchema.parse(input)
+      if (closed || request.workspaceId !== workspaceId || !managed.canAccessWorkspace())
+        throw new Error('店铺工作区已改变，请重新打开辅助中心')
+      await assistCollector.refresh(request.storeId, request.kind)
+      return assistSnapshot()
+    },
+    async openAssistPlatformItem(input: OpenAssistPlatformItemInput) {
+      const request = openAssistPlatformItemSchema.parse(input)
+      if (closed || request.workspaceId !== workspaceId || !managed.canAccessWorkspace())
+        throw new Error('店铺工作区已改变，请重新打开辅助中心')
+      const store = assistStores().find((item) => item.id === request.storeId)
+      if (!store || !['pdd-web', 'doudian-client'].includes(store.platform))
+        throw new Error('此店铺尚未接入平台后台')
+      if (store.platform !== 'pdd-web') throw new Error('抖店平台工单和售后暂未接入')
+      if (request.id) {
+        const record = assistSnapshot().stores.find(
+          (item) => item.storeId === request.storeId && item.kind === request.kind,
+        )
+        const row = record?.items.find((item) => item.id === request.id)
+        const target = assistDetails.get(`${request.storeId}:${request.kind}:${request.id}`)
+        if (
+          !row ||
+          record?.status !== 'success' ||
+          !target ||
+          request.kind !== 'ticket' ||
+          pddTicketDetailId(target) !== request.id
+        )
+          throw new Error('此记录的详情页面不可用，请先刷新平台列表')
+        const page =
+          assistHost.page(store.id) ?? assistHost.collectionContents(store.id, request.kind)
+        if (!page || !isAllowedAssistUrl('pdd-web', page.getURL()))
+          throw new Error('平台后台已关闭，请先刷新同步后查看详情')
+        const identity: unknown = await page.executeJavaScript(
+          loadFactory<{
+            buildIdentityScript(options: { timeoutMs: number; refresh: boolean }): string
+          }>('desk-v1/src/adapters/pdd-identity.js', 'buildIdentityScript').buildIdentityScript({
+            timeoutMs: 5000,
+            refresh: true,
+          }),
+        )
+        const matches =
+          identity &&
+          typeof identity === 'object' &&
+          Reflect.get(identity, 'authenticated') === true &&
+          (store.identityId
+            ? Reflect.get(identity, 'mallId') === store.identityId
+            : Boolean(store.storeName) && Reflect.get(identity, 'storeName') === store.storeName)
+        if (!matches) {
+          assistCollector.invalidateStore(
+            store.id,
+            '后台登录或店铺身份已改变，请核对店铺后手动刷新',
+          )
+          throw new Error('后台登录或店铺身份已改变，未打开旧工单详情')
+        }
+        if (closed || !managed.canAccessWorkspace())
+          throw new Error('店铺工作区已改变，请重新打开辅助中心')
+        await assistHost.open({ id: store.id, platform: 'pdd-web' }, target)
+        return
+      }
+      await assistHost.open(
+        { id: store.id, platform: store.platform as AssistPlatform },
+        assistCollectionUrl(store.platform as AssistPlatform, request.kind),
+        assistSnapshot().stores.some(
+          (row) =>
+            row.storeId === store.id &&
+            row.kind === request.kind &&
+            row.status === 'login_required',
+        )
+          ? request.kind
+          : undefined,
+      )
+    },
     simulatorStatus(): SimulatorStatus {
       const status = simServer.status()
       return status.running ? status : { ...status, error: status.error || simHub.persistError }
@@ -352,6 +525,11 @@ export function createLocalRuntime(options: {
     async dispose() {
       if (closed) return
       closed = true
+      assistCollector.dispose()
+      disposeBrowserEnvironment()
+      assistDetails.clear()
+      observedAssistDetails.clear()
+      assistHost.dispose()
       managed.dispose()
       review.dispose()
       if (logWindow && !logWindow.isDestroyed()) logWindow.destroy()

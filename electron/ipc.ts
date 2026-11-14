@@ -9,10 +9,31 @@ import {
 import { genericPhrases } from '../src/shared/customer-service/library'
 import { isExternalUrl, isScreenPoint } from './policy'
 import { isTrustedRenderer, isAppWebContents } from './windows'
+import { loadRenderer } from './windows'
+import type { AssistWindowManager } from './assist-window'
+import type { LocalRuntime } from './local-runtime'
+import { z } from 'zod'
+import { assistPreferencesPatchSchema } from '../src/shared/contracts/assist'
+import { createAssistConversationNavigator } from './assist-conversation'
+import {
+  openAssistPlatformItemSchema,
+  refreshAssistPlatformSchema,
+} from '../src/shared/contracts/platform-items'
 
 /** 每个窗口独立持有拖动状态；仅顶层可信渲染页可使用桌面能力。 */
-export function registerDesktopIpc(): () => void {
+export function registerDesktopIpc(
+  options: {
+    assist?: () => AssistWindowManager | undefined
+    primary?: () => BrowserWindow | undefined
+    runtime?: () => LocalRuntime | undefined
+  } = {},
+): () => void {
   const moves = new Map<number, { dx: number; dy: number }>()
+  const openConversation = createAssistConversationNavigator({
+    runtime: () => options.runtime?.(),
+    primary: () => options.primary?.(),
+    load: loadRenderer,
+  })
   const observed = new Set<number>()
   const sourceWindow = (event: IpcMainEvent | IpcMainInvokeEvent) => {
     if (
@@ -34,6 +55,70 @@ export function registerDesktopIpc(): () => void {
     return win
   }
   const handlers = {
+    'assist:open-conversation': (event: IpcMainInvokeEvent, input: unknown) => {
+      sourceWindow(event)
+      return openConversation(input)
+    },
+    'assist:open': async (event: IpcMainInvokeEvent) => {
+      sourceWindow(event)
+      const manager = options.assist?.()
+      if (!manager) throw new Error('辅助中心尚未就绪')
+      await manager.open()
+    },
+    'assist:state': (event: IpcMainInvokeEvent) => {
+      const caller = sourceWindow(event)
+      const manager = options.assist?.()
+      if (!manager) throw new Error('辅助中心尚未就绪')
+      return manager.state(caller)
+    },
+    'assist:update-preferences': (event: IpcMainInvokeEvent, input: unknown) => {
+      const caller = sourceWindow(event)
+      const value = z
+        .object({ workspaceId: z.string(), patch: assistPreferencesPatchSchema })
+        .strict()
+        .parse(input)
+      const manager = options.assist?.()
+      if (!manager || manager.state().workspaceId !== value.workspaceId)
+        throw new Error('工作区已切换，请重新打开辅助中心')
+      return manager.update(caller, value.patch)
+    },
+    'assist:close': (event: IpcMainInvokeEvent) => {
+      const caller = sourceWindow(event)
+      const manager = options.assist?.()
+      if (!manager) throw new Error('辅助中心尚未就绪')
+      manager.close(caller)
+    },
+    'assist:open-main-section': async (event: IpcMainInvokeEvent, input: unknown) => {
+      sourceWindow(event)
+      const section = z.enum(['workorder', 'settings']).parse(input)
+      const primary = options.primary?.()
+      if (!primary || primary.isDestroyed()) throw new Error('主工作台尚未就绪')
+      await loadRenderer(
+        primary,
+        section === 'workorder' ? '/shop/manage?panel=workorder' : '/settings',
+      )
+      if (primary.isMinimized()) primary.restore()
+      primary.show()
+      primary.focus()
+    },
+    'assist:platform-snapshot': (event: IpcMainInvokeEvent) => {
+      sourceWindow(event)
+      const runtime = options.runtime?.()
+      if (!runtime) throw new Error('平台读取服务尚未就绪')
+      return runtime.assistPlatformSnapshot()
+    },
+    'assist:platform-refresh': (event: IpcMainInvokeEvent, input: unknown) => {
+      sourceWindow(event)
+      const runtime = options.runtime?.()
+      if (!runtime) throw new Error('平台读取服务尚未就绪')
+      return runtime.refreshAssistPlatform(refreshAssistPlatformSchema.parse(input))
+    },
+    'assist:platform-open-item': (event: IpcMainInvokeEvent, input: unknown) => {
+      sourceWindow(event)
+      const runtime = options.runtime?.()
+      if (!runtime) throw new Error('平台读取服务尚未就绪')
+      return runtime.openAssistPlatformItem(openAssistPlatformItemSchema.parse(input))
+    },
     'app:copy-generic-phrase': (event: IpcMainInvokeEvent, id: unknown) => {
       sourceWindow(event)
       const phrase =
@@ -63,6 +148,7 @@ export function registerDesktopIpc(): () => void {
         moves.delete(win.id)
         return false
       }
+      options.assist?.()?.detachForDrag(win)
       const [x, y] = win.getPosition()
       moves.set(win.id, { dx: point.screenX - x, dy: point.screenY - y })
       return true

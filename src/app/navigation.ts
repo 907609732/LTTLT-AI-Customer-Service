@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { ShopHomePanel, ShopGoodsPanel } from '@/modules/shops'
+import { ShopHomePanel, ShopGoodsPanel, ShopsListPanel } from '@/modules/shops'
 import { ShopOpsPanel } from '@/modules/reception'
 import {
   ShopKbPanel,
@@ -16,7 +16,7 @@ import { SimConsoleView } from '@/modules/simulation'
 /** 标题、面板和菜单共用此注册表；不再维护三份相互漂移的映射。 */
 export const panelRegistry = {
   home: { title: '数据看板', component: ShopHomePanel },
-  shops: { title: '店铺与商品', component: ShopGoodsPanel },
+  shops: { title: '店铺与商品', component: ShopsListPanel },
   sim: { title: '模拟客服台', component: SimConsoleView },
   goods: { title: '店铺商品', component: ShopGoodsPanel },
   desk: { title: '店铺工作台', component: ShopGoodsPanel },

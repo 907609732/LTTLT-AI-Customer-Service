@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   emptySnapshot,
   type BackendCommand,
@@ -65,6 +65,10 @@ function fixture() {
         if (closed) throw new Error('closed')
       },
       simulatorStatus: () => ({ running: false, port: 0, url: '', error: '' }),
+      assistPlatformSnapshot: () => ({ workspaceId: state.workspaceId, stores: [] }),
+      refreshAssistPlatform: async () => ({ workspaceId: state.workspaceId, stores: [] }),
+      openAssistPlatformItem: async () => {},
+      setAssistPlatformActive: () => {},
       openSimulatorPage: async () => ({ ok: false, message: '' }),
       async dispose() {
         calls.push('dispose')
@@ -103,6 +107,20 @@ function fixture() {
 }
 
 describe('workspace runtime activation', () => {
+  it('stops old platform sync during activation and restores an open assist window on replacement', async () => {
+    const f = fixture()
+    const oldActive = vi.spyOn(f.instances[0], 'setAssistPlatformActive')
+    f.manager.setAssistPlatformActive(true)
+    f.pauseStartup()
+    const activation = f.manager.execute(f.command('activate-model-source', { mode: 'managed' }))
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    expect(oldActive).toHaveBeenLastCalledWith(false)
+    const nextActive = vi.spyOn(f.instances[1], 'setAssistPlatformActive')
+    f.resumeStartup()
+    await activation
+    expect(nextActive).toHaveBeenCalledWith(true)
+    await f.manager.dispose()
+  })
   it('keeps snapshots empty if shutdown races a replacement startup', async () => {
     const f = fixture()
     f.pauseStartup()

@@ -28,12 +28,17 @@ export function isTrustedRenderer(url: string, devUrl = getDevUrl()): boolean {
 }
 
 /** 生产启动与冒烟复用同一窗口及导航策略。 */
-export function createWindow(options: { smoke?: boolean } = {}): BrowserWindow {
+export function createWindow(
+  options: { smoke?: boolean; auxiliary?: boolean } = {},
+): BrowserWindow {
+  const auxiliary = options.auxiliary === true
   const win = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    minWidth: 1160,
-    minHeight: 720,
+    width: auxiliary ? 300 : 1440,
+    height: auxiliary ? 900 : 920,
+    minWidth: auxiliary ? 300 : 1160,
+    maxWidth: auxiliary ? 300 : undefined,
+    minHeight: auxiliary ? 420 : 720,
+    maximizable: !auxiliary,
     frame: false,
     show: false,
     backgroundColor: '#f4f6fb',
@@ -51,7 +56,7 @@ export function createWindow(options: { smoke?: boolean } = {}): BrowserWindow {
   const id = win.webContents.id
   appWebContents.add(id)
   win.webContents.once('destroyed', () => appWebContents.delete(id))
-  if (!options.smoke) win.once('ready-to-show', () => win.show())
+  if (!options.smoke && !auxiliary) win.once('ready-to-show', () => win.show())
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isExternalUrl(url)) void shell.openExternal(url).catch(console.error)
     return { action: 'deny' }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, screen } from 'electron'
 import { registerDesktopIpc } from './ipc'
 import { createWindow, loadRenderer } from './windows'
 import path from 'node:path'
@@ -8,6 +8,7 @@ import { createWorkspaceRuntime } from './workspace-runtime'
 import { registerBusinessIpc } from './business-ipc'
 import { PRODUCT_NAME } from '../src/shared/brand'
 import { resolveAppUserData } from './app-identity'
+import { createAssistWindowManager, type AssistWindowManager } from './assist-window'
 
 app.setName(PRODUCT_NAME)
 // Set before the single-instance lock; preserve explicit isolated profiles used by packaged checks.
@@ -21,6 +22,7 @@ app.setPath('userData', userData)
 
 let primaryWindow: BrowserWindow | undefined
 let runtime: LocalRuntime | undefined
+let assist: AssistWindowManager | undefined
 let shuttingDown = false
 const ownsInstance = app.requestSingleInstanceLock()
 if (!ownsInstance) app.quit()
@@ -45,7 +47,11 @@ app
   .whenReady()
   .then(async () => {
     if (!ownsInstance) return
-    const dispose = registerDesktopIpc()
+    const dispose = registerDesktopIpc({
+      assist: () => assist,
+      primary: () => primaryWindow,
+      runtime: () => runtime,
+    })
     app.once('will-quit', dispose)
     primaryWindow = createWindow()
     // 独立目录，绝不自动迁移或复用其他客服软件的数据和平台登录态。
@@ -59,6 +65,42 @@ app
     const disposeBusiness = registerBusinessIpc(runtime)
     app.once('will-quit', disposeBusiness)
     await runtime.start()
+    assist = createAssistWindowManager({
+      rootDir: path.join(app.getPath('userData'), 'local-runtime'),
+      getPrimary: () => primaryWindow,
+      getWorkspace: () => {
+        if (!runtime) throw new Error('工作区尚未就绪')
+        const snapshot = runtime.snapshot()
+        const active = snapshot.managed.active
+        return {
+          id: snapshot.workspaceId,
+          identity:
+            active.mode === 'local'
+              ? 'local'
+              : JSON.stringify([
+                  active.apiOrigin,
+                  active.portalOrigin,
+                  snapshot.managed.session.account?.userId ?? 'signed-out',
+                ]),
+        }
+      },
+      create: () => createWindow({ auxiliary: true }),
+      load: (win) => loadRenderer(win, '/float/assist'),
+      workArea: (parent) => screen.getDisplayMatching(parent.getBounds()).workArea,
+      opened: () => runtime?.setAssistPlatformActive(true),
+      closed: () => runtime?.setAssistPlatformActive(false),
+    })
+    const offAssistWorkspace = runtime.subscribe(() => {
+      try {
+        assist?.syncWorkspace()
+      } catch {
+        /* A damaged auxiliary preference must not interrupt the store runtime. Opening the panel reports it. */
+      }
+    })
+    app.once('will-quit', () => {
+      offAssistWorkspace()
+      assist?.dispose()
+    })
     await loadRenderer(primaryWindow)
     app.on('activate', () => {
       if (!BrowserWindow.getAllWindows().length) openWindow()
@@ -80,5 +122,7 @@ app.on('before-quit', (event) => {
   if (shuttingDown || !runtime) return
   event.preventDefault()
   shuttingDown = true
+  // Whole-application shutdown is not an auxiliary-only close request.
+  assist?.dispose()
   void runtime.dispose().finally(() => app.quit())
 })

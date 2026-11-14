@@ -19,6 +19,7 @@ import { notifyUnavailable } from '@/shared/ui/feedback'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import type { LocalStore } from '@/shared/contracts/backend'
+import { useAssistLocation } from '@/app/use-assist-location'
 const router = useRouter(),
   route = useRoute(),
   desktop = getDesktop(),
@@ -29,6 +30,9 @@ const navigation = [
   { label: '配置中心', path: '/shop/manage', icon: IconShop },
   { label: 'AI辅助中心', path: '/float/assist', icon: IconMonitor },
 ]
+useAssistLocation(route, router, runtime, (message) => {
+  task.error.value = message
+})
 const sidebarCollapsed = ref(false),
   shopQuery = ref(''),
   shopStatus = ref('offline'),
@@ -112,6 +116,16 @@ async function openLogs() {
     await runtime.run({ action: 'open-runtime-logs' })
   })
 }
+async function navigate(path: string) {
+  if (path !== '/float/assist' || !desktop.isElectron) {
+    await router.push(path)
+    return
+  }
+  await task.run(async () => {
+    if (!desktop.openAssist) throw new Error('辅助中心窗口尚未接入，请更新桌面程序')
+    await desktop.openAssist()
+  })
+}
 </script>
 <template>
   <div :class="['workbench-shell', { 'sidebar-collapsed': sidebarCollapsed }]">
@@ -122,7 +136,7 @@ async function openLogs() {
           v-for="item in navigation"
           :key="item.path"
           :class="{ active: route.path === item.path }"
-          @click="router.push(item.path)"
+          @click="navigate(item.path)"
         >
           <el-icon class="nav-icon"><component :is="item.icon" /></el-icon
           ><span>{{ item.label }}</span>
