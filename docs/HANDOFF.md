@@ -1,5 +1,9 @@
 # 当前状态与源码验收
 
+## 2026-11-15 主干整合
+
+按用户“先合主干”指令整合开发分支`8a012a2`与主干README改版`b760f92`。业务源码无冲突；README保留主干排版并同步当前平台能力/待验收项，.github说明保留。工作区、开发分支、源码测试窗口和业务数据保留，不执行工作区清理、生产部署或公开Release。主干push会触发现有Actions构建；云端结果须与本次源码定向验收分别记录。
+
 ## 2026-11-15 店铺侧栏与基础设置
 
 工作台左侧改紧凑店铺行：平台图标、真实名称/连接状态和独立AI开关；右键基础设置、导入知识、店铺设置、店铺后台、关闭，不含AI管理中心。导入知识/店铺设置按用户要求只预留入口并明确提示。基础设置在新增成功后自动显示，可右键重开；连接→知识→接待/训练复用现有页面，配置页保留继续入口，完成/跳过不自动启用AI。关闭沿用断开店铺语义，保留资料。
@@ -22,7 +26,7 @@
 
 ## 工作区与基线
 
-- 原工程：`E:\~1awucheng\Plastic SCM\AI电商客服软件\client`。本轮独立工作区：`C:\Users\90760\.codex\worktrees\remaining-platform-features\client`，分支 `codex/remaining-platform-features-20261114`，基于清理快照 `02c9286`；新增代码尚未合入 main。
+- 原工程：`E:\~1awucheng\Plastic SCM\AI电商客服软件\client`。本轮独立工作区：`C:\Users\90760\.codex\worktrees\remaining-platform-features\client`，开发分支 `codex/remaining-platform-features-20261114`，基于清理快照 `02c9286`；2026-11-15按用户指令通过`codex/main-integration-20261115`整合至main，保留原开发分支。
 - 原 main 基线 `3e159e2` 的 [云端验收](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/43580027916)通过307项测试和82项原生检查。本轮只验证新增及直接影响范围，不默认全量 Release/check。
 - Node24.18、npm11.16、Electron43.8.9、Go1.27.3、Bun1.4.4。当前工作区 Electron 已从现有缓存完成标准安装，`npm start` 可构建并启动。
 - 复用 `%APPDATA%/yunduo-ui-restored` 及当前已验证账号的独立目录/平台分区，没有复制 Cookie 或迁移账号数据。实店核对期间 AI 保持关闭，未发送、转接、催支付或收费；后续已获明确授权并完成大陆计费服务部署，未公开发布安装包。

@@ -1,30 +1,116 @@
+<div align="center">
+
 # 灵兔 AI
 
-Vue 3、TypeScript与Electron电商客服桌面工程，默认使用自己的模型Key，也可选择托管服务账号。实际功能与待验收项以[当前交接](docs/HANDOFF.md)为准。
+**让店铺知识融入每一次回复，让客服接待更有条理。**
 
-工程根：`E:\~1awucheng\Plastic SCM\AI电商客服软件\client`。客户端、独立服务端、固定运行时和云端配置均位于此根。
+面向电商客服的 Windows 桌面工作台，集中管理店铺、商品知识、AI 回复与接待记录。
 
-## 从源码启动
+[![Windows build](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml/badge.svg?branch=main)](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml)
+![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)
+![Vue 3](https://img.shields.io/badge/Vue-3-42b883)
+![Electron](https://img.shields.io/badge/Electron-43-47848f)
+[![License](https://img.shields.io/badge/License-AGPL--3.0--only-blue)](LICENSE)
+
+**[构建与下载](docs/PACKAGING.md)** · [快速开始](#快速使用) · [开发文档](docs/DEVELOPMENT.md) · [问题反馈](https://github.com/907609732/LTTLT-AI-Customer-Service/issues)
+
+</div>
+
+---
+
+|     管理店铺     |         整理知识         |         辅助接待         |
+| :--------------: | :----------------------: | :----------------------: |
+| 选择店铺与工作区 | 维护商品、意图与回复规则 | 生成候选回复，确认后发送 |
+
+[主要功能](#主要功能) · [接入与当前状态](#接入与当前状态) · [快速使用](#快速使用) · [数据说明](#数据与网络连接) · [源码运行](#从源码运行)
+
+## 构建与下载
+
+当前 Windows x64 安装包与 ZIP 通过 [GitHub Actions](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml) 构建，保存在对应运行记录的 **Artifacts** 中，保留 30 天。下载需要具备仓库访问权限并登录 GitHub；过期产物需重新构建。
+
+具体下载、校验与启动步骤见[打包与成品验收](docs/PACKAGING.md)。Actions 构建产物不代表已发布正式版本，GitHub 的 Source code ZIP 是源码，不是安装包。
+
+## 主要功能
+
+| 能力              | 你可以做什么                                                                      |
+| ----------------- | --------------------------------------------------------------------------------- |
+| 🏪 店铺管理       | 管理店铺、分组与平台窗口；紧凑侧栏、右键基础设置引导与店铺后台入口，独立控制 AI。 |
+| 📚 商品与意图知识 | 采集平台商品详情与 SKU，读取平台商家编码和条形码来源；维护问答及按规格检索知识。  |
+| ⚙️ 模型与回复规则 | 配置自己的模型 Key 和兼容接口，测试连接，按店铺绑定规则；也可显式选择托管服务。   |
+| 💬 辅助回复       | 结合店铺知识生成候选回复，逐条确认后发送；查看会话、保存草稿与人工接管。          |
+| 🖼️ 图片识别       | 使用当前配置的多模态模型，按店铺开启识图并在训练场验证。                          |
+| 🧩 运营辅助       | 使用快捷回复、跨店同步与回滚、持久化定时任务及本机事件日报。                      |
+| 📋 工单与质检     | 登记本机工单、记录跟进状态，审核纠错知识。                                        |
+| 🧪 模拟演练       | 在本机模拟店铺和顾客页中验证消息、模型请求与发送确认流程。                        |
+
+以上为当前已接线的能力概览，实际接入范围、验证结果和缺口见[当前状态](docs/HANDOFF.md)及[整合记录](docs/parallel/INTEGRATION.md)。
+
+## 接入与当前状态
+
+| 入口或能力     | 当前说明                                                                       |
+| -------------- | ------------------------------------------------------------------------------ |
+| Windows 桌面端 | 主要运行入口，连接本机业务服务与平台适配器。                                   |
+| 浏览器预览     | 用于界面预览，不具备完整桌面接待能力。                                         |
+| 拼多多辅助中心 | 已有平台接入与部分实店只读核对；非空售后及多页工单仍待样本验收。               |
+| 自带模型 Key   | 默认模式，需自行配置模型接口和凭证。                                           |
+| 托管服务       | 可显式选择；团队与计费已有接线，大陆计费服务已升级；真实商户收款仍待配置验收。 |
+
+平台商品/历史聊天学习、访客来源、媒体欢迎、催付、客服转接及订单采集已接线。拼多多商品详情、历史聊天和指定日期订单已进行实店只读核对；真实欢迎、发送、转接、催付及支付仍待业务样本验收。订单来源缺少的退款/时间字段保持未知，不将实收合计视为净营收。侧栏“导入知识”和“店铺设置”目前仅预留入口；现有商品页 CSV 导入仍可使用。详细范围及限制以[当前状态](docs/HANDOFF.md)为准。
+
+## 快速使用
+
+1. 按[构建与下载](#构建与下载)取得桌面产物，或按下文从源码启动。
+2. 在模型设置中配置服务商、接口与模型 Key，测试连接；使用托管模式时先配置相应服务账号。
+3. 添加店铺，按自动弹出的基础设置引导完成平台登录、知识配置及接待试答；也可右键店铺重新打开引导。
+4. 整理商品、意图知识与回复规则，先通过训练场或本机模拟店铺检查效果。
+5. 开启对应店铺 AI，核对生成的候选回复，逐条确认后发送。
+
+每次启动时 AI 默认关闭。启用 AI 不等于批准发送；发送结果不确定时，应先核对平台会话。
+
+## 数据与网络连接
+
+默认桌面数据保存在 `%APPDATA%/yunduo-ui-restored/local-runtime`，保留旧目录以兼容已有资料与登录状态。托管模式按服务来源和已验证账号隔离工作区，详见[本地接入](docs/LOCAL_INTEGRATION.md)与[托管服务](docs/MANAGED_SERVICE.md)。
+
+模型 Key 由 Electron 主进程通过系统加密保存。生成回复和图片识别时，相关上下文会发送至所选模型服务；平台接入需要连接对应电商平台，托管模式还会连接配置的托管后端。
+
+提交问题时请附复现步骤及脱敏日志，不要上传模型 Key、令牌、Cookie、买家资料或本机业务数据目录。日志和逐条发送确认机制见[运行日志说明](docs/RUNTIME_LOGS.md)。
+
+## 从源码运行
+
+技术栈：Vue 3、TypeScript、Electron、Vite、Pinia、Element Plus。以下命令在 Windows PowerShell 中执行，先安装 Git、Node.js 24 及 npm。
 
 ```powershell
-cd "E:\~1awucheng\Plastic SCM\AI电商客服软件\client"
-# 首次安装或锁文件变化时执行 npm ci；依赖已就绪时直接启动。
-npm start
+git clone https://github.com/907609732/LTTLT-AI-Customer-Service.git
+cd LTTLT-AI-Customer-Service
+npm.cmd ci
+npm.cmd start
 ```
 
-开发模式：`npm run electron:dev`；浏览器预览：`npm run dev`。默认用户数据与平台登录继续保存在原路径，每次启动AI关闭，真实发送逐条确认。
+已取得源码时，进入包含 `package.json` 的仓库根目录执行命令。首次安装或锁文件变化后运行 `npm.cmd ci`；依赖就绪时直接启动。
 
-## 维护入口
+| 命令                       | 用途                           |
+| -------------------------- | ------------------------------ |
+| `npm.cmd start`            | 构建并启动桌面应用             |
+| `npm.cmd run electron:dev` | 启动 Vite 与 Electron 开发模式 |
+| `npm.cmd run dev`          | 启动浏览器预览                 |
+| `npm.cmd run build`        | 构建网页与桌面源码             |
 
-| 文档                                                             | 用途                           |
-| ---------------------------------------------------------------- | ------------------------------ |
-| [当前交接](docs/HANDOFF.md)                                      | 当前基线、功能缺口及下一步验收 |
-| [AGENTS.md](AGENTS.md)                                           | 开发与验证规则                 |
-| [目录边界](docs/PROJECT_LAYOUT.md)                               | 源码、生成文件、私有数据       |
-| [项目约束](docs/CONSTRAINTS.md) / [架构](docs/ARCHITECTURE.md)   | 依赖、接口与安全边界           |
-| [开发说明](docs/DEVELOPMENT.md) / [本地运维](docs/OPERATIONS.md) | 接入和故障排查                 |
-| [打包](docs/PACKAGING.md)                                        | 云端产物及成品验收             |
-| [整合记录](docs/parallel/INTEGRATION.md)                         | 八个功能领域的实际接线范围     |
-| [日志与发送确认](docs/RUNTIME_LOGS.md)                           | AI状态、上下文调试及逐条批准   |
+日常修改仅验证直接影响的流程；Release 打包时执行全量检查和成品验收，具体规则见 [AGENTS.md](AGENTS.md)。独立服务端位于 `server/`，环境和启动方法见[服务端说明](server/README.md)。
 
-领域修改再读相应模块README、`docs/parallel`或托管服务文档。日常仅跑直接影响的检查；全量验证按AGENTS中的Release规则执行。许可证和上游来源文件必须保留。公开发布、生产部署和真实收费需要对应授权。
+## 开发文档
+
+| 文档                                                                     | 用途                                   |
+| ------------------------------------------------------------------------ | -------------------------------------- |
+| [当前状态](docs/HANDOFF.md)                                              | 当前基线、验证证据、功能缺口及后续验收 |
+| [开发规则](AGENTS.md)                                                    | 修改边界与验证要求                     |
+| [目录说明](docs/PROJECT_LAYOUT.md)                                       | 源码、生成文件与私有数据边界           |
+| [项目约束](docs/CONSTRAINTS.md) / [架构](docs/ARCHITECTURE.md)           | 模块依赖、接口与数据流                 |
+| [开发说明](docs/DEVELOPMENT.md) / [本地运维](docs/OPERATIONS.md)         | 功能接入、运行环境与故障排查           |
+| [打包说明](docs/PACKAGING.md) / [云端构建](.github/README.md)            | Actions 产物、校验与成品验收           |
+| [辅助中心](docs/ASSIST_CENTER.md) / [辅助浏览器](docs/ASSIST_BROWSER.md) | 平台窗口与辅助业务接入                 |
+
+## 许可与第三方来源
+
+项目许可见 [LICENSE](LICENSE)，适用范围及单独商业授权说明见 [LICENSING.md](LICENSING.md)。第三方代码与素材按其自身条款使用，来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+BY 五成
