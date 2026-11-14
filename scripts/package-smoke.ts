@@ -157,13 +157,34 @@ try {
   let settingsReady = false
   for (let attempt = 0; attempt < 80; attempt++) {
     settingsReady =
-      (await evaluate(`document.body.innerText.includes('模型来源与托管账号')`)) === true
+      (await evaluate(
+        `Boolean(document.querySelector('.reply-pacing input') && document.querySelector('.advanced-model:not([open])')) && document.body.innerText.includes('AI 回复间隔')`,
+      )) === true
     if (settingsReady) break
     await delay(250)
   }
   if (!settingsReady) throw new Error('Packaged settings route unavailable')
   const screenshot = (await call('Page.captureScreenshot', { format: 'png' })) as { data: string }
   fs.writeFileSync(path.join(output, 'settings.png'), Buffer.from(screenshot.data, 'base64'))
+  await evaluate(`document.querySelector('.login-trigger').click()`)
+  let loginReady = false
+  for (let attempt = 0; attempt < 80; attempt++) {
+    loginReady =
+      (await evaluate(`(() => {
+        const dialog = document.querySelector('.simple-login-dialog');
+        return Boolean(dialog && dialog.getBoundingClientRect().width &&
+          dialog.innerText.includes('使用自己的 Key') && dialog.innerText.includes('服务端登录') &&
+          !dialog.innerText.includes('托管 API 服务地址') &&
+          dialog.querySelector('input[aria-label="登录 API Key"]'));
+      })()`)) === true
+    if (loginReady) break
+    await delay(250)
+  }
+  if (!loginReady) throw new Error('Packaged simple login dialog unavailable')
+  const loginScreenshot = (await call('Page.captureScreenshot', { format: 'png' })) as {
+    data: string
+  }
+  fs.writeFileSync(path.join(output, 'login.png'), Buffer.from(loginScreenshot.data, 'base64'))
   const report = {
     status: 'passed',
     checkedAt: new Date().toISOString(),
@@ -174,7 +195,8 @@ try {
       'ASAR private/development exclusion',
       'real packaged window/preload',
       'real business IPC, empty isolated stores and no Key',
-      'settings managed/local route',
+      'settings reply pacing with advanced configuration collapsed',
+      'simple own-Key/server login without server address fields',
     ],
     mode: state.capabilities.modelMode,
   }
