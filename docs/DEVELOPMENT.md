@@ -1,6 +1,6 @@
 # 开发与功能接入
 
-从 F:\Setupgod\yunduo-ui 主项目根执行命令；目录和当前授权范围先读 PROJECT_LAYOUT.md、AGENTS.md。云端构建配置在本工程 .github，本轮只整理本机文件，不提交或推送。
+从 E:\~1awucheng\Plastic SCM\AI电商客服软件\client 主项目根执行命令；目录和当前授权范围先读 PROJECT_LAYOUT.md、AGENTS.md。云端构建配置在本工程 .github，整合代码已进入main；当前为本机清理与源码验收。
 
 ## 命令
 

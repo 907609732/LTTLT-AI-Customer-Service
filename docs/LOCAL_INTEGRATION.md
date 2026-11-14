@@ -1,10 +1,12 @@
 # 自带模型密钥模式接入说明
 
+当前功能与验收结论以[精简交接](HANDOFF.md)和[整合记录](parallel/INTEGRATION.md)为准。本文保留基础接线及兼容约束，历史能力描述不覆盖最新记录。
+
 ## 当前选择与来源
 
 2026-11-13 用户要求合并 PR #21 服务端：新增 server/ 独立源码与原生验证，并在设置接通可选托管模式、设备授权、额度与异常保护。默认仍是本机 Key；模式/账号切换需重启并隔离工作区。下文原本机接线说明继续适用于 local，新增行为与约束见 MANAGED_SERVICE.md。
 
-默认本机模式使用用户自己的 AI 密钥，无需注册软件账号；托管模式由用户显式选择并授权，详见 MANAGED_SERVICE.md。两种模式均需单独完成店铺平台登录，本机模型费用由用户自己的服务商账户承担。工程根为 F:\Setupgod\yunduo-ui，目录边界见 PROJECT_LAYOUT.md。
+默认本机模式使用用户自己的 AI 密钥，无需注册软件账号；托管模式由用户显式选择并授权，详见 MANAGED_SERVICE.md。两种模式均需单独完成店铺平台登录，本机模型费用由用户自己的服务商账户承担。工程根为 E:\~1awucheng\Plastic SCM\AI电商客服软件\client，目录边界见 PROJECT_LAYOUT.md。
 
 复用 PR18 的固定提交 `5b6293cc9c75e6e25fdaa16d6187effb0a9d1a5e`，包含其依赖的 PR16 后端基础。来源、许可证和源码清单见 `vendor/lingtu-runtime/PROVENANCE.md`、`source-files.json`。不复用 React 界面或启动旧 renderer，也不修改本机其他仓库、店铺软件安装目录或既有客户数据。
 

@@ -1,6 +1,6 @@
 # 主项目目录与文件边界
 
-当前实际主项目根目录为 E:\~1awucheng\Plastic SCM\AI电商客服软件\client；此前 F: 路径属于历史交付记录。所有相对路径和 npm 命令均从这里计算。未来提交的项目内容从本目录开始，package.json 与 .github 应位于仓库根，不再嵌入旧 React 仓库。目标仓库和交付分支已按用户最新指令确定，见 MAIN_DELIVERY_20261114.md。
+当前实际主项目根目录为 E:\~1awucheng\Plastic SCM\AI电商客服软件\client。所有相对路径和npm命令均从这里计算，package.json与.github位于仓库根。当前基线与任务结果见HANDOFF.md。
 
 ## 源码与维护文件
 
@@ -48,12 +48,10 @@ F:\Setupgod 下的 \_github、managed-admin-real-ui-20261113、customer-service-
 2. AGENTS.md、CONSTRAINTS.md、ARCHITECTURE.md：开发约束和依赖边界。
 3. HANDOFF.md、LOCAL_INTEGRATION.md、MANAGED_SERVICE.md：当前能力与数据范围。
 4. OPERATIONS.md、PACKAGING.md、server/README.md：本机运维、云端构建和独立服务。
-5. MERGE_GUIDE.md：仅在将功能移植到其他项目时参考。
+5. 领域修改再读对应模块README与docs/parallel中的契约。
 
-VALIDATION.md、DECISIONS.md 按日期保留验证与决策；RESTORATION.md、RELEASE_20261114.md 为历史记录，不能当作当前生成、发布或推送指令。
+VALIDATION.md、DECISIONS.md按日期保留验证与决策；已完成的迁移、还原、旧发布和实施计划从Git历史查阅。
 
 ## 当前整理范围
 
-后续已按用户要求同步改名为“灵兔 AI”，包含产品显示、npm 包名、窗口/网页、打包与云端产物、后台和当前文档。主目录仍为本文件所列路径，内部数据标识按 BRANDING.md 保留兼容。旧生成文件和历史发布记录不重写，本轮允许按 MAIN_DELIVERY_20261114.md 建立交付分支并合并 main，公开发布仍须另行授权。
-
-初次目录整理只涉及云端配置和维护文档，后续品牌改名已扩展到客户端、后台、图片、npm 名称和打包配置；代码目录、持久化兼容标识、依赖、运行数据及其他文件夹继续保留。用户现已明确授权建立交付分支并进入 main，本目录已初始化 Git 并关联约定仓库；交付按 MAIN_DELIVERY_20261114.md 执行，结果以对应 PR 与云端记录为准。
+产品名称为“灵兔 AI”，内部数据标识按BRANDING.md保持兼容。当前清理只移出过期文档和可重建产物，保留源码、依赖、许可、领域契约及私有运行资料。历史迁移过程从Git历史查阅；当前源码验收与清理结果见HANDOFF.md。
