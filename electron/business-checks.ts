@@ -90,8 +90,25 @@ export async function businessChecks(options: {
         `document.querySelector('.el-dialog form button[type="submit"]').click()`,
       )
       await wait(
-        `!document.querySelector('.el-dialog input[aria-label="店铺名称"]') || document.querySelector('.el-dialog').style.display === 'none' || document.querySelectorAll('.el-overlay:not([style*="display: none"])').length === 0`,
+        `!Array.from(document.querySelectorAll('.add-platform-dialog')).some(el => el.getBoundingClientRect().width && el.getBoundingClientRect().height)`,
       )
+      await wait(`Boolean(document.querySelector('.shop-setup-page'))`)
+      const bounds = await win.webContents.executeJavaScript(`(() => {
+        const rect = document.querySelector('.shop-setup-page').getBoundingClientRect()
+        return {x:rect.x,y:rect.y,right:rect.right,bottom:rect.bottom,width:innerWidth,height:innerHeight,
+          sidebarActive:!document.querySelector('.store-sidebar').closest('[inert]'),
+          headerActive:!document.querySelector('.workbench-titlebar').closest('[inert]')}
+      })()`)
+      assert.equal(bounds.x, 300, '引导应保留左侧店铺栏')
+      assert.equal(bounds.y, 72, '引导应保留顶部导航')
+      assert.equal(bounds.right, bounds.width)
+      assert.equal(bounds.bottom, bounds.height)
+      assert.equal(bounds.sidebarActive, true)
+      assert.equal(bounds.headerActive, true)
+      await win.webContents.executeJavaScript(
+        `document.querySelector('.shop-setup-page [data-dismiss]').click()`,
+      )
+      await wait(`!document.querySelector('.shop-setup-page')`)
       const s = await snapshot()
       assert.equal(s.stores.length, 1)
       assert.equal(s.stores[0].platform, 'sim-local')
@@ -131,9 +148,9 @@ export async function businessChecks(options: {
       await win.webContents.executeJavaScript(
         `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='新增商品知识').click()`,
       )
-      await wait(`Boolean(document.querySelector('input[aria-label="商品标题"]'))`)
+      await wait(`Boolean(document.querySelector('input[aria-label="商品名称"]'))`)
       await setInput('商品编号', 'fixture-sku')
-      await setInput('商品标题', '隔离测试门锁')
+      await setInput('商品名称', '隔离测试门锁')
       await setInput('商品说明', '仅甲店知识 NFC 识别资料')
       await win.webContents.executeJavaScript(
         `document.querySelector('.el-dialog form button[type="submit"]').click()`,

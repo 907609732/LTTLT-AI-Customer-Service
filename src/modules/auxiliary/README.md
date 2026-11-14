@@ -21,3 +21,5 @@ RuntimeLogsView 是独立日志窗口：已采集的店铺/买家/客服消息�
 接入流程见根目录 docs/LOCAL_INTEGRATION.md。demo 是旧视图数据，不是 API DTO；新增能力在所属模块建立服务与类型，经过本地运行时契约，不直接访问 IPC、网络或文件系统。
 
 修改前阅读根目录 AGENTS.md 和 docs/CONSTRAINTS.md。修改后运行相关类型、构建、单元与桌面检查，并更新 docs/HANDOFF.md。
+
+ReplyMonitorView 通过 /reply-monitor 展示紧凑白色回复监控：店铺/买家、店铺发送模式、最新状态、待确认正文及失败原因。所有 pending 候选保留显式确认/取消（包括切换模式前的审核候选与自动复核暂时不可读的候选），复用 review-reply，UI 不自行批准。高级日志手动打开原 /logs，完整调试保留。

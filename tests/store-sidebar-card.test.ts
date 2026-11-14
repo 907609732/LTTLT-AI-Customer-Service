@@ -50,15 +50,15 @@ it('紧凑卡片展示真实平台和在线状态，点击行与 AI 开关相互
   expect(wrapper.text()).not.toContain('在线')
 })
 
-it('右键只提供五个指定入口，不打开店铺；菜单逐项发出对应事件', async () => {
+it('右键保留五个原入口并增加审核/自动模式；原菜单逐项发出对应事件', async () => {
   const wrapper = fixture()
   const events = ['setup', 'importKnowledge', 'settings', 'backend', 'close'] as const
   for (let index = 0; index < events.length; index++) {
     await showMenu(wrapper)
     const items = document.querySelectorAll<HTMLElement>('.el-dropdown-menu__item')
     expect(
-      Array.from(items, (item) => item.textContent?.replace(/^[☰↥⚙▦×]/u, '').trim()),
-    ).toEqual(['基础设置', '导入知识', '店铺设置', '店铺后台', '关闭'])
+      Array.from(items, (item) => item.textContent?.replace(/^[☰↥⚙▦×✓]/u, '').trim()),
+    ).toEqual(['基础设置', '导入知识', '店铺设置', '店铺后台', '关闭', '审核发送', '自动发送'])
     items[index]?.click()
     await flushPromises()
     expect(wrapper.emitted(events[index]!)).toHaveLength(1)
@@ -133,4 +133,22 @@ it('支持键盘打开与 Escape 关闭，切换店铺关闭旧菜单，忙时�
   await card.trigger('keydown', { key: 'ContextMenu' })
   expect(wrapper.emitted('open')).toBeUndefined()
   expect(wrapper.emitted('toggleAi')).toBeUndefined()
+})
+
+it('发送模式仅由明确菜单点击发出，当前模式由真实快照展示', async () => {
+  const wrapper = fixture()
+  expect(wrapper.text()).toContain('审核发送')
+  expect(wrapper.emitted('sendMode')).toBeUndefined()
+  await showMenu(wrapper)
+  document.querySelectorAll<HTMLElement>('.el-dropdown-menu__item')[6]?.click()
+  await flushPromises()
+  expect(wrapper.emitted('sendMode')).toEqual([['auto']])
+  expect(wrapper.emitted('toggleAi')).toBeUndefined()
+  expect(wrapper.text()).toContain('审核发送')
+  await wrapper.setProps({ shop: { ...shop, sendMode: 'auto' } })
+  expect(wrapper.text()).toContain('自动发送')
+  await showMenu(wrapper)
+  document.querySelectorAll<HTMLElement>('.el-dropdown-menu__item')[5]?.click()
+  await flushPromises()
+  expect(wrapper.emitted('sendMode')).toEqual([['auto'], ['review']])
 })

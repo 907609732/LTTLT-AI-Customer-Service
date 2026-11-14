@@ -118,6 +118,7 @@ async function windowAction(action: 'minimize' | 'toggleMaximize' | 'close') {
 }
 async function openShop(shop: LocalStore) {
   sidebarCollapsed.value = false
+  if (setup.visible || (setup.storeId && setup.storeId !== shop.id)) setup.dismiss()
   const workspace = runtime.snapshot.workspaceId
   await task.run(async () => {
     runtime.selectedStoreId = shop.id
@@ -142,6 +143,7 @@ async function openShop(shop: LocalStore) {
   })
 }
 async function closeShop(shop: LocalStore) {
+  if (setup.storeId === shop.id) setup.dismiss()
   const workspace = runtime.snapshot.workspaceId
   await task.run(async () => {
     await runtime.run({ action: 'close-store', storeId: shop.id })
@@ -161,7 +163,16 @@ async function setAi(shop: LocalStore) {
 }
 async function openLogs() {
   await task.run(async () => {
-    await runtime.run({ action: 'open-runtime-logs' })
+    await runtime.run({ action: 'open-reply-monitor' })
+  })
+}
+async function setSendMode(shop: LocalStore, mode: 'review' | 'auto') {
+  await task.run(async () => {
+    const result = await runtime.run({
+      action: 'set-store-send-mode',
+      values: { storeId: shop.id, mode },
+    })
+    task.message.value = result.message
   })
 }
 async function openBackend(shop: LocalStore) {
@@ -171,6 +182,10 @@ async function openBackend(shop: LocalStore) {
   })
 }
 async function navigate(path: string) {
+  if (setup.visible) {
+    if (path === '/') setup.dismiss()
+    else setup.pauseForConfiguration()
+  }
   if (path !== '/float/assist' || !desktop.isElectron) {
     await router.push(path)
     return
@@ -198,8 +213,8 @@ async function navigate(path: string) {
       </nav>
       <div class="titlebar-drag-region" aria-hidden="true"></div>
       <div class="top-actions">
-        <button class="top-pill" aria-label="实时日志" @click="openLogs">
-          日志<span v-if="runtime.snapshot.review.replies.some((r) => r.status === 'pending')">
+        <button class="top-pill" aria-label="回复监控" @click="openLogs">
+          回复监控<span v-if="runtime.snapshot.review.replies.some((r) => r.status === 'pending')">
             ·
             {{ runtime.snapshot.review.replies.filter((r) => r.status === 'pending').length }}
             待确认</span
@@ -338,6 +353,7 @@ async function navigate(path: string) {
             :busy="task.pending.value"
             @open="openShop(shop)"
             @toggle-ai="setAi(shop)"
+            @send-mode="setSendMode(shop, $event)"
             @setup="setup.open(shop.id)"
             @import-knowledge="notifyUnavailable('导入知识入口已预留，功能暂未接入')"
             @settings="notifyUnavailable('店铺设置入口已预留，功能暂未接入')"
@@ -347,7 +363,7 @@ async function navigate(path: string) {
         </div>
         <button
           class="sidebar-collapse"
-          :disabled="Boolean(runtime.platformStoreId)"
+          :disabled="Boolean(runtime.platformStoreId) || setup.visible"
           :aria-expanded="!sidebarCollapsed"
           title="折叠或展开店铺栏"
           @click="sidebarCollapsed = !sidebarCollapsed"
@@ -361,7 +377,7 @@ async function navigate(path: string) {
           ><button @click="scheduleVisible = true">定时任务</button>
         </footer>
       </aside>
-      <main class="workbench-main"><router-view /></main>
+      <main class="workbench-main" :inert="setup.visible"><router-view /></main>
     </div>
     <LoginDialog v-model="loginVisible" />
     <AddShopDialog v-model="addShopVisible" /><QuickReplyDialog

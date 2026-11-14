@@ -73,9 +73,14 @@ it('添加后直接打开登录，失败重试只打开已建记录', async () =
   await flushPromises()
   expect(run.mock.calls.map(([c]) => c.action)).toEqual(['add-store', 'open-store', 'open-store'])
   expect(runtime.platformStoreId).toBe('new-shop')
-  expect(useShopSetupStore().visible).toBe(true)
+  expect(useShopSetupStore().visible).toBe(false)
+  expect(useShopSetupStore().awaitingLogin).toBe(true)
   expect(useShopSetupStore().storeId).toBe('new-shop')
   expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([false])
+  runtime.snapshot.stores[0]!.runtime.online = true
+  runtime.snapshot.stores[0]!.runtime.authenticated = true
+  await flushPromises()
+  expect(useShopSetupStore().visible).toBe(true)
   wrapper.unmount()
 })
 it('等待期间不可重复提交或取消', async () => {

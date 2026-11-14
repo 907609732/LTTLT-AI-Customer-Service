@@ -1,0 +1,152 @@
+/* 只覆盖工作台颜色与装饰，保留原布局和平台内容边界。 */
+.workbench-shell {
+  --console-blue: #3366ff;
+  --console-blue-deep: #2453e8;
+  --console-blue-soft: #f5f7fa;
+  --console-border: #e4e7ed;
+  --console-border-soft: #ebeef2;
+  --console-surface: #fff;
+  --console-titlebar-bg: #fff;
+  --console-shadow-soft: none;
+  --console-text: #303133;
+  background: #fff;
+}
+
+.workbench-shell .workbench-titlebar {
+  color: #303133;
+  background: #fff;
+  border-color: #e8e8eb;
+  box-shadow: none;
+}
+
+.workbench-shell .top-navigation,
+.workbench-shell .top-pill,
+.workbench-shell .store-control-trigger {
+  background: #fff;
+  border-color: #e4e7ed;
+  box-shadow: none;
+}
+
+.workbench-shell .top-navigation button {
+  color: #606266;
+}
+
+.workbench-shell .top-navigation button:hover {
+  color: #3366ff;
+  background: #f5f7fa;
+}
+
+.workbench-shell .top-navigation button.active {
+  color: #2453e8;
+  background: #edf2ff;
+  box-shadow: none;
+}
+
+.workbench-shell .workbench-titlebar .window-controls {
+  border-color: #e8e8eb;
+}
+
+.workbench-shell .store-sidebar.my-platform {
+  background: #fff;
+  box-shadow: inset -1px 0 #e8e8eb;
+}
+
+.workbench-shell .store-sidebar.my-platform .sidebar-panel {
+  background: #fff;
+  border-color: #e8e8eb;
+}
+
+.workbench-shell .store-search .el-input__wrapper {
+  background: #f7f8fa;
+  box-shadow: 0 0 0 1px #e9e9eb inset;
+}
+
+.workbench-shell .store-add-btn,
+.workbench-shell .store-home .home-add-store-btn,
+.workbench-shell .store-home .home-add-store-btn.is-emphasis {
+  background: #3366ff;
+  box-shadow: none;
+}
+
+.workbench-shell .store-tabs button {
+  color: #606266;
+  background: #fff;
+  box-shadow: none;
+}
+
+.workbench-shell .store-tabs button.active {
+  color: #2453e8;
+  background: #edf2ff;
+  box-shadow: none;
+}
+
+.workbench-shell .store-tab-count {
+  color: #909399;
+  background: #f2f3f5;
+}
+
+.workbench-shell .store-tabs button.active .store-tab-count {
+  color: #2453e8;
+  background: #e3eaff;
+}
+
+.workbench-shell .store-sidebar .store-sidebar-card:hover {
+  background: #f7f8fa;
+}
+
+.workbench-shell .store-sidebar .store-sidebar-card.selected {
+  background: #edf2ff;
+  border-color: #e5eaf5;
+  border-left-color: #3366ff;
+}
+
+.workbench-shell .sidebar-footer {
+  color: #606266;
+  background: #fff;
+  border-color: #e8e8eb;
+}
+
+.workbench-shell .sidebar-footer button {
+  color: #606266;
+}
+
+.workbench-shell .sidebar-collapse {
+  color: #909399;
+  background: #f5f6f8;
+}
+
+.workbench-shell .workbench-main,
+.workbench-shell .store-home .home-stage--empty {
+  background: #fff;
+}
+
+.workbench-shell .store-home .home-empty-glow {
+  background: none;
+}
+
+.workbench-shell .store-home .home-empty-hero h1,
+.workbench-shell .store-home .home-action-card strong {
+  color: #303133;
+}
+
+.workbench-shell .store-home .home-empty-hero p,
+.workbench-shell .store-home .home-action-card,
+.workbench-shell .store-home .home-action-card > span:last-child {
+  color: #909399;
+}
+
+.workbench-shell .store-home .home-action-card {
+  background: #fff;
+  border-color: #e5e7eb;
+  box-shadow: 0 3px 12px #00000005;
+}
+
+.workbench-shell .store-home .home-action-card .home-action-icon {
+  background: #f5f7fa;
+}
+
+.workbench-shell .store-home .home-platform-pill {
+  color: #606266;
+  background: #fff;
+  border-color: #e5e7eb;
+}

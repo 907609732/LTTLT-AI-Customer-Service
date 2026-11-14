@@ -136,8 +136,10 @@ async function save() {
     }
   })
   if (ok && current()) {
-    if (simulated) emit('update:modelValue', false)
-    setup.open(createdId.value)
+    if (simulated) {
+      emit('update:modelValue', false)
+      setup.open(createdId.value)
+    } else setup.queueAfterLogin(createdId.value)
   }
 }
 </script>

@@ -3,9 +3,10 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 import { configureDomTextAdapter } from './dom-text-adapter'
-import { ReviewConsole } from './review-console'
+import { ReviewConsole, type SendProposal } from './review-console'
 import { emptySnapshot } from '../src/shared/contracts/backend'
 import { pageReviewFingerprint } from './conversation-review'
+import { SendModeAuthorizations } from './send-mode-authorizations'
 
 type Check = (name: string, route: string, run: () => Promise<void>) => Promise<void>
 interface TestAdapter {
@@ -33,6 +34,7 @@ export async function domSendChecks(check: Check) {
     },
   })
   let nativeInputs = 0
+  let sendAuthorizations: SendModeAuthorizations | undefined
   const wc = {
     executeJavaScript: (code: string, gesture?: boolean) =>
       fixture.webContents.executeJavaScript(code, gesture),
@@ -50,6 +52,7 @@ export async function domSendChecks(check: Check) {
     'pdd-web',
     new PddWebAdapter({ getWebContents: () => wc }),
     1, // 夹具加速；生产默认每个可见字符 50ms。
+    (uid, text) => sendAuthorizations?.consume('fixture', uid, text),
   ) as TestAdapter
   const load = async (mode: string) => {
     nativeInputs = 0
@@ -164,6 +167,99 @@ export async function domSendChecks(check: Check) {
       assert.equal(s.text, text)
       assert.equal(nativeInputs, 2)
       assert.equal(await fixture.webContents.executeJavaScript('window.trusted'), true)
+    })
+    await check('dom-review:auto-mode-one-verified-send', '/fixture/pdd', async () => {
+      await load('success')
+      const baseline = await adapter.reviewHistory('buyer', true)
+      const snap = emptySnapshot()
+      snap.stores.push({
+        id: 'fixture',
+        storeName: '隔离自动测试店',
+        platform: 'pdd-web',
+        group: '',
+        aiEnabled: true,
+        runtime: { open: true, online: true },
+      })
+      const review = new ReviewConsole(
+        () => snap,
+        () => {},
+        undefined,
+        {
+          readMode: () => ({ mode: 'auto', revision: 1 }),
+        },
+      )
+      try {
+        const approved = await review.propose({
+          storeId: 'fixture',
+          uid: 'buyer',
+          text: '隔离页面自动回复',
+          thread: [{ from: 'buyer', content: '买家原始问题' }],
+          isCurrent: () => true,
+          getHistory: async () => ({ known: false, messages: [] }),
+          pageReview: baseline,
+          getPageReview: (focus) => adapter.reviewHistory('buyer', focus),
+        })
+        assert.equal(approved, true)
+        assert.equal((await stats()).clicks, 0, '统一复核本身不得偷偷点击发送')
+        assert.equal((await adapter.sendText('buyer', '隔离页面自动回复')).ok, true)
+        assert.equal((await stats()).clicks, 1)
+      } finally {
+        review.dispose()
+      }
+    })
+    await check('dom-review:auto-to-review-cancels-typing', '/fixture/pdd', async () => {
+      await load('success')
+      let mode: 'auto' | 'review' = 'auto'
+      let revision = 1
+      const readMode = () => ({ mode, revision })
+      sendAuthorizations = new SendModeAuthorizations(readMode)
+      const baseline = await adapter.reviewHistory('buyer', true)
+      const snap = emptySnapshot()
+      snap.stores.push({
+        id: 'fixture',
+        storeName: '隔离取消测试店',
+        platform: 'pdd-web',
+        group: '',
+        aiEnabled: true,
+        runtime: { open: true, online: true },
+      })
+      const review = new ReviewConsole(
+        () => snap,
+        () => {},
+        undefined,
+        { readMode },
+      )
+      const text = '输入期间切回审核必须停止自动点击。'.repeat(30)
+      try {
+        const proposal: SendProposal = {
+          storeId: 'fixture',
+          uid: 'buyer',
+          text,
+          thread: [{ from: 'buyer', content: '买家原始问题' }],
+          isCurrent: () => true,
+          getHistory: async () => ({ known: false, messages: [] }),
+          pageReview: baseline,
+          getPageReview: (focus) => adapter.reviewHistory('buyer', focus),
+        }
+        assert.equal(
+          await sendAuthorizations.authorize(proposal, () => review.propose(proposal)),
+          true,
+        )
+        const pending = adapter.sendText('buyer', text, { isCurrent: () => true })
+        for (let i = 0; i < 100; i++) {
+          if (await fixture.webContents.executeJavaScript('window.inputs.length>0')) break
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        assert.ok(await fixture.webContents.executeJavaScript('window.inputs.length>0'))
+        mode = 'review'
+        revision++
+        assert.equal((await pending).ok, false)
+        assert.equal((await stats()).clicks, 0)
+      } finally {
+        review.dispose()
+        sendAuthorizations.dispose()
+        sendAuthorizations = undefined
+      }
     })
     for (const mode of ['no-button', 'busy', 'edited'])
       await check(`dom-send:${mode}-no-send`, '/fixture/pdd', async () => {

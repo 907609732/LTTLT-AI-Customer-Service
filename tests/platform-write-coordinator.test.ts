@@ -16,8 +16,13 @@ describe('原有文字发送与平台动作共用店铺互斥', () => {
       _wc() {
         throw Error('review must not click send')
       },
-      async _callHook(method: string) {
-        return { known: method === 'reviewHistory' }
+      async _callHook(method: string, args: unknown[]) {
+        return {
+          known: method === 'reviewHistory',
+          uid: String(args[0]),
+          page: 'page-a',
+          messages: [{ from: 'buyer', content: '问题', media: [] }],
+        }
       },
       _sendFailOrThrow() {},
     }
@@ -26,7 +31,7 @@ describe('原有文字发送与平台动作共用店铺互斥', () => {
       configureDomTextAdapter('pdd-web', raw),
     )
     const review = backend as { reviewHistory(uid: string, focus: boolean): Promise<unknown> }
-    await expect(review.reviewHistory('a', true)).resolves.toEqual({ known: true })
+    await expect(review.reviewHistory('a', true)).resolves.toMatchObject({ known: true, uid: 'a' })
     await coordinator.exclusive('store-a', async () =>
       (operations as typeof review).reviewHistory('b', true),
     )

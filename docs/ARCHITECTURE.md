@@ -1,5 +1,13 @@
 # 架构导航
 
+## 店铺发送模式与回复监控（2026-11-15）
+
+复用 Electron 43 的 parent/showInactive/setBounds，不新增依赖；小监控为受信独立渲染路由 `/reply-monitor`，在主窗口内左下角随动，非全局置顶。`createWindow({compact:true,parent})` 不参与主窗口默认最大化或自动聚焦。详细日志仍由手动入口打开。
+
+方案检索采用[Electron官方BrowserWindow实现与文档](https://github.com/electron/electron/blob/main/docs/api/browser-window.md)：与现有Electron43/Windows技术栈一致，复用项目已使用的MIT许可依赖；原生父子窗口和无焦点显示已覆盖需求，无需第三方悬浮窗库。
+
+`set-store-send-mode`、`open-reply-monitor` 使用原有受信、工作区绑定业务命令，无新 IPC 通道。StoreSendModes 在 managed.dataDir 下原子保存模式，快照装配时附加店铺 sendMode。审核与显式自动模式共用 ReviewConsole，自动候选绑定运行期模式版本；旧审核候选不会因后来开启自动而获批。网页适配器在模型前等待有效消息基线，不修改 vendor。发送与取消检查延续至逐字输入和最终点击，详见 RUNTIME_LOGS.md。
+
 E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独立项目根，完整目录与文件边界见 PROJECT_LAYOUT.md。所有工具从此根执行；.github/workflows/lingtu-ai-desktop.yml 也从仓库根运行 npm，不再设置外层 yunduo-ui 工作目录。客户端实际运行依赖本工程 vendor，独立服务端保存在本工程 server，不引用兄弟工作区。
 
 ## 启动链路
@@ -36,6 +44,8 @@ E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独�
 跨模块只经公开入口导入组件。账户聚合依赖账号与设置属于现有界面组合；后续新增业务逻辑应放回各自模块，避免将 billing 扩展为全局业务中心。
 
 ## 数据与接口
+
+六步店铺助手见SHOP_SETUP_WIZARD.md：shops/setup-rules复用已有模型方案命令，克隆保留原规则后仅绑定本店，不新增持久化格式、IPC或第三方依赖；助手字段以有版本的自有区块存入提示规则，完整校验及关闭条件清理后才保存。新增真实店铺通过setup-store.queueAfterLogin等认证结果，不能以open-store成功代替登录成功。MainLayout只对右侧内容设inert并隐藏原生页，保留左侧店铺栏/顶部导航交互；助手与原生页同为x300/y72内容范围。
 
 店铺侧栏与新手引导见SHOP_SIDEBAR_SETUP.md。App挂载shops公开的ShopSetupGuide，MainLayout在引导可见时隐藏原生平台页；引导状态按当前workspace/store临时绑定，切换后取消晚到登录。新增open-store-backend走既有业务命令通道，经electron/store-backend校验权限和店铺后复用受限assist-platform-host固定首页，不接受渲染层网址，不新增任意导航IPC。
 

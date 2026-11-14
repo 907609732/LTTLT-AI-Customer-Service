@@ -79,7 +79,7 @@ async function resume(storeId: string, uid: string) {
 <template>
   <main class="logs-window">
     <header data-window-drag class="logs-header">
-      <div><b>实时日志与 AI 发送确认</b><small>消息按时间排列 · AI 回复经你确认后发送</small></div>
+      <div><b>实时日志与 AI 发送确认</b><small>消息按时间排列 · 按店铺发送模式处理回复</small></div>
       <div class="runtime-actions" data-no-drag>
         <el-button @click="desktop.minimize()">最小化</el-button
         ><el-button @click="desktop.close()">关闭</el-button>
@@ -100,8 +100,8 @@ async function resume(storeId: string, uid: string) {
       />
       <p class="logs-note">
         仅本次运行保留最近 500 条日志、40 次 AI
-        请求及最近确认记录。调试含买家消息，请勿随意分享。关闭此窗不会发送；候选 10
-        分钟过期，新消息或人工回复会使旧候选失效。
+        请求及最近确认记录。调试含买家消息，请勿随意分享。关闭此窗不会批准审核候选；审核发送逐条确认，自动发送按店铺设置执行。候选
+        10 分钟过期，新消息或人工回复会使旧候选失效。
       </p>
       <div class="runtime-actions">
         <el-select v-model="storeId" placeholder="所有店铺" clearable style="width: 240px"
@@ -121,7 +121,7 @@ async function resume(storeId: string, uid: string) {
       <el-tabs v-model="tab">
         <el-tab-pane :label="`发送确认（${pendingCount}）`" name="pending">
           <p v-if="!replies.length">
-            暂无候选。开启店铺 AI 并收到买家消息后，生成结果会在这里等待确认。
+            暂无候选。开启店铺 AI 并收到买家消息后，审核模式的生成结果会在这里等待确认。
           </p>
           <article v-for="row in replies" :key="row.id" class="logs-card" :data-review-id="row.id">
             <div class="logs-meta">

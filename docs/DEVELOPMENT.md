@@ -35,6 +35,8 @@ npm run test:desktop
 
 ## 后续 AI 任务模板
 
+原生定向验收可在源码构建后于当前PowerShell进程设置`$env:LINGTU_DESKTOP_CHECKS='add-store-direct-login,business:ui-add-store,business:ui-product-save'`，执行`node scripts/run-desktop.mjs`。只执行指定check，未知名称记为失败；报告保存在新的`artifacts/desktop-selected-时间戳`，不覆盖Release证据。完成后移除该进程环境变量；未设置时仍执行完整Release桌面验收，CI默认不筛选。本参数仅验收脚本使用，不影响生产功能。
+
 ```text
 目标：实现哪一个可验证的业务流程。
 先读：AGENTS.md、docs/CONSTRAINTS.md、docs/ARCHITECTURE.md、docs/HANDOFF.md、模块 README。

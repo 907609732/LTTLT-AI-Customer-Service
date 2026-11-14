@@ -1,5 +1,5 @@
 import { simpleLoginChecks } from './simple-login-checks'
-import { app, WebContentsView, type Session } from 'electron'
+import { app, BrowserWindow, WebContentsView, type Session } from 'electron'
 import type { BackendSnapshot } from '../src/shared/contracts/backend'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -21,7 +21,13 @@ const isolatedRoot =
   process.env.YUNDUO_SMOKE_DATA_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'yunduo-smoke-'))
 app.setPath('userData', path.join(isolatedRoot, 'electron'))
 
-const output = path.join(__dirname, '..', 'artifacts', 'desktop')
+const selectedChecks = (process.env.LINGTU_DESKTOP_CHECKS ?? '').split(',').filter(Boolean)
+const output = path.join(
+  __dirname,
+  '..',
+  'artifacts',
+  selectedChecks.length ? `desktop-selected-${Date.now()}` : 'desktop',
+)
 const routes = [
   ['login', '/login'],
   ['dashboard', '/'],
@@ -96,6 +102,8 @@ app
       if (level >= 3) consoleErrors.push(message)
     })
     const check = async (name: string, route: string, run: () => Promise<void>) => {
+      // 日常只执行明确选择的受影响流程；未设置时保留Release全量验收。
+      if (selectedChecks.length && !selectedChecks.includes(name)) return
       try {
         await run()
         report.push({ name, route, pass: true })
@@ -330,9 +338,16 @@ app
         await waitFor(
           async () =>
             win.webContents.executeJavaScript(
-              `document.querySelectorAll('.el-overlay:not([style*="display: none"])').length === 0`,
+              `!Array.from(document.querySelectorAll('.add-platform-dialog')).some(el => el.getBoundingClientRect().width && el.getBoundingClientRect().height)`,
             ),
           '添加后弹窗未收起',
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Boolean(document.querySelector('.shop-setup-page'))`,
+          ),
+          false,
+          '登录完成前不能显示新手引导',
         )
         const view = win.contentView.children.find(
           (child) => child instanceof WebContentsView && child.webContents !== win.webContents,
@@ -376,6 +391,46 @@ app
         } finally {
           for (const ses of sessions) ses.protocol.unhandle('https')
         }
+      }
+    })
+    await check('reply-monitor:compact-window', '/reply-monitor', async () => {
+      await load('/')
+      await runtime.execute({
+        workspaceId: runtime.snapshot().workspaceId,
+        action: 'open-reply-monitor',
+        values: {},
+      })
+      const monitor = BrowserWindow.getAllWindows().find((item) =>
+        item.webContents.getURL().endsWith('#/reply-monitor'),
+      )
+      assert.ok(monitor, '必须打开小型回复监控')
+      try {
+        for (let i = 0; i < 80; i++) {
+          if (
+            (await monitor.webContents.executeJavaScript('document.body.innerText')).includes(
+              '回复监控',
+            )
+          )
+            break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        const text = (await monitor.webContents.executeJavaScript(
+          'document.body.innerText',
+        )) as string
+        assert.ok(text.includes('回复监控'))
+        assert.ok(text.includes('高级日志'))
+        assert.equal(monitor.getParentWindow(), win)
+        assert.equal(monitor.isAlwaysOnTop(), false, '不可置顶覆盖其他应用')
+        const bounds = monitor.getBounds(),
+          parent = win.getContentBounds()
+        assert.equal(bounds.width, 340)
+        assert.equal(bounds.height, 300)
+        assert.ok(Math.abs(bounds.x - parent.x - 12) <= 2)
+        assert.ok(Math.abs(bounds.y + bounds.height - parent.y - parent.height + 12) <= 2)
+        const image = await monitor.webContents.capturePage()
+        fs.writeFileSync(path.join(output, 'reply-monitor.png'), image.toPNG())
+      } finally {
+        monitor.destroy()
       }
     })
     await check('desktop-ipc', '/', async () => {
@@ -445,6 +500,10 @@ app
     })
     await domSendChecks(check)
     await simChecks({ win, check, load })
+    for (const name of selectedChecks) {
+      if (!report.some((result) => result.name === name))
+        report.push({ name, route: '', pass: false, error: '指定验收项不存在或未运行' })
+    }
     const failure = report.some((result) => !result.pass)
     fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2))
     dispose()

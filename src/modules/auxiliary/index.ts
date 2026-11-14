@@ -1,5 +1,6 @@
 export { default as AiAssistCenterView } from './components/AiAssistCenterView.vue'
 export { default as RuntimeLogsView } from './components/RuntimeLogsView.vue'
+export { default as ReplyMonitorView } from './components/ReplyMonitorView.vue'
 export { default as MascotFloatView } from './components/MascotFloatView.vue'
 export { default as SnapOverlayView } from './components/SnapOverlayView.vue'
 export { default as ConsultPanel } from './components/ConsultPanel.vue'

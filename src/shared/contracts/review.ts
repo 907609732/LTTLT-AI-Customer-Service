@@ -1,5 +1,12 @@
 import { z } from 'zod'
 
+export const storeSendModeSchema = z.enum(['review', 'auto'])
+export type StoreSendMode = z.infer<typeof storeSendModeSchema>
+export interface StoreSendModeState {
+  mode: StoreSendMode
+  revision: number
+}
+
 export const compressionInfoSchema = z.object({
   triggered: z.boolean(),
   beforeTokens: z.number(),
@@ -74,6 +81,7 @@ export const modelTraceSchema = z.object({
   error: z.string(),
 })
 export const replyReviewSchema = z.object({
+  sendMode: storeSendModeSchema.optional(),
   id: z.string(),
   at: z.number(),
   storeId: z.string(),

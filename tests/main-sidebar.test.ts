@@ -59,9 +59,22 @@ it('基础设置隐藏原生页面，关闭引导后恢复，不顺带打开或�
   expect(setup.visible).toBe(true)
   expect(setup.storeId).toBe('shop-a')
   expect(present).toHaveBeenLastCalledWith('shop-a', false)
+  expect(wrapper.find('aside.store-sidebar').attributes('inert')).toBeUndefined()
+  expect(wrapper.find('header.workbench-titlebar').attributes('inert')).toBeUndefined()
+  expect(wrapper.find('main.workbench-main').attributes('inert')).toBeDefined()
   expect(run).not.toHaveBeenCalled()
   setup.finish()
   await flushPromises()
+  expect(present).toHaveBeenLastCalledWith('shop-a', true)
+})
+it('引导显示时点击左侧店铺，可退出引导并显示所选店铺', async () => {
+  const { wrapper, setup, runtime, present } = await fixture()
+  setup.open('shop-a')
+  await flushPromises()
+  wrapper.findComponent(StoreSidebarCard).vm.$emit('open')
+  await flushPromises()
+  expect(setup.visible).toBe(false)
+  expect(runtime.platformStoreId).toBe('shop-a')
   expect(present).toHaveBeenLastCalledWith('shop-a', true)
 })
 it('后台动作独立于聊天；关闭断开而不删除店铺知识记录', async () => {
@@ -111,4 +124,17 @@ it('设置页点击卡片先返回工作台，再展示平台页', async () => {
   await flushPromises()
   expect(router.currentRoute.value.path).toBe('/')
   expect(present).toHaveBeenLastCalledWith('shop-a', true)
+})
+
+it('单店模式切换只调用指定命令，主入口打开回复监控', async () => {
+  const { wrapper, run } = await fixture()
+  wrapper.findComponent(StoreSidebarCard).vm.$emit('sendMode', 'auto')
+  await flushPromises()
+  expect(run).toHaveBeenLastCalledWith({
+    action: 'set-store-send-mode',
+    values: { storeId: 'shop-a', mode: 'auto' },
+  })
+  await wrapper.get('[aria-label="回复监控"]').trigger('click')
+  await flushPromises()
+  expect(run).toHaveBeenLastCalledWith({ action: 'open-reply-monitor' })
 })

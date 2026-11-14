@@ -4,6 +4,9 @@ import { createProductSpecContext } from './product-spec-context'
 import { createProductCatalog } from './product-catalog'
 import { applyStoreZoom } from './store-zoom'
 import { createStoreBackendOpener } from './store-backend'
+import { createReplyMonitorWindow } from './reply-monitor-window'
+import { StoreSendModes } from './store-send-modes'
+import { SendModeAuthorizations } from './send-mode-authorizations'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -150,6 +153,13 @@ export function createLocalRuntime(options: {
     transport: options.managedTransport,
   })
   const dataDir = managed.dataDir
+  const sendModes = new StoreSendModes(dataDir)
+  const sendAuthorizations = new SendModeAuthorizations((id) => sendModes.read(id))
+  const replyMonitor = createReplyMonitorWindow({
+    getParent: options.getWindow,
+    create: (parent) => createWindow({ compact: true, parent }),
+    load: (win) => loadRenderer(win, '/reply-monitor'),
+  })
   const reporting = createReportingPipeline(dataDir)
   const disposeBrowserEnvironment = registerStoreBrowserEnvironment({
     app,
@@ -184,13 +194,20 @@ export function createLocalRuntime(options: {
     const masked = emptySnapshot()
     masked.capabilities.modelMode = managed.active.mode
     // A newly signed-in account must not see or mutate the previous account's records before restart.
-    return snapshotSchema.parse({
+    const snapshot = snapshotSchema.parse({
       ...(managed.canAccessWorkspace()
         ? (backendRef.current?.snapshot() as Record<string, unknown>)
         : masked),
       workspaceId,
       managed: managed.snapshot(),
     })
+    return {
+      ...snapshot,
+      stores: snapshot.stores.map((store) => ({
+        ...store,
+        sendMode: sendModes.read(store.id).mode,
+      })),
+    }
   }
   const assistStores = () => {
     if (closed || !managed.canAccessWorkspace()) return []
@@ -255,6 +272,7 @@ export function createLocalRuntime(options: {
     read,
     notifyReview,
     (id) => backendRef.current?.engine?.worker(id) ?? undefined,
+    { readMode: (id) => sendModes.read(id) },
   )
   const traceModel = (event: unknown) => {
     if (managed.active.mode === 'managed' && event && typeof event === 'object')
@@ -349,7 +367,12 @@ export function createLocalRuntime(options: {
         store.platform === SIM_PLATFORM_ID
           ? createSimAdapter(store, simHub)
           : // 必须先做文案改写再交给厂商工厂：厂商适配器表里没有 sim-local，未知平台会直接抛错。
-            configureDomTextAdapter(store.platform, host.adapterFactory(store, deps))
+            configureDomTextAdapter(
+              store.platform,
+              host.adapterFactory(store, deps),
+              undefined,
+              (uid, text) => sendAuthorizations.consume(store.id, uid, text),
+            )
       platformAdapters.set(store.id, adapter)
       if (store.platform === 'pdd-web') {
         const coordinated = platformWrites.bind(store.id, adapter)
@@ -411,13 +434,28 @@ export function createLocalRuntime(options: {
     ),
     resolveConversationThread: createConversationThread(() => read().conversations),
     beforeSend: (proposal: SendProposal) => {
-      const decision = review.propose(proposal)
-      // 有候选时主动显示确认窗；关窗不会替用户批准，也不影响继续采集日志。
-      void openLogs().catch(() => notifyReview())
+      const decision =
+        read().stores.find((store) => store.id === proposal.storeId)?.platform === 'pdd-web'
+          ? sendAuthorizations.authorize(proposal, () => review.propose(proposal))
+          : review.propose(proposal)
+      // 新候选只显示不抢焦点的小监控窗，批准及自动模式均由统一发送门复核。
+      void replyMonitor.open().catch(() => notifyReview())
       return decision
     },
     onModelTrace: traceModel,
-    onRuntimeEvent: (event: unknown) => review.event(event),
+    onRuntimeEvent: (event: unknown) => {
+      review.event(event)
+      if (event && typeof event === 'object') {
+        const type = Reflect.get(event, 'type')
+        if (type === 'reply:review-result') {
+          const storeId = Reflect.get(event, 'storeId'),
+            uid = Reflect.get(event, 'uid')
+          if (typeof storeId === 'string' && typeof uid === 'string')
+            sendAuthorizations.release(storeId, uid)
+        }
+        if (type === 'reply:error') void replyMonitor.open().catch(() => notifyReview())
+      }
+    },
     allowExternalClient: true,
     onEvent(event: unknown) {
       if (closed || !event || typeof event !== 'object') return
@@ -662,6 +700,8 @@ export function createLocalRuntime(options: {
     () => assistHost.dispose(),
     () => managed.dispose(),
     () => review.dispose(),
+    () => sendAuthorizations.dispose(),
+    () => replyMonitor.dispose(),
     () => {
       if (logWindow && !logWindow.isDestroyed()) logWindow.destroy()
     },
@@ -759,6 +799,27 @@ export function createLocalRuntime(options: {
       if (command.action === 'open-runtime-logs') {
         await openLogs()
         return { status: 'ok' as const, message: '日志窗口已打开', data: {} }
+      }
+      if (command.action === 'open-reply-monitor') {
+        await replyMonitor.open()
+        return { status: 'ok', message: '回复监控已打开', data: {} }
+      }
+      if (command.action === 'set-store-send-mode') {
+        const storeId = command.values.storeId
+        const mode = command.values.mode
+        if (typeof storeId !== 'string' || !read().stores.some((store) => store.id === storeId))
+          throw new Error('店铺不存在，请刷新后重试')
+        if (mode !== 'review' && mode !== 'auto') throw new Error('无效的发送模式')
+        sendModes.set(storeId, mode)
+        notifyReview()
+        return {
+          status: 'ok',
+          message:
+            mode === 'auto'
+              ? '该店铺新回复将自动复核并发送；已有待审核回复仍需确认'
+              : '该店铺已切换为审核发送',
+          data: {},
+        }
       }
       if (command.action === 'open-store-backend') return openStoreBackend(command.storeId)
       if (command.action === 'review-reply') {
