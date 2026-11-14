@@ -47,6 +47,7 @@ const api: DesktopApi = {
     ipcRenderer.on('business:event', receive)
     return () => ipcRenderer.removeListener('business:event', receive)
   },
+  setStoreZoom: (input) => ipcRenderer.invoke('business:store-zoom', input),
   presentStore: (storeId, visible) =>
     ipcRenderer.invoke('business:present-store', { storeId, visible }),
   simulatorStatus: () => ipcRenderer.invoke('sim:status'),

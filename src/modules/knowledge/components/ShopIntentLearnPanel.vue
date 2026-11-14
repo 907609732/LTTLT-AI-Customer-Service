@@ -13,12 +13,15 @@ import { chatCandidates, documentCandidates, type LearningCandidate } from '../l
 import LearningReview from './LearningReview.vue'
 import { createLearningService } from '../services'
 import { platformLearningTransportKey } from '../platform-learning'
-defineProps<{ viewKey?: string }>()
+const props = defineProps<{ viewKey?: string; sourceKey?: unknown }>()
+const emit = defineEmits<{ returnProducts: [] }>()
 const runtime = useRuntimeStore(),
   task = useTask(),
   service = createLearningService(runtime.run),
   transport = inject(platformLearningTransportKey, null)
-const source = ref<'local' | 'products' | 'chats'>('local'),
+const source = ref<'local' | 'products' | 'chats'>(
+    props.sourceKey === 'products' ? 'products' : props.sourceKey === 'chats' ? 'chats' : 'local',
+  ),
   rows = ref<LearningCandidate[]>([]),
   label = ref(''),
   document = ref(''),
@@ -30,6 +33,12 @@ const source = ref<'local' | 'products' | 'chats'>('local'),
   maxPages = ref(5),
   maxRecords = ref(100),
   productStatus = ref<'all' | 'on-sale' | 'off-sale'>('all')
+watch(
+  () => props.sourceKey,
+  (value) => {
+    source.value = value === 'products' || value === 'chats' ? value : 'local'
+  },
+)
 const emptyRows: LearningCandidate[] = []
 const localRows = computed(() => (source.value === 'local' ? rows.value : emptyRows))
 const platformTasks = computed(
@@ -195,10 +204,19 @@ const statusLabels: Record<PlatformLearningTask['status'], string> = {
 </script>
 <template>
   <RuntimePanel
-    title="资料与聊天转意图"
+    :title="
+      source === 'products'
+        ? '平台商品采集与审核'
+        : source === 'chats'
+          ? '平台聊天采集与审核'
+          : '资料与聊天转意图'
+    "
     description="选择来源与范围 → 采集或预览 → 人工审核 → 保存停用知识包。启用后才参与接待。"
     :error="task.error.value || refreshError"
   >
+    <template v-if="source === 'products'" #actions
+      ><el-button @click="emit('returnProducts')">返回商品知识</el-button></template
+    >
     <div class="runtime-toolbar">
       <StoreSelect label="学习店铺" :disabled="task.pending.value" />
       <label

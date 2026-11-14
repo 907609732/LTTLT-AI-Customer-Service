@@ -25,6 +25,33 @@ const router = useRouter(),
   desktop = getDesktop(),
   runtime = useRuntimeStore(),
   task = useTask()
+const zoomPercent = ref(100)
+watch(
+  () => runtime.platformStoreId,
+  () => {
+    zoomPercent.value = 100
+    if (runtime.platformStoreId && desktop.setStoreZoom) {
+      void desktop
+        .setStoreZoom({
+          workspaceId: runtime.snapshot.workspaceId,
+          storeId: runtime.platformStoreId,
+          percent: 100,
+        })
+        .catch(() => {})
+    }
+  },
+)
+async function changeZoom(event: Event) {
+  const percent = Number((event.target as HTMLSelectElement).value)
+  await task.run(async () => {
+    if (!desktop.setStoreZoom) throw Error('当前环境不支持网页缩放')
+    zoomPercent.value = await desktop.setStoreZoom({
+      workspaceId: runtime.snapshot.workspaceId,
+      storeId: runtime.platformStoreId,
+      percent,
+    })
+  })
+}
 const navigation = [
   { label: '店铺首页', path: '/', icon: IconHomeFilled },
   { label: '配置中心', path: '/shop/manage', icon: IconShop },
@@ -172,6 +199,27 @@ async function navigate(path: string) {
         >
           全部关闭 AI
         </button>
+        <label
+          v-if="runtime.platformStoreId"
+          data-no-drag
+          style="display: flex; align-items: center; gap: 4px; font-size: 12px"
+        >
+          网页缩放
+          <select
+            aria-label="平台网页缩放"
+            :value="zoomPercent"
+            :disabled="task.pending.value"
+            @change="changeZoom"
+          >
+            <option
+              v-for="percent in [75, 100, 125, 150, 175, 200]"
+              :key="percent"
+              :value="percent"
+            >
+              {{ percent }}%{{ percent === 100 ? '（原始）' : '' }}
+            </option>
+          </select>
+        </label>
         <div class="window-controls" data-no-drag>
           <button aria-label="最小化" title="最小化" @click="windowAction('minimize')">
             <el-icon><IconMinus /></el-icon></button

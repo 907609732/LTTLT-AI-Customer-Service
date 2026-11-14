@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
-import { notifyUnavailable } from '@/shared/ui/feedback'
 import type { LocalStore } from '@/shared/contracts/backend'
 import AddShopDialog from './AddShopDialog.vue'
 import pddIcon from '@/assets/figma-add-img00.png'
@@ -163,9 +162,7 @@ const reception = [
     <div class="page-head" data-v-ffbd3484="">
       <div>
         <h1>店铺与商品</h1>
-        <p>
-          登录店铺 → 管理商品知识 → 配置接待。支持手动维护 / CSV；平台自动学习、跨店同步未接入。
-        </p>
+        <p>登录店铺 → 管理商品知识 → 配置接待。支持商品知识维护、平台采集审核和跨店同步。</p>
       </div>
       <div class="page-head__acts">
         <button
@@ -288,11 +285,7 @@ const reception = [
                 @click="navigate(shop, item.key)"
               >
                 {{ item.title }}</button
-              ><button
-                class="chip"
-                title="跨店同步尚未接入"
-                @click="notifyUnavailable('跨店配置同步')"
-              >
+              ><button class="chip" title="预览并确认跨店同步" @click="navigate(shop, 'sync')">
                 同步他店
               </button>
             </div>

@@ -87,6 +87,9 @@ function fixture() {
         listeners.add(listener)
         return () => listeners.delete(listener)
       },
+      setStoreZoom(input) {
+        return input.percent
+      },
       presentStore() {
         if (closed) throw new Error('closed')
       },

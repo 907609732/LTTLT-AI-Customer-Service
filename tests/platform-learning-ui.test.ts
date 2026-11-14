@@ -131,6 +131,26 @@ async function chooseProducts(wrapper: ReturnType<typeof mount>) {
 }
 
 describe('platform learning task UI', () => {
+  it('商品页来源参数直接打开平台商品候选，不停留本机文档来源', async () => {
+    const f = fixture()
+    const wrapper = mount(ShopIntentLearnPanel, { ...f.options, props: { sourceKey: 'products' } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('商品状态')
+    expect(wrapper.text()).toContain('商品规格')
+    await wrapper.setProps({ sourceKey: undefined })
+    await flushPromises()
+    expect(wrapper.text()).toContain('预览已采集聊天')
+    await wrapper.setProps({ sourceKey: 'products' })
+    await flushPromises()
+    expect(
+      wrapper
+        .findAllComponents(ElSelect)
+        .find((select) => select.props('ariaLabel') === '学习来源')
+        ?.props('modelValue'),
+    ).toBe('products')
+    wrapper.unmount()
+  })
+
   it('restores paused tasks without auto-resuming and exposes progress plus manual continue', async () => {
     const f = fixture()
     const wrapper = mount(ShopIntentLearnPanel, f.options)

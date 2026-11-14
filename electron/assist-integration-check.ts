@@ -85,6 +85,7 @@ app
         throw new Error('窗口专项验证不执行业务命令')
       },
       subscribe: () => () => false,
+      setStoreZoom: () => 100,
       presentStore: () => {},
       assistPlatformSnapshot: platformSnapshot,
       refreshAssistPlatform: async () => platformSnapshot(),

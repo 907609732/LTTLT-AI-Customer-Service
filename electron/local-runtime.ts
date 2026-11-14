@@ -1,3 +1,5 @@
+import { createProductCatalog } from './product-catalog'
+import { applyStoreZoom } from './store-zoom'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -382,6 +384,20 @@ export function createLocalRuntime(options: {
   })
   backendRef.current = backend
   const localBackend = backend
+  const productCatalog = createProductCatalog({
+    directory: dataDir,
+    execute: (command) => localBackend.execute(command),
+    assertActive: () => {
+      if (closed || !managed.canAccessWorkspace()) throw Error('商品知识工作区已关闭或不可访问')
+    },
+    assertStore: (storeId) => {
+      const snapshot = snapshotSchema.parse({
+        ...(localBackend.snapshot() as Record<string, unknown>),
+        workspaceId,
+      })
+      if (!snapshot.stores.some((store) => store.id === storeId)) throw Error('店铺不存在')
+    },
+  })
   let reportingQueued = false
   scheduleReporting = () => {
     if (reportingQueued || closed || !managed.canAccessWorkspace()) return
@@ -664,6 +680,20 @@ export function createLocalRuntime(options: {
         !safeStorage.isEncryptionAvailable()
       )
         throw new Error('系统加密不可用，密钥未保存')
+      if (command.action === 'list-products') {
+        return {
+          status: 'ok' as const,
+          message: '',
+          data: { ...(await productCatalog.list(command.storeId ?? '', command.values)) },
+        }
+      }
+      if (command.action === 'set-product-codes') {
+        return {
+          status: 'ok' as const,
+          message: '商家编码已保存，平台商品未修改。',
+          data: { ...(await productCatalog.setCodes(command.storeId ?? '', command.values)) },
+        }
+      }
       const { workspaceId: _workspaceId, ...raw } = command
       void _workspaceId
       const result = resultSchema.parse(await localBackend.execute(raw))
@@ -785,6 +815,17 @@ export function createLocalRuntime(options: {
     subscribe(listener: (event: BackendEvent) => void) {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    setStoreZoom(input: { workspaceId: string; storeId: string; percent: number }) {
+      if (closed || input.workspaceId !== workspaceId || !managed.canAccessWorkspace())
+        throw Error('工作区已变化')
+      if (
+        !snapshotSchema
+          .parse({ ...(localBackend.snapshot() as Record<string, unknown>), workspaceId })
+          .stores.some((s) => s.id === input.storeId)
+      )
+        throw Error('店铺不存在')
+      return applyStoreZoom(platformAdapters.get(input.storeId), input.percent)
     },
     presentStore(storeId: string, visible: boolean) {
       if (

@@ -112,3 +112,13 @@ it('取消移除不执行命令，刷新失败在页面可见', async () => {
   expect(wrapper.get('[role="alert"]').text()).toContain('快照读取失败')
   wrapper.unmount()
 })
+
+it('同步他店进入真实同步面板并绑定当前店铺，不显示占位提示', async () => {
+  const { wrapper, router, runtime } = await fixture()
+  await wrapper.get('[data-store="s1"] button[title="预览并确认跨店同步"]').trigger('click')
+  await flushPromises()
+  expect(runtime.selectedStoreId).toBe('s1')
+  expect(router.currentRoute.value.query.panel).toBe('sync')
+  expect(wrapper.text()).not.toContain('平台自动学习、跨店同步未接入')
+  wrapper.unmount()
+})

@@ -1,7 +1,7 @@
 <!--
   配置中心（源码级还原）
   原始实现：Vue3 + Element Plus，左侧功能导航 + 右侧动态面板。
-  本工程只还原界面与导航；所有业务动作统一提示「暂未接入」。
+  页面按注册面板导航，业务动作由领域模块服务处理。
 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
@@ -24,7 +24,11 @@ function toggle(key: PanelKey) {
   expanded.value[key] = !expanded.value[key]
 }
 function select(key: PanelKey) {
-  void router.replace({ query: { ...route.query, panel: key } })
+  const { source: _source, ...rest } = route.query
+  void _source
+  void router.replace({
+    query: { ...rest, panel: key, ...(key === 'intent-chat' ? { source: 'chats' } : {}) },
+  })
 }
 function goHome() {
   void router.push('/')
@@ -46,7 +50,11 @@ function goHome() {
         </div>
         <div class="top-actions" data-v-105c9fec="">
           <button class="btn-site" type="button" data-nav @click="goHome">返回工作台</button>
-          <button class="btn-site" type="button" @click="__stub('商品自动学习')">
+          <button
+            class="btn-site"
+            type="button"
+            @click="router.push('/shop/manage?panel=intent-doc&source=products')"
+          >
             商品自动学习
           </button>
           <div class="top-actions__billing" data-v-105c9fec="">
@@ -167,6 +175,8 @@ function goHome() {
               :is="currentPanel"
               :key="activeKey"
               :view-key="activeKey"
+              :source-key="route.query.source"
+              @return-products="select('goods')"
               class="shop-main-panel"
             />
           </div>

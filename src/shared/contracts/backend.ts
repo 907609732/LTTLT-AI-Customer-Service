@@ -29,6 +29,7 @@ export const actions = [
   'save-model-settings',
   'save-config',
   'list-products',
+  'set-product-codes',
   'save-product',
   'remove-product',
   'preview-product-import',

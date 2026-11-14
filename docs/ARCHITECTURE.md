@@ -102,3 +102,11 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 菜单、标题与组件由 `app/navigation.ts` 注册。新增面板时在此登记，并为模块公开入口添加导出。当前不做真实鉴权守卫；接入登录时需一起设计会话恢复与失效行为。
 
 样式采用旧 CSS 与原 data-v 标记兼容，新样式使用局部作用域和 tokens。删除兼容样式必须检查受影响路由与弹窗截图。
+
+## 平台网页临时缩放
+
+工作台顶部通过受限 business:store-zoom IPC 调整注册适配器的 WebContents，支持75–200整数百分比。校验可信主frame、当前workspace和店铺成员；渲染层不传webContentsId或URL。使用Electron43原生setZoomFactor/getZoomFactor，不添加依赖或修改vendor。缩放不保存到店铺配置，重新打开店铺恢复100%；Chromium同一分区同源页面可能共享缩放。
+
+## 商品目录查询与本地商家编码
+
+主进程createProductCatalog复用原商品知识分页，公共execute对list-products及set-product-codes作受限装配；编码独立JSON按账号/店铺隔离，写锁+revision CAS+商品版本检查后原子提交。前端商品服务解析严格目录契约，组件只用领域服务。原产品结构、模型检索及CSV格式不变，无新依赖或vendor补丁。

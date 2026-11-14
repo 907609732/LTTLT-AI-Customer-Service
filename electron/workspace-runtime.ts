@@ -171,6 +171,10 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    setStoreZoom(input) {
+      requireAvailable()
+      return current.setStoreZoom(input)
+    },
     presentStore(storeId, visible) {
       requireAvailable()
       current.presentStore(storeId, visible)

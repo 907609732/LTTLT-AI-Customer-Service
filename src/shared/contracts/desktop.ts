@@ -51,6 +51,7 @@ export interface DesktopApi extends Partial<ReceptionBridge> {
   backendSnapshot?(): Promise<BackendSnapshot>
   backendExecute?(command: BackendCommand): Promise<BackendResult>
   onBackendEvent?(listener: (event: BackendEvent) => void): () => void
+  setStoreZoom?(input: import('./store-zoom').StoreZoomRequest): Promise<number>
   presentStore?(storeId: string, visible: boolean): Promise<void>
   /** 本机模拟顾客服务的状态；未启动时如实返回 running=false 与失败原因。 */
   simulatorStatus?(): Promise<SimulatorStatus>

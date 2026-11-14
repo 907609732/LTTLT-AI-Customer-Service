@@ -324,6 +324,55 @@ app
         0,
       )
       checks.push('同步备份跨进程恢复与目标回滚')
+      await execute({ action: 'select-store', storeId: meta.a })
+      for (let n = 0; n < 30; n++) {
+        await execute({
+          action: 'save-product',
+          storeId: meta.a,
+          values: {
+            productId: `ui-check-${n}`,
+            title: `隔离跨页验收${n}`,
+            description: '本机合成验收，不连接平台',
+            specifications: 'M',
+            price: '14.9',
+            enabled: n % 2 === 0,
+          },
+        })
+      }
+      const catalogResult = await execute({
+        action: 'list-products',
+        storeId: meta.a,
+        values: { offset: 0, limit: 20 },
+      })
+      assert.equal(
+        typeof catalogResult.data.codesRevision,
+        'number',
+        '公共商品入口必须装配目录扩展',
+      )
+      await load('/shop/manage?panel=goods')
+      await wait('document.querySelectorAll(".goods-table .el-table__row").length===20')
+      assert.equal(
+        await evaluate('document.querySelectorAll(".goods-knowledge .el-table").length'),
+        1,
+      )
+      await screenshot('product-knowledge-list')
+      await input('input[aria-label="商品名称或平台编号"]', '隔离跨页验收29')
+      await click('查询', '[data-goods-query] button')
+      await wait(
+        'document.querySelectorAll(".goods-table .el-table__row").length===1 && document.querySelector(".goods-table")?.innerText.includes("ui-check-29")',
+      )
+      await evaluate('document.querySelector("[data-product-code]").click()')
+      await input('input[aria-label="商家编码 ui-check-29"]', 'UI-CODE-29')
+      await evaluate('document.querySelector("[data-save-codes]").click()')
+      await wait('document.querySelector(".goods-table")?.innerText.includes("UI-CODE-29")')
+      await load('/shop/manage?panel=goods')
+      await input('input[aria-label="商家编码筛选"]', 'UI-CODE-29')
+      await click('查询', '[data-goods-query] button')
+      await wait(
+        'document.querySelectorAll(".goods-table .el-table__row").length===1 && document.querySelector(".goods-table")?.innerText.includes("UI-CODE-29")',
+      )
+      checks.push('单店商品页无重复店铺表、全店跨页搜索、真实编码保存及重载筛选')
+      await screenshot('product-knowledge-code-persisted')
       for (const panel of ['kb', 'intent-doc', 'team', 'workorder', 'home']) {
         await load(`/shop/manage?panel=${panel}`)
         assert.deepEqual(await evaluate('window.__vueErrors || []'), [])

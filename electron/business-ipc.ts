@@ -1,3 +1,4 @@
+import { storeZoomSchema } from '../src/shared/contracts/store-zoom'
 import { BrowserWindow, ipcMain, shell } from 'electron'
 import { z } from 'zod'
 import { requireAppFrame, type LocalRuntime } from './local-runtime'
@@ -62,6 +63,10 @@ export function registerBusinessIpc(runtime: LocalRuntime): () => void {
     requireAppFrame(event)
     return runtime.execute(command)
   })
+  ipcMain.handle('business:store-zoom', (event, input: unknown) => {
+    requireAppFrame(event)
+    return runtime.setStoreZoom(storeZoomSchema.parse(input))
+  })
   ipcMain.handle('business:present-store', (event, input) => {
     requireAppFrame(event)
     const value = z
@@ -100,6 +105,7 @@ export function registerBusinessIpc(runtime: LocalRuntime): () => void {
       'managed:open-checkout',
       'business:execute',
       'business:present-store',
+      'business:store-zoom',
       'sim:status',
       'sim:open-page',
     ])
