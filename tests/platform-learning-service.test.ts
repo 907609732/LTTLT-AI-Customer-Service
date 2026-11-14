@@ -111,6 +111,49 @@ async function settled(service: ReturnType<typeof createPlatformLearningService>
 }
 
 describe('platform learning persisted tasks and review', () => {
+  it('商品持久钩子仅接收本次上限内的来源记录，完成后才提交游标', async () => {
+    const f = fixture()
+    const saved: string[][] = []
+    f.products(async () => page([product, { ...product, id: 'goods-2' }]))
+    f.port.storeProducts = async (input) => {
+      saved.push(input.products.map((row) => row.id))
+    }
+    await f.service.start({
+      workspaceId,
+      storeId: 'shop',
+      source: 'products',
+      range: { ...range, maxRecords: 1 },
+    })
+    const result = await settled(f.service)
+    expect(saved).toEqual([['goods-1']])
+    expect(result.tasks[0]).toMatchObject({
+      status: 'completed',
+      records: 1,
+      coverage: 'partial',
+      cursor: null,
+    })
+  })
+  it('商品持久失败不推进页面游标，不发布采集结束；继续可重新处理同页', async () => {
+    const f = fixture()
+    let reject = true
+    f.port.storeProducts = async () => {
+      if (reject) throw Error('商品文件未保存')
+    }
+    await f.service.start({ workspaceId, storeId: 'shop', source: 'products', range })
+    const failed = await settled(f.service)
+    expect(failed.tasks[0]).toMatchObject({
+      status: 'failed',
+      pages: 0,
+      records: 0,
+      cursor: null,
+      error: '商品文件未保存',
+    })
+    expect(failed.candidates).toHaveLength(0)
+    reject = false
+    await f.service.resume({ workspaceId, taskId: failed.tasks[0]!.id })
+    expect((await settled(f.service)).tasks[0]).toMatchObject({ status: 'completed', records: 1 })
+  })
+
   it('collects actual provider pages, deduplicates sources, and persists the original editable candidate', async () => {
     const f = fixture()
     f.products(async (cursor) =>

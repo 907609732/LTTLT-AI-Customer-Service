@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessageBox, type TableInstance } from 'element-plus'
 import { useRouter } from 'vue-router'
-import StoreSelect from '@/shared/ui/StoreSelect.vue'
+import { platformLearningTransportKey } from '@/modules/knowledge'
+import {
+  platformLearningSnapshotSchema,
+  type PlatformLearningTask,
+} from '@/shared/contracts/platform-learning'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import { downloadText } from '@/shared/platform/files'
@@ -32,17 +36,86 @@ const chosen = ref<ProductCatalogRow[]>([]),
   importOpen = ref(false),
   batchOpen = ref(false)
 const currentStore = computed(() => runtime.currentStore),
-  selected = computed(() => runtime.selectedStoreId),
-  selectionLocked = computed(
-    () =>
-      task.pending.value || editing.value || codeOpen.value || importOpen.value || batchOpen.value,
-  )
+  selected = computed(() => runtime.selectedStoreId)
 let sequence = 0,
   disposed = false
 const key = () => `${runtime.snapshot.workspaceId}:${selected.value}`
 const isCurrent = (scope: string) => !disposed && key() === scope
 function requireCurrent(scope: string) {
   if (!isCurrent(scope)) throw Error('店铺或账号已变化，已停止后续操作')
+}
+const collection = inject(platformLearningTransportKey, null)
+const collecting = ref(false),
+  collectionError = ref(''),
+  collectionTask = ref<PlatformLearningTask | null>(null)
+let collectionEpoch = 0,
+  collectionTimer: ReturnType<typeof setTimeout> | undefined
+function resetCollection() {
+  collectionEpoch++
+  clearTimeout(collectionTimer)
+  collecting.value = false
+  collectionTask.value = null
+  collectionError.value = ''
+}
+async function collectProducts() {
+  if (collecting.value || task.pending.value || !selected.value) return
+  const scope = key(),
+    epoch = ++collectionEpoch,
+    workspaceId = runtime.snapshot.workspaceId,
+    storeId = selected.value
+  collecting.value = true
+  collectionError.value = ''
+  collectionTask.value = null
+  const current = () => epoch === collectionEpoch && isCurrent(scope)
+  const accept = async (value: unknown, taskId?: string) => {
+    if (!current()) return
+    const snapshot = platformLearningSnapshotSchema.parse(value)
+    if (snapshot.workspaceId !== workspaceId) throw Error('采集工作区已变化')
+    const next = snapshot.tasks
+      .filter(
+        (t) =>
+          t.source === 'products' && t.identity.storeId === storeId && (!taskId || t.id === taskId),
+      )
+      .reverse()
+      .sort((a, b) => b.createdAt - a.createdAt)[0]
+    if (!next) throw Error('未返回本店商品采集任务，请刷新后重试')
+    collectionTask.value = next
+    collectionError.value = next.error
+    if (next.status === 'running') {
+      collectionTimer = setTimeout(() => {
+        void poll(next.id)
+      }, 1000)
+    } else {
+      collecting.value = false
+      // 任务失败或中断前也可能已经保存部分商品，终态都刷新实际列表。
+      await load()
+    }
+  }
+  const poll = async (taskId: string) => {
+    if (!current()) return
+    try {
+      await accept(await collection!.snapshot({ workspaceId, storeId }), taskId)
+    } catch (cause) {
+      if (!current()) return
+      collecting.value = false
+      collectionError.value = cause instanceof Error ? cause.message : '读取采集进度失败'
+    }
+  }
+  try {
+    if (!collection) throw Error('平台采集服务未就绪，请使用桌面版并重试')
+    await accept(
+      await collection.start({
+        workspaceId,
+        storeId,
+        source: 'products',
+        range: { maxPages: 100, maxRecords: 10000, productStatus: 'all' },
+      }),
+    )
+  } catch (cause) {
+    if (!current()) return
+    collecting.value = false
+    collectionError.value = cause instanceof Error ? cause.message : '商品采集失败'
+  }
 }
 function clearSelection() {
   chosen.value = []
@@ -87,6 +160,7 @@ async function load() {
 onBeforeUnmount(() => {
   disposed = true
   sequence++
+  resetCollection()
 })
 function search() {
   applied.query = query.value.trim()
@@ -444,6 +518,7 @@ watch(
   [selected, () => runtime.snapshot.workspaceId],
   () => {
     sequence++
+    resetCollection()
     rows.value = []
     total.value = 0
     loadError.value = ''
@@ -470,18 +545,6 @@ watch(
 </script>
 <template>
   <section class="goods-knowledge" data-no-drag>
-    <header class="goods-heading">
-      <div>
-        <h1>
-          店铺商品 <span>{{ currentStore?.storeName || '未选择店铺' }}</span>
-        </h1>
-        <p>维护本店商品知识，供接待与训练使用；不会修改平台商品。</p>
-      </div>
-      <div class="heading-actions">
-        <el-button data-goods-learn @click="learn">平台采集 / 审核候选</el-button
-        ><el-button @click="router.push('/shop/manage?panel=shops')">← 返回店铺列表</el-button>
-      </div>
-    </header>
     <el-alert
       v-if="!runtime.available"
       type="info"
@@ -502,11 +565,6 @@ watch(
       :closable="false"
       role="status"
     />
-    <div class="goods-store">
-      <StoreSelect :disabled="selectionLocked" /><span
-        >平台采集结果进入待审核问答，审核后可在意图知识中管理。</span
-      >
-    </div>
     <div v-if="!selected" class="goods-empty">
       <h2>请先选择店铺</h2>
       <p>从店铺列表进入，或先添加一家店铺。</p>
@@ -556,6 +614,13 @@ watch(
           ><span>已选 {{ chosen.length }} 项（仅本页）</span>
         </div>
         <div>
+          <el-button
+            data-goods-learn
+            :disabled="collecting || task.pending.value || !runtime.available"
+            :loading="collecting"
+            @click="collectProducts"
+            >{{ collecting ? '采集中' : '采集平台商品' }}</el-button
+          >
           <el-button type="primary" :disabled="task.pending.value" @click="edit()"
             >新增商品知识</el-button
           ><el-button :disabled="task.pending.value || loading" @click="load">刷新</el-button
@@ -563,6 +628,37 @@ watch(
             >CSV 导入 / 导出</el-button
           >
         </div>
+      </div>
+      <div
+        v-if="collectionTask || collectionError || collecting"
+        class="collection-progress"
+        role="status"
+        aria-label="商品采集进度"
+      >
+        <p v-if="collectionTask">
+          {{
+            collectionTask.status === 'running'
+              ? '正在采集'
+              : collectionTask.status === 'completed'
+                ? '采集完成'
+                : collectionTask.status === 'failed'
+                  ? '采集失败'
+                  : collectionTask.status === 'paused'
+                    ? '采集已暂停'
+                    : '采集已取消'
+          }}
+          · 已读取 {{ collectionTask.pages }} 页 / {{ collectionTask.records }} 条<span
+            v-if="collectionTask.total !== undefined"
+          >
+            · 平台总数 {{ collectionTask.total }}</span
+          >
+        </p>
+        <p v-else-if="collecting">正在打开平台并准备采集…</p>
+        <p v-if="collectionTask?.status === 'completed'">
+          列表已刷新；新采集商品默认停用，已有商品知识保持原样。
+        </p>
+        <p v-if="collectionError" role="alert">{{ collectionError }}</p>
+        <el-button link @click="learn">查看采集记录 / 审核问答候选</el-button>
       </div>
       <p v-if="stale" class="stale-warning">
         本次读取失败，下面保留上次结果，当前不能批量修改。<button @click="load">重新读取</button>
@@ -574,7 +670,11 @@ watch(
         row-key="id"
         stripe
         class="goods-table"
-        height="max(220px, calc(100vh - 540px))"
+        :height="
+          collectionTask || collectionError || collecting
+            ? 'max(220px, calc(100vh - 475px))'
+            : 'max(220px, calc(100vh - 380px))'
+        "
         :selectable="() => !task.pending.value && !stale"
         @selection-change="chosen = $event"
       >
@@ -633,7 +733,7 @@ watch(
             {{
               applied.query || applied.merchantCode
                 ? '没有符合条件的商品，请调整搜索或重置。'
-                : '本店尚无商品知识，可新增或导入；平台采集结果请到候选审核查看。'
+                : '本店尚无商品知识，点击“采集平台商品”将实际商品加入列表，也可新增或导入。'
             }}
           </div></template
         >
@@ -846,11 +946,20 @@ watch(
 </template>
 <style scoped>
 .goods-knowledge {
-  padding: 28px 24px;
+  padding: 16px 24px;
   background: #f8fbff;
   min-height: 100%;
   color: #263653;
   -webkit-app-region: no-drag;
+}
+.collection-progress {
+  padding: 8px 16px;
+  background: #f4f8ff;
+  font-size: 13px;
+  color: #587195;
+}
+.collection-progress p {
+  margin: 4px 0;
 }
 .goods-heading {
   display: flex;

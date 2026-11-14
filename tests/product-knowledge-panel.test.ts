@@ -5,6 +5,7 @@ import ElementPlus, { ElMessageBox } from 'element-plus'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import ShopGoodsPanel from '../src/modules/shops/components/ShopGoodsPanel.vue'
 import { useRuntimeStore } from '../src/shared/state/runtime'
+import { platformLearningTransportKey } from '../src/modules/knowledge'
 const service = vi.hoisted(() => ({
   list: vi.fn(),
   save: vi.fn(),
@@ -25,9 +26,53 @@ const row = {
   enabled: true,
   merchantCode: 'ABC',
 }
+const collection = {
+  start: vi.fn(),
+  snapshot: vi.fn(),
+  pause: vi.fn(),
+  resume: vi.fn(),
+  cancel: vi.fn(),
+  review: vi.fn(),
+}
+function collectionSnapshot(status: 'running' | 'completed' | 'failed' = 'completed') {
+  return {
+    version: 1,
+    workspaceId: '299929d3-1fba-4907-bffa-1dfcd21217dc',
+    candidates: [],
+    tasks: [
+      {
+        id: '00000000-0000-4000-8000-000000000001',
+        identity: {
+          storeId: 's1',
+          platform: 'pdd-web',
+          accountId: 'account',
+          platformStoreId: 'mall',
+        },
+        source: 'products',
+        range: { maxPages: 100, maxRecords: 10000, productStatus: 'all' },
+        status,
+        cursor: null,
+        pages: 1,
+        records: 7,
+        candidates: 7,
+        duplicates: 0,
+        skipped: 0,
+        total: 7,
+        coverage: 'range-complete',
+        scope: '平台商品',
+        reason: '',
+        error: status === 'failed' ? '平台页面读取失败' : '',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ],
+  }
+}
 const wrappers: ReturnType<typeof mount>[] = []
 beforeEach(() => {
   vi.clearAllMocks()
+  collection.start.mockResolvedValue(collectionSnapshot())
+  collection.snapshot.mockResolvedValue(collectionSnapshot())
   service.list.mockResolvedValue({ revision: 1, codesRevision: 2, total: 1, items: [{ ...row }] })
   service.save.mockResolvedValue(row)
   service.setCodes.mockResolvedValue({ revision: 3 })
@@ -35,6 +80,7 @@ beforeEach(() => {
 afterEach(() => {
   for (const w of wrappers.splice(0)) w.unmount()
   document.body.innerHTML = ''
+  vi.useRealTimers()
 })
 async function setup() {
   const pinia = createPinia()
@@ -58,22 +104,96 @@ async function setup() {
   await router.push('/shop/manage?panel=goods')
   const wrapper = mount(ShopGoodsPanel, {
     attachTo: document.body,
-    global: { plugins: [pinia, ElementPlus, router] },
+    global: {
+      plugins: [pinia, ElementPlus, router],
+      provide: { [platformLearningTransportKey as symbol]: collection },
+    },
   })
   wrappers.push(wrapper)
   await flushPromises()
   return { wrapper, runtime, router }
 }
-it('商品页仅显示当前店商品，保留返回/采集入口，无重复店铺管理表', async () => {
+it('紧凑商品页移除重复标题和店铺选择，采集位于新增左侧并真实开始而非只跳转', async () => {
   const { wrapper, router } = await setup()
   expect(wrapper.findAll('.el-table')).toHaveLength(1)
-  expect(wrapper.text()).toContain('甲店')
+  expect(wrapper.find('.goods-heading').exists()).toBe(false)
+  expect(wrapper.find('.goods-store').exists()).toBe(false)
+  expect(wrapper.find('[aria-label="当前店铺"]').exists()).toBe(false)
   expect(wrapper.text()).toContain('已启用')
-  expect(wrapper.text()).not.toContain('已学习')
-  expect(wrapper.text()).not.toContain('添加店铺')
+  const tools = wrapper
+    .get('.goods-tools')
+    .findAll('button')
+    .map((button) => button.text())
+  expect(tools.indexOf('采集平台商品')).toBeLessThan(tools.indexOf('新增商品知识'))
   await wrapper.get('[data-goods-learn]').trigger('click')
   await flushPromises()
-  expect(router.currentRoute.value.query).toMatchObject({ panel: 'intent-doc', source: 'products' })
+  expect(collection.start).toHaveBeenCalledWith({
+    workspaceId: '299929d3-1fba-4907-bffa-1dfcd21217dc',
+    storeId: 's1',
+    source: 'products',
+    range: { maxPages: 100, maxRecords: 10000, productStatus: 'all' },
+  })
+  expect(router.currentRoute.value.query.panel).toBe('goods')
+  expect(wrapper.text()).toContain('采集完成')
+  expect(wrapper.text()).toContain('1 页 / 7 条')
+  expect(service.list).toHaveBeenCalledTimes(2)
+})
+it('采集失败明确显示原因，恢复可点击状态', async () => {
+  collection.start.mockResolvedValue(collectionSnapshot('failed'))
+  const { wrapper } = await setup()
+  await wrapper.get('[data-goods-learn]').trigger('click')
+  await flushPromises()
+  expect(wrapper.get('[aria-label="商品采集进度"]').text()).toContain('平台页面读取失败')
+  expect(wrapper.get('[data-goods-learn]').attributes('disabled')).toBeUndefined()
+  expect(service.list).toHaveBeenCalledTimes(2)
+})
+it('空商品列表说明直接采集入列，无进度时预留分页空间', async () => {
+  service.list.mockResolvedValue({ revision: 1, codesRevision: 2, total: 0, items: [] })
+  const { wrapper } = await setup()
+  expect(wrapper.get('.goods-table-empty').text()).toContain('点击“采集平台商品”将实际商品加入列表')
+  expect(wrapper.text()).not.toContain('平台采集结果请到候选审核查看')
+  expect(wrapper.getComponent({ name: 'ElTable' }).props('height')).toBe(
+    'max(220px, calc(100vh - 380px))',
+  )
+})
+it('采集中禁止重复点击，切店后丢弃迟到的采集结果', async () => {
+  let resolve!: (value: unknown) => void
+  collection.start.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done
+      }),
+  )
+  const { wrapper, runtime } = await setup()
+  await wrapper.get('[data-goods-learn]').trigger('click')
+  expect(wrapper.get('[data-goods-learn]').attributes('disabled')).toBeDefined()
+  await wrapper.get('[data-goods-learn]').trigger('click')
+  expect(collection.start).toHaveBeenCalledTimes(1)
+  runtime.selectedStoreId = 's2'
+  await flushPromises()
+  resolve(collectionSnapshot())
+  await flushPromises()
+  expect(wrapper.find('[aria-label="商品采集进度"]').exists()).toBe(false)
+  expect(service.list).toHaveBeenLastCalledWith('s2', 1, {
+    pageSize: 20,
+    query: '',
+    merchantCode: '',
+  })
+})
+it('运行任务轮询至完成并刷新列表，卸载后不继续轮询', async () => {
+  const { wrapper } = await setup()
+  vi.useFakeTimers()
+  collection.start.mockResolvedValue(collectionSnapshot('running'))
+  await wrapper.get('[data-goods-learn]').trigger('click')
+  await flushPromises()
+  expect(wrapper.text()).toContain('正在采集')
+  await vi.advanceTimersByTimeAsync(1000)
+  await flushPromises()
+  expect(collection.snapshot).toHaveBeenCalledTimes(1)
+  expect(wrapper.text()).toContain('采集完成')
+  wrapper.unmount()
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(collection.snapshot).toHaveBeenCalledTimes(1)
 })
 it('查询向服务传全店筛选条件，重置恢复第一页，分页清除勾选', async () => {
   const { wrapper } = await setup()
@@ -174,7 +294,11 @@ it('切店后丢弃旧请求，清理勾选和筛选', async () => {
   await flushPromises()
   resolveOld({ revision: 1, codesRevision: 2, total: 1, items: [row] })
   await flushPromises()
-  expect(wrapper.text()).toContain('乙店')
+  expect(service.list).toHaveBeenLastCalledWith('s2', 1, {
+    pageSize: 20,
+    query: '',
+    merchantCode: '',
+  })
   expect(wrapper.text()).not.toContain('测试商品')
   expect(
     (wrapper.get('input[aria-label="商品名称或平台编号"]').element as HTMLInputElement).value,
@@ -251,4 +375,28 @@ it('批量执行中切换账号时停止剩余商品，不在新账号显示旧�
   await flushPromises()
   expect(service.save).toHaveBeenCalledTimes(1)
   expect(wrapper.find('[aria-label="批量操作结果"]').exists()).toBe(false)
+})
+
+it('仍在采集时卸载页面会撤销本地轮询', async () => {
+  const { wrapper } = await setup()
+  vi.useFakeTimers()
+  collection.start.mockResolvedValue(collectionSnapshot('running'))
+  await wrapper.get('[data-goods-learn]').trigger('click')
+  await flushPromises()
+  wrapper.unmount()
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(collection.snapshot).not.toHaveBeenCalled()
+})
+
+it('同一毫秒创建的历史任务不会遮住本次新任务', async () => {
+  const { wrapper } = await setup()
+  vi.useFakeTimers()
+  const snapshot = collectionSnapshot('running')
+  const latest = { ...snapshot.tasks[0], id: '00000000-0000-4000-8000-000000000002' }
+  snapshot.tasks = [{ ...snapshot.tasks[0], status: 'completed' }, latest]
+  collection.start.mockResolvedValue(snapshot)
+  await wrapper.get('[data-goods-learn]').trigger('click')
+  await flushPromises()
+  expect(wrapper.text()).toContain('正在采集')
+  expect(wrapper.get('[data-goods-learn]').attributes('disabled')).toBeDefined()
 })

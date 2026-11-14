@@ -37,6 +37,11 @@ export interface PlatformLearningPort {
   ): Promise<PlatformLearningPage<PlatformLearningChat>>
   listPacks(): Promise<IntentPack[]>
   savePack(pack: PackDraft): Promise<{ id: string }>
+  storeProducts?(input: {
+    identity: PlatformLearningIdentity
+    products: PlatformLearningProduct[]
+    signal: AbortSignal
+  }): Promise<void>
 }
 interface Options {
   directory: string
@@ -54,7 +59,7 @@ const sameIdentity = (a: PlatformLearningIdentity, b: PlatformLearningIdentity) 
 const message = (cause: unknown) =>
   (cause instanceof Error ? cause.message : '平台采集失败，请检查登录及页面后重试').slice(0, 2000)
 
-/** Durable read-only collection. Approval creates inactive knowledge and never enables reception. */
+/** Durable platform reads and inactive local product drafts. Approval never enables reception. */
 export function createPlatformLearningService({
   directory,
   workspaceId,
@@ -303,6 +308,19 @@ export function createPlatformLearningService({
         const remaining = task.range.maxRecords - task.records
         const clipped = page.items.length > remaining
         const normalized = candidatesFor(task, { ...page, items: page.items.slice(0, remaining) })
+        if (task.source === 'products' && port.storeProducts) {
+          await port.storeProducts({
+            identity,
+            products: page.items
+              .slice(0, remaining)
+              .map((item) => platformLearningProductSchema.parse(item)),
+            signal: controller.signal,
+          })
+          if (!current()) return
+          check(workspaceId)
+          await identityFor(task.identity.storeId, task.identity)
+          if (!current()) return
+        }
         updateTask(id, (nextTask, next) => {
           nextTask.pages++
           nextTask.records += Math.min(page.items.length, remaining)

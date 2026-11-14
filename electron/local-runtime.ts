@@ -1,3 +1,4 @@
+import { createCollectedProductWriter } from './collected-products'
 import { createProductCatalog } from './product-catalog'
 import { applyStoreZoom } from './store-zoom'
 import { createRequire } from 'node:module'
@@ -442,11 +443,43 @@ export function createLocalRuntime(options: {
       ).buildIdentityScript({ timeoutMs: 5000, refresh: true }),
   }
   const learningProvider = createPddLearningProvider(providerOptions)
+  const productWriter = createCollectedProductWriter({
+    execute: (command) => localBackend.execute(command),
+    assertActive,
+    assertStore: (storeId) => {
+      if (!providerStore(storeId)) throw Error('店铺已移除')
+    },
+    assertIdentity: async (expected) => {
+      assertActive()
+      const actual = await learningProvider.identity(expected.storeId)
+      assertActive()
+      if (
+        actual.accountId !== expected.accountId ||
+        actual.platformStoreId !== expected.platformStoreId ||
+        actual.storeId !== expected.storeId ||
+        actual.platform !== expected.platform
+      )
+        throw Error('采集商品保存前账号或店铺身份已变化')
+    },
+  })
   const learning = createPlatformLearningService({
     directory: dataDir,
     workspaceId,
     port: {
       ...learningProvider,
+      async identity(storeId) {
+        const store = providerStore(storeId)
+        if (!store) throw Error('店铺已移除')
+        if (store.platform !== 'pdd-web') throw Error('此平台的主动学习采集尚未接入')
+        // 重启后保留登录分区但尚未建立适配器；采集入口复用正常打开店铺流程。
+        if (!platformAdapters.has(storeId)) {
+          await localBackend.execute({ action: 'open-store', storeId })
+          assertActive()
+          if (!providerStore(storeId)) throw Error('店铺已移除')
+        }
+        return learningProvider.identity(storeId)
+      },
+      storeProducts: productWriter.write,
       assertActive,
       async listPacks() {
         assertActive()

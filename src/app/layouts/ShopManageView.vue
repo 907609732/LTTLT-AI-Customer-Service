@@ -53,6 +53,7 @@ function goHome() {
           <button
             class="btn-site"
             type="button"
+            v-if="activeKey !== 'goods' && activeKey !== 'desk'"
             @click="router.push('/shop/manage?panel=intent-doc&source=products')"
           >
             商品自动学习
@@ -167,8 +168,28 @@ function goHome() {
         </aside>
 
         <main class="main" data-v-105c9fec="">
-          <div class="crumb-bar" data-v-105c9fec="">
-            <div class="crumb" data-v-105c9fec="">{{ crumb }}</div>
+          <div
+            class="crumb-bar"
+            data-v-105c9fec=""
+            style="display: flex; align-items: center; justify-content: space-between"
+          >
+            <div
+              v-if="activeKey !== 'goods' && activeKey !== 'desk'"
+              class="crumb"
+              data-v-105c9fec=""
+            >
+              {{ crumb }}
+            </div>
+            <button
+              v-if="activeKey === 'goods' || activeKey === 'desk'"
+              class="btn-site goods-back"
+              style="margin-left: auto"
+              data-no-drag
+              type="button"
+              @click="select('shops')"
+            >
+              ← 返回店铺列表
+            </button>
           </div>
           <div class="shop-main-panel-host is-active" data-v-105c9fec="">
             <component
