@@ -63,9 +63,31 @@ it('登录期间隐藏引导，真实在线后继续，不自动开启AI', async
   expect(setup.awaitingLogin).toBe(true)
   expect(runtime.platformStoreId).toBe('shop-a')
   runtime.snapshot.stores[0]!.runtime.online = true
+  runtime.snapshot.stores[0]!.runtime.authenticated = true
   await nextTick()
   expect(setup.visible).toBe(true)
   expect(setup.step).toBe(0)
+})
+it('拼多多添加后等待本店认证，页面打开或仅在线不能提前显示引导', async () => {
+  const { runtime, setup } = fixture()
+  setup.queueAfterLogin('shop-a')
+  expect(setup.visible).toBe(false)
+  runtime.snapshot.stores[0]!.runtime.open = true
+  runtime.snapshot.stores[0]!.runtime.online = true
+  await nextTick()
+  expect(setup.visible).toBe(false)
+  runtime.snapshot.stores[0]!.runtime.authenticated = false
+  await nextTick()
+  expect(setup.visible).toBe(false)
+  runtime.snapshot.stores[0]!.runtime.authenticated = true
+  await nextTick()
+  expect(setup.visible).toBe(true)
+  expect(setup.awaitingLogin).toBe(false)
+  setup.dismiss()
+  runtime.snapshot.stores[0]!.runtime.online = false
+  runtime.snapshot.stores[0]!.runtime.online = true
+  await nextTick()
+  expect(setup.visible).toBe(false)
 })
 it('登录失败恢复引导，切工作区后的迟到结果不得呈现旧店铺', async () => {
   const { runtime, setup } = fixture()
@@ -119,6 +141,7 @@ it('知识、接待和模型入口进入真实配置页并可返回引导', asyn
   expect(runtime.selectedStoreId).toBe('shop-a')
   expect(setup.returnAvailable).toBe(true)
   await wrapper.find('button.shop-setup-resume').trigger('click')
+  await flushPromises()
   expect(setup.visible).toBe(true)
   setup.step = 0
   await nextTick()
@@ -129,6 +152,7 @@ it('知识、接待和模型入口进入真实配置页并可返回引导', asyn
   await flushPromises()
   expect(router.currentRoute.value.path).toBe('/settings')
   setup.resume()
+  await flushPromises()
   await nextTick()
   await wrapper
     .findAll('button')

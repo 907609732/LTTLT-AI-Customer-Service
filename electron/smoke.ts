@@ -342,20 +342,12 @@ app
             ),
           '添加后弹窗未收起',
         )
-        await waitFor(
-          async () =>
-            win.webContents.executeJavaScript(
-              `Boolean(document.querySelector('.shop-setup-page'))`,
-            ),
-          '添加后基础设置向导未显示',
-        )
-        await win.webContents.executeJavaScript(
-          `document.querySelector('.shop-setup-page [data-dismiss]').click()`,
-        )
-        await waitFor(
-          async () =>
-            win.webContents.executeJavaScript(`!document.querySelector('.shop-setup-page')`),
-          '稍后配置后基础设置向导未收起',
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Boolean(document.querySelector('.shop-setup-page'))`,
+          ),
+          false,
+          '登录完成前不能显示新手引导',
         )
         const view = win.contentView.children.find(
           (child) => child instanceof WebContentsView && child.webContents !== win.webContents,

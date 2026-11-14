@@ -93,6 +93,18 @@ export async function businessChecks(options: {
         `!Array.from(document.querySelectorAll('.add-platform-dialog')).some(el => el.getBoundingClientRect().width && el.getBoundingClientRect().height)`,
       )
       await wait(`Boolean(document.querySelector('.shop-setup-page'))`)
+      const bounds = await win.webContents.executeJavaScript(`(() => {
+        const rect = document.querySelector('.shop-setup-page').getBoundingClientRect()
+        return {x:rect.x,y:rect.y,right:rect.right,bottom:rect.bottom,width:innerWidth,height:innerHeight,
+          sidebarActive:!document.querySelector('.store-sidebar').closest('[inert]'),
+          headerActive:!document.querySelector('.workbench-titlebar').closest('[inert]')}
+      })()`)
+      assert.equal(bounds.x, 300, '引导应保留左侧店铺栏')
+      assert.equal(bounds.y, 72, '引导应保留顶部导航')
+      assert.equal(bounds.right, bounds.width)
+      assert.equal(bounds.bottom, bounds.height)
+      assert.equal(bounds.sidebarActive, true)
+      assert.equal(bounds.headerActive, true)
       await win.webContents.executeJavaScript(
         `document.querySelector('.shop-setup-page [data-dismiss]').click()`,
       )

@@ -1,11 +1,24 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useShopSetupStore } from '../setup-store'
 const setup = useShopSetupStore(),
   runtime = useRuntimeStore(),
-  router = useRouter()
+  router = useRouter(),
+  route = useRoute()
+watch(
+  () => setup.visible,
+  (visible) => {
+    if (visible && route.path !== '/') void router.push('/')
+  },
+)
+watch(
+  () => route.path,
+  (path) => {
+    if (path !== '/' && (setup.visible || setup.awaitingLogin)) setup.pauseForConfiguration()
+  },
+)
 watch(
   () => [setup.visible, setup.storeId],
   () => {
@@ -226,10 +239,9 @@ const afterSales = [
     >继续基础设置</el-button
   >
   <main
-    v-if="setup.visible"
+    v-if="setup.visible && route.path === '/'"
     class="shop-setup-page"
-    role="dialog"
-    aria-modal="true"
+    role="region"
     aria-label="店铺信息助手"
     @keydown.esc="!setup.saving && setup.dismiss()"
   >
@@ -622,7 +634,7 @@ const afterSales = [
 <style scoped>
 .shop-setup-page {
   position: fixed;
-  inset: 0;
+  inset: 72px 0 0 300px;
   z-index: 2100;
   background: #f7f8fa;
   color: #18283d;

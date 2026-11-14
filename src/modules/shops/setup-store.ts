@@ -30,6 +30,13 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
       storeId.value && workspaceId.value === runtime.snapshot.workspaceId && shop.value,
     )
   }
+  const loginReady = computed(() => {
+    const target = shop.value
+    if (!target?.runtime.online || target.runtime.identityError) return false
+    return target.platform === 'pdd-web'
+      ? target.runtime.authenticated === true
+      : target.runtime.authenticated !== false
+  })
   function resetSession() {
     version++
     storeId.value = ''
@@ -80,6 +87,15 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     restoreDraft = Boolean(previous)
     saved.value = false
     visible.value = true
+  }
+  function queueAfterLogin(id: string) {
+    open(id)
+    if (!valid()) return
+    // 建立平台窗口不是登录完成。自动引导只等待当前店铺的真实认证结果。
+    visible.value = false
+    awaitingLogin.value = true
+    returnAvailable.value = false
+    if (loginReady.value && runtime.selectedStoreId === id) resume()
   }
   async function loadRules() {
     if (!valid() || loading.value || saving.value) return
@@ -144,6 +160,7 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     if (!valid()) return finish()
     runtime.selectedStoreId = storeId.value
     visible.value = false
+    awaitingLogin.value = false
     returnAvailable.value = true
   }
   async function connect(navigate: () => Promise<void>) {
@@ -164,7 +181,7 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
       await navigate()
       if (!current()) return
       runtime.platformStoreId = id
-      if (shop.value?.runtime.online) {
+      if (loginReady.value) {
         step.value = 0
         resume()
       }
@@ -196,15 +213,12 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     },
     { flush: 'sync' },
   )
-  watch(
-    () => shop.value?.runtime.online,
-    (online) => {
-      if (online && awaitingLogin.value && valid() && runtime.selectedStoreId === storeId.value) {
-        step.value = 0
-        resume()
-      }
-    },
-  )
+  watch(loginReady, (ready) => {
+    if (ready && awaitingLogin.value && valid() && runtime.selectedStoreId === storeId.value) {
+      step.value = 0
+      resume()
+    }
+  })
   return {
     storeId,
     visible,
@@ -222,6 +236,7 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     saveRules,
     shop,
     open,
+    queueAfterLogin,
     resume,
     pauseForConfiguration,
     connect,

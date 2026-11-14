@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { ShopSetupGuide, useShopSetupStore } from '@/modules/shops'
-const setup = useShopSetupStore()
+import { ShopSetupGuide } from '@/modules/shops'
 </script>
 <template>
-  <div class="application-page" :inert="setup.visible"><router-view /></div>
+  <div class="application-page"><router-view /></div>
   <ShopSetupGuide />
 </template>
 <style scoped>
