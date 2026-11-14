@@ -1,0 +1,247 @@
+.el-dialog.add-platform-dialog {
+  width: 630px;
+  max-width: calc(100vw - 32px);
+  height: 855px;
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 2px solid #e2e8ef;
+  border-radius: 13.5px;
+  overflow: hidden;
+  font-family: 'Noto Sans SC', sans-serif;
+  color: #26364c;
+  display: flex;
+  flex-direction: column;
+}
+.add-platform-dialog .el-dialog__header {
+  flex: none;
+  height: 71px;
+  box-sizing: border-box;
+  margin: 0 16px;
+  padding: 28px 22.5px 18px;
+  border-bottom: 1px solid #e2eaf6;
+}
+.add-platform-dialog .el-dialog__header strong {
+  font-size: 19px;
+  line-height: 25px;
+}
+.add-platform-subtitle {
+  margin-left: 12px;
+  font-size: 13.5px;
+  color: #8898ac;
+}
+.add-platform-dialog .el-dialog__headerbtn {
+  top: 9px;
+  right: 12px;
+}
+.add-platform-dialog .el-dialog__body {
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.add-platform-form {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.add-platform-scroll {
+  padding: 17px 46.5px 20px 38.5px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: #bfd3f2 transparent;
+}
+.add-platform-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+.add-platform-scroll::-webkit-scrollbar-thumb {
+  background: #bfd3f2;
+  border-radius: 4px;
+}
+.add-platform-guide {
+  border: 2px solid #bed6ff;
+  border-radius: 10px;
+  background: #f1f6ff;
+  min-height: 68px;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  color: #2d62ae;
+}
+.add-platform-guide strong {
+  font-size: 14.6px;
+  line-height: 21px;
+}
+.add-platform-guide div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+.add-platform-guide span {
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #e4eefc;
+  font-size: 12px;
+  color: #4775b1;
+}
+.add-platform-scroll h3 {
+  font-size: 15.75px;
+  line-height: 24px;
+  margin: 12px 0 14px;
+  text-align: center;
+}
+.add-platform-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.add-platform-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 154px;
+  padding: 12px 4px;
+  border: 2px solid #dce4ee;
+  border-radius: 11.25px;
+  background: #fff;
+  font: inherit;
+  color: #26364c;
+  cursor: pointer;
+}
+.add-platform-card:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.add-platform-card:not(:disabled):hover,
+.add-platform-card.selected {
+  border-color: #78aefb;
+  background: #f5f9ff;
+}
+.add-platform-card.selected::after {
+  content: '✓';
+  position: absolute;
+  right: 8px;
+  top: 5px;
+  color: #3880e9;
+}
+.add-platform-card:focus-visible,
+.add-platform-simulator:focus-visible {
+  outline: 2px solid #3880e9;
+  outline-offset: 2px;
+}
+.add-platform-card img {
+  width: 47.25px;
+  height: 47.25px;
+  object-fit: contain;
+}
+.add-platform-name {
+  font-size: 14.625px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.add-platform-mode {
+  min-width: 63px;
+  border-radius: 11px;
+  line-height: 21px;
+  background: #eaf1fe;
+  color: #3880e9;
+  font-size: 12.375px;
+}
+.add-platform-mode.client {
+  background: #ebeff3;
+  color: #697a8d;
+}
+.add-platform-status {
+  font-size: 12px;
+  line-height: 17px;
+  color: #8b98aa;
+}
+.add-platform-status.available {
+  color: #21946d;
+}
+.add-platform-status.developing {
+  color: #bc7b25;
+}
+.add-platform-hint,
+.add-platform-simform p {
+  font-size: 12px;
+  line-height: 20px;
+  color: #7b899f;
+}
+.add-platform-simulator {
+  display: block;
+  margin: 18px auto 0;
+  background: transparent;
+  border: 0;
+  color: #8898ac;
+  font-size: 12px;
+  cursor: pointer;
+}
+.add-platform-simform {
+  margin-top: 15px;
+}
+.add-platform-bottom {
+  flex: none;
+  margin: 0 16px;
+  border-top: 1px solid #e2eaf6;
+  padding: 13px 22.5px 33px;
+}
+.add-platform-bottom .el-alert {
+  margin-bottom: 10px;
+}
+.add-platform-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.add-platform-selection {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  color: #7b899f;
+}
+.add-platform-count {
+  width: 157px;
+  text-align: center;
+  box-sizing: border-box;
+  border: 2px solid #dfe6ee;
+  background: #f6f9fc;
+  border-radius: 7px;
+  font-size: 14px;
+  line-height: 32px;
+  color: #8898af;
+}
+.add-platform-actions .el-button {
+  margin: 0;
+  min-width: 96px;
+  height: 36px;
+  border-radius: 7px;
+}
+@media (max-width: 620px) {
+  .add-platform-scroll {
+    padding: 16px 20px;
+  }
+  .add-platform-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .add-platform-count {
+    display: none;
+  }
+  .add-platform-actions {
+    gap: 8px;
+  }
+  .add-platform-dialog .el-dialog__header {
+    padding-left: 5px;
+  }
+  .add-platform-subtitle {
+    font-size: 12px;
+  }
+  .add-platform-bottom {
+    padding: 13px 4px 18px;
+  }
+}

@@ -1,0 +1,339 @@
+/* Figma home styling stays scoped so shared dialogs and business views retain their styles. */
+.workbench-shell .workbench-titlebar {
+  padding-top: 6px;
+  padding-left: 20px;
+}
+
+.workbench-shell .top-brand-block {
+  width: 146px;
+  padding-right: 0;
+}
+
+.workbench-shell .top-brand-block .brand-mark {
+  gap: 11px;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+.workbench-shell .top-brand-block .brand-mark-icon--primary {
+  content: url('../assets/figma-home-logo.png');
+  width: 38px;
+  height: 38px;
+  border-radius: 0;
+  box-shadow: none;
+  object-fit: contain;
+}
+
+.workbench-shell .workbench-main > .store-home {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+.workbench-shell .store-home .home-stage--empty {
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(180deg, #e1f0ff 0%, #eff6fe 100%);
+  box-shadow: none;
+}
+
+.workbench-shell .store-home .home-empty-glow {
+  inset: -432px auto auto 246px;
+  width: 1184px;
+  height: 1019px;
+  border-radius: 0;
+  background: url('../assets/figma-home-glow-wide.svg') no-repeat;
+  background-size: 1184px 1019px;
+  pointer-events: none;
+}
+
+.workbench-shell .store-home .home-empty-glow--right {
+  inset: -73px auto auto -21px;
+  width: 506px;
+  height: 576px;
+  background-image: url('../assets/figma-home-glow-side.svg');
+  background-size: 506px 576px;
+}
+
+.workbench-shell .store-home .home-empty-main {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 0;
+  gap: 0;
+}
+
+.workbench-shell .store-home .home-brand-whisper,
+.workbench-shell .store-home .home-product-panel,
+.workbench-shell .store-home .home-offline-chip {
+  display: none;
+}
+
+.workbench-shell .store-home .home-empty-hero {
+  position: absolute;
+  top: calc(50% - 251px);
+  left: 50%;
+  display: flex;
+  width: min(700px, calc(100% - 32px));
+  max-width: none;
+  height: 82px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transform: translateX(-50%);
+}
+
+.workbench-shell .store-home .home-empty-hero h1 {
+  margin: 0;
+  color: #17273d;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 41px;
+  letter-spacing: 0;
+}
+
+.workbench-shell .store-home .home-empty-hero p {
+  margin: 0;
+  color: #586d89;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 19px;
+}
+
+.workbench-shell .store-home .home-add-store-btn,
+.workbench-shell .store-home .home-add-store-btn.is-emphasis {
+  position: absolute;
+  top: 92px;
+  left: 50%;
+  width: 168px;
+  min-width: 168px;
+  height: 44px;
+  margin: 0;
+  padding: 0 18px;
+  border-radius: 23px;
+  background: linear-gradient(180deg, #67a8ff 0%, #3181f6 100%);
+  box-shadow: 0 7px 18px rgba(84, 133, 203, 0.23);
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 19px;
+  transform: translateX(-50%);
+}
+
+.workbench-shell .store-home .home-add-store-btn .el-icon {
+  width: 16px;
+  height: 16px;
+  background: url('../assets/figma-home-plus.svg') center / contain no-repeat;
+}
+
+.workbench-shell .store-home .home-add-store-btn .el-icon svg {
+  visibility: hidden;
+}
+
+.workbench-shell .store-home .home-empty-actions {
+  position: absolute;
+  top: calc(50% - 93px);
+  left: 50%;
+  display: grid;
+  width: 372px;
+  grid-template-columns: repeat(2, 180px);
+  gap: 12px;
+  transform: translateX(-50%);
+}
+
+.workbench-shell .store-home .home-action-card {
+  box-sizing: border-box;
+  display: flex;
+  width: 180px;
+  height: 136px;
+  min-height: 136px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0;
+  border: 1px solid #c8ddff;
+  border-radius: 17px;
+  background: #fcfdff;
+  box-shadow: 0 6px 16px rgba(84, 133, 203, 0.08);
+  color: #586d89;
+}
+
+.workbench-shell .store-home .home-action-card .home-action-icon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 12px;
+  background: #e7f1ff;
+}
+
+.workbench-shell .store-home .home-action-icon .el-icon {
+  width: 14px;
+  height: 14px;
+  background: url('../assets/figma-home-assist.svg') center / contain no-repeat;
+}
+
+.workbench-shell .store-home .home-action-card:nth-child(2) .home-action-icon .el-icon {
+  background-image: url('../assets/figma-home-store.svg');
+}
+
+.workbench-shell .store-home .home-action-icon svg {
+  visibility: hidden;
+}
+
+.workbench-shell .store-home .home-action-card strong {
+  color: #17273d;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 19px;
+}
+
+.workbench-shell .store-home .home-action-card > span:last-child {
+  width: 149px;
+  height: 36px;
+  color: #586d89;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  text-align: center;
+}
+
+.workbench-shell .store-home .home-empty-footer {
+  position: absolute;
+  right: 16px;
+  bottom: 41px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.workbench-shell .store-home .home-platform-row {
+  gap: 8px;
+}
+
+.workbench-shell .store-home .home-platform-pill {
+  box-sizing: border-box;
+  width: 67px;
+  height: 32px;
+  justify-content: center;
+  gap: 6px;
+  padding: 0;
+  border: 1px solid #c8ddff;
+  border-radius: 18px;
+  background: #fbfdff;
+  box-shadow: none;
+  color: #183252;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.workbench-shell .store-home .home-platform-pill:nth-child(2) {
+  width: 78px;
+}
+
+.workbench-shell .store-home .home-platform-pill img {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+.workbench-shell .store-home .home-add-store-btn:focus-visible,
+.workbench-shell .store-home .home-action-card:focus-visible {
+  outline: 2px solid #347fff;
+  outline-offset: 3px;
+}
+
+.workbench-shell .store-home .home-empty-footnote {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  margin: 0;
+  color: #8598b3;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+@media (min-width: 1361px) {
+  .workbench-shell {
+    --titlebar-height: 72px;
+    --sidebar-width: 300px;
+  }
+
+  .workbench-shell.sidebar-collapsed {
+    --sidebar-width: var(--sidebar-collapsed-width);
+  }
+}
+
+@media (max-width: 960px) {
+  .workbench-shell .top-brand-block {
+    width: auto;
+  }
+}
+
+@media (max-height: 650px) {
+  .workbench-shell .store-home .home-stage--empty {
+    min-height: 570px;
+  }
+}
+
+@media (max-width: 680px) {
+  .workbench-shell .store-home .home-empty-hero h1 {
+    font-size: 24px;
+  }
+
+  .workbench-shell .store-home .home-empty-actions {
+    width: min(372px, calc(100% - 24px));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbench-shell .store-home .home-action-card {
+    width: 100%;
+  }
+
+  .workbench-shell .store-home .home-action-card > span:last-child {
+    width: calc(100% - 20px);
+  }
+}
+
+.workbench-shell .store-home .home-platform-pill:nth-child(1) img {
+  content: url('../assets/figma-home-taobao.png');
+}
+
+.workbench-shell .store-home .home-platform-pill:nth-child(2) img {
+  content: url('../assets/figma-home-pdd.png');
+}
+
+.workbench-shell .store-home .home-platform-pill:nth-child(3) img {
+  content: url('../assets/figma-home-douyin.png');
+}
+
+.workbench-shell .store-home .home-platform-pill:nth-child(4) img {
+  content: url('../assets/figma-home-qianniu.png');
+}
+
+.workbench-shell .store-home .home-platform-pill:nth-child(5) img {
+  content: url('../assets/figma-home-jd.png');
+}
+
+.workbench-shell .store-home .home-platform-pill:nth-child(6) img {
+  content: url('../assets/figma-home-kuaishou.png');
+}
+
+.workbench-shell .store-home .home-platform-pill:nth-child(7) img {
+  content: url('../assets/figma-home-wechat.png');
+}
+
+.workbench-shell .store-home .home-platform-pill:nth-child(8) img {
+  content: url('../assets/figma-home-qianfan.png');
+}
+
+.workbench-shell .store-home .home-platform-pill:nth-child(9) img {
+  content: url('../assets/figma-home-xianyu.png');
+}

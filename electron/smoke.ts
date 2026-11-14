@@ -1,5 +1,6 @@
 import { simpleLoginChecks } from './simple-login-checks'
-import { app } from 'electron'
+import { app, WebContentsView, type Session } from 'electron'
+import type { BackendSnapshot } from '../src/shared/contracts/backend'
 import fs from 'node:fs'
 import path from 'node:path'
 import assert from 'node:assert/strict'
@@ -212,13 +213,45 @@ app
       await ready()
       assert.ok(
         await win.webContents.executeJavaScript(
-          `document.body.innerText.includes('添加后 AI 默认关闭')`,
+          `(() => {
+            const dialog = document.querySelector('.add-platform-dialog');
+            const card = id => dialog?.querySelector('[data-platform="' + id + '"]');
+            return dialog && dialog.querySelectorAll('[data-platform]').length === 11
+              && card('pdd-web').textContent.includes('已开通') && !card('pdd-web').disabled
+              && card('doudian-client').textContent.includes('已开通') && !card('doudian-client').disabled
+              && card('qianniu').textContent.includes('开发中') && card('qianniu').disabled
+              && card('doudian-web').textContent.includes('未开通') && card('doudian-web').disabled
+              && dialog.querySelector('button[type="submit"]').disabled
+              && !dialog.querySelector('[aria-pressed="true"]')
+              && !dialog.querySelector('input[aria-label="店铺名称"]');
+          })()`,
         ),
+        '平台选择应准确显示接入状态，默认不选且禁止直接提交',
+      )
+      fs.writeFileSync(
+        path.join(output, 'add-platform-dialog.png'),
+        (await win.capturePage()).toPNG(),
       )
       await win.webContents.executeJavaScript(
-        `Array.from(document.querySelectorAll('.el-dialog button')).find(b => b.textContent.trim() === '关闭').click()`,
+        `document.querySelector('[aria-label="取消添加店铺"]').click()`,
       )
       await ready()
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (
+          await win.webContents.executeJavaScript(
+            `document.querySelectorAll('.el-overlay:not([style*="display: none"])').length === 0`,
+          )
+        )
+          break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      assert.equal(
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.el-overlay:not([style*="display: none"])').length`,
+        ),
+        0,
+        '取消后弹窗应关闭且不执行添加',
+      )
       await win.webContents.executeJavaScript(
         `Array.from(document.querySelectorAll('.top-navigation button')).find(b => b.textContent.includes('配置中心')).click()`,
       )
@@ -229,6 +262,115 @@ app
         0,
         '导航不应触发业务占位提示',
       )
+    })
+    await check('add-store-direct-login', '/', async () => {
+      await load('/')
+      const sessions = new Set<Session>()
+      let storeId = ''
+      const onSession = (ses: Session) => {
+        // 只在此隔离用例创建店铺时拦截新分区，所有 HTTPS 响应都留在本机。
+        ses.protocol.handle(
+          'https',
+          () =>
+            new Response(
+              '<!doctype html><html><body><h1>离线平台登录夹具</h1><input aria-label="夹具登录账号"></body></html>',
+              { headers: { 'content-type': 'text/html; charset=utf-8' } },
+            ),
+        )
+        sessions.add(ses)
+      }
+      const snapshot = () =>
+        win.webContents.executeJavaScript(
+          'window.yunduoDesktop.backendSnapshot()',
+        ) as Promise<BackendSnapshot>
+      const waitFor = async (condition: () => Promise<boolean> | boolean, message: string) => {
+        for (let attempt = 0; attempt < 400; attempt++) {
+          if (await condition()) return
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error(message)
+      }
+      const execute = async (action: 'close-store' | 'remove-store') => {
+        const s = await snapshot()
+        await win.webContents.executeJavaScript(
+          `window.yunduoDesktop.backendExecute(${JSON.stringify({ action, storeId, values: { confirmed: true }, workspaceId: s.workspaceId })})`,
+        )
+      }
+      const before = new Set((await snapshot()).stores.map((store) => store.id))
+      app.on('session-created', onSession)
+      try {
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[aria-label="添加店铺"]').click()`,
+        )
+        await ready()
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[data-platform="pdd-web"]').click()`,
+        )
+        await waitFor(
+          async () =>
+            win.webContents.executeJavaScript(
+              `!document.querySelector('.add-platform-dialog button[type="submit"]').disabled`,
+            ),
+          '选中平台后添加按钮未启用',
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.add-platform-dialog button[type="submit"]').click()`,
+        )
+        await waitFor(async () => {
+          const added = (await snapshot()).stores.find((store) => !before.has(store.id))
+          storeId = added?.id || ''
+          return Boolean(added?.runtime.open)
+        }, '添加后没有打开平台店铺')
+        const store = (await snapshot()).stores.find((row) => row.id === storeId)
+        assert.equal(store?.platform, 'pdd-web')
+        assert.equal(store?.aiEnabled, false)
+        await waitFor(
+          async () =>
+            win.webContents.executeJavaScript(
+              `document.querySelectorAll('.el-overlay:not([style*="display: none"])').length === 0`,
+            ),
+          '添加后弹窗未收起',
+        )
+        const view = win.contentView.children.find(
+          (child) => child instanceof WebContentsView && child.webContents !== win.webContents,
+        )
+        assert.ok(view instanceof WebContentsView, '登录 WebContentsView 未建立')
+        // 当前 Electron View 没有可见性 getter；平台呈现器只在显示时赋予这组布局尺寸。
+        await waitFor(
+          () => view.getBounds().width > 0 && view.getBounds().height > 0,
+          '登录视图未铺排',
+        )
+        assert.equal(view.getBounds().x, 300)
+        assert.equal(view.getBounds().y, 72)
+        assert.ok(view.webContents.getURL().startsWith('https://'), '平台入口地址未加载')
+        assert.ok(
+          (await view.webContents.executeJavaScript('document.body.innerText')).includes(
+            '离线平台登录夹具',
+          ),
+          '应显示本机拦截的登录内容',
+        )
+        assert.ok(sessions.size > 0, '必须实际拦截独立店铺分区')
+        fs.writeFileSync(
+          path.join(output, 'add-store-login-view.png'),
+          (await view.webContents.capturePage()).toPNG(),
+        )
+        fs.writeFileSync(
+          path.join(output, 'add-store-direct-login.png'),
+          (await win.capturePage()).toPNG(),
+        )
+      } finally {
+        app.removeListener('session-created', onSession)
+        if (!storeId)
+          storeId = (await snapshot()).stores.find((store) => !before.has(store.id))?.id || ''
+        try {
+          if (storeId) {
+            await execute('close-store')
+            await execute('remove-store')
+          }
+        } finally {
+          for (const ses of sessions) ses.protocol.unhandle('https')
+        }
+      }
     })
     await check('desktop-ipc', '/', async () => {
       await load('/')

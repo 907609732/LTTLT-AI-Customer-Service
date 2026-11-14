@@ -90,6 +90,11 @@ export async function simChecks(options: {
     await load('/')
     await evaluate(`document.querySelector('[aria-label="添加店铺"]').click()`)
     await waitFor(
+      `Boolean(document.querySelector('[aria-label="本机模拟店铺入口"]'))`,
+      '平台选择弹窗未出现',
+    )
+    await evaluate(`document.querySelector('[aria-label="本机模拟店铺入口"]').click()`)
+    await waitFor(
       `Boolean(document.querySelector('.el-dialog input[aria-label="店铺名称"]'))`,
       '添加店铺弹窗未出现',
     )

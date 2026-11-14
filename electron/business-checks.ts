@@ -80,6 +80,10 @@ export async function businessChecks(options: {
       await win.webContents.executeJavaScript(
         `document.querySelector('[aria-label="添加店铺"]').click()`,
       )
+      await wait(`Boolean(document.querySelector('[aria-label="本机模拟店铺入口"]'))`)
+      await win.webContents.executeJavaScript(
+        `document.querySelector('[aria-label="本机模拟店铺入口"]').click()`,
+      )
       await wait(`Boolean(document.querySelector('input[aria-label="店铺名称"]'))`)
       await setInput('店铺名称', '隔离测试甲店')
       await win.webContents.executeJavaScript(
@@ -90,7 +94,22 @@ export async function businessChecks(options: {
       )
       const s = await snapshot()
       assert.equal(s.stores.length, 1)
-      storeA = s.stores[0].id
+      assert.equal(s.stores[0].platform, 'sim-local')
+      assert.equal(s.stores[0].runtime.open, false)
+      // 界面回归使用本机模拟，真实平台只建记录，不访问平台登录网站。
+      await execute({
+        action: 'remove-store',
+        storeId: s.stores[0].id,
+        values: { confirmed: true },
+      })
+      storeA = String(
+        (
+          await execute({
+            action: 'add-store',
+            values: { platform: 'pdd-web', storeName: '隔离测试甲店' },
+          })
+        ).data.id,
+      )
       oldWorkspace = s.workspaceId
       assert.equal(s.stores[0].aiEnabled, false)
       storeB = String(
@@ -307,7 +326,7 @@ export async function businessChecks(options: {
         `document.querySelector('[aria-label="实时日志"]').click()`,
       )
       let popup: BrowserWindow | undefined
-      for (let i = 0; i < 100; i++) {
+      for (let i = 0; i < 400; i++) {
         popup = BrowserWindow.getAllWindows().find(
           (w) => w !== win && w.webContents.getURL().includes('/logs'),
         )
@@ -316,8 +335,20 @@ export async function businessChecks(options: {
       }
       assert.ok(popup, '日志悬浮窗没有创建')
       try {
-        assert.equal(popup.isAlwaysOnTop(), true)
-        for (let i = 0; i < 80; i++) {
+        // Windows 隐藏窗口的置顶状态可能尚未生效；等 ready-to-show 的显示过程完成再验收。
+        for (let i = 0; i < 400; i++) {
+          if (popup.isVisible() && popup.isAlwaysOnTop()) break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        if (!popup.isVisible() || !popup.isAlwaysOnTop()) {
+          fs.writeFileSync(
+            path.resolve('artifacts/desktop/logs-floating-not-top.png'),
+            (await popup.capturePage()).toPNG(),
+          )
+        }
+        assert.equal(popup.isVisible(), true, '日志悬浮窗应在20秒内显示')
+        assert.equal(popup.isAlwaysOnTop(), true, '日志悬浮窗必须保持置顶')
+        for (let i = 0; i < 400; i++) {
           if (
             await popup.webContents.executeJavaScript(
               `document.body.innerText.includes('AI 发送确认')`,
@@ -331,6 +362,7 @@ export async function businessChecks(options: {
             `document.body.innerText.includes('AI 发送确认')`,
           ),
           true,
+          '日志悬浮窗应在20秒内挂载AI发送确认页面',
         )
         await execute({ action: 'open-runtime-logs' })
         assert.equal(

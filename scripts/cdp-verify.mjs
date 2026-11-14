@@ -216,6 +216,11 @@ try {
   await app.waitFor(`document.querySelector('[aria-label="添加店铺"]')`, '工作台没有添加店铺按钮')
   await app.evaluate(`document.querySelector('[aria-label="添加店铺"]').click()`)
   await app.waitFor(`document.querySelector('.el-dialog')`, '添加店铺弹窗没有打开')
+  await app.evaluate(`document.querySelector('[aria-label="本机模拟店铺入口"]').click()`)
+  await app.waitFor(
+    `document.querySelector('.el-dialog [aria-label="店铺平台"]')`,
+    '模拟店铺入口未展开',
+  )
   await app.evaluate(`document.querySelector('.el-dialog [aria-label="店铺平台"]').click()`)
   await app.waitFor(
     `Array.from(document.querySelectorAll('.el-select-dropdown__item')).some((node) => node.textContent.includes('本机模拟店铺'))`,
