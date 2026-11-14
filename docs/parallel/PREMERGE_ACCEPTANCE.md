@@ -29,3 +29,11 @@ Stripe官方依据：[测试环境与测试密钥](https://docs.stripe.com/testi
 - 代码合入前来源哈希、Vue/Electron类型、全目录格式及Git diff校验通过；暂存源码gitleaks扫描约613KB，未发现密钥，运行资料/数据库/凭据与验收产物未入Git。CI按仓库现有工作流执行，未发布Release或部署正式服务。
 
 各项未接通/缺实店样本的业务不标记通过，不因合并到main改变能力状态。后续需要对应数据源/批准契约与商户测试配置后单独接入验收。
+
+## 直接合并后的云端复验
+
+用户选择直接合并，main已快进至0acbfaf。首轮[Actions 43578843768](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/43578843768)的源码、类型、静态检查、回归和构建通过，原生桌面80/82：离线平台登录截图报UnknownVizError；日志浮窗页面加载完毕但20秒后仍隐藏。后续打包按失败状态停止，没有发布或部署。
+
+复用Electron现有窗口和截图API，不新增依赖。隔离原生探针确认：离屏父窗口下原生WebContentsView没有可截图surface；正常窗口等待平台页两帧后可截图。移除首次绘制显示回调可稳定重现日志页已加载但不显示；日志加载成功后检查未销毁并显式show/focus后通过，置顶状态保持。依据为[Electron窗口加载与显示约定](https://github.com/electron/electron/blob/v43.4.0/docs/api/browser-window.md)；实际依赖仍锁定43.8.9。
+
+修正只涉及local-runtime日志窗口显示和smoke主窗口/截图准备，保留原有内容、布局、截图非空和错误断言。定向原生探针修前失败、修后通过，证据artifacts/parallel-integration/window-probe-normal-no-paint.json；Electron类型、相关ESLint、格式和diff检查通过，独立只读审查未发现阻塞P1/P2。云端完整复验以修正提交对应Actions结果为准，不能用本机探针代替。

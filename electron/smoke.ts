@@ -81,7 +81,8 @@ app
   .then(async () => {
     fs.mkdirSync(output, { recursive: true })
     const dispose = registerDesktopIpc(),
-      win = createWindow({ smoke: true })
+      // WebContentsView 需要正常窗口的合成画面，离屏父窗口无法提供平台页截图。
+      win = createWindow()
     const dataDir = path.join(isolatedRoot, 'backend')
     let runtime = createWorkspaceRuntime({
       factory: () => createLocalRuntime({ dataDir, getWindow: () => win }),
@@ -350,6 +351,9 @@ app
           '应显示本机拦截的登录内容',
         )
         assert.ok(sessions.size > 0, '必须实际拦截独立店铺分区')
+        await view.webContents.executeJavaScript(
+          `new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
+        )
         fs.writeFileSync(
           path.join(output, 'add-store-login-view.png'),
           (await view.webContents.capturePage()).toPNG(),

@@ -264,6 +264,11 @@ export function createLocalRuntime(options: {
     })
     try {
       await loadRenderer(win, '/logs')
+      // 首次绘制事件可能晚于页面加载；显式打开日志不能无限等待隐藏窗口绘制。
+      if (!win.isDestroyed()) {
+        win.show()
+        win.focus()
+      }
     } catch (error) {
       closeLog()
       throw error
