@@ -1,4 +1,7 @@
-<!-- 应用根组件：只负责路由出口 -->
+<script setup lang="ts">
+import { ShopSetupGuide } from '@/modules/shops'
+</script>
 <template>
   <router-view />
+  <ShopSetupGuide />
 </template>

@@ -19,6 +19,7 @@ export const actions = [
   'remove-store',
   'select-store',
   'open-store',
+  'open-store-backend',
   'close-store',
   'restart-client',
   'set-ai',

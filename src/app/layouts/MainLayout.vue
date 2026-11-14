@@ -13,7 +13,7 @@ import IconClose from '@/shared/icons/IconClose.vue'
 import IconSetting from '@/shared/icons/IconSetting.vue'
 import { QuickReplyDialog, ScheduledTasksDialog } from '@/modules/workbench'
 import { LoginDialog } from '@/modules/settings'
-import { AddShopDialog } from '@/modules/shops'
+import { AddShopDialog, StoreSidebarCard, useShopSetupStore } from '@/modules/shops'
 import { getDesktop } from '@/shared/platform/desktop'
 import { notifyUnavailable } from '@/shared/ui/feedback'
 import { useRuntimeStore } from '@/shared/state/runtime'
@@ -24,6 +24,7 @@ const router = useRouter(),
   route = useRoute(),
   desktop = getDesktop(),
   runtime = useRuntimeStore(),
+  setup = useShopSetupStore(),
   task = useTask()
 const zoomPercent = ref(100)
 watch(
@@ -83,6 +84,7 @@ watch(
     quickReplyVisible,
     scheduleVisible,
     loginVisible,
+    () => setup.visible,
   ],
   () => {
     const visible =
@@ -92,7 +94,8 @@ watch(
       !addShopVisible.value &&
       !quickReplyVisible.value &&
       !scheduleVisible.value &&
-      !loginVisible.value
+      !loginVisible.value &&
+      !setup.visible
     void runtime.presentStore(runtime.platformStoreId, visible).catch((error) => {
       task.error.value = error instanceof Error ? error.message : String(error)
     })
@@ -115,17 +118,35 @@ async function windowAction(action: 'minimize' | 'toggleMaximize' | 'close') {
 }
 async function openShop(shop: LocalStore) {
   sidebarCollapsed.value = false
+  const workspace = runtime.snapshot.workspaceId
   await task.run(async () => {
     runtime.selectedStoreId = shop.id
     await runtime.run({ action: 'open-store', storeId: shop.id })
+    if (
+      workspace !== runtime.snapshot.workspaceId ||
+      runtime.selectedStoreId !== shop.id ||
+      !runtime.snapshot.stores.some((item) => item.id === shop.id)
+    )
+      return
+    await router.push('/')
+    if (workspace !== runtime.snapshot.workspaceId || runtime.selectedStoreId !== shop.id) return
     runtime.platformStoreId = shop.id
-    await runtime.presentStore(shop.id, true)
+    await runtime.presentStore(
+      shop.id,
+      !setup.visible &&
+        !addShopVisible.value &&
+        !quickReplyVisible.value &&
+        !scheduleVisible.value &&
+        !loginVisible.value,
+    )
   })
 }
 async function closeShop(shop: LocalStore) {
+  const workspace = runtime.snapshot.workspaceId
   await task.run(async () => {
     await runtime.run({ action: 'close-store', storeId: shop.id })
-    if (runtime.platformStoreId === shop.id) runtime.platformStoreId = ''
+    if (workspace === runtime.snapshot.workspaceId && runtime.platformStoreId === shop.id)
+      runtime.platformStoreId = ''
   })
 }
 async function setAi(shop: LocalStore) {
@@ -141,6 +162,12 @@ async function setAi(shop: LocalStore) {
 async function openLogs() {
   await task.run(async () => {
     await runtime.run({ action: 'open-runtime-logs' })
+  })
+}
+async function openBackend(shop: LocalStore) {
+  await task.run(async () => {
+    const result = await runtime.run({ action: 'open-store-backend', storeId: shop.id })
+    task.message.value = result.message
   })
 }
 async function navigate(path: string) {
@@ -251,6 +278,13 @@ async function navigate(path: string) {
           :closable="true"
           @close="task.error.value = ''"
         />
+        <el-alert
+          v-if="task.message.value"
+          :title="task.message.value"
+          type="success"
+          show-icon
+          @close="task.message.value = ''"
+        />
         <div class="sidebar-panel">
           <div class="store-search">
             <el-input
@@ -296,31 +330,20 @@ async function navigate(path: string) {
             <p>{{ shopStatus === 'online' ? '暂无在线店铺' : '暂无未登录店铺' }}</p>
             <button @click="addShopVisible = true">添加店铺</button>
           </div>
-          <article v-for="shop in shops" :key="shop.id" class="local-shop-card">
-            <button class="local-shop-title" :disabled="task.pending.value" @click="openShop(shop)">
-              {{ shop.storeName || '待识别店铺' }}
-            </button>
-            <p>
-              {{ shop.platform }} ·
-              {{ shop.runtime.online ? '已连接' : shop.runtime.open ? '等待平台登录' : '未打开' }}
-            </p>
-            <p
-              v-if="shop.runtime.lastError || shop.runtime.collectionError"
-              class="local-shop-error"
-            >
-              {{ shop.runtime.lastError || shop.runtime.collectionError }}
-            </p>
-            <div class="runtime-actions">
-              <el-button size="small" :disabled="task.pending.value" @click="openShop(shop)"
-                >打开工作台</el-button
-              ><el-button size="small" :disabled="task.pending.value" @click="setAi(shop)">{{
-                shop.aiEnabled ? '关闭 AI' : '开启 AI'
-              }}</el-button
-              ><el-button size="small" :disabled="task.pending.value" @click="closeShop(shop)"
-                >关闭店铺</el-button
-              >
-            </div>
-          </article>
+          <StoreSidebarCard
+            v-for="shop in shops"
+            :key="shop.id"
+            :shop="shop"
+            :selected="runtime.platformStoreId === shop.id"
+            :busy="task.pending.value"
+            @open="openShop(shop)"
+            @toggle-ai="setAi(shop)"
+            @setup="setup.open(shop.id)"
+            @import-knowledge="notifyUnavailable('导入知识入口已预留，功能暂未接入')"
+            @settings="notifyUnavailable('店铺设置入口已预留，功能暂未接入')"
+            @backend="openBackend(shop)"
+            @close="closeShop(shop)"
+          />
         </div>
         <button
           class="sidebar-collapse"
@@ -364,34 +387,5 @@ async function navigate(path: string) {
 }
 .store-sidebar {
   position: relative;
-}
-.local-shop-card {
-  margin: 12px;
-  padding: 14px;
-  border: 1px solid #dce8fb;
-  background: #fff;
-  border-radius: 12px;
-}
-.local-shop-card p {
-  font-size: 12px;
-  color: #8493a9;
-  margin: 8px 0;
-}
-.local-shop-title {
-  background: none;
-  border: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #25334d;
-  cursor: pointer;
-}
-.local-shop-card .runtime-actions {
-  gap: 5px;
-}
-.local-shop-card .el-button {
-  margin: 0;
-}
-.local-shop-card .local-shop-error {
-  color: #cf4d4d;
 }
 </style>

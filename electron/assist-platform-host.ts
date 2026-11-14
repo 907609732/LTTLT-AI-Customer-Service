@@ -15,6 +15,9 @@ const roots: Record<AssistPlatform, string> = {
   'pdd-web': 'https://mms.pinduoduo.com/',
   'doudian-client': 'https://fxg.jinritemai.com/',
 }
+export function assistBackendUrl(platform: AssistPlatform): string {
+  return roots[platform]
+}
 /** 路径由本项目已登录后台导航实页核对，不依据主页摘要或猜测的私有接口。 */
 export function assistCollectionUrl(
   platform: AssistPlatform,
@@ -367,6 +370,15 @@ export function createAssistPlatformHost(options: {
       for (const [key, page] of pages) {
         if (key.includes(':')) {
           if (!page.window.isDestroyed() && !page.manual) page.window.hide()
+        }
+      }
+    },
+    closeStore(storeId: string) {
+      for (const [key, page] of pages) {
+        if (key === storeId || key.startsWith(`${storeId}:`)) {
+          observations.get(key)?.reject(new Error('店铺后台已关闭'))
+          if (!page.window.isDestroyed()) page.window.destroy()
+          pages.delete(key)
         }
       }
     },

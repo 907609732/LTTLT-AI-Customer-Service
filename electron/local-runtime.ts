@@ -3,6 +3,7 @@ import { createPlatformProductStore } from './platform-product-store'
 import { createProductSpecContext } from './product-spec-context'
 import { createProductCatalog } from './product-catalog'
 import { applyStoreZoom } from './store-zoom'
+import { createStoreBackendOpener } from './store-backend'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -44,6 +45,7 @@ import { createSimManagerFactory } from './sim-manager'
 import { createSimServer } from './sim-server'
 import {
   assistCollectionUrl,
+  assistBackendUrl,
   isAllowedAssistUrl,
   createAssistPlatformHost,
   type AssistPlatform,
@@ -479,6 +481,12 @@ export function createLocalRuntime(options: {
     managed.active.mode === 'local'
       ? 'local'
       : String(managed.snapshot().session.account?.userId ?? 'signed-out')
+  const openStoreBackend = createStoreBackendOpener({
+    assertActive,
+    getStore: providerStore,
+    open: (store) => assistHost.open(store, assistBackendUrl(store.platform)),
+    close: assistHost.closeStore,
+  })
   const providerOptions = {
     namespace: managed.partitionNamespace,
     getStore: providerStore,
@@ -752,6 +760,7 @@ export function createLocalRuntime(options: {
         await openLogs()
         return { status: 'ok' as const, message: '日志窗口已打开', data: {} }
       }
+      if (command.action === 'open-store-backend') return openStoreBackend(command.storeId)
       if (command.action === 'review-reply') {
         await review.decide(command.values)
         return { status: 'ok' as const, message: '确认操作已处理；以平台发送结果为准。', data: {} }
@@ -781,7 +790,10 @@ export function createLocalRuntime(options: {
       void _workspaceId
       const result = resultSchema.parse(await localBackend.execute(raw))
       // 删除店铺时同步清空本机模拟数据，避免残留顾客被下一次同名店铺复用。
-      if (command.action === 'remove-store' && command.storeId) simHub.forget(command.storeId)
+      if (command.action === 'remove-store' && command.storeId) {
+        simHub.forget(command.storeId)
+        assistHost.closeStore(command.storeId)
+      }
       return result
     },
     assistPlatformSnapshot() {

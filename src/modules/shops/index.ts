@@ -11,5 +11,8 @@ export { default as ShopSyncConfigDialog } from './components/ShopSyncConfigDial
 export { default as ShopPicker } from './components/ShopPicker.vue'
 export { default as ShopHomeView } from './components/ShopHomeView.vue'
 export { default as ShopHomePanel } from './components/ShopHomePanel.vue'
+export { default as StoreSidebarCard } from './components/StoreSidebarCard.vue'
 export { platformOrderTransportKey } from './platform-orders'
 export type { PlatformOrderTransport } from '@/shared/contracts/platform-orders'
+export { useShopSetupStore } from './setup-store'
+export { default as ShopSetupGuide } from './components/ShopSetupGuide.vue'

@@ -37,6 +37,8 @@ E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独�
 
 ## 数据与接口
 
+店铺侧栏与新手引导见SHOP_SIDEBAR_SETUP.md。App挂载shops公开的ShopSetupGuide，MainLayout在引导可见时隐藏原生平台页；引导状态按当前workspace/store临时绑定，切换后取消晚到登录。新增open-store-backend走既有业务命令通道，经electron/store-backend校验权限和店铺后复用受限assist-platform-host固定首页，不接受渲染层网址，不新增任意导航IPC。
+
 shared/customer-service 保存内置 80 条通用改写及纯检索函数，workbench 快捷回复按场景浏览并通过受控 copyGenericPhrase(id) 复制。主进程 generic-phrases.ts 以最新买家文字召回最多 3 条静态表达，先加入用途限制与使用条件，再交给原压缩器计量；正式回复/训练均经 local-runtime 的同一装配。来源、IPC 与事实边界见 GENERIC_PHRASES.md。
 
 electron/conversation-context.ts 在主进程按店铺和买家读取最新归档，合并平台历史/当前批次并排序去重，再交给 AiClient 与统一压缩器；不再受上游 mergeThread 最近 20 条限制。local-runtime 注入 resolveConversationThread，backend 仅转接给 modelClient.resolveThread；未注入时上游默认行为不变。历史上下文不改变当前批次的诊断引用和审批网页基线。

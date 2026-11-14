@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import ElementPlus from 'element-plus'
 import AddShopDialog from '../src/modules/shops/components/AddShopDialog.vue'
+import { useShopSetupStore } from '../src/modules/shops/setup-store'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 
 afterEach(() => {
@@ -15,9 +16,22 @@ async function fixture() {
   runtime.available = true
   runtime.snapshot.workspaceId = 'test-workspace'
   runtime.snapshot.capabilities.platforms.push({ id: 'sim-local', label: '本机模拟店铺' })
+  function added(id = 'new-shop') {
+    runtime.snapshot.stores.push({
+      id,
+      storeName: '新店铺',
+      platform: 'pdd-web',
+      group: '',
+      aiEnabled: false,
+      runtime: { open: false, online: false },
+    })
+    return { status: 'ok' as const, message: '', data: { id } }
+  }
   const run = vi
     .spyOn(runtime, 'run')
-    .mockResolvedValue({ status: 'ok', message: '', data: { id: 'new-shop' } })
+    .mockImplementation(async (command) =>
+      command.action === 'add-store' ? added() : { status: 'ok', message: '', data: {} },
+    )
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/', component: { template: '<div />' } }],
@@ -32,7 +46,7 @@ async function fixture() {
       },
     },
   })
-  return { runtime, run, wrapper }
+  return { runtime, run, wrapper, added }
 }
 it('真实平台按实际能力展示状态，默认未选且未接入不可添加', async () => {
   const { wrapper, run } = await fixture()
@@ -47,10 +61,8 @@ it('真实平台按实际能力展示状态，默认未选且未接入不可添�
   wrapper.unmount()
 })
 it('添加后直接打开登录，失败重试只打开已建记录', async () => {
-  const { wrapper, run, runtime } = await fixture()
-  run
-    .mockResolvedValueOnce({ status: 'ok', message: '', data: { id: 'new-shop' } })
-    .mockRejectedValueOnce(new Error('客户端未启动'))
+  const { wrapper, run, runtime, added } = await fixture()
+  run.mockImplementationOnce(async () => added()).mockRejectedValueOnce(new Error('客户端未启动'))
   await wrapper.find('[data-platform="doudian-client"]').trigger('click')
   await wrapper.find('form').trigger('submit')
   await flushPromises()
@@ -61,6 +73,8 @@ it('添加后直接打开登录，失败重试只打开已建记录', async () =
   await flushPromises()
   expect(run.mock.calls.map(([c]) => c.action)).toEqual(['add-store', 'open-store', 'open-store'])
   expect(runtime.platformStoreId).toBe('new-shop')
+  expect(useShopSetupStore().visible).toBe(true)
+  expect(useShopSetupStore().storeId).toBe('new-shop')
   expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([false])
   wrapper.unmount()
 })

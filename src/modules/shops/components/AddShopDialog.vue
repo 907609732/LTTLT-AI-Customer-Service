@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { SIM_PLATFORM_ID, SIM_PLATFORM_LABEL } from '@/shared/contracts/simulation'
 import { useRuntimeStore } from '@/shared/state/runtime'
+import { useShopSetupStore } from '../setup-store'
 import { useTask } from '@/shared/ui/use-task'
 import pddWeb from '@/assets/figma-add-img00.png'
 import pddClient from '@/assets/figma-add-img01.png'
@@ -20,6 +21,7 @@ const emit = defineEmits<{ 'update:modelValue': [visible: boolean] }>()
 const runtime = useRuntimeStore(),
   task = useTask(),
   router = useRouter()
+const setup = useShopSetupStore()
 const name = ref(''),
   platform = ref(''),
   simulation = ref(false),
@@ -133,7 +135,10 @@ async function save() {
       runtime.platformStoreId = createdId.value
     }
   })
-  if (ok && current() && simulated) emit('update:modelValue', false)
+  if (ok && current()) {
+    if (simulated) emit('update:modelValue', false)
+    setup.open(createdId.value)
+  }
 }
 </script>
 <template>
