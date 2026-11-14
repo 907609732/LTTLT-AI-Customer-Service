@@ -10,9 +10,15 @@ function ready(draft: ReturnType<typeof createBlankSetupDraft>) {
     dispatchTime: '人工确认发货',
     freightInsurance: false,
     exchangeSupported: false,
+    exchangePolicy: '',
     returnSupported: false,
+    returnPolicy: '',
     cashbackSupported: false,
+    cashbackAmount: '',
+    cashbackProcess: '',
     compensationSupported: false,
+    compensationLimit: '',
+    compensationPolicy: '',
   })
 }
 
@@ -162,15 +168,20 @@ describe('店铺向导规则适配', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
-  it('新售后字段默认未知，关闭政策清空条件内容，不把隐藏旧值保存成承诺', async () => {
+  it('售后按用户截图预填，关闭政策仍清空隐藏条件', async () => {
     const f = fixture()
     const draft = ready(await f.service.load('a'))
     expect(createBlankSetupDraft()).toMatchObject({
-      exchangeSupported: null,
-      returnSupported: null,
-      cashbackSupported: null,
-      compensationSupported: null,
-      cashbackAmount: '',
+      exchangeSupported: true,
+      exchangePolicy: '协商：没拆封，没使用痕迹，不影响二次销售的情况下支持换货呢',
+      returnSupported: true,
+      returnPolicy: '没拆封，没使用痕迹，不影响二次销售的情况下支持退货退款呢',
+      cashbackSupported: true,
+      cashbackAmount: '1',
+      cashbackProcess: '带图好评后截图',
+      compensationSupported: true,
+      compensationLimit: '1',
+      compensationPolicy: '仅限商品破损，质量问题给予小额补偿',
     })
     Object.assign(draft, {
       freightInsurance: false,
@@ -222,13 +233,17 @@ describe('店铺向导规则适配', () => {
     const draft = await f.service.load('a')
     await expect(f.service.save('a', draft)).rejects.toThrow(/物流|发货/)
     ready(draft)
-    Object.assign(draft, { exchangeSupported: true })
+    Object.assign(draft, { exchangeSupported: true, exchangePolicy: '' })
     await expect(f.service.save('a', draft)).rejects.toThrow(/换货/)
-    Object.assign(draft, { exchangeSupported: false, compensationSupported: true })
+    Object.assign(draft, {
+      exchangeSupported: false,
+      compensationSupported: true,
+      compensationPolicy: '',
+    })
     await expect(f.service.save('a', draft)).rejects.toThrow(/补偿/)
     expect(f.commands.some((c) => c.action === 'save-model-profile')).toBe(false)
   })
-  it('空白草稿不预设商业承诺，各实例数组独立', () => {
+  it('售后预填不影响其他步骤，各实例数组独立', () => {
     const a = createBlankSetupDraft()
     a.origins.push('测试地')
     expect(createBlankSetupDraft()).toMatchObject({
@@ -236,7 +251,6 @@ describe('店铺向导规则适配', () => {
       origins: [],
       carriers: [],
       designatedCourier: null,
-      returnPolicy: '',
       warrantyPolicy: '',
     })
   })
