@@ -1,6 +1,7 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useRuntimeStore } from '@/shared/state/runtime'
+import { createBlankSetupDraft, createSetupRules, type SetupDraft } from './setup-rules'
 
 /** 引导仅记录当前窗口的操作位置，不将看过页面冒充已经配置。 */
 export const useShopSetupStore = defineStore('shop-setup', () => {
@@ -13,6 +14,15 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     awaitingLogin = ref(false),
     pending = ref(false),
     error = ref('')
+  const draft = ref(createBlankSetupDraft()),
+    loading = ref(false),
+    loaded = ref(false),
+    saving = ref(false),
+    saved = ref(false)
+  let rules: ReturnType<typeof createSetupRules> | undefined
+  const sessionDrafts = new Map<string, { draft: SetupDraft; step: number }>()
+  let cacheWorkspace = runtime.snapshot.workspaceId,
+    restoreDraft = false
   let version = 0
   const shop = computed(() => runtime.snapshot.stores.find((item) => item.id === storeId.value))
   function valid() {
@@ -20,7 +30,7 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
       storeId.value && workspaceId.value === runtime.snapshot.workspaceId && shop.value,
     )
   }
-  function finish() {
+  function resetSession() {
     version++
     storeId.value = ''
     workspaceId.value = ''
@@ -29,15 +39,100 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     awaitingLogin.value = false
     pending.value = false
     error.value = ''
+    loading.value = false
+    loaded.value = false
+    saving.value = false
+    rules = undefined
+  }
+  function finish() {
+    sessionDrafts.delete(storeId.value)
+    resetSession()
+  }
+  function dismiss() {
+    if (valid() && !saved.value && (loaded.value || !runtime.available)) {
+      sessionDrafts.set(storeId.value, {
+        draft: {
+          ...draft.value,
+          origins: [...draft.value.origins],
+          carriers: [...draft.value.carriers],
+        },
+        step: Math.min(step.value, 4),
+      })
+    }
+    resetSession()
   }
   function open(id: string) {
-    finish()
+    if (storeId.value) dismiss()
+    else resetSession()
     if (!runtime.snapshot.workspaceId || !runtime.snapshot.stores.some((item) => item.id === id))
       return
     workspaceId.value = runtime.snapshot.workspaceId
     storeId.value = id
-    step.value = shop.value?.runtime.online ? 1 : 0
+    const previous = sessionDrafts.get(id)
+    step.value = previous?.step ?? 0
+    draft.value = previous
+      ? {
+          ...previous.draft,
+          origins: [...previous.draft.origins],
+          carriers: [...previous.draft.carriers],
+        }
+      : createBlankSetupDraft()
+    restoreDraft = Boolean(previous)
+    saved.value = false
     visible.value = true
+  }
+  async function loadRules() {
+    if (!valid() || loading.value || saving.value) return
+    const lease = version,
+      id = storeId.value
+    const current = () => lease === version && valid() && storeId.value === id
+    const assertCurrent = () => {
+      if (!current()) throw Error('店铺工作区已改变，请重新打开引导')
+    }
+    const service = createSetupRules({ execute: (command) => runtime.run(command), assertCurrent })
+    const keepDraft = restoreDraft
+    restoreDraft = false
+    loading.value = true
+    loaded.value = false
+    error.value = ''
+    rules = undefined
+    try {
+      const next = await service.load(id)
+      if (!current()) return
+      if (!keepDraft) draft.value = next
+      rules = service
+      loaded.value = true
+    } catch (cause) {
+      if (current()) error.value = cause instanceof Error ? cause.message : String(cause)
+    } finally {
+      if (current()) loading.value = false
+    }
+  }
+  async function saveRules(): Promise<boolean> {
+    if (!valid() || loading.value || saving.value) return false
+    if (!rules) {
+      error.value = '请先载入店铺设置后再保存'
+      return false
+    }
+    const lease = version,
+      id = storeId.value
+    const current = () => lease === version && valid() && storeId.value === id
+    saving.value = true
+    error.value = ''
+    try {
+      await rules.save(id, draft.value)
+      if (!current()) return false
+      draft.value = await rules.load(id)
+      if (!current()) return false
+      saved.value = true
+      sessionDrafts.delete(id)
+      return true
+    } catch (cause) {
+      if (current()) error.value = cause instanceof Error ? cause.message : String(cause)
+      return false
+    } finally {
+      if (current()) saving.value = false
+    }
   }
   function resume() {
     if (!valid()) return finish()
@@ -70,7 +165,7 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
       if (!current()) return
       runtime.platformStoreId = id
       if (shop.value?.runtime.online) {
-        step.value = 1
+        step.value = 0
         resume()
       }
     } catch (cause) {
@@ -85,6 +180,10 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
   watch(
     () => [runtime.snapshot.workspaceId, shop.value?.id],
     () => {
+      if (cacheWorkspace !== runtime.snapshot.workspaceId) {
+        sessionDrafts.clear()
+        cacheWorkspace = runtime.snapshot.workspaceId
+      }
       if (storeId.value && !valid()) finish()
     },
     { flush: 'sync' },
@@ -101,7 +200,7 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     () => shop.value?.runtime.online,
     (online) => {
       if (online && awaitingLogin.value && valid() && runtime.selectedStoreId === storeId.value) {
-        step.value = 1
+        step.value = 0
         resume()
       }
     },
@@ -114,12 +213,19 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     awaitingLogin,
     pending,
     error,
+    draft,
+    loading,
+    loaded,
+    saving,
+    saved,
+    loadRules,
+    saveRules,
     shop,
     open,
     resume,
     pauseForConfiguration,
     connect,
     finish,
-    dismiss: finish,
+    dismiss,
   }
 })

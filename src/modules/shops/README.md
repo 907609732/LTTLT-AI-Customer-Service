@@ -2,6 +2,8 @@
 
 职责：店铺、商品、配置同步与商品编辑界面。
 
+基础设置现为六步整页店铺信息助手：客服风格/物流/发货/售后/摘要，由setup-store管理当前工作区草稿，setup-rules复用模型方案命令保存为本店专用规则，保留其他店铺/全局及原字数上限。关闭暂存本次未保存内容，保存后回读；具体范围及限制见docs/SHOP_SETUP_WIZARD.md。
+
 店铺工作台侧栏使用`StoreSidebarCard`，整行打开工作台，AI开关独立操作，右键基础设置/导入知识/店铺设置/店铺后台/关闭；导入知识和店铺设置当前仅提示预留。`ShopSetupGuide`与`useShopSetupStore`通过公开入口导出，由App全局装配；新增店铺成功自动引导，配置页可继续。引导不自动开启AI、不将访问配置页视为已配置。详见`docs/SHOP_SIDEBAR_SETUP.md`。
 
 公开入口：index.ts。跨模块必须从该入口引用，禁止访问 components 或 demo 的内部路径。

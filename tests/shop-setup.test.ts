@@ -65,7 +65,7 @@ it('登录期间隐藏引导，真实在线后继续，不自动开启AI', async
   runtime.snapshot.stores[0]!.runtime.online = true
   await nextTick()
   expect(setup.visible).toBe(true)
-  expect(setup.step).toBe(1)
+  expect(setup.step).toBe(0)
 })
 it('登录失败恢复引导，切工作区后的迟到结果不得呈现旧店铺', async () => {
   const { runtime, setup } = fixture()
@@ -120,7 +120,7 @@ it('知识、接待和模型入口进入真实配置页并可返回引导', asyn
   expect(setup.returnAvailable).toBe(true)
   await wrapper.find('button.shop-setup-resume').trigger('click')
   expect(setup.visible).toBe(true)
-  setup.step = 2
+  setup.step = 0
   await nextTick()
   await wrapper
     .findAll('button')
@@ -173,7 +173,7 @@ it('连接A期间切到B后迟到结果和在线事件不会抢回店铺', async
   expect(setup.storeId).toBe('')
 })
 
-it('真实弹窗关闭过渡不会清除配置页的继续入口，用户关闭才退出引导', async () => {
+it('整页向导进入配置页保留继续入口，用户退出后结束引导', async () => {
   const { runtime, setup } = fixture()
   runtime.snapshot.stores[0]!.runtime.online = true
   const router = createRouter({
@@ -201,7 +201,7 @@ it('真实弹窗关闭过渡不会清除配置页的继续入口，用户关闭�
   await wrapper.find('.shop-setup-resume').trigger('click')
   await flushPromises()
   await new Promise((resolve) => setTimeout(resolve, 100))
-  document.body.querySelector<HTMLButtonElement>('.el-dialog__headerbtn')!.click()
+  document.body.querySelector<HTMLButtonElement>('[data-dismiss]')!.click()
   await flushPromises()
   await new Promise((resolve) => setTimeout(resolve, 150))
   await flushPromises()

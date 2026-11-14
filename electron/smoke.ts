@@ -21,7 +21,13 @@ const isolatedRoot =
   process.env.YUNDUO_SMOKE_DATA_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'yunduo-smoke-'))
 app.setPath('userData', path.join(isolatedRoot, 'electron'))
 
-const output = path.join(__dirname, '..', 'artifacts', 'desktop')
+const selectedChecks = (process.env.LINGTU_DESKTOP_CHECKS ?? '').split(',').filter(Boolean)
+const output = path.join(
+  __dirname,
+  '..',
+  'artifacts',
+  selectedChecks.length ? `desktop-selected-${Date.now()}` : 'desktop',
+)
 const routes = [
   ['login', '/login'],
   ['dashboard', '/'],
@@ -96,6 +102,8 @@ app
       if (level >= 3) consoleErrors.push(message)
     })
     const check = async (name: string, route: string, run: () => Promise<void>) => {
+      // 日常只执行明确选择的受影响流程；未设置时保留Release全量验收。
+      if (selectedChecks.length && !selectedChecks.includes(name)) return
       try {
         await run()
         report.push({ name, route, pass: true })
@@ -330,9 +338,24 @@ app
         await waitFor(
           async () =>
             win.webContents.executeJavaScript(
-              `document.querySelectorAll('.el-overlay:not([style*="display: none"])').length === 0`,
+              `!Array.from(document.querySelectorAll('.add-platform-dialog')).some(el => el.getBoundingClientRect().width && el.getBoundingClientRect().height)`,
             ),
           '添加后弹窗未收起',
+        )
+        await waitFor(
+          async () =>
+            win.webContents.executeJavaScript(
+              `Boolean(document.querySelector('.shop-setup-page'))`,
+            ),
+          '添加后基础设置向导未显示',
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.shop-setup-page [data-dismiss]').click()`,
+        )
+        await waitFor(
+          async () =>
+            win.webContents.executeJavaScript(`!document.querySelector('.shop-setup-page')`),
+          '稍后配置后基础设置向导未收起',
         )
         const view = win.contentView.children.find(
           (child) => child instanceof WebContentsView && child.webContents !== win.webContents,
@@ -445,6 +468,10 @@ app
     })
     await domSendChecks(check)
     await simChecks({ win, check, load })
+    for (const name of selectedChecks) {
+      if (!report.some((result) => result.name === name))
+        report.push({ name, route: '', pass: false, error: '指定验收项不存在或未运行' })
+    }
     const failure = report.some((result) => !result.pass)
     fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2))
     dispose()

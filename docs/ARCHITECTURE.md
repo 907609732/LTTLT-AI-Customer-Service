@@ -37,6 +37,8 @@ E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独�
 
 ## 数据与接口
 
+六步店铺助手见SHOP_SETUP_WIZARD.md：shops/setup-rules复用已有模型方案命令，克隆保留原规则后仅绑定本店，不新增持久化格式、IPC或第三方依赖；助手字段以有版本的自有区块存入提示规则，完整校验及关闭条件清理后才保存。App在助手可见时将背景路由设为inert，避免键盘穿透；原生页仍由MainLayout统一隐藏。
+
 店铺侧栏与新手引导见SHOP_SIDEBAR_SETUP.md。App挂载shops公开的ShopSetupGuide，MainLayout在引导可见时隐藏原生平台页；引导状态按当前workspace/store临时绑定，切换后取消晚到登录。新增open-store-backend走既有业务命令通道，经electron/store-backend校验权限和店铺后复用受限assist-platform-host固定首页，不接受渲染层网址，不新增任意导航IPC。
 
 shared/customer-service 保存内置 80 条通用改写及纯检索函数，workbench 快捷回复按场景浏览并通过受控 copyGenericPhrase(id) 复制。主进程 generic-phrases.ts 以最新买家文字召回最多 3 条静态表达，先加入用途限制与使用条件，再交给原压缩器计量；正式回复/训练均经 local-runtime 的同一装配。来源、IPC 与事实边界见 GENERIC_PHRASES.md。
