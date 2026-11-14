@@ -1,67 +1,116 @@
-# 灵兔 AI · 主项目
+<div align="center">
 
-2026-11-14 并行整合：自定义快捷话术、跨店同步、知识候选/尺码审核、持久化事件报表、定时任务、托管团队和调用次数计费已完成公共接线。实际范围、验证证据与仍缺少的平台/商户能力见 [统一整合交付](docs/parallel/INTEGRATION.md)。历史段落中的“未接入”以该记录为当前状态；不能据此视为全部实店功能已验收。
+# 灵兔 AI
 
-产品名称统一为“灵兔 AI”；窗口、网页、后台、安装包与云端产物的命名及原数据兼容规则见 [品牌与兼容说明](docs/BRANDING.md)。主项目物理目录保留原路径，不影响现有配置。
+**让店铺知识融入每一次回复，让客服接待更有条理。**
 
-Vue 3 + TypeScript + Electron 客服工程，默认使用自己的模型 API Key，也可显式选择托管服务账号。桌面可保存店铺、商品知识、意图、规则、接待配置和本机工单，并接通训练、会话与回复服务；浏览器保持业务预览。
+面向电商客服的 Windows 桌面工作台，集中管理店铺、商品知识、AI 回复与接待记录。
 
-当前主目录：`E:\~1awucheng\Plastic SCM\AI电商客服软件\client`。客户端、独立服务端、固定运行时、云端构建和维护文档均以本目录为根。目录职责及源码/生成文件/私有数据边界见 [目录说明](docs/PROJECT_LAYOUT.md)。本轮已获授权将本目录作为仓库根交付至 main，具体范围见 docs/MAIN_DELIVERY_20261114.md；其他 F:\Setupgod 下的目录保持原样。
+[![Windows build](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml/badge.svg?branch=main)](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml)
+![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)
+![Vue 3](https://img.shields.io/badge/Vue-3-42b883)
+![Electron](https://img.shields.io/badge/Electron-43-47848f)
+[![License](https://img.shields.io/badge/License-AGPL--3.0--only-blue)](LICENSE)
 
-## 启动
+**[构建与下载](docs/PACKAGING.md)** · [快速开始](#快速使用) · [开发文档](docs/DEVELOPMENT.md) · [问题反馈](https://github.com/907609732/LTTLT-AI-Customer-Service/issues)
+
+</div>
+
+---
+
+|     管理店铺     |         整理知识         |         辅助接待         |
+| :--------------: | :----------------------: | :----------------------: |
+| 选择店铺与工作区 | 维护商品、意图与回复规则 | 生成候选回复，确认后发送 |
+
+[主要功能](#主要功能) · [接入与当前状态](#接入与当前状态) · [快速使用](#快速使用) · [数据说明](#数据与网络连接) · [源码运行](#从源码运行)
+
+## 构建与下载
+
+当前 Windows x64 安装包与 ZIP 通过 [GitHub Actions](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml) 构建，保存在对应运行记录的 **Artifacts** 中，保留 30 天。下载需要具备仓库访问权限并登录 GitHub；过期产物需重新构建。
+
+具体下载、校验与启动步骤见[打包与成品验收](docs/PACKAGING.md)。Actions 构建产物不代表已发布正式版本，GitHub 的 Source code ZIP 是源码，不是安装包。
+
+## 主要功能
+
+| 能力              | 你可以做什么                                                                    |
+| ----------------- | ------------------------------------------------------------------------------- |
+| 🏪 店铺管理       | 管理本机店铺、分组与平台窗口，按店铺控制 AI 开关。                              |
+| 📚 商品与意图知识 | 维护商品资料、多问答、关键词及绑定规则，预览导入并导出知识。                    |
+| ⚙️ 模型与回复规则 | 配置自己的模型 Key 和兼容接口，测试连接，按店铺绑定规则；也可显式选择托管服务。 |
+| 💬 辅助回复       | 结合店铺知识生成候选回复，逐条确认后发送；查看会话、保存草稿与人工接管。        |
+| 🖼️ 图片识别       | 使用当前配置的多模态模型，按店铺开启识图并在训练场验证。                        |
+| 🧩 运营辅助       | 使用快捷回复、跨店同步与回滚、持久化定时任务及本机事件日报。                    |
+| 📋 工单与质检     | 登记本机工单、记录跟进状态，审核纠错知识。                                      |
+| 🧪 模拟演练       | 在本机模拟店铺和顾客页中验证消息、模型请求与发送确认流程。                      |
+
+以上为当前已接线的能力概览，实际接入范围、验证结果和缺口见[当前状态](docs/HANDOFF.md)及[整合记录](docs/parallel/INTEGRATION.md)。
+
+## 接入与当前状态
+
+| 入口或能力     | 当前说明                                                             |
+| -------------- | -------------------------------------------------------------------- |
+| Windows 桌面端 | 主要运行入口，连接本机业务服务与平台适配器。                         |
+| 浏览器预览     | 用于界面预览，不具备完整桌面接待能力。                               |
+| 拼多多辅助中心 | 已有平台接入与部分实店只读核对；非空售后及多页工单仍待样本验收。     |
+| 自带模型 Key   | 默认模式，需自行配置模型接口和凭证。                                 |
+| 托管服务       | 可显式选择；团队与调用次数计费已有接线，真实充值支付仍待接通和验收。 |
+
+平台主动自动学习、无消息访客欢迎、图片/视频欢迎、催付和平台客服自动转接仍未接入。看板基于有界的本机采集记录，不能代替完整订单与营收报表。更多平台及真实模型效果需分别验收。
+
+## 快速使用
+
+1. 按[构建与下载](#构建与下载)取得桌面产物，或按下文从源码启动。
+2. 在模型设置中配置服务商、接口与模型 Key，测试连接；使用托管模式时先配置相应服务账号。
+3. 添加店铺，在平台官方页面完成登录，选择需要维护的店铺。
+4. 整理商品、意图知识与回复规则，先通过训练场或本机模拟店铺检查效果。
+5. 开启对应店铺 AI，核对生成的候选回复，逐条确认后发送。
+
+每次启动时 AI 默认关闭。启用 AI 不等于批准发送；发送结果不确定时，应先核对平台会话。
+
+## 数据与网络连接
+
+默认桌面数据保存在 `%APPDATA%/yunduo-ui-restored/local-runtime`，保留旧目录以兼容已有资料与登录状态。托管模式按服务来源和已验证账号隔离工作区，详见[本地接入](docs/LOCAL_INTEGRATION.md)与[托管服务](docs/MANAGED_SERVICE.md)。
+
+模型 Key 由 Electron 主进程通过系统加密保存。生成回复和图片识别时，相关上下文会发送至所选模型服务；平台接入需要连接对应电商平台，托管模式还会连接配置的托管后端。
+
+提交问题时请附复现步骤及脱敏日志，不要上传模型 Key、令牌、Cookie、买家资料或本机业务数据目录。日志和逐条发送确认机制见[运行日志说明](docs/RUNTIME_LOGS.md)。
+
+## 从源码运行
+
+技术栈：Vue 3、TypeScript、Electron、Vite、Pinia、Element Plus。以下命令在 Windows PowerShell 中执行，先安装 Git、Node.js 24 及 npm。
 
 ```powershell
-cd "E:\~1awucheng\Plastic SCM\AI电商客服软件\client"
-npm ci
-npm run electron:dev
+git clone https://github.com/907609732/LTTLT-AI-Customer-Service.git
+cd LTTLT-AI-Customer-Service
+npm.cmd ci
+npm.cmd start
 ```
 
-只看浏览器：`npm run dev`；构建并启动桌面：`npm start`。
+已取得源码时，进入包含 `package.json` 的仓库根目录执行命令。首次安装或锁文件变化后运行 `npm.cmd ci`；依赖就绪时直接启动。
 
-## 接功能前先读
+| 命令                       | 用途                           |
+| -------------------------- | ------------------------------ |
+| `npm.cmd start`            | 构建并启动桌面应用             |
+| `npm.cmd run electron:dev` | 启动 Vite 与 Electron 开发模式 |
+| `npm.cmd run dev`          | 启动浏览器预览                 |
+| `npm.cmd run build`        | 构建网页与桌面源码             |
 
-从本目录独立开发和运行。需要把功能移植到另一个项目时，再参考 [迁移说明](docs/MERGE_GUIDE.md)，不要将旧仓库结构带入日常开发。
+日常修改仅验证直接影响的流程；Release 打包时执行全量检查和成品验收，具体规则见 [AGENTS.md](AGENTS.md)。独立服务端位于 `server/`，环境和启动方法见[服务端说明](server/README.md)。
 
-| 文档                                       | 用途                                   |
-| ------------------------------------------ | -------------------------------------- |
-| [目录说明](docs/PROJECT_LAYOUT.md)         | 主项目根、保留目录、生成文件和私有数据 |
-| [AGENTS.md](AGENTS.md)                     | AI 开工入口与完成规则                  |
-| [项目约束](docs/CONSTRAINTS.md)            | 必须遵守的开发、类型、接口和安全边界   |
-| [架构说明](docs/ARCHITECTURE.md)           | 目录、启动链路、模块和桌面能力         |
-| [开发与接入](docs/DEVELOPMENT.md)          | 如何接第一项真实功能、后续 AI 任务模板 |
-| [交接与待办](docs/HANDOFF.md)              | 当前能力、剩余问题与下一步验收         |
-| [本地运维](docs/OPERATIONS.md)             | 环境、命令、日志与故障排查             |
-| [打包与云端构建](docs/PACKAGING.md)        | 独立根目录工作流、安装包与产物下载     |
-| [架构决策](docs/DECISIONS.md)              | 关键取舍和本轮范围调整                 |
-| [实时日志与发送确认](docs/RUNTIME_LOGS.md) | 消息、实际模型上下文与逐条批准发送     |
-| [历史还原记录](docs/RESTORATION.md)        | 原始界面来源与还原过程，仅供参考       |
+## 开发文档
 
-每个 `src/modules/<name>/README.md` 列出该模块职责与公开入口。
+| 文档                                                                     | 用途                                   |
+| ------------------------------------------------------------------------ | -------------------------------------- |
+| [当前状态](docs/HANDOFF.md)                                              | 当前基线、验证证据、功能缺口及后续验收 |
+| [开发规则](AGENTS.md)                                                    | 修改边界与验证要求                     |
+| [目录说明](docs/PROJECT_LAYOUT.md)                                       | 源码、生成文件与私有数据边界           |
+| [项目约束](docs/CONSTRAINTS.md) / [架构](docs/ARCHITECTURE.md)           | 模块依赖、接口与数据流                 |
+| [开发说明](docs/DEVELOPMENT.md) / [本地运维](docs/OPERATIONS.md)         | 功能接入、运行环境与故障排查           |
+| [打包说明](docs/PACKAGING.md) / [云端构建](.github/README.md)            | Actions 产物、校验与成品验收           |
+| [辅助中心](docs/ASSIST_CENTER.md) / [辅助浏览器](docs/ASSIST_BROWSER.md) | 平台窗口与辅助业务接入                 |
 
-## 检查
+## 许可与第三方来源
 
-买家消息下方的 [AI 处理状态与回复间隔设置](docs/MESSAGE_AI_STATUS.md) 说明每条消息是否发起模型请求及未回复原因。
+项目许可见 [LICENSE](LICENSE)，适用范围及单独商业授权说明见 [LICENSING.md](LICENSING.md)。第三方代码与素材按其自身条款使用，来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-上下文默认启用 [16K → 8K 压缩](docs/CONTEXT_COMPRESSION.md)，压缩回合与正式请求可在实时日志中核对。
-
-```powershell
-npm run typecheck
-npm run lint
-npm test
-npm run build
-npm run test:desktop
-```
-
-`npm run check` 汇总类型、静态、格式、单元测试和构建。桌面检查独立运行，复用实际窗口与 IPC 实现；报告位于 `artifacts/desktop/report.json`，断言失败返回非零退出码。
-
-云端配置已放回 `.github/workflows/lingtu-ai-desktop.yml`，按本项目位于仓库根的结构执行。工作流只构建并上传 Actions Artifacts，没有自动发布 Release。用户已授权本轮分支推送和 main 合并，实际云端结果以对应 PR 为准，不自动发布 Release。
-
-## 当前能力边界
-
-用户要求的 PR #21 服务端已独立导入 `server/`，包含 Go 托管 API、原生管理网页、固定上游锁和运行约束。设置中可选择模型来源、设备授权登录、刷新额度及打开管理后台；模式/账号切换需重启，账号工作区和平台登录分区独立。默认不连接托管服务、不自动开启 AI。运行 `npm run server:prepare`、`npm run server:verify` 验证服务端；来源、测试和回退见 [托管接入说明](docs/MANAGED_SERVICE.md)。
-
-侧栏底部「快捷回复」已内置 80 条通用客服表达，可搜索、按场景筛选并复制；AI 回复与训练也会按当前问题参考最多 3 条。话术不替代本店知识，不改变逐条确认发送。维护与边界见 [通用话术说明](docs/GENERIC_PHRASES.md)。
-
-保留原有 hash 路由、导航、窗口操作和主题。无需软件账号：打开设置，选择模型服务商或自定义兼容接口，填写自己的 Key 并测试保存，然后添加店铺与知识，在训练场验证后再连接实际店铺。每次启动 AI 默认关闭。
-
-本机步骤和验证边界见 [本机密钥说明](docs/LOCAL_INTEGRATION.md)，可选托管账号及额度见 [托管接入说明](docs/MANAGED_SERVICE.md)。平台适配复用固定提交，真实平台登录、采集/发送与模型效果还需用户验收；软件计费、更多平台和定时调度仍未接入。
+BY 五成
