@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   pddTicketDetailId,
   readPddTicketDom,
-  refreshPddTicketQuery,
+  clickPddQuery,
   readPddAfterSaleDom,
   hasVisiblePddCaptcha,
 } from '../electron/assist-platform-pdd'
@@ -73,9 +73,7 @@ describe('拼多多实页结构的脱敏夹具', () => {
     ])
       expect(pddTicketDetailId(url)).toBeUndefined()
   })
-  it('查询必须等待同源请求成功结束，完成后恢复包装而不读取响应内容', async () => {
-    vi.useFakeTimers()
-    vi.spyOn(performance, 'now').mockImplementation(() => Date.now())
+  it('点击查询但不替换平台保存或正在使用的网络函数', () => {
     fixture()
     const query = document.createElement('button')
     query.textContent = '查询'
@@ -83,75 +81,14 @@ describe('拼多多实页结构的脱敏夹具', () => {
     vi.spyOn(query, 'getClientRects').mockReturnValue([
       new DOMRect(10, 10, 60, 30),
     ] as unknown as DOMRectList)
-    const fetchFixture = vi.fn(
-      async () => ({ ok: true, json: async () => ({ fixture: true }) }) as unknown as Response,
-    )
-    vi.stubGlobal('fetch', fetchFixture)
-    query.addEventListener('click', () => {
-      void window
-        .fetch('https://mms.pinduoduo.com/fixture-readonly-query')
-        .then((response) => response.json())
-    })
-    const pending = refreshPddTicketQuery()
-    await vi.advanceTimersByTimeAsync(300)
-    await pending
-    expect(fetchFixture).toHaveBeenCalledTimes(1)
-    expect(window.fetch).toBe(fetchFixture)
-  })
-  it('没有观察到查询请求时即使旧列表存在也不标成同步成功', async () => {
-    vi.useFakeTimers()
-    vi.spyOn(performance, 'now').mockImplementation(() => Date.now())
-    fixture()
-    const query = document.createElement('button')
-    query.textContent = '查询'
-    document.querySelector('main')!.append(query)
-    vi.spyOn(query, 'getClientRects').mockReturnValue([
-      new DOMRect(10, 10, 60, 30),
-    ] as unknown as DOMRectList)
-    vi.stubGlobal('fetch', vi.fn())
-    const pending = expect(refreshPddTicketQuery()).rejects.toThrow('尚未确认')
-    await vi.advanceTimersByTimeAsync(8100)
-    await pending
-  })
-  it('fetch只收到headers时不能结束同步，必须等平台本身读取body完成', async () => {
-    vi.useFakeTimers()
-    vi.spyOn(performance, 'now').mockImplementation(() => Date.now())
-    fixture()
-    const query = document.createElement('button')
-    query.textContent = '查询'
-    document.querySelector('main')!.append(query)
-    vi.spyOn(query, 'getClientRects').mockReturnValue([
-      new DOMRect(10, 10, 60, 30),
-    ] as unknown as DOMRectList)
-    let resolve!: (value: unknown) => void
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          ({
-            ok: true,
-            json: () =>
-              new Promise((done) => {
-                resolve = done
-              }),
-          }) as unknown as Response,
-      ),
-    )
-    query.addEventListener('click', () => {
-      void window
-        .fetch('https://mms.pinduoduo.com/fixture-readonly-query')
-        .then((response) => response.json())
-    })
-    let finished = false
-    const pending = refreshPddTicketQuery().then(() => {
-      finished = true
-    })
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(finished).toBe(false)
-    resolve({ fixture: true })
-    await vi.advanceTimersByTimeAsync(300)
-    await pending
-    expect(finished).toBe(true)
+    const click = vi.fn()
+    query.addEventListener('click', click)
+    const fetch = window.fetch,
+      send = XMLHttpRequest.prototype.send
+    clickPddQuery()
+    expect(click).toHaveBeenCalledTimes(1)
+    expect(window.fetch).toBe(fetch)
+    expect(XMLHttpRequest.prototype.send).toBe(send)
   })
   it('售后仅在已选待商家处理、近3个月范围和真实空态都识别时报告0', () => {
     vi.stubGlobal('location', {
@@ -164,39 +101,38 @@ describe('拼多多实页结构的脱敏夹具', () => {
     filters[0].classList.remove('MmsUiQuickFilter___checked___3cUiW2-133-0')
     filters[1].classList.add('MmsUiQuickFilter___checked___3cUiW2-133-0')
     expect(readPddAfterSaleDom()).toMatchObject({ recognized: true, total: 0, complete: true })
+    const header = document.createElement('div')
+    header.className = 'after-sales-table_header_cell__1Wwyg'
+    header.innerHTML = '<input type="checkbox">'
+    document.querySelector('[class*="after-sales-table_header_cell__"]')!.before(header)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 10, 14, 12))
+    document
+      .querySelector('input:not([type="checkbox"])')!
+      .setAttribute('value', '2026-08-14 00:00:00 ~ 2026-11-14 23:59:59')
+    expect(readPddAfterSaleDom()).toMatchObject({ recognized: true, total: 0, complete: true })
+    document
+      .querySelector('input:not([type="checkbox"])')!
+      .setAttribute('value', '2026-08-01 00:00:00 ~ 2026-11-14 23:59:59')
+    expect(readPddAfterSaleDom().recognized).toBe(false)
+    document.querySelector('input:not([type="checkbox"])')!.setAttribute('value', '近3个月内')
+
     document.querySelector('[class*="after-sales-table_empty_display__"]')!.remove()
     expect(readPddAfterSaleDom().recognized).toBe(false)
   })
-  it('未绘制页面hit-test为null仍识别可见验证码，查询新出现验证码立即阻断', async () => {
-    vi.useFakeTimers()
-    vi.spyOn(performance, 'now').mockImplementation(() => Date.now())
+  it('未绘制页面仍识别可见验证码且阻止查询，隐藏残留不阻止', () => {
     fixture()
-    const query = document.createElement('button')
-    query.textContent = '查询'
-    document.querySelector('main')!.append(query)
-    vi.spyOn(query, 'getClientRects').mockReturnValue([
-      new DOMRect(10, 10, 60, 30),
-    ] as unknown as DOMRectList)
-    vi.stubGlobal('fetch', vi.fn())
-    const pending = expect(refreshPddTicketQuery('ticket', hasVisiblePddCaptcha)).rejects.toThrow(
-      'platform_verification_required',
-    )
-    await vi.advanceTimersByTimeAsync(100)
     const captcha = document.createElement('div')
     captcha.textContent = '请向右滑块完成拼图'
     document.body.append(captcha)
     vi.spyOn(captcha, 'getClientRects').mockReturnValue([
       new DOMRect(10, 10, 200, 40),
     ] as unknown as DOMRectList)
-    const descriptor = Object.getOwnPropertyDescriptor(document, 'elementFromPoint')
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => null })
-    try {
-      expect(hasVisiblePddCaptcha()).toBe(true)
-      await vi.advanceTimersByTimeAsync(100)
-      await pending
-    } finally {
-      if (descriptor) Object.defineProperty(document, 'elementFromPoint', descriptor)
-      else Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    expect(hasVisiblePddCaptcha()).toBe(true)
+    expect(() => clickPddQuery('ticket', hasVisiblePddCaptcha)).toThrow(
+      'platform_verification_required',
+    )
+    captcha.style.display = 'none'
+    expect(hasVisiblePddCaptcha()).toBe(false)
   })
 })

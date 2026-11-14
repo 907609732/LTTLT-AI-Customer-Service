@@ -73,6 +73,12 @@ func Register(router *gin.Engine) error {
 	group.POST("/auth/device/token", middleware.LingtuIPRateLimit("device-poll", 120, 60), h.poll)
 	group.POST("/auth/refresh", middleware.LingtuIPRateLimit("client-refresh", 120, 60), h.refresh)
 	authenticated := group.Group("", h.clientAuth)
+	if err := h.registerTeams(authenticated); err != nil {
+		return err
+	}
+	if err := RegisterBilling(router, authenticated, model.DB, portal); err != nil {
+		return err
+	}
 	authenticated.POST("/chat/completions", h.prepareChat, h.injectInternalToken, middleware.TokenAuth(), h.restrictManagedModelLimit, middleware.Distribute(), h.nativeChat)
 	authenticated.GET("/me", h.me)
 	authenticated.GET("/config", h.config)

@@ -6,6 +6,8 @@ const { randomUUID } = require('node:crypto');
 const {validateMessages}=require('../shared/multimodal.cjs');
 
 const MESSAGES = {
+  team_forbidden: '没有此团队或店铺的操作权限，请核对授权。', team_not_found: '团队记录不存在或已不可访问。', team_revision_conflict: '团队资料已变化，请刷新后重试，避免覆盖其他成员修改。', team_invalid_request: '团队操作参数不合法。', team_temporarily_unavailable: '团队服务暂时不可用，请刷新核对结果。',
+  payment_not_configured: '支付尚未配置，请联系管理员。', invalid_plan: '套餐已变化，请刷新后重试。', billing_conflict: '充值订单与本次操作冲突，请刷新核对。', checkout_unavailable: '支付链接暂不可用，请勿重复付款。', billing_unavailable: '计费服务暂不可用，请稍后核对订单。',
   vision_unavailable:'当前模型或本店设置未启用图片识别，请转人工处理图片。',vision_invalid_input:'图片地址或数量不受支持，请在原会话检查图片。',vision_failed:'图片识别未完成，请人工检查该会话；不会自动重试。',
   session_expired: '登录已过期，请重新登录。', account_disabled: '账号已停用。',
   trial_exhausted: '试用次数已用完。', trial_expired: '试用已到期。',
@@ -263,8 +265,21 @@ function createManagedSession(options = {}) {
       return result;
     } catch (err) { failure(err, e); throw err; }
   }
+  // Main-process service adapter reuses the session without exporting credentials.
+  async function serviceRequest(endpoint, { method = 'GET', body, signal } = {}) {
+    if (typeof endpoint !== 'string' || !/^\/(?:billing|team|teams)(?:\/[a-zA-Z0-9_-]{1,128})*$/.test(endpoint) || !['GET','POST','PATCH','DELETE'].includes(method) || (method === 'GET' && body !== undefined)) throw error('invalid_request');
+    if (body !== undefined && Buffer.byteLength(JSON.stringify(body)) > 128*1024) throw error('invalid_request');
+    const e = epoch;
+    try {
+      if (disposed || !credential || credential.expiresAt <= now()) throw error('session_expired');
+      if (!access || access.expiresAt <= now() + 30) await refresh(); check(e);
+      const result = await request(endpoint, { method, body, bearer: access.token, signal }); check(e);
+      if (credential.expiresAt <= now()) throw error('session_expired');
+      return result;
+    } catch (err) { failure(err, e); throw err; }
+  }
   function dispose() { stop(); credential = null; disposed = true; }
-  return { init, snapshot, beginLogin, cancelLogin, logout, refresh, chat, dispose };
+  return { init, snapshot, beginLogin, cancelLogin, logout, refresh, chat, serviceRequest, dispose };
 }
 module.exports = { createManagedSession, ManagedSessionError };
 

@@ -54,6 +54,18 @@ app
     let active = false
     const platformSnapshot = () => ({ workspaceId: snapshot.workspaceId, stores: [] })
     const runtime: LocalRuntime = {
+      dataDirectory: () => {
+        throw Error('窗口专项不访问私有目录')
+      },
+      storeSync: () => {
+        throw Error('窗口专项不执行跨店同步')
+      },
+      scheduler: () => {
+        throw Error('窗口专项不执行调度')
+      },
+      serviceRequest: async () => {
+        throw Error('窗口专项不执行托管请求')
+      },
       start: async () => {},
       snapshot: () => structuredClone(snapshot),
       execute: async (command) => {

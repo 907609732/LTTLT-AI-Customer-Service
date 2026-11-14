@@ -34,6 +34,20 @@ function fixture() {
     const listeners = new Set<(event: BackendEvent) => void>()
     let closed = false
     const runtime: LocalRuntime = {
+      dataDirectory: () => {
+        if (closed) throw Error('closed')
+        return state.workspaceId
+      },
+      storeSync: () => {
+        throw Error('测试未接同步')
+      },
+      scheduler: () => {
+        throw Error('测试未接调度')
+      },
+      serviceRequest: async () => {
+        if (closed) throw Error('closed')
+        return { workspaceId: state.workspaceId }
+      },
       async start() {
         if (failStart) throw new Error('start failed')
         if (pauseStart)

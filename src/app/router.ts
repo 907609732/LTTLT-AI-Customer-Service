@@ -100,6 +100,12 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/app/layouts/MainLayout.vue'),
     children: [
       {
+        path: 'store-sync',
+        name: 'store-sync',
+        component: () => import('@/modules/sync').then((m) => m.StoreSyncView),
+        meta: { title: '跨店同步' },
+      },
+      {
         path: '',
         name: 'dashboard',
         component: /* lazy module entry */ () =>

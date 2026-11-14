@@ -42,8 +42,11 @@ import {
 } from './assist-platform-host'
 import { createAssistPlatformCollector } from './assist-platform-collector'
 import { createAssistPlatformReader } from './assist-platform-reader'
-import { pddTicketDetailId } from './assist-platform-pdd'
+import { pddDetailId } from './assist-platform-pdd'
 import { registerStoreBrowserEnvironment } from './store-browser'
+import { createReportingPipeline } from './reporting-pipeline'
+import { createStoreSync } from './store-sync-service'
+import { createFileScheduler } from './scheduler-storage'
 import {
   openAssistPlatformItemSchema,
   refreshAssistPlatformSchema,
@@ -104,6 +107,9 @@ export function createLocalRuntime(options: {
   const workspaceId = randomUUID()
   const listeners = new Set<(event: BackendEvent) => void>()
   let closed = false
+  let scheduleReporting = () => {}
+  let runtimeStarted = false
+  let syncScheduler = () => {}
   // 上游工厂可能在装配期间产生回调，引用就绪前不读取其快照。
   const backendRef: { current?: UpstreamBackend } = {}
   const managed = createManagedController({
@@ -116,12 +122,15 @@ export function createLocalRuntime(options: {
     openExternal: (url) => shell.openExternal(url),
     stopAi: () => backendRef.current?.stopAi(),
     changed: () => {
+      syncScheduler()
+      scheduleReporting()
       if (!closed) for (const listener of listeners) listener({ type: 'managed:changed' })
     },
     submitted: (traceId) => review.trace({ type: 'submitted', traceId }),
     transport: options.managedTransport,
   })
   const dataDir = managed.dataDir
+  const reporting = createReportingPipeline(dataDir)
   const disposeBrowserEnvironment = registerStoreBrowserEnvironment({
     app,
     namespace: managed.partitionNamespace,
@@ -148,6 +157,7 @@ export function createLocalRuntime(options: {
   })
   let logWindow: BrowserWindow | undefined
   const notifyReview = () => {
+    scheduleReporting()
     if (!closed) for (const listener of listeners) listener({ type: 'review:changed' })
   }
   const read = () => {
@@ -177,6 +187,7 @@ export function createLocalRuntime(options: {
   const assistDetails = new Map<string, string>()
   const observedAssistDetails = new Map<string, string>()
   const assistCollector = createAssistPlatformCollector({
+    timeoutMs: 60000,
     workspaceId,
     stores: assistStores,
     changed: () => {
@@ -185,6 +196,9 @@ export function createLocalRuntime(options: {
     read: createAssistPlatformReader({
       page: assistHost.page,
       collectionPage: assistHost.collectionPage,
+      refreshQuery: assistHost.refreshQuery,
+      turnPage: assistHost.turnPage,
+      observeAfterSaleDetail: assistHost.observeAfterSaleDetail,
       observeTicketDetail: assistHost.observeTicketDetail,
       rememberDetail: (storeId, kind, id, url) => {
         observedAssistDetails.set(`${storeId}:${kind}:${id}`, url)
@@ -192,10 +206,12 @@ export function createLocalRuntime(options: {
           observedAssistDetails.delete(observedAssistDetails.keys().next().value!)
       },
       identityScript: () =>
-        loadFactory<{ buildIdentityScript(options: { timeoutMs: number }): string }>(
-          'desk-v1/src/adapters/pdd-identity.js',
-          'buildIdentityScript',
-        ).buildIdentityScript({ timeoutMs: 5000 }),
+        loadFactory<{
+          buildIdentityScript(options: { timeoutMs: number; refresh?: boolean }): string
+        }>('desk-v1/src/adapters/pdd-identity.js', 'buildIdentityScript').buildIdentityScript({
+          timeoutMs: 5000,
+          refresh: true,
+        }),
     }),
   })
   const assistSnapshot = () => {
@@ -329,24 +345,119 @@ export function createLocalRuntime(options: {
         ...(typeof revision === 'number' ? { revision } : {}),
       }
       if (backendRef.current) review.sync()
+      scheduleReporting()
       for (const listener of listeners) listener(safeEvent)
     },
   })
   backendRef.current = backend
   const localBackend = backend
+  let reportingQueued = false
+  scheduleReporting = () => {
+    if (reportingQueued || closed || !managed.canAccessWorkspace()) return
+    reportingQueued = true
+    queueMicrotask(() => {
+      reportingQueued = false
+      if (closed || !managed.canAccessWorkspace()) return
+      reporting.observe(snapshotSchema.parse({ ...read(), review: review.snapshot() }))
+    })
+  }
+  const assertActive = () => {
+    if (closed || !managed.canAccessWorkspace())
+      throw new Error('当前账号工作区不可用，请重新登录或刷新')
+  }
+  const storeSync = createStoreSync({
+    directory: path.join(dataDir, 'store-sync-backups'),
+    port: {
+      snapshot: read,
+      assertActive,
+      execute: async (command) => {
+        assertActive()
+        if (command.workspaceId !== workspaceId) throw new Error('工作区已改变，请刷新')
+        const { workspaceId: _workspaceId, ...raw } = command
+        void _workspaceId
+        const result = resultSchema.parse(await localBackend.execute(raw))
+        assertActive()
+        return result
+      },
+    },
+  })
+  const scheduler = createFileScheduler({
+    workspaceId,
+    directory: dataDir,
+    validateTask: (task) => {
+      assertActive()
+      const snapshot = read()
+      if (!snapshot.stores.some((store) => store.id === task.storeId))
+        throw new Error('店铺不存在或已移除')
+      if (
+        !snapshot.conversations.some(
+          (conversation) => conversation.storeId === task.storeId && conversation.uid === task.uid,
+        )
+      )
+        throw new Error('目标会话尚未采集或已移除')
+    },
+    capability: (task) => {
+      if (closed || !managed.canAccessWorkspace()) return '当前账号工作区不可用'
+      const snapshot = read()
+      if (!snapshot.stores.some((store) => store.id === task.storeId)) return '店铺不存在或已移除'
+      if (
+        !snapshot.conversations.some(
+          (conversation) => conversation.storeId === task.storeId && conversation.uid === task.uid,
+        )
+      )
+        return '目标会话尚未采集或已移除'
+      return '平台事件与统一发送确认尚未验证；任务未发送'
+    },
+  })
+  syncScheduler = () => {
+    if (!runtimeStarted || closed) return
+    try {
+      if (managed.canAccessWorkspace()) scheduler.start()
+      else scheduler.pause()
+    } catch {
+      scheduler.lastError = '调度服务未能恢复，请检查磁盘或重启后刷新核对'
+    }
+  }
   review.sync()
+  scheduleReporting()
   return {
     start: async () => {
       await managed.init()
+      scheduleReporting()
       await host.start()
+      runtimeStarted = true
+      syncScheduler()
     },
     snapshot: () =>
       snapshotSchema.parse({
         ...read(),
         review: managed.canAccessWorkspace() ? review.snapshot() : emptyReview(),
+        reporting: managed.canAccessWorkspace()
+          ? reporting.snapshot(assistCollector.snapshot())
+          : null,
       }),
+    dataDirectory() {
+      assertActive()
+      return dataDir
+    },
+    storeSync() {
+      assertActive()
+      return storeSync
+    },
+    scheduler() {
+      assertActive()
+      return scheduler
+    },
+    serviceRequest(
+      endpoint: string,
+      input?: { method?: string; body?: unknown; signal?: AbortSignal },
+    ) {
+      assertActive()
+      return managed.serviceRequest(endpoint, input)
+    },
     async execute(input: BackendCommand): Promise<BackendResult> {
       if (closed) throw new Error('本地服务已关闭')
+      if (storeSync.isBusy()) throw new Error('正在跨店同步或回滚，请等待完成后再修改工作区')
       const command = commandSchema.parse(input)
       if (command.workspaceId !== workspaceId) throw new Error('本地服务已重启，请刷新后重试')
       if (
@@ -430,8 +541,9 @@ export function createLocalRuntime(options: {
           !row ||
           record?.status !== 'success' ||
           !target ||
-          request.kind !== 'ticket' ||
-          pddTicketDetailId(target) !== request.id
+          pddDetailId(request.kind, target) !== request.id ||
+          (request.kind === 'aftersale' &&
+            new URL(target).searchParams.get('orderSn') !== row.orderNo)
         )
           throw new Error('此记录的详情页面不可用，请先刷新平台列表')
         const page =
@@ -525,6 +637,14 @@ export function createLocalRuntime(options: {
     async dispose() {
       if (closed) return
       closed = true
+      storeSync.dispose()
+      // A broken scheduler file must not keep stores, credentials or timers alive during shutdown.
+      let schedulerError: unknown
+      try {
+        scheduler.dispose()
+      } catch (error) {
+        schedulerError = error
+      }
       assistCollector.dispose()
       disposeBrowserEnvironment()
       assistDetails.clear()
@@ -537,6 +657,7 @@ export function createLocalRuntime(options: {
       await simServer.dispose()
       localBackend.dispose()
       await host.close()
+      if (schedulerError) throw schedulerError
     },
   }
 }

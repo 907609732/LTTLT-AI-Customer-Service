@@ -54,6 +54,7 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
   }
   let userId = 1
   let chatError = ''
+  let remaining = 19
   const expiry = Math.floor(Date.now() / 1000) + 3600
   const calls: { url: string; body: Record<string, unknown> | null; bearer: string | null }[] = []
   const submitted = vi.fn()
@@ -90,7 +91,7 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
         user_id: userId,
         display_name: '测试账号' + userId,
         status: 'enabled',
-        trial: { limit: 20, used: 1, reserved: 0, remaining: 19, expires_at: expiry },
+        trial: { limit: 20, used: 20 - remaining, reserved: 0, remaining, expires_at: expiry },
         capabilities: { vision: false, model: 'managed-1', max_images: 4 },
       }
     else if (endpoint.endsWith('/chat/completions')) {
@@ -99,6 +100,7 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
         : { choices: [{ message: { content: '{"reply":"托管夹具回答"}' } }] }
       if (chatError) status = 409
     } else if (endpoint.endsWith('/auth/logout')) result = { revoked: true }
+    else if (endpoint === '/api/client/billing') result = { plans: [] }
     else throw new Error('Unexpected fixture request')
     return new Response(JSON.stringify(result), {
       status,
@@ -133,10 +135,56 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
     setError: (error: string) => {
       chatError = error
     },
+    setRemaining: (value: number) => {
+      remaining = value
+    },
   }
 }
 
 describe('托管账号和模式隔离', () => {
+  it('额度耗尽仍能读取充值与团队业务，AI生成继续拒绝', async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    f.setRemaining(0)
+    const login = f.make()
+    await login.execute('managed-login', {})
+    await vi.advanceTimersByTimeAsync(1100)
+    login.dispose()
+    const controller = f.make()
+    await controller.init()
+    expect(() => controller.ready()).toThrow('次数')
+    await expect(controller.serviceRequest('/billing')).resolves.toEqual({ plans: [] })
+  })
+  it('团队和计费请求仅在主进程使用现有授权，拒绝任意路径和账号切换后的请求', async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    const login = f.make()
+    await login.execute('managed-login', {})
+    await vi.advanceTimersByTimeAsync(1100)
+    login.dispose()
+    const controller = f.make()
+    await controller.init()
+    const request = Reflect.get(controller, 'serviceRequest') as (
+      endpoint: string,
+      options?: { method?: string; body?: unknown },
+    ) => Promise<unknown>
+    expect(typeof request).toBe('function')
+    await expect(request('/billing')).resolves.toEqual({ plans: [] })
+    expect(f.calls.at(-1)?.bearer).toBe('Bearer fixture-access-secret')
+    expect(JSON.stringify(controller.snapshot())).not.toContain('secret')
+    const count = f.calls.length
+    for (const endpoint of [
+      'https://evil.test/billing/plans',
+      '/billing/../auth/logout',
+      '/billing/plans?x=1',
+      '/admin',
+      '//billing/plans',
+    ])
+      await expect(request(endpoint)).rejects.toThrow()
+    expect(f.calls).toHaveLength(count)
+    await controller.execute('managed-logout', {})
+    await expect(request('/billing')).rejects.toThrow()
+  })
   it('默认保持本机模式，不恢复远程会话；仅为数字回环地址放行 HTTP', async () => {
     expect(defaultModelSource.mode).toBe('local')
     for (const apiOrigin of [

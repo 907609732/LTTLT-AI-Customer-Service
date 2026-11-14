@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
+import { validateManagedServiceRequest } from './managed-service-request'
 import {
   defaultModelSource,
   emptyManagedSession,
@@ -16,6 +17,10 @@ interface SafeStorage {
   decryptString(value: Buffer): string
 }
 export interface ManagedSession {
+  serviceRequest?(
+    endpoint: string,
+    options: { method: string; body?: unknown; signal?: AbortSignal },
+  ): Promise<unknown>
   init(): Promise<unknown>
   snapshot(): unknown
   beginLogin(): Promise<unknown>
@@ -164,12 +169,16 @@ export function createManagedController(options: {
     restartRequired: requiresRestart(),
     session: { ...state, message: identityError || state.message },
   })
-  function ready() {
+  function requireAccount() {
     if (closed) throw new Error('托管连接已关闭')
     if (requiresRestart()) throw new Error('模型来源或账号已更改，请重启软件后使用 AI')
     if (identityError) throw new Error(identityError)
     if (state.status !== 'signed_in' || !state.account || workspaceUser !== state.account.userId)
       throw new options.factory.ManagedSessionError('session_expired')
+  }
+  function ready() {
+    requireAccount()
+    if (!state.account) throw new options.factory.ManagedSessionError('session_expired')
     if (state.account.trial.expiresAt <= Date.now() / 1000)
       throw new options.factory.ManagedSessionError('trial_expired')
     if (state.account.trial.remaining < 1)
@@ -244,6 +253,22 @@ export function createManagedController(options: {
     },
     capabilities() {
       return state.account?.capabilities ?? {}
+    },
+    async serviceRequest(
+      endpoint: string,
+      input: { method?: string; body?: unknown; signal?: AbortSignal } = {},
+    ) {
+      const { signal, ...parameters } = input
+      const request = validateManagedServiceRequest(endpoint, parameters)
+      requireAccount()
+      if (!session.serviceRequest) throw new Error('当前托管会话不支持团队或计费业务，请更新客户端')
+      const result = await session.serviceRequest(request.endpoint, {
+        method: request.method,
+        body: request.body,
+        signal,
+      })
+      requireAccount()
+      return result
     },
     dispose() {
       closed = true

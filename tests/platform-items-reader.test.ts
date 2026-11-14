@@ -22,6 +22,8 @@ function fixture(url = 'https://mms.pinduoduo.com/aftersales/work_order/list') {
     page: () => page,
     collectionPage: async () => page,
     identityScript,
+    refreshQuery: async () => {},
+    turnPage: async () => {},
   })
   return { read, executeJavaScript, identityScript }
 }

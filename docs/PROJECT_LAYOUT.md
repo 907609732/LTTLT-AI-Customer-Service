@@ -1,11 +1,11 @@
 # 主项目目录与文件边界
 
-唯一主项目根目录为 F:\Setupgod\yunduo-ui。所有相对路径和 npm 命令均从这里计算。未来提交的项目内容从本目录开始，package.json 与 .github 应位于仓库根，不再嵌入旧 React 仓库。目标仓库和交付分支已按用户最新指令确定，见 MAIN_DELIVERY_20261114.md。
+当前实际主项目根目录为 E:\~1awucheng\Plastic SCM\AI电商客服软件\client；此前 F: 路径属于历史交付记录。所有相对路径和 npm 命令均从这里计算。未来提交的项目内容从本目录开始，package.json 与 .github 应位于仓库根，不再嵌入旧 React 仓库。目标仓库和交付分支已按用户最新指令确定，见 MAIN_DELIVERY_20261114.md。
 
 ## 源码与维护文件
 
 ```text
-yunduo-ui/
+client/
 ├─ .github/                 云端工作流与说明
 ├─ src/                     Vue 页面、模块、共享契约、样式
 ├─ public/                  前端静态资源

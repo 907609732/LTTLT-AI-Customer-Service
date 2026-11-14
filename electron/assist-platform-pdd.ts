@@ -4,6 +4,7 @@ export interface PddTicketRow {
   status: string
   orderNo?: string
   deadline?: string
+  amount?: string
 }
 export interface PddTicketDom {
   recognized: boolean
@@ -53,7 +54,7 @@ export function readPddTicketDom(): PddTicketDom {
   if (total > 0 && !elements.length) return failed('工单列表尚未加载完成')
   if (total === 0 && elements.length) return failed('工单总数与记录矛盾')
   const rows: PddTicketRow[] = []
-  for (const [rowIndex, element] of elements.slice(0, 20).entries()) {
+  for (const [rowIndex, element] of elements.slice(0, 50).entries()) {
     const cells = Array.from(element.querySelectorAll('[class*="listItem_itemCell__"]'))
     const status = element.querySelector('[class*="tableItemStatus_statusText__"]')
     const button = element.querySelector('[class*="listTable_operateBtn__"]')
@@ -88,11 +89,11 @@ export function readPddTicketDom(): PddTicketDom {
   }
 }
 
-/** 只观察“查询”触发的同源请求是否成功结束；不读取响应体、请求头或私有接口路径。 */
-export async function refreshPddTicketQuery(
+/** 仅点击已核对的查询/待商家处理入口；请求完成由主进程观察，不改写平台网络函数。 */
+export function clickPddQuery(
   kind: 'ticket' | 'aftersale' = 'ticket',
   captcha?: () => boolean,
-): Promise<void> {
+): void {
   if (captcha?.()) throw new Error('platform_verification_required')
   const root = document.querySelector('#pdd-app-skeleton-main-content')
   let query: HTMLElement | undefined = Array.from(root?.querySelectorAll('button') ?? []).find(
@@ -106,143 +107,7 @@ export async function refreshPddTicketQuery(
     if (!filter.className.includes('MmsUiQuickFilter___checked___')) query = filter as HTMLElement
   }
   if (!query || query.hasAttribute('disabled')) throw new Error('平台查询入口尚未就绪')
-  const originalFetch = window.fetch
-  const originalOpen = XMLHttpRequest.prototype.open
-  const originalSend = XMLHttpRequest.prototype.send
-  const restoreResponses: (() => void)[] = []
-  const tracked = new WeakSet<XMLHttpRequest>()
-  let started = 0,
-    pending = 0,
-    failed = false,
-    lastSettled = performance.now()
-  const start = () => {
-    started++
-    pending++
-  }
-  const finish = (ok: boolean) => {
-    pending--
-    failed ||= !ok
-    lastSettled = performance.now()
-  }
-  const sameOrigin = (url: string) => {
-    try {
-      return new URL(url, location.href).origin === location.origin
-    } catch {
-      return false
-    }
-  }
-  window.fetch = async function (...args: Parameters<typeof fetch>) {
-    const input = args[0]
-    const same = sameOrigin(
-      typeof input === 'string' || input instanceof URL ? String(input) : input.url,
-    )
-    if (!same) return Reflect.apply(originalFetch, this, args)
-
-    start()
-    try {
-      const response = await Reflect.apply(originalFetch, this, args)
-      let settled = false
-      const bodyDone = (ok: boolean) => {
-        if (!settled) {
-          settled = true
-
-          finish(ok)
-        }
-      }
-      if (response.body === null) bodyDone(response.ok)
-      else
-        for (const method of ['json', 'text', 'blob', 'arrayBuffer', 'formData'] as const) {
-          const original = response[method]
-          if (typeof original !== 'function') continue
-          const descriptor = Object.getOwnPropertyDescriptor(response, method)
-          const wrapped = (...values: unknown[]) => {
-            try {
-              const result: Promise<unknown> = Reflect.apply(original, response, values)
-              return result.then(
-                (value) => {
-                  bodyDone(response.ok)
-                  return value
-                },
-                (error) => {
-                  bodyDone(false)
-                  throw error
-                },
-              )
-            } catch (error) {
-              bodyDone(false)
-              throw error
-            }
-          }
-          Object.defineProperty(response, method, {
-            configurable: true,
-            writable: true,
-            value: wrapped,
-          })
-          restoreResponses.push(() => {
-            if (descriptor) Object.defineProperty(response, method, descriptor)
-            else Reflect.deleteProperty(response, method)
-          })
-        }
-      return response
-    } catch (error) {
-      finish(false)
-      throw error
-    }
-  }
-  XMLHttpRequest.prototype.open = function (
-    this: XMLHttpRequest,
-    method: string,
-    url: string | URL,
-    async?: boolean,
-    username?: string | null,
-    password?: string | null,
-  ) {
-    if (sameOrigin(String(url))) tracked.add(this)
-    else tracked.delete(this)
-    Reflect.apply(
-      originalOpen,
-      this,
-      async === undefined ? [method, url] : [method, url, async, username, password],
-    )
-  }
-  XMLHttpRequest.prototype.send = function (body) {
-    if (!tracked.has(this)) return Reflect.apply(originalSend, this, [body])
-
-    start()
-    const ended = () => finish(this.status >= 200 && this.status < 300)
-    this.addEventListener('loadend', ended, { once: true })
-    try {
-      Reflect.apply(originalSend, this, [body])
-    } catch (error) {
-      this.removeEventListener('loadend', ended)
-      finish(false)
-      throw error
-    }
-  }
-  try {
-    const deadline = performance.now() + 8000
-    query.click()
-    while (performance.now() < deadline) {
-      if (captcha?.()) throw new Error('platform_verification_required')
-      if (
-        started > 0 &&
-        pending === 0 &&
-        performance.now() - lastSettled >= 200 &&
-        !query.hasAttribute('disabled') &&
-        !root?.querySelector('[aria-busy="true"]')
-      ) {
-        if (failed) throw new Error('工单查询请求失败，保留上次结果')
-        return
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    }
-    throw new Error('尚未确认工单查询完成，保留上次结果')
-  } finally {
-    window.fetch = originalFetch
-    XMLHttpRequest.prototype.open = originalOpen
-    XMLHttpRequest.prototype.send = originalSend
-    for (const restore of restoreResponses) restore()
-  }
+  query.click()
 }
 
 /** 未绘制窗口的hit-test可能返回null；CSS可见且有布局的滑块提示必须阻断采集。 */
@@ -289,7 +154,9 @@ export function pddTicketDetailId(input: string): string | undefined {
   }
 }
 
-export function readPddAfterSaleDom(): PddTicketDom {
+export function readPddAfterSaleDom(
+  expectedFilter: '待商家处理' | '待买家处理' = '待商家处理',
+): PddTicketDom {
   const root = document.querySelector('#pdd-app-skeleton-main-content')
   const failed = (message: string): PddTicketDom => ({
     recognized: false,
@@ -306,34 +173,82 @@ export function readPddAfterSaleDom(): PddTicketDom {
     return failed('售后列表来源尚未识别')
   const text = (element: Element) =>
     ((element as HTMLElement).innerText ?? element.textContent ?? '').trim()
-  const headers = Array.from(
-    root.querySelectorAll('[class*="after-sales-table_header_cell__"]'),
-  ).map(text)
+  const headers = Array.from(root.querySelectorAll('[class*="after-sales-table_header_cell__"]'))
+    .filter(
+      (element) =>
+        text(element) !== '' || !element.querySelector('input[type="checkbox"], [role="checkbox"]'),
+    )
+    .map(text)
   if (headers.join('|') !== '订单信息|金额|发货状态|售后类型|售后状态|售后协商|售后原因|操作')
     return failed('售后表头已改变')
   const selected = Array.from(
     root.querySelectorAll('[class*="MmsUiQuickFilter___checked___"]'),
-  ).some((element) => /^待商家处理\s*\d*$/.test(text(element)))
+  ).some((element) => new RegExp('^' + expectedFilter + '\\s*\\d*$').test(text(element)))
   if (!selected) return failed('售后尚未选择待商家处理，未把其他筛选当作待办')
-  const range =
-    text(root).includes('近3个月') ||
-    Array.from(root.querySelectorAll('input')).some((element) =>
-      ['近3个月', '近3个月内'].includes(element.value),
-    )
+  // The current platform renders the selected preset as calendar dates, not its label.
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth() - 3, 1)
+  start.setDate(
+    Math.min(now.getDate(), new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()),
+  )
+  const date = (value: Date) =>
+    `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+  const expected = `${date(start)} 00:00:00 ~ ${date(now)} 23:59:59`
+  const range = Array.from(root.querySelectorAll('input')).some((element) =>
+    ['近3个月', '近3个月内', expected].includes(element.value),
+  )
   if (!range) return failed('售后申请时间范围尚未核对')
   const count = text(root).match(/共有\s*(\d+)\s*条/)
   if (!count) return failed('售后分页总数尚未识别')
   const total = Number(count[1])
+  const elements = Array.from(root.querySelectorAll('[class*="after-sales-table_order_item__"]'))
+  if (!Number.isSafeInteger(total) || total < elements.length || elements.length > 50)
+    return failed('售后记录数量矛盾')
   const empty = root.querySelector('[class*="after-sales-table_empty_display__"]')
-  if (total === 0 && empty && text(empty) === '暂无售后单')
+  if (total === 0 && elements.length === 0 && empty && text(empty) === '暂无售后单')
     return {
       recognized: true,
       total: 0,
       rows: [],
       complete: true,
-      message: '待商家处理售后（近3个月内）',
+      message: `${expectedFilter}售后（近3个月内）`,
     }
-  return failed('售后非空记录结构尚未完成核对，数量未知')
+  if (total === 0 || elements.length === 0) return failed('售后列表尚未加载完成')
+  const rows: PddTicketRow[] = []
+  for (const [rowIndex, element] of elements.entries()) {
+    const cells = Array.from(element.querySelectorAll('[class*="after-sales-table_item_cell__"]'))
+    if (cells.length !== 8) return failed('售后记录列数已改变')
+    const detail = Array.from(cells[7].querySelectorAll('a')).find(
+      (node) => text(node) === '查看详情',
+    )
+    const orderNo = text(element.querySelector('[class*="table-item-header_sn__"]') ?? cells[0])
+    const status = text(cells[4]).replace(/\s+/g, ' ')
+    if (!detail || !/^[0-9-]{6,100}$/.test(orderNo) || !status)
+      return failed('售后记录或详情入口尚未识别')
+    const refund = element.querySelector('[class*="table-item-amount_refund__"]')
+    const amount = refund
+      ? text(refund)
+          .match(/[￥¥]\s*\d+(?:\.\d{1,2})?/)?.[0]
+          .replace(/\s/g, '')
+      : undefined
+    const expiration = element.querySelector('[class*="table-item-header_expiration__"]')
+    const deadline = expiration ? text(expiration).replace(/\s+/g, ' ').slice(0, 100) : ''
+    rows.push({
+      rowIndex,
+      orderNo,
+      status: status.slice(0, 100),
+      title: `${text(cells[3])} · ${text(cells[6])}`.slice(0, 300),
+      ...(amount ? { amount } : {}),
+      ...(deadline ? { deadline } : {}),
+    })
+  }
+  return {
+    recognized: true,
+    total,
+    rows,
+    complete: total === rows.length,
+    message: `${expectedFilter}售后（近3个月内）`,
+  }
 }
 import { z } from 'zod'
 
@@ -348,9 +263,106 @@ export const pddTicketDomSchema = z.object({
         status: z.string().max(100),
         orderNo: z.string().max(100).optional(),
         deadline: z.string().max(100).optional(),
+        amount: z.string().max(100).optional(),
       }),
     )
-    .max(20),
+    .max(50),
   complete: z.boolean(),
   message: z.string().max(300),
 })
+
+export interface PddPagination {
+  current: number
+  hasNext: boolean
+  hasPrevious: boolean
+}
+/** PGT selectors and disabled/active states were verified on the native six-page work-order list. */
+export function readPddPagination(total: number, rowCount: number): PddPagination | null {
+  const root = document.querySelector('#pdd-app-skeleton-main-content [class*="PGT_outerWrapper_"]')
+  if (!root || !Number.isSafeInteger(total) || total < rowCount || rowCount < 0) return null
+  const summary = root
+    .querySelector('[class*="PGT_totalText_"]')
+    ?.textContent?.match(/共有\s*(\d+)\s*条/)
+  if (!summary || Number(summary[1]) !== total) return null
+  const active = root.querySelectorAll('[class*="PGT_pagerItemActive_"]')
+  const next = root.querySelector('[class*="PGT_next_"]'),
+    prev = root.querySelector('[class*="PGT_prev_"]')
+  if (active.length === 0)
+    return !next && !prev && total === rowCount
+      ? { current: 1, hasNext: false, hasPrevious: false }
+      : null
+  if (active.length !== 1 || !next || !prev) return null
+  const current = Number(active[0].textContent?.trim())
+  if (!Number.isSafeInteger(current) || current < 1 || current > 10000) return null
+  const disabled = (element: Element) =>
+    element.className.includes('PGT_disabled_') ||
+    element.getAttribute('aria-disabled') === 'true' ||
+    element.hasAttribute('disabled')
+  if ((current === 1) !== disabled(prev)) return null
+  return { current, hasNext: !disabled(next), hasPrevious: !disabled(prev) }
+}
+
+export function clickPddPage(
+  direction: 'first' | 'next',
+  expected: number,
+  captcha?: () => boolean,
+): void {
+  if (captcha?.()) throw Error('platform_verification_required')
+  const root = document.querySelector('#pdd-app-skeleton-main-content [class*="PGT_outerWrapper_"]')
+  const active = root?.querySelectorAll('[class*="PGT_pagerItemActive_"]')
+  if (active?.length !== 1 || Number(active[0].textContent?.trim()) !== expected)
+    throw Error('平台页码已改变')
+  const target =
+    direction === 'first'
+      ? Array.from(root?.querySelectorAll('[class*="PGT_pagerItem_"]') ?? []).find(
+          (node) => node.textContent?.trim() === '1',
+        )
+      : root?.querySelector('[class*="PGT_next_"]')
+  if (
+    !target ||
+    target.className.includes('PGT_disabled_') ||
+    target.getAttribute('aria-disabled') === 'true' ||
+    target.hasAttribute('disabled')
+  )
+    throw Error('平台翻页入口不可用')
+  if (direction === 'first' && expected === 1) throw Error('已经位于第一页')
+  ;(target as HTMLElement).click()
+}
+
+export const pddPaginationSchema = z
+  .object({
+    current: z.number().int().min(1).max(10000),
+    hasNext: z.boolean(),
+    hasPrevious: z.boolean(),
+  })
+  .nullable()
+
+/** Native 查看详情 navigation verified as /aftersales-ssr/detail?id=...&orderSn=.... */
+export function pddAfterSaleDetailId(input: string): string | undefined {
+  try {
+    const url = new URL(input)
+    if (
+      url.origin !== 'https://mms.pinduoduo.com' ||
+      url.username ||
+      url.password ||
+      url.hash ||
+      url.pathname !== '/aftersales-ssr/detail'
+    )
+      return undefined
+    if (
+      [...url.searchParams.keys()].some((key) => !['id', 'orderSn'].includes(key)) ||
+      url.searchParams.getAll('id').length !== 1 ||
+      url.searchParams.getAll('orderSn').length !== 1
+    )
+      return undefined
+    const id = url.searchParams.get('id'),
+      order = url.searchParams.get('orderSn')
+    return id && /^[a-zA-Z0-9_-]{1,150}$/.test(id) && order && /^[0-9-]{6,100}$/.test(order)
+      ? id
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+export const pddDetailId = (kind: 'ticket' | 'aftersale', url: string) =>
+  kind === 'ticket' ? pddTicketDetailId(url) : pddAfterSaleDetailId(url)

@@ -1,10 +1,38 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain, shell } from 'electron'
 import { z } from 'zod'
 import { requireAppFrame, type LocalRuntime } from './local-runtime'
 import { isAppWebContents, isTrustedRenderer } from './windows'
+import {
+  managedBusinessRequestSchema,
+  managedCheckoutRequestSchema,
+} from '../src/shared/contracts/managed-business'
 
 /** 平台页面没有本应用 preload，且不在应用窗口集合中，不能访问配置与密钥接口。 */
 export function registerBusinessIpc(runtime: LocalRuntime): () => void {
+  const assertManagedWorkspace = (workspaceId: string) => {
+    const snapshot = runtime.snapshot()
+    if (
+      snapshot.workspaceId !== workspaceId ||
+      snapshot.managed.active.mode !== 'managed' ||
+      snapshot.managed.restartRequired ||
+      snapshot.managed.session.status !== 'signed_in'
+    )
+      throw new Error('托管账号工作区已改变或未登录，请刷新后重试')
+  }
+  ipcMain.handle('managed:business-request', async (event, input: unknown) => {
+    requireAppFrame(event)
+    const { workspaceId, request } = managedBusinessRequestSchema.parse(input)
+    assertManagedWorkspace(workspaceId)
+    const result = await runtime.serviceRequest(request.endpoint, request)
+    assertManagedWorkspace(workspaceId)
+    return result
+  })
+  ipcMain.handle('managed:open-checkout', async (event, input: unknown) => {
+    requireAppFrame(event)
+    const request = managedCheckoutRequestSchema.parse(input)
+    assertManagedWorkspace(request.workspaceId)
+    await shell.openExternal(request.url)
+  })
   ipcMain.handle('business:snapshot', (event) => {
     requireAppFrame(event)
     return runtime.snapshot()
@@ -47,6 +75,8 @@ export function registerBusinessIpc(runtime: LocalRuntime): () => void {
     off()
     for (const name of [
       'business:snapshot',
+      'managed:business-request',
+      'managed:open-checkout',
       'business:execute',
       'business:present-store',
       'sim:status',

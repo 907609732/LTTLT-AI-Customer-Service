@@ -1,6 +1,13 @@
-import type { BrowserWindow } from 'electron'
+import type { BrowserWindow, WebContents } from 'electron'
 import type { PlatformItemKind } from '../src/shared/contracts/platform-items'
 import { randomUUID } from 'node:crypto'
+import { createAssistQueryMonitor } from './assist-platform-query'
+import {
+  clickPddQuery,
+  clickPddPage,
+  pddDetailId,
+  hasVisiblePddCaptcha,
+} from './assist-platform-pdd'
 
 export type AssistPlatform = 'pdd-web' | 'doudian-client'
 const roots: Record<AssistPlatform, string> = {
@@ -46,15 +53,22 @@ export function createAssistPlatformHost(options: {
     string,
     { window: BrowserWindow; platform: AssistPlatform; manual: boolean }
   >()
+  const queries = createAssistQueryMonitor()
   let closed = false
   let parent: BrowserWindow | undefined
   const observations = new Map<
     string,
-    { token: string; resolve(url: string): void; reject(error: Error): void }
+    {
+      token: string
+      kind: PlatformItemKind
+      resolve(url: string): void
+      reject(error: Error): void
+    }
   >()
   function dispose() {
     if (closed) return
     closed = true
+    queries.dispose()
     parent?.removeListener('closed', dispose)
     parent = undefined
     for (const page of pages.values()) if (!page.window.isDestroyed()) page.window.destroy()
@@ -82,11 +96,10 @@ export function createAssistPlatformHost(options: {
           isAllowedAssistUrl(store.platform, url)
         ) {
           const source = new URL(win.webContents.getURL())
-          const destination = new URL(url)
           if (
-            source.pathname === '/aftersales/work_order/list' &&
-            destination.pathname.startsWith('/aftersales/work_order/') &&
-            destination.pathname !== source.pathname
+            source.pathname ===
+              new URL(assistCollectionUrl('pdd-web', observation.kind)!).pathname &&
+            Boolean(pddDetailId(observation.kind, url))
           )
             observation.resolve(url)
           else observation.reject(new Error('工单详情导航尚未识别'))
@@ -103,8 +116,10 @@ export function createAssistPlatformHost(options: {
         // 只在已核对工单列表发起的原生导航中观测详情，不猜详情路由或接收渲染层URL。
         observedDetail =
           from.origin === 'https://mms.pinduoduo.com' &&
-          from.pathname === '/aftersales/work_order/list' &&
-          destination.pathname.startsWith('/aftersales/work_order/')
+          ((from.pathname === '/aftersales/work_order/list' &&
+            Boolean(pddDetailId('ticket', destination.href))) ||
+            (from.pathname === '/aftersales/aftersale_list' &&
+              Boolean(pddDetailId('aftersale', destination.href))))
       }
       if ((verified || observedDetail) && !closed && !win.isDestroyed()) {
         // 已核对的后台导航原本 target=_blank；留在受限后台页，不开放任意弹窗。
@@ -127,6 +142,80 @@ export function createAssistPlatformHost(options: {
     win.once('closed', () => pages.delete(key))
     return page
   }
+  async function observeDetail(
+    storeId: string,
+    kind: PlatformItemKind,
+    rowIndex: number,
+    signal?: AbortSignal,
+    orderNo?: string,
+  ): Promise<string> {
+    signal?.throwIfAborted()
+    const key = `${storeId}:${kind}`
+    const page = get(key)
+    if (
+      !page ||
+      observations.has(key) ||
+      !Number.isSafeInteger(rowIndex) ||
+      rowIndex < 0 ||
+      rowIndex > 49
+    )
+      throw new Error('工单详情观测状态无效')
+    const source = new URL(page.window.webContents.getURL())
+    if (
+      source.origin !== 'https://mms.pinduoduo.com' ||
+      source.pathname !== new URL(assistCollectionUrl('pdd-web', kind)!).pathname
+    )
+      throw new Error('工单列表来源已改变')
+    const token = `lingtu-observe-${randomUUID()}`
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    let abort = () => {}
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        observations.set(key, { token, kind, resolve, reject })
+        abort = () => {
+          if (!page.window.isDestroyed()) page.window.destroy()
+          reject(new Error('工单详情读取已取消'))
+        }
+        signal?.addEventListener('abort', abort, { once: true })
+        timeout = setTimeout(() => {
+          abort()
+          reject(new Error('工单详情读取超时'))
+        }, 2500)
+        void page.window.webContents
+          .executeJavaScript(
+            `(() => {
+            if ((${hasVisiblePddCaptcha.toString()})()) throw Error('platform_verification_required')
+            const rows = document.querySelectorAll(${JSON.stringify(kind === 'ticket' ? '#pdd-app-skeleton-main-content [class*="listItem_workOrderItem__"]' : '#pdd-app-skeleton-main-content [class*="after-sales-table_order_item__"]')})
+            const row = rows[${rowIndex}]
+            const button = ${kind === 'ticket' ? `row?.querySelector('[class*="listTable_operateBtn__"]')` : `Array.from(row?.querySelectorAll('[class*="after-sales-table_item_cell__"]')?.[7]?.querySelectorAll('a') ?? []).find(element=>element.textContent.trim()==='查看详情')`}
+            if (!button || button.textContent.trim() !== ${JSON.stringify(kind === 'ticket' ? '立即处理' : '查看详情')}) throw Error('平台详情入口已改变')
+            if (${JSON.stringify(orderNo ?? '')} && !row.textContent.includes(${JSON.stringify(orderNo ?? '')})) throw Error('平台记录已改变')
+            const original = window.open
+            window.__lingtuDetailObservation = { token: ${JSON.stringify(token)}, original }
+            window.open = (url, _target, features) => original.call(window, url, ${JSON.stringify(token)}, features)
+            button.click()
+          })()`,
+          )
+          .catch((error) =>
+            reject(error instanceof Error ? error : new Error('工单详情入口读取失败')),
+          )
+      })
+    } finally {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', abort)
+      observations.delete(key)
+      if (!page.window.isDestroyed())
+        await page.window.webContents
+          .executeJavaScript(
+            `(() => {
+          const observation = window.__lingtuDetailObservation
+          if (observation?.token === ${JSON.stringify(token)}) { window.open = observation.original; delete window.__lingtuDetailObservation }
+        })()`,
+          )
+          .catch(() => {})
+    }
+  }
+
   return {
     async open(
       store: { id: string; platform: AssistPlatform },
@@ -194,6 +283,79 @@ export function createAssistPlatformHost(options: {
       signal?.throwIfAborted()
       return page.window.webContents
     },
+    async refreshQuery(
+      page: Pick<WebContents, 'getURL' | 'executeJavaScript'>,
+      kind: PlatformItemKind,
+      signal?: AbortSignal,
+    ) {
+      const entry = [...pages.values()].find(
+        (entry) => entry.window.webContents === page && !entry.window.isDestroyed(),
+      )
+      if (!entry || closed || !isAllowedAssistUrl(entry.platform, page.getURL()))
+        throw Error('平台查询页面来源无效')
+      const runQuery = () =>
+        queries.run(
+          entry.window.webContents,
+          async () => {
+            await page.executeJavaScript(
+              `(${clickPddQuery.toString()})(${JSON.stringify(kind)}, ${hasVisiblePddCaptcha.toString()})`,
+            )
+          },
+          async () =>
+            page.executeJavaScript(`(() => {
+          if ((${hasVisiblePddCaptcha.toString()})()) throw Error('platform_verification_required')
+          return !document.querySelector('#pdd-app-skeleton-main-content [aria-busy="true"]')
+        })()`),
+          signal,
+        )
+      await runQuery()
+      if (kind === 'aftersale') {
+        signal?.throwIfAborted()
+        // 平台高级查询会清掉快捷筛选；等本轮请求完成后再选回待商家处理。
+        const selected: unknown = await page.executeJavaScript(`(() => {
+          return Array.from(document.querySelectorAll('#pdd-app-skeleton-main-content [class*="MmsUiQuickFilter___checked___"]'))
+            .some(element => /^待商家处理\\s*\\d*$/.test(element.textContent.trim()))
+        })()`)
+        if (selected !== true) await runQuery()
+      }
+    },
+    async turnPage(
+      page: Pick<WebContents, 'getURL' | 'executeJavaScript'>,
+      kind: PlatformItemKind,
+      direction: 'first' | 'next',
+      expected: number,
+      signal?: AbortSignal,
+    ) {
+      const entry = [...pages.values()].find(
+        (entry) => entry.window.webContents === page && !entry.window.isDestroyed(),
+      )
+      if (
+        !entry ||
+        closed ||
+        !isAllowedAssistUrl(entry.platform, page.getURL()) ||
+        new URL(page.getURL()).pathname !==
+          new URL(assistCollectionUrl(entry.platform, kind)!).pathname
+      )
+        throw Error('平台翻页页面来源无效')
+      if (!Number.isSafeInteger(expected) || expected < 1 || expected > 10000)
+        throw Error('平台页码无效')
+      const target = direction === 'first' ? 1 : expected + 1
+      await queries.run(
+        entry.window.webContents,
+        async () => {
+          await page.executeJavaScript(
+            `(${clickPddPage.toString()})(${JSON.stringify(direction)},${expected},${hasVisiblePddCaptcha.toString()})`,
+          )
+        },
+        async () =>
+          page.executeJavaScript(`(() => {
+          if((${hasVisiblePddCaptcha.toString()})()) throw Error('platform_verification_required')
+          const active=document.querySelector('#pdd-app-skeleton-main-content [class*="PGT_pagerItemActive_"]')
+          return Number(active?.textContent?.trim())===${target} && !document.querySelector('#pdd-app-skeleton-main-content [aria-busy="true"]')
+        })()`),
+        signal,
+      )
+    },
     stopCollecting() {
       for (const [key, page] of pages) {
         if (key.includes(':')) {
@@ -201,75 +363,18 @@ export function createAssistPlatformHost(options: {
         }
       }
     },
-    async observeTicketDetail(
+    observeTicketDetail: (
       storeId: string,
       rowIndex: number,
       signal?: AbortSignal,
-    ): Promise<string> {
-      signal?.throwIfAborted()
-      const key = `${storeId}:ticket`
-      const page = get(key)
-      if (
-        !page ||
-        observations.has(key) ||
-        !Number.isSafeInteger(rowIndex) ||
-        rowIndex < 0 ||
-        rowIndex > 49
-      )
-        throw new Error('工单详情观测状态无效')
-      const source = new URL(page.window.webContents.getURL())
-      if (
-        source.origin !== 'https://mms.pinduoduo.com' ||
-        source.pathname !== '/aftersales/work_order/list'
-      )
-        throw new Error('工单列表来源已改变')
-      const token = `lingtu-observe-${randomUUID()}`
-      let timeout: ReturnType<typeof setTimeout> | undefined
-      let abort = () => {}
-      try {
-        return await new Promise<string>((resolve, reject) => {
-          observations.set(key, { token, resolve, reject })
-          abort = () => {
-            if (!page.window.isDestroyed()) page.window.destroy()
-            reject(new Error('工单详情读取已取消'))
-          }
-          signal?.addEventListener('abort', abort, { once: true })
-          timeout = setTimeout(() => {
-            abort()
-            reject(new Error('工单详情读取超时'))
-          }, 2500)
-          void page.window.webContents
-            .executeJavaScript(
-              `(() => {
-            const rows = document.querySelectorAll('#pdd-app-skeleton-main-content [class*="listItem_workOrderItem__"]')
-            const row = rows[${rowIndex}]
-            const button = row?.querySelector('[class*="listTable_operateBtn__"]')
-            if (!button || button.textContent.trim() !== '立即处理') throw Error('工单详情入口已改变')
-            const original = window.open
-            window.__lingtuDetailObservation = { token: ${JSON.stringify(token)}, original }
-            window.open = (url, _target, features) => original.call(window, url, ${JSON.stringify(token)}, features)
-            button.click()
-          })()`,
-            )
-            .catch((error) =>
-              reject(error instanceof Error ? error : new Error('工单详情入口读取失败')),
-            )
-        })
-      } finally {
-        clearTimeout(timeout)
-        signal?.removeEventListener('abort', abort)
-        observations.delete(key)
-        if (!page.window.isDestroyed())
-          await page.window.webContents
-            .executeJavaScript(
-              `(() => {
-          const observation = window.__lingtuDetailObservation
-          if (observation?.token === ${JSON.stringify(token)}) { window.open = observation.original; delete window.__lingtuDetailObservation }
-        })()`,
-            )
-            .catch(() => {})
-      }
-    },
+      orderNo?: string,
+    ) => observeDetail(storeId, 'ticket', rowIndex, signal, orderNo),
+    observeAfterSaleDetail: (
+      storeId: string,
+      rowIndex: number,
+      signal?: AbortSignal,
+      orderNo?: string,
+    ) => observeDetail(storeId, 'aftersale', rowIndex, signal, orderNo),
     dispose,
   }
 }

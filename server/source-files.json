@@ -266,9 +266,9 @@
     {
       "path": "overlay/lingtuhost/routes.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/routes.go",
-      "sha256": "0be8e181b0df26ded2ce2e2a4ed5e84ebeb226fdf67880652712e29a27405525",
+      "sha256": "715069fabbbfaea9beadb77aaf0e7872c78a171717cca8ecc73ceb47702f4cf1",
       "upstreamSha256": "06864f9097cc5e2c7010927b6f5ba3d3bba95e0099ff771abbaaebc73932d5c4",
-      "localPatch": "Explicit numeric-loopback HTTP support for user-requested local startup; HTTPS remains mandatory for remote origins."
+      "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors."
     },
     {
       "path": "overlay/lingtuhost/vision.go",

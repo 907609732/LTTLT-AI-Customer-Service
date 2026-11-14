@@ -6,8 +6,65 @@ import ShopHomePanel from '../src/modules/shops/components/ShopHomePanel.vue'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 import { emptySnapshot, type BackendResult } from '../src/shared/contracts/backend'
 import { downloadText } from '../src/shared/platform/files'
+import { emptyReportingCounts } from '../src/shared/contracts/reporting'
 
 vi.mock('../src/shared/platform/files', () => ({ downloadText: vi.fn() }))
+
+it('marks observed report scope and keeps buyer details out of the actual export action', async () => {
+  const { wrapper, runtime } = await fixture()
+  const now = Date.now()
+  const report = {
+    start: now - 1,
+    end: now + 1,
+    observedSince: now,
+    persistence: 'ready' as const,
+    truncated: false,
+    source: 'local-observed-events' as const,
+    complete: false as const,
+    real: { ...emptyReportingCounts(), 'ai-sent': 3 },
+    simulated: { ...emptyReportingCounts(), 'ai-sent': 777 },
+  }
+  runtime.snapshot.reporting = {
+    today: report,
+    yesterday: report,
+    week: report,
+    month: report,
+    aftersales: [
+      {
+        storeId: 'a',
+        platform: 'pdd-web',
+        status: 'success',
+        complete: true,
+        total: 2,
+        observed: 2,
+        lastSyncedAt: now,
+        scope: 'current-merchant-pending',
+      },
+    ],
+  }
+  runtime.snapshot.conversations = [
+    {
+      storeId: 'a',
+      uid: 'PRIVATE_UID',
+      name: 'PRIVATE_NAME',
+      status: 'pending',
+      messages: [{ from: 'buyer', content: 'PRIVATE_BODY', ts: now }],
+    },
+  ]
+  await flushPromises()
+  expect(wrapper.get('[data-report-scope]').text()).toContain('不代表平台完整数据')
+  expect(wrapper.get('[data-metric="aftersale"]').text()).toContain('非周期新增')
+  await wrapper.get('[data-action="export"]').trigger('click')
+  const payload = vi.mocked(downloadText).mock.calls.at(-1)?.[1] || ''
+  expect(payload).not.toMatch(/PRIVATE_UID|PRIVATE_NAME|PRIVATE_BODY/)
+  expect(JSON.parse(payload).observedEvents.simulated['ai-sent']).toBe(777)
+  runtime.snapshot.managed.active.mode = 'managed'
+  runtime.snapshot.managed.restartRequired = true
+  await flushPromises()
+  expect(wrapper.text()).not.toContain('777')
+  expect(wrapper.get('[data-action="export"]').attributes('disabled')).toBeDefined()
+  wrapper.unmount()
+})
 afterEach(() => {
   vi.useRealTimers()
   document.body.innerHTML = ''

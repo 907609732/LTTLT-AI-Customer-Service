@@ -218,14 +218,12 @@ describe('平台只读同步', () => {
   })
   it('验证码暂停整店自动采集，只有手动刷新才重新尝试', async () => {
     vi.useFakeTimers()
-    const read = vi
-      .fn()
-      .mockResolvedValue({
-        ...empty(),
-        authenticated: null,
-        recognized: false,
-        blocked: 'verification',
-      })
+    const read = vi.fn().mockResolvedValue({
+      ...empty(),
+      authenticated: null,
+      recognized: false,
+      blocked: 'verification',
+    })
     const collector = createAssistPlatformCollector({
       workspaceId: 'workspace-a',
       stores: () => [store],

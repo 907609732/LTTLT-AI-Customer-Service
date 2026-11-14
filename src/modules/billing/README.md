@@ -6,8 +6,12 @@
 
 界面入口：ShopRechargeView、ShopAccountPanel、OrdersPanel、UsagePanel。
 
-当前业务状态：本机自带 Key 模式已明确展示，不启用托管额度、软件充值、订单或团队服务。模型用量与费用由用户的模型服务商账户管理。
+当前业务状态：本机自带 Key 的费用由模型服务商账户管理。托管模式使用实际账号快照显示累计调用额度；套餐和订单通过公开入口 `billingTransportKey` 注入的受限认证 transport 查询。缺少 transport 或商户配置时明确禁用支付，不展示虚构套餐、收款码或入账成功。
+
+`contracts.ts` 校验服务端套餐/订单/checkout DTO；`services.ts` 定义 BillingTransport 并限制固定端点及 Stripe HTTPS checkout 来源；`use-billing.ts` 处理刷新、幂等checkout及账号切换迟到响应隔离；BillingDashboard 被充值/订单/额度三个页面复用。UI 内不访问网络、Electron 或凭据。服务端实现与准确公共装配要求见 `docs/parallel/billing-handoff.md`。
+
+当前仅实现单次购买调用额度，不是微信/支付宝/对公或自动续订服务；没有按店铺小时消费明细。支付返回不会标记成功，只有服务端签名校验和事务入账才能显示paid。部署、真实商户沙箱及退款/拒付流程仍需独立验收。
 
 接入流程见根目录 docs/LOCAL_INTEGRATION.md。demo 是旧视图数据，不是 API DTO；新增能力在所属模块建立服务与类型，经过本地运行时契约，不直接访问 IPC、网络或文件系统。
 
-修改前阅读根目录 AGENTS.md 和 docs/CONSTRAINTS.md。修改后运行相关类型、构建、单元与桌面检查，并更新 docs/HANDOFF.md。
+修改前阅读根目录 AGENTS.md 和 docs/CONSTRAINTS.md。并行开发的领域结果写入 docs/parallel/billing-handoff.md，公共HANDOFF由统筹更新；仅运行本次修改及直接影响的增量检查。

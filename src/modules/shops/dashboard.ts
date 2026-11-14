@@ -1,4 +1,5 @@
 import type { BackendSnapshot, IntentPack } from '@/shared/contracts/backend'
+import { reportingSnapshotSchema } from '@/shared/contracts/reporting'
 
 export type DashboardPeriod = 'today' | 'yesterday' | 'week' | 'month'
 export const dashboardPeriods: { key: DashboardPeriod; label: string }[] = [
@@ -79,6 +80,23 @@ export function buildDashboard(
       ).length
     : null
   const [start, end] = periodBounds(period, now)
+  const reporting = reportingSnapshotSchema.safeParse(Reflect.get(snapshot, 'reporting'))
+  const report = reporting.success ? reporting.data[period] : null
+  const realStores = stores.filter((store) => store.platform !== 'sim-local')
+  const aftersaleSources = reporting.success
+    ? reporting.data.aftersales.filter((source) =>
+        realStores.some(
+          (store) => store.id === source.storeId && store.platform === source.platform,
+        ),
+      )
+    : []
+  const aftersaleComplete =
+    realStores.length > 0 &&
+    realStores.every((store) =>
+      aftersaleSources.some(
+        (source) => source.storeId === store.id && source.complete && source.total !== null,
+      ),
+    )
   let buyerMessages = 0,
     sellerMessages = 0,
     activeConversations = 0
@@ -138,6 +156,19 @@ export function buildDashboard(
       )?.id,
     },
     products: snapshot.products.total,
+    report,
+    aftersales: {
+      total: aftersaleComplete
+        ? aftersaleSources.reduce((sum, source) => sum + (source.total ?? 0), 0)
+        : null,
+      sources: aftersaleSources,
+      complete: aftersaleComplete,
+      scopeNote:
+        aftersaleSources.length > 0 &&
+        aftersaleSources.every((source) => source.queryWindow === 'last-3-months')
+          ? '近3个月内待商家处理'
+          : '待商家处理（查询时段未提供）',
+    },
     period: { buyerMessages, sellerMessages, activeConversations },
   }
 }
@@ -164,7 +195,16 @@ export function dashboardExport(summary: DashboardSummary, period: DashboardPeri
       welcomeMissing: summary.welcomeMissing,
     },
     periodRecords: summary.period,
+    observedEvents: summary.report,
+    platformBusiness: {
+      orders: { status: 'unavailable', count: null, revenue: null, reason: '未接入平台订单接口' },
+      aftersales: summary.aftersales,
+    },
     quota: summary.quota,
-    unavailable: ['平台售后', '完整周期 AI 回复统计', '平台订单与营收'],
+    unavailable: [
+      ...(summary.aftersales.complete ? [] : ['平台售后']),
+      '完整周期 AI 回复统计',
+      '平台订单与营收',
+    ],
   }
 }

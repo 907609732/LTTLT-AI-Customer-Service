@@ -6,6 +6,7 @@ import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import { downloadText } from '@/shared/platform/files'
 import { intentsSchema, importPreviewSchema, type IntentPack } from '@/shared/contracts/backend'
+import { auditQuestion } from '../learning'
 const runtime = useRuntimeStore(),
   task = useTask()
 type Draft = Omit<IntentPack, 'id' | 'version' | 'source'> &
@@ -53,7 +54,11 @@ async function save() {
           .split(/\r?\n/)
           .map((x) => x.trim())
           .filter(Boolean),
-        entries: draft.entries.map((x) => ({ ...x, keywords: [...x.keywords] })),
+        entries: draft.entries.map((x) => ({
+          ...x,
+          keywords: [...x.keywords],
+          enabled: x.question === auditQuestion ? false : x.enabled,
+        })),
       },
     })
     await load()
@@ -156,31 +161,37 @@ if (runtime.available) void task.run(load)
             :rows="2"
         /></label>
         <div v-for="(entry, index) in draft.entries" :key="index" class="runtime-card">
-          <label
-            >问法 {{ index + 1
-            }}<el-input
-              v-model="entry.question"
-              type="textarea"
-              :rows="2"
-              maxlength="1000" /></label
-          ><label
-            >关键词（每行一个）<el-input
-              :model-value="entry.keywords.join('\n')"
-              type="textarea"
-              :rows="2"
-              @update:model-value="
-                entry.keywords = String($event).split(/\r?\n/).filter(Boolean)
-              " /></label
-          ><label
-            >标准答案<el-input v-model="entry.answer" type="textarea" :rows="3" maxlength="4000"
-          /></label>
-          <div class="runtime-toolbar">
-            <el-switch v-model="entry.enabled" active-text="启用本条" /><el-button
-              :disabled="draft.entries.length <= 1"
-              @click="draft.entries.splice(index, 1)"
-              >移除问答</el-button
-            >
-          </div>
+          <template v-if="entry.question === auditQuestion">
+            <strong>学习来源审计（保持停用，不参与接待检索）</strong>
+            <pre style="white-space: pre-wrap; overflow-wrap: anywhere">{{ entry.answer }}</pre>
+          </template>
+          <template v-else>
+            <label
+              >问法 {{ index + 1
+              }}<el-input
+                v-model="entry.question"
+                type="textarea"
+                :rows="2"
+                maxlength="1000" /></label
+            ><label
+              >关键词（每行一个）<el-input
+                :model-value="entry.keywords.join('\n')"
+                type="textarea"
+                :rows="2"
+                @update:model-value="
+                  entry.keywords = String($event).split(/\r?\n/).filter(Boolean)
+                " /></label
+            ><label
+              >标准答案<el-input v-model="entry.answer" type="textarea" :rows="3" maxlength="4000"
+            /></label>
+            <div class="runtime-toolbar">
+              <el-switch v-model="entry.enabled" active-text="启用本条" /><el-button
+                :disabled="draft.entries.length <= 1"
+                @click="draft.entries.splice(index, 1)"
+                >移除问答</el-button
+              >
+            </div>
+          </template>
         </div>
         <el-button
           @click="draft.entries.push({ question: '', keywords: [], answer: '', enabled: true })"

@@ -1,9 +1,12 @@
-import { app, BrowserWindow, dialog, screen } from 'electron'
+import { app, BrowserWindow, dialog, screen, ipcMain } from 'electron'
 import { registerDesktopIpc } from './ipc'
 import { createWindow, loadRenderer } from './windows'
 import path from 'node:path'
 import fs from 'node:fs'
-import { createLocalRuntime, type LocalRuntime } from './local-runtime'
+import { createLocalRuntime, requireAppFrame, type LocalRuntime } from './local-runtime'
+import { registerCustomPhrasesIpc } from './custom-phrases-ipc'
+import { registerStoreSyncIpc } from './store-sync-ipc'
+import { registerSchedulerIpc } from './scheduler-ipc'
 import { createWorkspaceRuntime } from './workspace-runtime'
 import { registerBusinessIpc } from './business-ipc'
 import { PRODUCT_NAME } from '../src/shared/brand'
@@ -63,6 +66,27 @@ app
         }),
     })
     const disposeBusiness = registerBusinessIpc(runtime)
+    const activeRuntime = runtime
+    const disposePhrases = registerCustomPhrasesIpc(activeRuntime, () =>
+      path.join(activeRuntime.dataDirectory(), 'custom-phrases'),
+    )
+    const disposeSync = registerStoreSyncIpc({
+      ipcMain,
+      authorize: requireAppFrame,
+      resolveCurrent: () => ({
+        workspaceId: activeRuntime.snapshot().workspaceId,
+        service: activeRuntime.storeSync(),
+      }),
+    })
+    const disposeScheduler = registerSchedulerIpc({
+      requireAppFrame,
+      resolveCurrent: () => activeRuntime.scheduler(),
+    })
+    app.once('will-quit', () => {
+      disposePhrases()
+      disposeSync()
+      disposeScheduler()
+    })
     app.once('will-quit', disposeBusiness)
     await runtime.start()
     assist = createAssistWindowManager({

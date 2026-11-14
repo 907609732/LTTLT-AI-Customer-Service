@@ -90,8 +90,15 @@ const metrics = computed(() => [
     key: 'aftersale',
     label: '待处理售后',
     icon: '售',
-    value: '—',
-    note: '未接入平台售后数据',
+    value:
+      ready.value && summary.value.aftersales.total !== null
+        ? String(summary.value.aftersales.total)
+        : '—',
+    note: summary.value.aftersales.complete
+      ? `${summary.value.aftersales.scopeNote} · 非周期新增`
+      : summary.value.aftersales.sources.length
+        ? '部分店铺采集不完整 · 请查看辅助中心'
+        : '未接入平台售后数据',
     tone: 'cyan',
     panel: '',
   },
@@ -330,13 +337,30 @@ function navigateMetric(key: string, panel: string) {
           <strong>{{ display(summary.period.activeConversations) }}</strong>
         </article>
         <article>
-          <h3>完整 AI 回复统计</h3>
-          <strong class="is-unknown">—</strong><small>未接入</small>
+          <h3>已观测 AI 确认发送</h3>
+          <strong :class="{ 'is-unknown': !ready || !summary.report }">{{
+            ready && summary.report ? summary.report.real['ai-sent'] : '—'
+          }}</strong>
+          <small v-if="!ready">当前工作区不可用</small>
+          <small v-else-if="!summary.report">持久化统计未接入</small>
+          <small v-else-if="summary.report.persistence === 'error'"
+            >统计保存失败 · 历史可能不完整</small
+          >
+          <small v-else>真实平台 · 模拟 {{ summary.report.simulated['ai-sent'] }} 条另计</small>
         </article>
       </div>
       <p class="shop-dashboard__scope">
         {{ dashboardScope }} 日期仅影响本区，实时值守不受影响。客服消息包含人工回复，不能视为 AI
         回复。
+      </p>
+      <p v-if="ready && summary.report" class="shop-dashboard__scope" data-report-scope>
+        事件统计自
+        {{ new Date(summary.report.observedSince).toLocaleString('zh-CN') }}
+        启用，保留近30个本地日； 不补采离线历史，不代表平台完整数据。 已观测 AI 生成
+        {{ summary.report.real['ai-generated'] }} 次、生成失败
+        {{ summary.report.real['ai-failed'] }} 次， 新建本机工单
+        {{ summary.report.real['work-order-created'] }} 件（非平台订单或售后）。
+        {{ summary.report.truncated ? '已触及20万条保留上限，统计存在缺口。' : '' }}
       </p>
     </section>
   </section>

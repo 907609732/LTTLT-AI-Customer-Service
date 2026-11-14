@@ -1,15 +1,17 @@
 # 灵兔 AI · 主项目
 
+2026-11-14 并行整合：自定义快捷话术、跨店同步、知识候选/尺码审核、持久化事件报表、定时任务、托管团队和调用次数计费已完成公共接线。实际范围、验证证据与仍缺少的平台/商户能力见 [统一整合交付](docs/parallel/INTEGRATION.md)。历史段落中的“未接入”以该记录为当前状态；不能据此视为全部实店功能已验收。
+
 产品名称统一为“灵兔 AI”；窗口、网页、后台、安装包与云端产物的命名及原数据兼容规则见 [品牌与兼容说明](docs/BRANDING.md)。主项目物理目录保留原路径，不影响现有配置。
 
 Vue 3 + TypeScript + Electron 客服工程，默认使用自己的模型 API Key，也可显式选择托管服务账号。桌面可保存店铺、商品知识、意图、规则、接待配置和本机工单，并接通训练、会话与回复服务；浏览器保持业务预览。
 
-主目录：`F:\Setupgod\yunduo-ui`。客户端、独立服务端、固定运行时、云端构建和维护文档均以本目录为根。目录职责及源码/生成文件/私有数据边界见 [目录说明](docs/PROJECT_LAYOUT.md)。本轮已获授权将本目录作为仓库根交付至 main，具体范围见 docs/MAIN_DELIVERY_20261114.md；其他 F:\Setupgod 下的目录保持原样。
+当前主目录：`E:\~1awucheng\Plastic SCM\AI电商客服软件\client`。客户端、独立服务端、固定运行时、云端构建和维护文档均以本目录为根。目录职责及源码/生成文件/私有数据边界见 [目录说明](docs/PROJECT_LAYOUT.md)。本轮已获授权将本目录作为仓库根交付至 main，具体范围见 docs/MAIN_DELIVERY_20261114.md；其他 F:\Setupgod 下的目录保持原样。
 
 ## 启动
 
 ```powershell
-cd F:\Setupgod\yunduo-ui
+cd "E:\~1awucheng\Plastic SCM\AI电商客服软件\client"
 npm ci
 npm run electron:dev
 ```

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { emptySnapshot, type IntentPack, type LocalStore } from '../src/shared/contracts/backend'
 import { buildDashboard, dashboardExport, periodBounds } from '../src/modules/shops/dashboard'
+import { emptyReportingCounts } from '../src/shared/contracts/reporting'
 
 const now = new Date(2026, 10, 14, 12).getTime()
 const store = (id: string, online = false, platform = 'pdd-web'): LocalStore => ({
@@ -28,6 +29,48 @@ function fixture() {
   return snapshot
 }
 describe('dashboard real aggregates', () => {
+  it('exports durable event scope and only totals complete current aftersale sources', () => {
+    const snapshot = fixture()
+    const report = {
+      start: now - 1,
+      end: now + 1,
+      observedSince: now,
+      persistence: 'ready',
+      truncated: false,
+      source: 'local-observed-events',
+      complete: false,
+      real: { ...emptyReportingCounts(), 'ai-sent': 3 },
+      simulated: { ...emptyReportingCounts(), 'ai-sent': 2 },
+    }
+    const sources = snapshot.stores.map((s) => ({
+      storeId: s.id,
+      platform: s.platform,
+      status: 'success',
+      complete: true,
+      total: 1,
+      observed: 1,
+      lastSyncedAt: now,
+      scope: 'current-merchant-pending',
+    }))
+    Object.assign(snapshot, {
+      reporting: {
+        today: report,
+        yesterday: report,
+        week: report,
+        month: report,
+        aftersales: sources,
+      },
+    })
+    const summary = buildDashboard(snapshot, [], 'today', now)
+    expect(summary.report?.real['ai-sent']).toBe(3)
+    expect(summary.report?.simulated['ai-sent']).toBe(2)
+    expect(summary.aftersales.total).toBe(2)
+    const exported = dashboardExport(summary, 'today', now)
+    expect(exported.platformBusiness.orders.count).toBeNull()
+    expect(exported.observedEvents?.complete).toBe(false)
+    sources[0]!.complete = false
+    expect(buildDashboard(snapshot, [], 'today', now).aftersales.total).toBeNull()
+  })
   it('counts current stores and pending/handoff without treating unknown or future times as overdue', () => {
     const snapshot = fixture()
     snapshot.conversations = [

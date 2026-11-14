@@ -1,6 +1,9 @@
 /** 渲染层仅持有此能力接口，不接触 Electron 对象和任意 IPC 通道。 */
 import type { BackendCommand, BackendEvent, BackendResult, BackendSnapshot } from './backend'
 import type { SimulatorActionResult, SimulatorStatus } from './simulation'
+import type { CustomPhrasesBridge } from '../customer-service/custom-phrases'
+import type { SchedulerCommand, SchedulerSnapshot } from './scheduler'
+import type { ManagedBusinessRequest } from './managed-business'
 import type {
   AssistMainSection,
   AssistPreferencesPatch,
@@ -19,6 +22,15 @@ export interface ScreenPoint {
 }
 
 export interface DesktopApi {
+  managedBusinessRequest?(input: ManagedBusinessRequest): Promise<unknown>
+  openManagedCheckout?(input: { workspaceId: string; url: string }): Promise<void>
+  customPhrases?: CustomPhrasesBridge
+  storeSyncPreview?(envelope: unknown): Promise<unknown>
+  storeSyncApply?(envelope: unknown): Promise<unknown>
+  storeSyncRollback?(envelope: unknown): Promise<unknown>
+  storeSyncBackups?(envelope: unknown): Promise<unknown>
+  schedulerSnapshot?(workspaceId?: string): Promise<SchedulerSnapshot>
+  schedulerExecute?(command: SchedulerCommand): Promise<SchedulerSnapshot>
   readonly isElectron: boolean
   minimize(): Promise<void>
   toggleMaximize(): Promise<boolean>

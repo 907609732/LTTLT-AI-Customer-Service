@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { BrowserWindow } from 'electron'
+import { readPddAfterSaleDom } from '../electron/assist-platform-pdd'
 import { EventEmitter } from 'node:events'
 import {
   assistPartition,
@@ -7,6 +8,85 @@ import {
   createAssistPlatformHost,
   isAllowedAssistUrl,
 } from '../electron/assist-platform-host'
+
+it('售后已选快捷筛选刷新后恢复待商家处理，不采用查询清掉筛选后的全部结果', async () => {
+  vi.useFakeTimers()
+  const events = new Map<string, (details: object) => void>()
+  const checked = 'MmsUiQuickFilter___checked___fixture'
+  document.body.innerHTML = `<main id="pdd-app-skeleton-main-content"><button>查询</button><div class="MmsUiQuickFilter___content___fixture ${checked}">待商家处理0</div><input value="近3个月内">${['订单信息', '金额', '发货状态', '售后类型', '售后状态', '售后协商', '售后原因', '操作'].map((label) => `<div class="after-sales-table_header_cell__fixture">${label}</div>`).join('')}<div class="after-sales-table_empty_display__fixture">暂无售后单</div><p>共有0条</p></main>`
+  const filter = document.querySelector('main > div')!
+  const query = document.querySelector('button')!
+  vi.spyOn(query, 'getClientRects').mockReturnValue([
+    new DOMRect(1, 1, 30, 20),
+  ] as unknown as DOMRectList)
+  let requests = 0
+  const request = () => {
+    const details = {
+      id: ++requests,
+      webContentsId: 77,
+      resourceType: 'xhr',
+      url: 'https://mms.pinduoduo.com/query',
+      statusCode: 200,
+    }
+    events.get('onSendHeaders')?.(details)
+    events.get('onCompleted')?.(details)
+  }
+  query.onclick = () => {
+    filter.classList.remove(checked)
+    request()
+  }
+  filter.addEventListener('click', () => {
+    filter.classList.add(checked)
+    request()
+  })
+  const webRequest = Object.fromEntries(
+    ['onSendHeaders', 'onCompleted', 'onErrorOccurred'].map((name) => [
+      name,
+      (_filter: unknown, cb: (details: object) => void) => events.set(name, cb),
+    ]),
+  )
+  const url = 'https://mms.pinduoduo.com/aftersales/aftersale_list'
+  vi.stubGlobal('location', {
+    origin: 'https://mms.pinduoduo.com',
+    pathname: '/aftersales/aftersale_list',
+  })
+  const page = {
+    id: 77,
+    session: { webRequest },
+    isDestroyed: () => false,
+    getURL: () => url,
+    setWindowOpenHandler() {},
+    on() {},
+    executeJavaScript: async (script: string): Promise<unknown> =>
+      new Function(`return ${script}`)(),
+  }
+  const window = {
+    webContents: page,
+    isDestroyed: () => false,
+    setTitle() {},
+    once() {},
+    on() {},
+    destroy() {},
+  } as unknown as BrowserWindow
+  const host = createAssistPlatformHost({ namespace: 'yunduo-local', createWindow: () => window })
+  try {
+    const collection = await host.collectionPage(
+      { id: 'store-a', platform: 'pdd-web' },
+      'aftersale',
+    )
+    const pending = host.refreshQuery(collection, 'aftersale')
+    await vi.advanceTimersByTimeAsync(1000)
+    await pending
+    expect(readPddAfterSaleDom()).toMatchObject({ recognized: true, total: 0 })
+    expect(requests).toBe(2)
+  } finally {
+    host.dispose()
+    document.body.innerHTML = ''
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  }
+})
 
 describe('平台后台来源与店铺隔离', () => {
   it('拼多多复用本项目当前店铺分区，抖店使用独立后台分区', () => {
@@ -228,4 +308,46 @@ describe('平台后台来源与店铺隔离', () => {
     expect(executeJavaScript).toHaveBeenCalledTimes(2)
     host.dispose()
   })
+})
+
+it('售后仅观察本行查看详情，捕获售后ID和订单关联后不实际跳页', async () => {
+  let onOpen: (details: { url: string; frameName?: string }) => { action: string } = () => ({
+    action: 'deny',
+  })
+  const target =
+    'https://mms.pinduoduo.com/aftersales-ssr/detail?id=sale-fixture-a&orderSn=261100-1234567890123'
+  const loadURL = vi.fn().mockResolvedValue(undefined)
+  const executeJavaScript = vi.fn(async (script: string) => {
+    if (script.includes('button.click()')) {
+      expect(script).toContain('查看详情')
+      expect(script).not.toContain('同意退款')
+      const token = script.match(/lingtu-observe-[a-f0-9-]+/)?.[0]
+      expect(onOpen({ url: target, frameName: 'old-token' })).toEqual({ action: 'deny' })
+      expect(onOpen({ url: target, frameName: token })).toEqual({ action: 'deny' })
+    }
+  })
+  const window = {
+    isDestroyed: () => false,
+    setTitle() {},
+    once() {},
+    on() {},
+    destroy() {},
+    loadURL,
+    webContents: {
+      getURL: () => 'https://mms.pinduoduo.com/aftersales/aftersale_list',
+      executeJavaScript,
+      setWindowOpenHandler(handler: typeof onOpen) {
+        onOpen = handler
+      },
+      on() {},
+    },
+  } as unknown as BrowserWindow
+  const host = createAssistPlatformHost({ namespace: 'yunduo-local', createWindow: () => window })
+  await host.collectionPage({ id: 'store-a', platform: 'pdd-web' }, 'aftersale')
+  expect(await host.observeAfterSaleDetail('store-a', 0, undefined, '261100-1234567890123')).toBe(
+    target,
+  )
+  expect(loadURL).not.toHaveBeenCalled()
+  expect(executeJavaScript).toHaveBeenCalledTimes(2)
+  host.dispose()
 })

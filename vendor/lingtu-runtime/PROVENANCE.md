@@ -49,3 +49,7 @@ source-files.json 为此文件同时记录 upstreamGitBlob、upstreamSha256、�
 此注入只放开“平台 id 白名单”，不给模拟店铺任何真实登录、真实买家或平台发送能力；模拟消息仍走上游同一套 ingest → 会话快照 → 回复引擎 → 逐条确认门 → send-reply 链路。source-files.json 中该文件的 localPatch 说明与实际 sha256 已随补丁更新（当前 fb2ffd7d531500a2579961ec282015b0ccd0657cf47c9325f68a18e180c158c6）。升级上游时必须重新审查该注入点，不能只更新哈希。
 
 2026-11-14 用户要求本机 HTTP 预览：managed-session.cjs 的来源校验仅额外允许显式、带端口的 http://127.0.0.1。远程 HTTP、localhost 名称、伪装域名、路径及凭据仍拒绝；主进程同步校验。source-files.json 保留原始 upstreamSha256 和实际 sha256。没有关闭 TLS 校验或创建证书。
+
+## 受限团队与计费会话适配（2026-11-14）
+
+managed-session.cjs 新增主进程专用 serviceRequest，仅允许 /billing、/team、/teams 的受限路径和 GET/POST/PATCH/DELETE；拒绝路径跳转、查询串和过大正文。复用原 refresh、请求超时、epoch/退出校验，令牌不出主进程。TypeScript 策略和业务参数校验由 electron/managed-service-request.ts、managed-controller.ts 及领域服务承担。原始 upstreamSha256 保留，实际哈希已更新。新增 managed-controller 回归先失败后通过，后续须执行 vendor 完整性与上游验证。

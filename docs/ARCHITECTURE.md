@@ -1,8 +1,10 @@
 # 架构导航
 
-F:\Setupgod\yunduo-ui 是独立项目根，完整目录与文件边界见 PROJECT_LAYOUT.md。所有工具从此根执行；.github/workflows/lingtu-ai-desktop.yml 也从仓库根运行 npm，不再设置外层 yunduo-ui 工作目录。客户端实际运行依赖本工程 vendor，独立服务端保存在本工程 server，不引用兄弟工作区。
+E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独立项目根，完整目录与文件边界见 PROJECT_LAYOUT.md。所有工具从此根执行；.github/workflows/lingtu-ai-desktop.yml 也从仓库根运行 npm，不再设置外层 yunduo-ui 工作目录。客户端实际运行依赖本工程 vendor，独立服务端保存在本工程 server，不引用兄弟工作区。
 
 ## 启动链路
+
+并行整合新增的持久化、桥接和生命周期：local-runtime 在当前 managed.dataDir 下持有 ReportingPipeline、StoreSync 和 ReceptionScheduler；随机 workspaceId 只作为请求租约，不作为持久文件定位。工作区包装器逐次解析当前实例并丢弃切换后的晚到结果。main 统一注册 custom-phrases、store-sync、scheduler IPC；preload 仅暴露固定窄方法。报表跟随已采集事件及审批状态观察；调度在认证变化时启停，未验证平台能力保持 blocked，不具备绕过批准的发送方法。托管团队/计费通过 managed-business 严格路径和方法白名单复用设备会话，令牌不进入渲染层；Go 两领域注册到同一 clientAuth 后。详见 docs/parallel/INTEGRATION.md。
 
 浏览器：`index.html → src/app/main.ts → App.vue → router.ts`。
 桌面：`electron/main.ts → windows.ts → dist/index.html`；`ipc.ts` 注册能力，`preload.ts` 只暴露 `DesktopApi`。构建后的桌面文件位于 `dist-electron`。

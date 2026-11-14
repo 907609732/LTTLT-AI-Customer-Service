@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { reviewSnapshotSchema, emptyReview } from './review'
 import { managedStateSchema, emptyManagedState } from './managed'
+import { reportingSnapshotSchema } from './reporting'
 
 export const actions = [
   'save-model-source',
@@ -213,6 +214,7 @@ export const workOrderSchema = z.object({
 })
 export type WorkOrder = z.infer<typeof workOrderSchema>
 export const snapshotSchema = z.object({
+  reporting: reportingSnapshotSchema.nullable().default(null),
   managed: managedStateSchema.default(emptyManagedState),
   modelIssue: z
     .object({
@@ -309,6 +311,7 @@ export interface BackendBridge {
 
 export function emptySnapshot(): BackendSnapshot {
   return {
+    reporting: null,
     managed: emptyManagedState(),
     modelIssue: null,
     review: emptyReview(),

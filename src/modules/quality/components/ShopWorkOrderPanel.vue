@@ -5,6 +5,8 @@ import StoreSelect from '@/shared/ui/StoreSelect.vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import type { WorkOrder } from '@/shared/contracts/backend'
+import TeamWorkOrderPanel from './TeamWorkOrderPanel.vue'
+const scope = ref('local')
 const runtime = useRuntimeStore(),
   task = useTask()
 const creating = ref(false),
@@ -79,9 +81,15 @@ async function addNote() {
 }
 </script>
 <template>
+  <el-radio-group v-model="scope" aria-label="工单数据范围" style="margin: 12px 24px">
+    <el-radio-button value="local">本机工单</el-radio-button>
+    <el-radio-button value="team">团队工单</el-radio-button>
+  </el-radio-group>
+  <TeamWorkOrderPanel v-if="scope === 'team'" />
   <RuntimePanel
+    v-else
     title="工单登记"
-    description="工单保存在本机，可跟进和变更状态；团队分配和平台同步尚未接入。"
+    description="工单保存在本机，可跟进和变更状态；多人分配请切换到团队工单。平台同步尚未接入。"
     :error="task.error.value"
     :message="task.message.value"
   >

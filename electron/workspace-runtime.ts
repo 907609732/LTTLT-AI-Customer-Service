@@ -64,6 +64,25 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
         await current.start()
       }),
     snapshot: () => structuredClone(snapshot()),
+    dataDirectory() {
+      requireAvailable()
+      return current.dataDirectory()
+    },
+    storeSync() {
+      requireAvailable()
+      return current.storeSync()
+    },
+    scheduler() {
+      requireAvailable()
+      return current.scheduler()
+    },
+    async serviceRequest(endpoint, input) {
+      requireAvailable()
+      const id = snapshot().workspaceId
+      const result = await current.serviceRequest(endpoint, input)
+      assertWorkspace(id)
+      return result
+    },
     execute(input) {
       // Validate before queueing and again when running: earlier queued activation may replace us.
       let command: ReturnType<typeof commandSchema.parse>

@@ -10,10 +10,12 @@ import {
   type GenericPhrase,
 } from '@/shared/customer-service/library'
 import { copyGenericPhrase } from '../services/generic-phrases'
+import QuickReplyCustomLibrary from './QuickReplyCustomLibrary.vue'
 
 const props = withDefaults(defineProps<{ modelValue?: boolean }>(), { modelValue: false })
 const emit = defineEmits<{ 'update:modelValue': [visible: boolean] }>()
 const query = ref('')
+const tab = ref('builtin')
 const scene = ref('')
 const copying = ref('')
 const rows = computed(() => browseGenericPhrases(query.value, scene.value))
@@ -44,7 +46,7 @@ async function copy(row: GenericPhrase) {
 <template>
   <el-dialog
     :model-value="props.modelValue"
-    title="快捷回复 · 通用话术"
+    title="快捷回复"
     width="min(860px, calc(100vw - 40px))"
     append-to-body
     align-center
@@ -53,7 +55,21 @@ async function copy(row: GenericPhrase) {
     data-v-7dfc4df5=""
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <div class="qr-body" data-v-7dfc4df5="" data-testid="generic-phrases">
+    <div class="phrase-tabs">
+      <el-button :type="tab === 'builtin' ? 'primary' : 'default'" @click="tab = 'builtin'"
+        >内置通用话术（80）</el-button
+      >
+      <el-button :type="tab === 'custom' ? 'primary' : 'default'" @click="tab = 'custom'"
+        >我的店铺话术</el-button
+      >
+    </div>
+    <QuickReplyCustomLibrary v-if="tab === 'custom' && props.modelValue" />
+    <div
+      v-show="tab === 'builtin'"
+      class="qr-body"
+      data-v-7dfc4df5=""
+      data-testid="generic-phrases"
+    >
       <div class="qr-hint" data-v-7dfc4df5="">
         <strong data-v-7dfc4df5=""
           >内置 {{ genericPhrases.length }} 条通用话术 · {{ categories.length }} 个场景</strong
@@ -135,6 +151,9 @@ async function copy(row: GenericPhrase) {
 </template>
 
 <style scoped>
+.phrase-tabs {
+  margin-bottom: 14px;
+}
 .phrase-search {
   margin-bottom: 12px;
 }

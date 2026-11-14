@@ -1,8 +1,20 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopApi } from '../src/shared/contracts/desktop'
+import { createCustomPhrasesPreload } from './custom-phrases-preload'
 
 const api: DesktopApi = {
   isElectron: true,
+  managedBusinessRequest: (input) => ipcRenderer.invoke('managed:business-request', input),
+  openManagedCheckout: (input) => ipcRenderer.invoke('managed:open-checkout', input),
+  customPhrases: createCustomPhrasesPreload((channel, ...args) =>
+    ipcRenderer.invoke(channel, ...args),
+  ),
+  storeSyncPreview: (envelope) => ipcRenderer.invoke('store-sync:preview', envelope),
+  storeSyncApply: (envelope) => ipcRenderer.invoke('store-sync:apply', envelope),
+  storeSyncRollback: (envelope) => ipcRenderer.invoke('store-sync:rollback', envelope),
+  storeSyncBackups: (envelope) => ipcRenderer.invoke('store-sync:backups', envelope),
+  schedulerSnapshot: (workspaceId) => ipcRenderer.invoke('scheduler:snapshot', workspaceId),
+  schedulerExecute: (command) => ipcRenderer.invoke('scheduler:execute', command),
   minimize: () => ipcRenderer.invoke('win:minimize'),
   toggleMaximize: () => ipcRenderer.invoke('win:toggle-maximize'),
   close: () => ipcRenderer.invoke('win:close'),

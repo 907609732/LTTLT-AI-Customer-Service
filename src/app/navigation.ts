@@ -12,11 +12,14 @@ import {
 import { QcReplyPanel, ShopWorkOrderPanel, ShopWipPanel } from '@/modules/quality'
 import { ShopAccountPanel } from '@/modules/billing'
 import { SimConsoleView } from '@/modules/simulation'
+import { StoreSyncView } from '@/modules/sync'
+import { TeamPanel } from '@/modules/account'
 
 /** 标题、面板和菜单共用此注册表；不再维护三份相互漂移的映射。 */
 export const panelRegistry = {
   home: { title: '数据看板', component: ShopHomePanel },
   shops: { title: '店铺与商品', component: ShopsListPanel },
+  sync: { title: '跨店同步', component: StoreSyncView },
   sim: { title: '模拟客服台', component: SimConsoleView },
   goods: { title: '店铺商品', component: ShopGoodsPanel },
   desk: { title: '店铺工作台', component: ShopGoodsPanel },
@@ -37,7 +40,7 @@ export const panelRegistry = {
   usage: { title: '算力消耗', component: ShopAccountPanel },
   general: { title: '软件偏好', component: ShopAccountPanel },
   account: { title: '登录账号', component: ShopAccountPanel },
-  team: { title: '团队管理', component: ShopAccountPanel },
+  team: { title: '团队管理', component: TeamPanel },
   learn: { title: '学习任务', component: ShopWipPanel },
   supervise: { title: '接待监督', component: ShopWipPanel },
   drill: { title: '训练演练', component: ShopWipPanel },
@@ -61,7 +64,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   { label: '数据中心', items: [item('home')] },
   {
     label: '开店准备',
-    items: [item('shops', ['transfer', 'welcome', 'auto', 'image']), item('sim')],
+    items: [item('shops', ['transfer', 'welcome', 'auto', 'image']), item('sync'), item('sim')],
   },
   {
     label: '教AI回答',
@@ -75,5 +78,8 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   },
   { label: '客服工单', items: [item('workorder')] },
   { label: '接待质量', items: [item('qc')] },
-  { label: '账户账单', items: [item('orders'), item('usage'), item('general'), item('account')] },
+  {
+    label: '账户账单',
+    items: [item('orders'), item('usage'), item('team'), item('general'), item('account')],
+  },
 ]
