@@ -7,6 +7,8 @@ release
 package-lock.json
 # Preserve the existing repository's legal text verbatim.
 COMMERCIAL_LICENSE.md
+LICENSING.md
+THIRD_PARTY_NOTICES.md
 src/styles/legacy
 vendor/
 server/

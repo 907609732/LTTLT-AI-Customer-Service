@@ -4,6 +4,7 @@ import path from 'node:path'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { createLocalRuntime, type LocalRuntime } from './local-runtime'
+import { createWorkspaceRuntime } from './workspace-runtime'
 import type { CommandInput } from '../src/shared/contracts/backend'
 
 /** Actual Electron runtime + encrypted session + loopback HTTP contract fixture, never production. */
@@ -97,19 +98,22 @@ export async function managedChecks(options: {
   if (!address || typeof address === 'string') throw new Error('Loopback fixture unavailable')
   let runtime: LocalRuntime | undefined
   const make = () =>
-    createLocalRuntime({
-      dataDir: root,
-      getWindow: () => win,
-      managedTransport: {
-        openExternal: async (url) => {
-          browserUrls.push(url)
-        },
-        fetchImpl: (url, init) => {
-          const parsed = new URL(String(url))
-          assert.equal(parsed.origin, api)
-          return fetch(`http://127.0.0.1:${address.port}${parsed.pathname}`, init)
-        },
-      },
+    createWorkspaceRuntime({
+      factory: () =>
+        createLocalRuntime({
+          dataDir: root,
+          getWindow: () => win,
+          managedTransport: {
+            openExternal: async (url) => {
+              browserUrls.push(url)
+            },
+            fetchImpl: (url, init) => {
+              const parsed = new URL(String(url))
+              assert.equal(parsed.origin, api)
+              return fetch(`http://127.0.0.1:${address.port}${parsed.pathname}`, init)
+            },
+          },
+        }),
     })
   const execute = (command: CommandInput) => {
     if (!runtime) throw new Error('Fixture runtime not ready')
@@ -149,9 +153,13 @@ export async function managedChecks(options: {
           execute({ action: 'start-training', values: { question: '物流不动了' } }),
           /重启/,
         )
-        await runtime.dispose()
-        runtime = make()
-        await runtime.start()
+        const oldWorkspace = runtime.snapshot().workspaceId
+        await execute({ action: 'activate-model-source', values: { mode: 'managed' } })
+        assert.notEqual(runtime.snapshot().workspaceId, oldWorkspace)
+        await assert.rejects(
+          runtime.execute({ workspaceId: oldWorkspace, action: 'refresh', values: {} }),
+          /重启/,
+        )
         assert.equal(runtime.snapshot().managed.restartRequired, false)
         assert.equal(runtime.snapshot().capabilities.modelMode, 'managed')
         assert.ok(!JSON.stringify(runtime.snapshot()).includes('fixture-managed-refresh'))
@@ -176,6 +184,7 @@ export async function managedChecks(options: {
       assert.equal(runtime.snapshot().managed.session.account?.trial.remaining, 19)
       options.bind(runtime)
       await load('/settings')
+      await win.webContents.executeJavaScript(`document.querySelector('.login-trigger').click()`)
       for (let attempt = 0; attempt < 50; attempt++) {
         if (
           await win.webContents.executeJavaScript(
@@ -191,7 +200,7 @@ export async function managedChecks(options: {
         ),
       )
       await win.webContents.executeJavaScript(
-        `document.querySelector('.managed-account').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`,
+        `document.querySelector('.service-option').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`,
       )
       const screenshot = await win.webContents.capturePage()
       fs.writeFileSync(

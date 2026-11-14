@@ -4,6 +4,7 @@ import { createWindow, loadRenderer } from './windows'
 import path from 'node:path'
 import fs from 'node:fs'
 import { createLocalRuntime, type LocalRuntime } from './local-runtime'
+import { createWorkspaceRuntime } from './workspace-runtime'
 import { registerBusinessIpc } from './business-ipc'
 import { PRODUCT_NAME } from '../src/shared/brand'
 import { resolveAppUserData } from './app-identity'
@@ -48,9 +49,12 @@ app
     app.once('will-quit', dispose)
     primaryWindow = createWindow()
     // 独立目录，绝不自动迁移或复用其他客服软件的数据和平台登录态。
-    runtime = createLocalRuntime({
-      dataDir: path.join(app.getPath('userData'), 'local-runtime'),
-      getWindow: () => primaryWindow,
+    runtime = createWorkspaceRuntime({
+      factory: () =>
+        createLocalRuntime({
+          dataDir: path.join(app.getPath('userData'), 'local-runtime'),
+          getWindow: () => primaryWindow,
+        }),
     })
     const disposeBusiness = registerBusinessIpc(runtime)
     app.once('will-quit', disposeBusiness)

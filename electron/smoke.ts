@@ -1,3 +1,4 @@
+import { simpleLoginChecks } from './simple-login-checks'
 import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -6,6 +7,7 @@ import os from 'node:os'
 import { createWindow, rendererPath } from './windows'
 import { registerDesktopIpc } from './ipc'
 import { createLocalRuntime } from './local-runtime'
+import { createWorkspaceRuntime } from './workspace-runtime'
 import { registerBusinessIpc } from './business-ipc'
 import { businessChecks } from './business-checks'
 import { domSendChecks } from './dom-send-checks'
@@ -80,7 +82,9 @@ app
     const dispose = registerDesktopIpc(),
       win = createWindow({ smoke: true })
     const dataDir = path.join(isolatedRoot, 'backend')
-    let runtime = createLocalRuntime({ dataDir, getWindow: () => win })
+    let runtime = createWorkspaceRuntime({
+      factory: () => createLocalRuntime({ dataDir, getWindow: () => win }),
+    })
     let disposeBusiness = registerBusinessIpc(runtime)
     let pageSequence = 0
     let consoleErrors: string[] = []
@@ -260,6 +264,7 @@ app
       assert.equal(await win.webContents.executeJavaScript(`typeof window.require`), 'undefined')
     })
     await genericPhraseChecks({ win, load, check })
+    await simpleLoginChecks({ win, load, check })
     await businessChecks({
       win,
       dataDir,
@@ -268,7 +273,9 @@ app
       restart: async () => {
         disposeBusiness()
         await runtime.dispose()
-        runtime = createLocalRuntime({ dataDir, getWindow: () => win })
+        runtime = createWorkspaceRuntime({
+          factory: () => createLocalRuntime({ dataDir, getWindow: () => win }),
+        })
         disposeBusiness = registerBusinessIpc(runtime)
         await load('/settings')
       },

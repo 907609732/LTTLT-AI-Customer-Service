@@ -163,6 +163,9 @@ export async function businessChecks(options: {
     })
     await check('business:model-settings-and-training', '/settings', async () => {
       await load('/settings')
+      await win.webContents.executeJavaScript(
+        `document.querySelector('details.advanced-model summary')?.click()`,
+      )
       await wait(`Boolean(document.querySelector('input[aria-label="模型接口地址"]'))`)
       await setInput('模型接口地址', baseUrl)
       await setInput('模型名称', 'fixture-custom-multimodal')
@@ -222,7 +225,7 @@ export async function businessChecks(options: {
           `document.querySelector('.reply-pacing button[type="submit"]').click()`,
         )
         await wait(
-          `Array.from(document.querySelector('.reply-pacing p')?.textContent||'').filter(char=>char.trim()).join('').includes('当前已保存：${seconds}秒')`,
+          `Array.from(document.querySelector('.reply-pacing p')?.textContent||'').filter(char=>char.trim()).join('').includes('当前：${seconds}秒')`,
         )
       }
       await change(15)

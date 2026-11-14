@@ -4,6 +4,7 @@ import { managedStateSchema, emptyManagedState } from './managed'
 
 export const actions = [
   'save-model-source',
+  'activate-model-source',
   'managed-login',
   'managed-cancel-login',
   'managed-refresh',

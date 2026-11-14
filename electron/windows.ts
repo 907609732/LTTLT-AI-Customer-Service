@@ -1,7 +1,7 @@
 import { BrowserWindow, shell } from 'electron'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { isExternalUrl } from './policy'
+import { isRendererFileUrl } from './renderer-origin'
 import { PRODUCT_NAME } from '../src/shared/brand'
 
 export const rendererPath = path.join(__dirname, '..', 'dist', 'index.html')
@@ -21,9 +21,7 @@ export function isTrustedRenderer(url: string, devUrl = getDevUrl()): boolean {
   try {
     const current = new URL(url)
     if (devUrl) return current.origin === new URL(devUrl).origin
-    current.hash = ''
-    current.search = ''
-    return current.href === pathToFileURL(rendererPath).href
+    return isRendererFileUrl(current.href, rendererPath)
   } catch {
     return false
   }

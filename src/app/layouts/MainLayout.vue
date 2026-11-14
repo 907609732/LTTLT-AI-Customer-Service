@@ -12,6 +12,7 @@ import IconFullScreen from '@/shared/icons/IconFullScreen.vue'
 import IconClose from '@/shared/icons/IconClose.vue'
 import IconSetting from '@/shared/icons/IconSetting.vue'
 import { QuickReplyDialog, ScheduledTasksDialog } from '@/modules/workbench'
+import { LoginDialog } from '@/modules/settings'
 import { AddShopDialog } from '@/modules/shops'
 import { getDesktop } from '@/shared/platform/desktop'
 import { notifyUnavailable } from '@/shared/ui/feedback'
@@ -33,7 +34,8 @@ const sidebarCollapsed = ref(false),
   shopStatus = ref('offline'),
   addShopVisible = ref(false),
   quickReplyVisible = ref(false),
-  scheduleVisible = ref(false)
+  scheduleVisible = ref(false),
+  loginVisible = ref(false)
 const shops = computed(() =>
   runtime.snapshot.stores.filter(
     (shop) =>
@@ -49,6 +51,7 @@ watch(
     addShopVisible,
     quickReplyVisible,
     scheduleVisible,
+    loginVisible,
   ],
   () => {
     const visible =
@@ -57,7 +60,8 @@ watch(
       runtime.snapshot.stores.some((s) => s.id === runtime.platformStoreId) &&
       !addShopVisible.value &&
       !quickReplyVisible.value &&
-      !scheduleVisible.value
+      !scheduleVisible.value &&
+      !loginVisible.value
     void runtime.presentStore(runtime.platformStoreId, visible).catch((error) => {
       task.error.value = error instanceof Error ? error.message : String(error)
     })
@@ -133,16 +137,15 @@ async function openLogs() {
             待确认</span
           >
         </button>
-        <button class="top-pill model-switch-pill" @click="router.push('/settings')">
-          模型 ·
+        <button class="top-pill login-trigger" @click="loginVisible = true">
           {{
-            runtime.snapshot.capabilities.modelMode === 'managed'
-              ? runtime.snapshot.managed.session.status === 'signed_in'
-                ? '托管已登录'
-                : '托管待登录'
-              : runtime.snapshot.capabilities.apiKeyConfigured
-                ? '已配置'
-                : '待配置'
+            runtime.snapshot.managed.active.mode === 'managed' &&
+            runtime.snapshot.managed.session.status === 'signed_in'
+              ? runtime.snapshot.managed.session.account?.displayName || '已登录'
+              : runtime.snapshot.capabilities.modelMode === 'local' &&
+                  runtime.snapshot.capabilities.apiKeyConfigured
+                ? '自己的 Key'
+                : '登录'
           }}</button
         ><button
           class="store-control-trigger"
@@ -155,15 +158,6 @@ async function openLogs() {
         >
           全部关闭 AI
         </button>
-        <div class="plan-recharge">
-          <button class="plan-badge plan-badge-trigger" @click="router.push('/settings')">
-            {{
-              runtime.snapshot.capabilities.modelMode === 'managed'
-                ? '托管服务模式'
-                : '本机密钥模式'
-            }}
-          </button>
-        </div>
         <div class="window-controls" data-no-drag>
           <button aria-label="最小化" title="最小化" @click="windowAction('minimize')">
             <el-icon><IconMinus /></el-icon></button
@@ -284,6 +278,7 @@ async function openLogs() {
       </aside>
       <main class="workbench-main"><router-view /></main>
     </div>
+    <LoginDialog v-model="loginVisible" />
     <AddShopDialog v-model="addShopVisible" /><QuickReplyDialog
       v-model="quickReplyVisible"
     /><ScheduledTasksDialog v-model="scheduleVisible" />
