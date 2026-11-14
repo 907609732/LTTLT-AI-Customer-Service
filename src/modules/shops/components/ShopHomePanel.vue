@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import PlatformOrderPanel from './PlatformOrderPanel.vue'
 import { useRouter } from 'vue-router'
 import { dashboardPeriods, dashboardScope } from '../dashboard'
 import { useDashboard } from '../use-dashboard'
 import '../dashboard.css'
 
 const router = useRouter()
+const showingOrders = ref(false)
 const {
   runtime,
   period,
@@ -142,7 +144,8 @@ function navigateMetric(key: string, panel: string) {
 </script>
 
 <template>
-  <section class="shop-dashboard" aria-label="数据看板">
+  <PlatformOrderPanel v-if="showingOrders" @back="showingOrders = false" />
+  <section v-else class="shop-dashboard" aria-label="数据看板">
     <header class="shop-dashboard__hero">
       <div class="shop-dashboard__heading">
         <div class="shop-dashboard__title">
@@ -156,6 +159,7 @@ function navigateMetric(key: string, panel: string) {
         <p>今日 AI 已回 <span>—</span> <small>完整日统计未接入</small></p>
       </div>
       <div class="shop-dashboard__tools">
+        <button type="button" @click="showingOrders = true">平台订单</button>
         <div class="shop-dashboard__periods" aria-label="统计周期">
           <button
             v-for="option in dashboardPeriods"

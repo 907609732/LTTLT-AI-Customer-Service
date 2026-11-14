@@ -19,11 +19,20 @@ export const billingTransportKey: InjectionKey<BillingTransport> = Symbol('billi
 export function createBillingClient(transport: BillingTransport) {
   return {
     async catalog() {
-      return billingCatalogSchema.parse(await transport.request('GET', '/api/client/billing'))
+      const result = billingCatalogSchema.safeParse(
+        await transport.request('GET', '/api/client/billing'),
+      )
+      if (!result.success)
+        throw Object.assign(new Error('Invalid billing catalog'), { code: 'invalid_response' })
+      return result.data
     },
     async orders() {
-      return billingOrdersSchema.parse(await transport.request('GET', '/api/client/billing/orders'))
-        .orders
+      const result = billingOrdersSchema.safeParse(
+        await transport.request('GET', '/api/client/billing/orders'),
+      )
+      if (!result.success)
+        throw Object.assign(new Error('Invalid billing orders'), { code: 'invalid_response' })
+      return result.data.orders
     },
     async checkout(planId: string, requestId: string) {
       return billingCheckoutSchema.parse(

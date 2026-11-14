@@ -1,49 +1,14 @@
 import { z } from 'zod'
-import { automationActionSchema } from '../src/shared/contracts/scheduler'
+import {
+  receptionEventSchema,
+  receptionRuleSchema,
+  type ReceptionRule,
+} from '../src/shared/contracts/platform-operations'
 import type { ReceptionScheduler } from './scheduler-runtime'
-const id = z.string().trim().min(1).max(100)
-const base = { id, storeId: id, uid: id, observedAt: z.number().int().nonnegative() }
-const eventSchema = z.discriminatedUnion('type', [
-  z
-    .object({ ...base, type: z.literal('visitor'), sessionId: id, messageCount: z.literal(0) })
-    .strict(),
-  z
-    .object({ ...base, type: z.literal('unpaid-order'), orderId: id, status: z.literal('unpaid') })
-    .strict(),
-  z
-    .object({
-      ...base,
-      type: z.literal('transfer-request'),
-      availableAgentIds: z.array(id).max(1000),
-    })
-    .strict(),
-])
-export const receptionRuleSchema = z
-  .object({
-    id,
-    storeId: id,
-    enabled: z.boolean(),
-    trigger: z.enum(['visitor', 'unpaid-order', 'transfer-request']),
-    actions: z.array(automationActionSchema).min(1).max(5),
-  })
-  .strict()
-  .superRefine((rule, context) => {
-    const allowed =
-      rule.trigger === 'visitor'
-        ? ['welcome-text', 'welcome-image', 'welcome-video']
-        : rule.trigger === 'unpaid-order'
-          ? ['payment-reminder']
-          : ['transfer']
-    if (rule.actions.some((a) => !allowed.includes(a.kind)))
-      context.addIssue({ code: 'custom', message: '规则动作与触发来源不匹配' })
-    if (
-      rule.actions.filter((a) => a.kind === 'welcome-text').length > 1 ||
-      rule.actions.filter((a) => a.kind === 'welcome-image' || a.kind === 'welcome-video').length >
-        4
-    )
-      context.addIssue({ code: 'custom', message: '欢迎语最多一条文字、四条媒体，各自逐条确认' })
-  })
-export type ReceptionRule = z.infer<typeof receptionRuleSchema>
+export {
+  receptionRuleSchema,
+  type ReceptionRule,
+} from '../src/shared/contracts/platform-operations'
 const rulesSchema = z.array(receptionRuleSchema).max(100)
 
 /** Accept facts from verified platform collectors, never from renderer-supplied visitor/order claims. */
@@ -68,6 +33,9 @@ export class ReceptionAutomation {
   }
   saveRule(input: unknown) {
     const rule = receptionRuleSchema.parse(input)
+    const old = this.rules.find((r) => r.id === rule.id)
+    if (old && old.revision !== rule.revision) throw new Error('接待规则已更新，请载入最新配置')
+    rule.revision = (old?.revision ?? 0) + 1
     const next = rulesSchema.parse([...this.rules.filter((r) => r.id !== rule.id), rule])
     this.options.scheduler.cancelRule(rule.id)
     this.options.save(next)
@@ -78,22 +46,35 @@ export class ReceptionAutomation {
     if (!row) throw new Error('接待规则不存在')
     this.saveRule({ ...row, enabled })
   }
+  removeRule(id: string, revision: number) {
+    const old = this.rules.find((r) => r.id === id)
+    if (!old || old.revision !== revision) throw new Error('接待规则已更新，请载入最新配置')
+    this.options.scheduler.cancelRule(id)
+    const next = this.rules.filter((r) => r.id !== id)
+    this.options.save(next)
+    this.rules = next
+  }
   observe(input: unknown): number {
-    const event = eventSchema.parse(input)
+    const event = receptionEventSchema.parse(input)
     if (event.observedAt > this.now() + 5000) throw new Error('事件时间晚于当前时间')
     if (this.now() - event.observedAt > 600000) throw new Error('平台事件已过期，请重新只读采集')
     let count = 0
     for (const rule of this.rules) {
       if (!rule.enabled || rule.storeId !== event.storeId || rule.trigger !== event.type) continue
-      const actions = rule.actions.filter((action) => {
-        if (action.kind === 'payment-reminder')
-          return event.type === 'unpaid-order' && action.orderId === event.orderId
-        if (action.kind === 'transfer')
-          return (
-            event.type === 'transfer-request' && event.availableAgentIds.includes(action.agentId)
-          )
-        return true
-      })
+      const actions = rule.actions
+        .filter((action) => {
+          if (action.kind === 'payment-reminder') return event.type === 'unpaid-order'
+          if (action.kind === 'transfer')
+            return (
+              event.type === 'transfer-request' && event.availableAgentIds.includes(action.agentId)
+            )
+          return true
+        })
+        .map((action) =>
+          action.kind === 'payment-reminder' && event.type === 'unpaid-order'
+            ? { ...action, orderId: event.orderId }
+            : action,
+        )
       if (!actions.length) continue
       count += this.options.scheduler.enqueueEvent({
         key: JSON.stringify([
@@ -109,7 +90,7 @@ export class ReceptionAutomation {
         ruleId: rule.id,
         storeId: event.storeId,
         uid: event.uid,
-        actions,
+        actions: actions as import('../src/shared/contracts/scheduler').AutomationAction[],
       })
     }
     return count

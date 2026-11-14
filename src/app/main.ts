@@ -13,6 +13,9 @@ import { createStoreSyncClient } from '@/shared/platform/store-sync'
 import { installStoreSyncClient } from '@/modules/sync'
 import { createTeamService, teamServiceKey } from '@/modules/account'
 import { billingTransportKey } from '@/modules/billing'
+import { platformLearningTransportKey } from '@/modules/knowledge'
+import { platformOrderTransportKey } from '@/modules/shops'
+import { unwrapManagedBusinessResponse } from '@/shared/platform/managed-business'
 import '../styles/index.css'
 
 const disposeDrag = installWindowDrag()
@@ -24,6 +27,10 @@ app.use(router)
 provideServices(app)
 const runtime = useRuntimeStore()
 const desktop = getDesktop()
+if (desktop.isElectron && desktop.platformLearning)
+  app.provide(platformLearningTransportKey, desktop.platformLearning)
+if (desktop.isElectron && desktop.platformOrderRequest)
+  app.provide(platformOrderTransportKey, { request: desktop.platformOrderRequest })
 if (desktop.isElectron && desktop.managedBusinessRequest) {
   const request = desktop.managedBusinessRequest
   app.provide(
@@ -32,7 +39,7 @@ if (desktop.isElectron && desktop.managedBusinessRequest) {
       const workspaceId = runtime.snapshot.workspaceId
       const result = await request({ workspaceId, request: { endpoint: path, method, body } })
       if (workspaceId !== runtime.snapshot.workspaceId) throw new Error('工作区已切换，请刷新')
-      return result
+      return unwrapManagedBusinessResponse(result)
     }),
   )
   app.provide(billingTransportKey, {
@@ -43,7 +50,7 @@ if (desktop.isElectron && desktop.managedBusinessRequest) {
         request: { endpoint: path.replace('/api/client', ''), method, body },
       })
       if (workspaceId !== runtime.snapshot.workspaceId) throw new Error('工作区已切换，请刷新')
-      return result
+      return unwrapManagedBusinessResponse(result)
     },
     async openCheckout(url) {
       if (!desktop.openManagedCheckout) throw new Error('支付页面入口未接入')

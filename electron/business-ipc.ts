@@ -2,6 +2,8 @@ import { BrowserWindow, ipcMain, shell } from 'electron'
 import { z } from 'zod'
 import { requireAppFrame, type LocalRuntime } from './local-runtime'
 import { isAppWebContents, isTrustedRenderer } from './windows'
+import { toManagedServiceFailure } from './managed-service-error'
+import type { ManagedServiceResponse } from '../src/shared/contracts/managed-service-error'
 import {
   managedBusinessRequestSchema,
   managedCheckoutRequestSchema,
@@ -23,8 +25,27 @@ export function registerBusinessIpc(runtime: LocalRuntime): () => void {
     requireAppFrame(event)
     const { workspaceId, request } = managedBusinessRequestSchema.parse(input)
     assertManagedWorkspace(workspaceId)
-    const result = await runtime.serviceRequest(request.endpoint, request)
-    assertManagedWorkspace(workspaceId)
+    const before = runtime.snapshot().managed
+    let result: ManagedServiceResponse
+    try {
+      result = { ok: true, data: await runtime.serviceRequest(request.endpoint, request) }
+    } catch (cause) {
+      result = { ok: false, error: toManagedServiceFailure(cause) }
+    }
+    const after = runtime.snapshot()
+    if (
+      after.workspaceId !== workspaceId ||
+      after.managed.active.mode !== 'managed' ||
+      after.managed.restartRequired ||
+      after.managed.active.apiOrigin !== before.active.apiOrigin ||
+      after.managed.active.portalOrigin !== before.active.portalOrigin ||
+      (after.managed.session.account &&
+        after.managed.session.account.userId !== before.session.account?.userId)
+    )
+      throw new Error('托管账号工作区已改变，请刷新后重试')
+    // A 401/403 terminal transition belongs to this request. Keep its typed failure;
+    // successful business data still requires the original signed-in workspace.
+    if (result.ok) assertManagedWorkspace(workspaceId)
     return result
   })
   ipcMain.handle('managed:open-checkout', async (event, input: unknown) => {

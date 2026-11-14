@@ -1,10 +1,23 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopApi } from '../src/shared/contracts/desktop'
+import type { PlatformLearningTransport } from '../src/shared/contracts/platform-learning'
 import { createCustomPhrasesPreload } from './custom-phrases-preload'
 
 const api: DesktopApi = {
   isElectron: true,
   managedBusinessRequest: (input) => ipcRenderer.invoke('managed:business-request', input),
+  platformLearning: Object.freeze<PlatformLearningTransport>({
+    openSource: (input) => ipcRenderer.invoke('platform-learning:open-source', input),
+    snapshot: (input) => ipcRenderer.invoke('platform-learning:snapshot', input),
+    start: (input) => ipcRenderer.invoke('platform-learning:start', input),
+    pause: (input) => ipcRenderer.invoke('platform-learning:pause', input),
+    resume: (input) => ipcRenderer.invoke('platform-learning:resume', input),
+    cancel: (input) => ipcRenderer.invoke('platform-learning:cancel', input),
+    review: (input) => ipcRenderer.invoke('platform-learning:review', input),
+  }),
+  platformOrderRequest: (input) => ipcRenderer.invoke('platform-orders:request', input),
+  receptionSnapshot: (workspaceId) => ipcRenderer.invoke('reception:snapshot', workspaceId),
+  receptionExecute: (input) => ipcRenderer.invoke('reception:execute', input),
   openManagedCheckout: (input) => ipcRenderer.invoke('managed:open-checkout', input),
   customPhrases: createCustomPhrasesPreload((channel, ...args) =>
     ipcRenderer.invoke(channel, ...args),

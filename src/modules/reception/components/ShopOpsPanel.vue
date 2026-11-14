@@ -5,6 +5,9 @@ import RuntimePanel from '@/shared/ui/RuntimePanel.vue'
 import StoreSelect from '@/shared/ui/StoreSelect.vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
+import { useReceptionOperations } from '../services/operations'
+import OperationApprovalPanel from './OperationApprovalPanel.vue'
+import ReceptionRulesPanel from './ReceptionRulesPanel.vue'
 const props = withDefaults(defineProps<{ viewKey?: string }>(), { viewKey: 'transfer' })
 const runtime = useRuntimeStore(),
   task = useTask(),
@@ -16,6 +19,14 @@ const titles: Record<string, string> = {
   image: '图片识别',
 }
 const title = computed(() => titles[props.viewKey] || '接待配置')
+const operations = useReceptionOperations(() => runtime.snapshot.workspaceId)
+const ruleTrigger = computed(() =>
+  props.viewKey === 'welcome'
+    ? ('visitor' as const)
+    : props.viewKey === 'transfer'
+      ? ('transfer-request' as const)
+      : ('unpaid-order' as const),
+)
 const welcome = ref({ text: '', enabled: false, version: 0 }),
   vision = ref({ enabled: false, version: 0 })
 const inherited = ref(true),
@@ -124,7 +135,7 @@ async function saveGlobal() {
     :error="task.error.value"
     :message="task.message.value"
   >
-    <StoreSelect v-if="viewKey !== 'auto'" :disabled="task.pending.value" />
+    <StoreSelect :disabled="task.pending.value" />
     <p v-if="viewKey !== 'auto' && !runtime.selectedStoreId">请先在店铺与商品中添加店铺。</p>
     <form
       v-if="runtime.selectedStoreId || viewKey === 'auto'"
@@ -133,8 +144,8 @@ async function saveGlobal() {
     >
       <template v-if="viewKey === 'welcome'"
         ><p>
-          仅在新会话首次 AI
-          正文中附加文字欢迎，与正文合并发送。无消息访客进店、图片和视频欢迎尚未接入。
+          此配置在新会话首次 AI
+          正文中附加文字欢迎，与正文合并批准。下方独立规则处理可信无消息访客及图片、视频，各项分别批准。
         </p>
         <el-alert
           v-if="welcomeConflict"
@@ -177,7 +188,9 @@ async function saveGlobal() {
         ></template
       >
       <template v-else-if="viewKey === 'auto'"
-        ><p>当前接入的是全局 AI 回复超时兜底。催付、自动退款等其他平台操作尚未接入。</p>
+        ><p>
+          此处保留全局 AI 回复超时配置；逐条批准模式不自动发送兜底消息。下方可配置本店平台催付规则。
+        </p>
         <el-switch
           v-model="fallbackEnabled"
           active-text="启用回复超时兜底"
@@ -195,7 +208,9 @@ async function saveGlobal() {
             :rows="4" /></label
       ></template>
       <template v-else
-        ><p>关键词命中后标记并暂停本会话 AI，交给人工处理；平台客服之间的自动转接尚未接入。</p>
+        ><p>
+          关键词命中后标记并暂停本会话 AI。下方可选择真实平台目标客服并配置逐项批准的转接规则。
+        </p>
         <el-switch
           v-model="inherited"
           active-text="继承全局关键词"
@@ -236,5 +251,24 @@ async function saveGlobal() {
         >保存全局关键词</el-button
       >
     </form>
+    <ReceptionRulesPanel
+      v-if="viewKey !== 'image' && runtime.selectedStoreId"
+      :workspace-id="runtime.snapshot.workspaceId"
+      :store-id="runtime.selectedStoreId"
+      :trigger="ruleTrigger"
+      :snapshot="operations.snapshot.value"
+      :busy="operations.busy.value"
+      @command="operations.execute"
+      @refresh="operations.execute({ type: 'refresh', workspaceId: runtime.snapshot.workspaceId })"
+    />
+    <p v-if="operations.error.value" role="alert">{{ operations.error.value }}</p>
+    <OperationApprovalPanel
+      v-if="viewKey !== 'image' && operations.snapshot.value"
+      :workspace-id="runtime.snapshot.workspaceId"
+      :store-id="runtime.selectedStoreId"
+      :runs="operations.snapshot.value.runs"
+      :busy="operations.busy.value"
+      @command="operations.execute"
+    />
   </RuntimePanel>
 </template>

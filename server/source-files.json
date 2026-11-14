@@ -31,7 +31,9 @@
     {
       "path": "deploy/lingtu-kefu.nginx.conf",
       "upstreamPath": "managed-server/deploy/lingtu-kefu.nginx.conf",
-      "sha256": "eaf5657e5e5aed067e0331f4ab9932f0ce8f6e736fcaa46a07646d560e1c20f1"
+      "sha256": "133a5e17bd48bbf74513e2f452384bacf03a8c427a97612dfd82592d5722049d",
+      "upstreamSha256": "eaf5657e5e5aed067e0331f4ab9932f0ce8f6e736fcaa46a07646d560e1c20f1",
+      "localPatch": "Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },
     {
       "path": "deploy/lingtu-kefu.service",
@@ -338,12 +340,16 @@
     {
       "path": "overlay/service/lingtu_verification.go",
       "upstreamPath": "managed-server/overlay/service/lingtu_verification.go",
-      "sha256": "3a5c49c03de8e31991f2027013d926e5a3494a09b98fd01cf7eaa6ec307217af"
+      "sha256": "8e6fc851d4701a0f92876ff33d9cd6bd7dee8bb97edd7836ab5fb36e29eb1a60",
+      "upstreamSha256": "3a5c49c03de8e31991f2027013d926e5a3494a09b98fd01cf7eaa6ec307217af",
+      "localPatch": "Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },
     {
       "path": "overlay/service/lingtu_verification_test.go",
       "upstreamPath": "managed-server/overlay/service/lingtu_verification_test.go",
-      "sha256": "5906a2cbe8992ac580172df870112bf35120be8b83f1d5fd4b05b0b98bf4b5db"
+      "sha256": "bc8c26bed21142adfa0025e68243c2a29ef24ed6150f9333186d5447750e81c9",
+      "upstreamSha256": "5906a2cbe8992ac580172df870112bf35120be8b83f1d5fd4b05b0b98bf4b5db",
+      "localPatch": "Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-light.css",
@@ -363,16 +369,16 @@
     {
       "path": "overlay/web/src/features/lingtu/admin-page.test.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.test.tsx",
-      "sha256": "3b1c12af69368dad4b7d2b1deeb2d241745df7c695f37447056a2f5fa4bc2ed6",
+      "sha256": "15894ff25ce03c87637994d6a42067de0a5c0e91b05531630186c351705bc20b",
       "upstreamSha256": "31faaa4b3b87915c7a18bf03df0114717110648dd169606c741b749785c0aabf",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license."
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-page.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.tsx",
-      "sha256": "ed80ce709e52dfd384618eef2aeb8f47cc9e03d68e0b7ef0cac1c0e250d94abe",
+      "sha256": "0ac968b336c304992d065adf2eec660b521b7a951ef9a280a451f01289be791e",
       "upstreamSha256": "47c9d379bc0749edd50d6dd598452074525a69308d3f9702eb65b3d16837111a",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license."
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-usage.tsx",
@@ -451,14 +457,16 @@
     {
       "path": "tests/preparation.test.mjs",
       "upstreamPath": "managed-server/tests/preparation.test.mjs",
-      "sha256": "99e20584cce82b016e17cbcddf886c8cf4c8c6d238d31b71a976a5235f03d598"
+      "sha256": "b0abffab8e379f9bbda2b34e44d07f4216fa9e90f43d48ed124db4f64ce92966",
+      "upstreamSha256": "99e20584cce82b016e17cbcddf886c8cf4c8c6d238d31b71a976a5235f03d598",
+      "localPatch": "Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },
     {
       "path": "translations.json",
       "upstreamPath": "managed-server/translations.json",
-      "sha256": "602564893a9c97fdfcc6da8db749f9db44f53bc8a40c77179d9d7ce1f38c9e5d",
+      "sha256": "47e922bd3b9fe770914e4099befa23ae8228b0caf10e85770ec20e81eceee817",
       "upstreamSha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license."
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },
     {
       "path": "upstream.lock.json",

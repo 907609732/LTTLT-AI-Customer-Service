@@ -28,6 +28,73 @@ function fixture() {
   return { callbacks, request, page, emit }
 }
 describe('平台查询原生请求完成观察', () => {
+  it('原生表单重置可以无请求，但仍等待稳定；正式读取默认必须有查询', async () => {
+    vi.useFakeTimers()
+    const f = fixture(),
+      monitor = createAssistQueryMonitor()
+    const pending = monitor.run(
+      f.page,
+      async () => {},
+      async () => true,
+      undefined,
+      ['/fixture-query'],
+      { requireRequest: false },
+    )
+    await vi.advanceTimersByTimeAsync(250)
+    await expect(pending).resolves.toBeUndefined()
+    monitor.dispose()
+  })
+  it('仅以已观察到的原生列表路径确认，忽略同页广告失败响应', async () => {
+    vi.useFakeTimers()
+    const f = fixture(),
+      monitor = createAssistQueryMonitor()
+    const pending = monitor.run(
+      f.page,
+      async () => {
+        f.emit('onSendHeaders', { id: 2, url: 'https://mms.pinduoduo.com/ads' })
+        f.emit('onCompleted', { id: 2, url: 'https://mms.pinduoduo.com/ads', statusCode: 403 })
+        f.emit('onSendHeaders')
+        f.emit('onCompleted')
+      },
+      async () => true,
+      undefined,
+      ['/fixture-query'],
+    )
+    await vi.advanceTimersByTimeAsync(250)
+    await expect(pending).resolves.toBeUndefined()
+    monitor.dispose()
+  })
+  it('同店铺分区的多个采集器共享监听，关闭其中一个不覆盖其他查询', async () => {
+    vi.useFakeTimers()
+    const f = fixture(),
+      first = createAssistQueryMonitor(),
+      second = createAssistQueryMonitor()
+    const other = { ...f.page, id: 8 } as WebContents
+    const one = first
+      .run(
+        f.page,
+        async () => {
+          f.emit('onSendHeaders')
+        },
+        async () => true,
+      )
+      .catch(() => undefined)
+    const two = second.run(
+      other,
+      async () => {
+        f.emit('onSendHeaders', { id: 2, webContentsId: 8 })
+      },
+      async () => true,
+    )
+    await vi.advanceTimersByTimeAsync(50)
+    first.dispose()
+    f.emit('onCompleted', { id: 2, webContentsId: 8 })
+    await vi.advanceTimersByTimeAsync(250)
+    await Promise.all([one, two])
+    expect(f.request.onSendHeaders).toHaveBeenCalledTimes(1)
+    second.dispose()
+    expect(f.callbacks.size).toBe(0)
+  })
   it('页面保存的原始fetch不经过JS包装仍能确认，但不能在响应体结束前完成', async () => {
     vi.useFakeTimers()
     const f = fixture(),

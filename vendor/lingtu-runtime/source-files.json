@@ -253,9 +253,9 @@
     {
       "path": "electron/managed-session.cjs",
       "upstreamGitBlob": "a945cdf591869f4b591de6ab258747d806ce056e",
-      "sha256": "804025f228cdc431dc06e8bdfca43ae4785d539269d36a971ff8f40d12baa1fb",
+      "sha256": "62bac9ec722e858513b3081f6a1f856123df9f9b7af91d52056c03b492b7e607",
       "upstreamSha256": "b08a03062b73e55bbf272db0eb1e5caf0ce60e9b6919f8cf16edeaed8e339a9f",
-      "localPatch": "Explicit numeric-loopback HTTP support; restricted main-process team/billing service requests reuse encrypted device sessions without exporting tokens; bounded paths, payloads and epoch checks."
+      "localPatch": "Explicit numeric-loopback HTTP support; restricted main-process team/billing service requests reuse encrypted device sessions without exporting tokens; bounded paths, payloads and epoch checks. Preserve allowlisted HTTP error code/status for billing routes; classify proxy 404, expired sessions and unconfigured merchant separately; never expose response bodies."
     },
     {
       "path": "electron/model-profiles.cjs",

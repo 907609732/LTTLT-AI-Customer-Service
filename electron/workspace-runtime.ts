@@ -76,6 +76,24 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
       requireAvailable()
       return current.scheduler()
     },
+    platformLearning() {
+      requireAvailable()
+      return current.platformLearning()
+    },
+    async openPlatformLearningSource(input) {
+      requireAvailable()
+      const id = snapshot().workspaceId
+      await current.openPlatformLearningSource(input)
+      assertWorkspace(id)
+    },
+    platformOrders() {
+      requireAvailable()
+      return current.platformOrders()
+    },
+    receptionOperations() {
+      requireAvailable()
+      return current.receptionOperations()
+    },
     async serviceRequest(endpoint, input) {
       requireAvailable()
       const id = snapshot().workspaceId

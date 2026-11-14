@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -23,34 +22,12 @@ type billingConfig struct {
 	Ready       bool                 `json:"ready"`
 	Reason      string               `json:"reason"`
 	Plans       []lingtu.BillingPlan `json:"plans"`
+	Service     billingServiceInfo   `json:"service"`
 	key, secret string
 }
 
 func loadBillingConfig() billingConfig {
-	c := billingConfig{Plans: []lingtu.BillingPlan{}, Reason: "payment_not_configured", key: os.Getenv("LINGTU_BILLING_STRIPE_SECRET_KEY"), secret: os.Getenv("LINGTU_BILLING_STRIPE_WEBHOOK_SECRET")}
-	var plans []lingtu.BillingPlan
-	decoder := json.NewDecoder(strings.NewReader(os.Getenv("LINGTU_BILLING_PLANS")))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&plans) != nil || len(plans) == 0 || len(plans) > 20 {
-		return c
-	}
-	var trailing interface{}
-	if decoder.Decode(&trailing) != io.EOF {
-		return c
-	}
-	seen := map[string]bool{}
-	for _, plan := range plans {
-		if !plan.Valid() || seen[plan.ID] {
-			return c
-		}
-		seen[plan.ID] = true
-	}
-	c.Plans = plans
-	c.Ready = (strings.HasPrefix(c.key, "sk_test_") || strings.HasPrefix(c.key, "sk_live_")) && strings.HasPrefix(c.secret, "whsec_")
-	if c.Ready {
-		c.Reason = ""
-	}
-	return c
+	return billingPublicConfig(billingEnvironmentSettings())
 }
 
 // RegisterBilling mounts only explicit customer operations. The caller supplies its
@@ -65,11 +42,16 @@ func RegisterBilling(router *gin.Engine, authenticated *gin.RouterGroup, db *gor
 	if err = store.Migrate(); err != nil {
 		return err
 	}
-	h := &billingHost{store: store, config: loadBillingConfig(), portal: strings.TrimRight(portal, "/")}
+	h := &billingHost{store: store, db: db, portal: strings.TrimRight(portal, "/")}
 	authenticated.GET("/billing", h.catalog)
 	authenticated.GET("/billing/orders", h.orders)
 	authenticated.POST("/billing/orders", middleware.LingtuCriticalRateLimit("billing-checkout"), h.checkout)
 	router.POST("/api/lingtu/billing/stripe/webhook", h.stripeWebhook)
+	router.GET("/api/lingtu/service", func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.JSON(200, billingServiceVersion()) })
+	admin := router.Group("/api/lingtu/admin", middleware.DisableCache(), middleware.AdminAuth())
+	admin.GET("/billing", h.adminBillingConfig)
+	admin.POST("/billing", middleware.LingtuCriticalRateLimit("admin-billing-config"), h.adminSaveBilling)
+	admin.POST("/billing/check", middleware.LingtuCriticalRateLimit("admin-billing-check"), h.adminCheckBilling)
 	router.GET("/lingtu/billing/payment-return", func(c *gin.Context) {
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.Header("Cache-Control", "no-store")
@@ -80,12 +62,30 @@ func RegisterBilling(router *gin.Engine, authenticated *gin.RouterGroup, db *gor
 
 type billingHost struct {
 	store   *lingtu.BillingStore
+	db      *gorm.DB
 	config  billingConfig
 	portal  string
 	backend stripe.Backend
 }
 
-func (h *billingHost) catalog(c *gin.Context) { c.JSON(200, h.config) }
+func (h *billingHost) currentConfig() (billingConfig, error) {
+	if h.db == nil {
+		return h.config, nil
+	}
+	settings, _, err := loadBillingSettings(h.db)
+	if err != nil {
+		return billingConfig{}, err
+	}
+	return billingPublicConfig(settings), nil
+}
+func (h *billingHost) catalog(c *gin.Context) {
+	config, err := h.currentConfig()
+	if err != nil {
+		clientFailure(c, 503, "billing_unavailable")
+		return
+	}
+	c.JSON(200, config)
+}
 func (h *billingHost) orders(c *gin.Context) {
 	rows, err := h.store.Orders(identityOf(c).UserID, 0, 100)
 	if err != nil {
@@ -95,8 +95,13 @@ func (h *billingHost) orders(c *gin.Context) {
 	c.JSON(200, gin.H{"orders": rows})
 }
 func (h *billingHost) checkout(c *gin.Context) {
-	if !h.config.Ready {
-		clientFailure(c, 503, "payment_not_configured")
+	config, err := h.currentConfig()
+	if err != nil {
+		clientFailure(c, 503, "billing_unavailable")
+		return
+	}
+	if !config.Ready {
+		clientFailure(c, 503, config.Reason)
 		return
 	}
 	var input struct {
@@ -116,9 +121,9 @@ func (h *billingHost) checkout(c *gin.Context) {
 		return
 	}
 	var selected *lingtu.BillingPlan
-	for i := range h.config.Plans {
-		if h.config.Plans[i].ID == input.PlanID {
-			selected = &h.config.Plans[i]
+	for i := range config.Plans {
+		if config.Plans[i].ID == input.PlanID {
+			selected = &config.Plans[i]
 			break
 		}
 	}
@@ -154,11 +159,7 @@ func (h *billingHost) checkout(c *gin.Context) {
 	params.Context = c.Request.Context()
 	params.SetIdempotencyKey("lingtu-billing-" + order.ID)
 	// Per-client key avoids mutating the native wallet's global Stripe key.
-	backend := h.backend
-	if backend == nil {
-		backend = stripe.GetBackend(stripe.APIBackend)
-	}
-	api := session.Client{B: backend, Key: h.config.key}
+	api := session.Client{B: h.stripeBackend(), Key: config.key}
 	var checkout *stripe.CheckoutSession
 	// Stripe idempotency keys expire. Retrieve a persisted session rather than
 	// creating a second payable checkout when the user retries days later.
@@ -192,7 +193,13 @@ func billingPayment(eventID string, s stripe.CheckoutSession) (lingtu.BillingPay
 	return lingtu.BillingPayment{OrderID: s.ClientReferenceID, SessionID: s.ID, EventID: eventID, Amount: s.AmountTotal, Currency: string(s.Currency)}, nil
 }
 func (h *billingHost) stripeWebhook(c *gin.Context) {
-	if !h.config.Ready {
+	config, err := h.currentConfig()
+	if err != nil {
+		clientFailure(c, 503, "billing_unavailable")
+		return
+	}
+	// Existing paid checkouts still settle after disabling new purchases or plans.
+	if config.key == "" || config.secret == "" {
 		clientFailure(c, 503, "payment_not_configured")
 		return
 	}
@@ -202,7 +209,7 @@ func (h *billingHost) stripeWebhook(c *gin.Context) {
 		clientFailure(c, 400, "invalid_webhook")
 		return
 	}
-	event, err := webhook.ConstructEventWithOptions(payload, c.GetHeader("Stripe-Signature"), h.config.secret, webhook.ConstructEventOptions{})
+	event, err := webhook.ConstructEventWithOptions(payload, c.GetHeader("Stripe-Signature"), config.secret, webhook.ConstructEventOptions{})
 	if err != nil {
 		clientFailure(c, 400, "invalid_webhook")
 		return
@@ -211,7 +218,7 @@ func (h *billingHost) stripeWebhook(c *gin.Context) {
 		c.Status(200)
 		return
 	}
-	if event.Livemode != strings.HasPrefix(h.config.key, "sk_live_") {
+	if event.Livemode != strings.HasPrefix(config.key, "sk_live_") {
 		clientFailure(c, 400, "payment_mode_mismatch")
 		return
 	}

@@ -40,10 +40,11 @@ function fixture(pages: string[][], initial = 1) {
       `https://mms.pinduoduo.com/aftersales/work_order/tododetail?id=${pages[current - 1][index]}`,
   )
   const rememberDetail = vi.fn()
+  const refreshQuery = vi.fn(async () => {})
   const read = createAssistPlatformReader({
     page: () => page,
     collectionPage: async () => page,
-    refreshQuery: async () => {},
+    refreshQuery,
     turnPage,
     identityScript: () =>
       `({authenticated:${!loggedOut},mallId:${JSON.stringify(wrongIdentity ? 'other' : 'mall-a')},storeName:'测试店'})`,
@@ -55,6 +56,7 @@ function fixture(pages: string[][], initial = 1) {
     turnPage,
     observeTicketDetail,
     rememberDetail,
+    refreshQuery,
     setTotal: () => {
       changedTotal = true
       render()
@@ -74,6 +76,19 @@ function fixture(pages: string[][], initial = 1) {
   }
 }
 describe('跨页完整性与账号隔离', () => {
+  it('新后台默认全部时先准备并查询，再严格读取待处理列表', async () => {
+    const f = fixture([['a']])
+    document.querySelector('input')!.value = '全部'
+    f.refreshQuery.mockImplementation(async () => {
+      document.querySelector('input')!.value = '待处理'
+    })
+    expect(await f.read(store, 'ticket')).toMatchObject({
+      recognized: true,
+      total: 1,
+      complete: true,
+    })
+    expect(f.refreshQuery).toHaveBeenCalledTimes(1)
+  })
   it('从首/中页开始都读完各页，按真实工单ID去重', async () => {
     const f = fixture(
       [

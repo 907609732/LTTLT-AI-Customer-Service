@@ -8,7 +8,15 @@ import {
   type SchedulerSnapshot,
   type SchedulerTask,
   type SchedulerTaskInput,
+  type SchedulerRun,
 } from '../src/shared/contracts/scheduler'
+import {
+  preparedPlatformOperationSchema,
+  type PreparedPlatformOperation,
+  type OperationEvidence,
+} from '../src/shared/contracts/platform-operations'
+
+const retained = (run: SchedulerRun) => ['pending', 'executing', 'uncertain'].includes(run.state)
 
 /** Real-instant iteration handles DST gaps; repeated local hours execute once per day. */
 export function nextOccurrence(schedule: SchedulerTaskInput['schedule'], after: number): number {
@@ -46,7 +54,7 @@ interface Options {
   capability?(task: SchedulerTask): string
   validateTask?(task: SchedulerTaskInput): void
 }
-/** No sender or approve method: due tasks create intents for the existing confirmation gate. */
+/** Due tasks only create intents. The main-process executor consumes one prepared approval. */
 export class ReceptionScheduler {
   private state: SchedulerState
   private timer?: ReturnType<typeof setInterval>
@@ -65,9 +73,16 @@ export class ReceptionScheduler {
       new Set(this.state.runs.map((r) => r.id)).size !== this.state.runs.length
     )
       throw new Error('调度文件存在重复编号')
-    if (this.state.runs.some((r) => r.state === 'pending')) {
+    if (this.state.runs.some((r) => ['pending', 'executing'].includes(r.state) || r.approvalId)) {
       const next = structuredClone(this.state)
       this.cancelPending(next, undefined, '应用已重启，请重新建立并逐条确认')
+      for (const run of next.runs) {
+        if (run.state === 'executing') {
+          run.state = 'uncertain'
+          run.reason = '应用在执行期间退出，必须只读核对平台，不可重新发送'
+        }
+        delete run.approvalId
+      }
       this.commit(next)
     }
   }
@@ -101,9 +116,19 @@ export class ReceptionScheduler {
   pause() {
     if (this.timer) clearInterval(this.timer)
     this.timer = undefined
-    if (this.closed || !this.state.runs.some((run) => run.state === 'pending')) return
+    if (
+      this.closed ||
+      !this.state.runs.some((run) => ['pending', 'blocked', 'executing'].includes(run.state))
+    )
+      return
     const next = structuredClone(this.state)
     this.cancelPending(next, undefined, '调度服务已暂停，未批准事项已取消')
+    for (const run of next.runs)
+      if (run.state === 'executing') {
+        run.state = 'uncertain'
+        run.reason = '执行期间服务暂停，请只读核对平台结果'
+        delete run.approvalId
+      }
     this.commit(next)
   }
   dispose() {
@@ -115,9 +140,14 @@ export class ReceptionScheduler {
   }
   private cancelPending(next: SchedulerState, taskId: string | undefined, reason: string) {
     for (const run of next.runs)
-      if (run.state === 'pending' && (!taskId || run.taskId === taskId)) {
-        run.state = 'cancelled'
-        run.reason = reason
+      if (
+        ['pending', 'blocked', 'executing'].includes(run.state) &&
+        (!taskId || run.taskId === taskId)
+      ) {
+        const executing = run.state === 'executing'
+        run.state = executing ? 'uncertain' : 'cancelled'
+        run.reason = executing ? `${reason}；执行结果须核对，禁止重发` : reason
+        delete run.approvalId
       }
   }
   /** Trusted main-process events only. Not exposed as an IPC command. */
@@ -134,17 +164,21 @@ export class ReceptionScheduler {
     const key = createHash('sha256')
       .update(JSON.stringify([input.storeId, input.uid, input.ruleId, input.key]))
       .digest('hex')
-    if (this.state.receipts.some((r) => r.key === key && r.expiresAt > at)) return 0
+    if (
+      this.state.receipts.some((r) => r.key === key && r.expiresAt > at) ||
+      this.state.runs.some(
+        (run) => run.eventKey === key && ['uncertain', 'executing'].includes(run.state),
+      )
+    )
+      return 0
     const next = structuredClone(this.state)
     next.receipts = next.receipts.filter((r) => r.expiresAt > at)
     if (next.receipts.length >= 10000) throw new Error('事件去重容量已满，停止生成，避免重复发送')
     if (next.runs.length + actions.length > 500) {
-      const keep = next.runs.filter((r) => r.state === 'pending')
+      const keep = next.runs.filter(retained)
       const capacity = 500 - keep.length - actions.length
       if (capacity < 0) throw new Error('待处理事项已满，请先取消或处理')
-      const history = capacity
-        ? next.runs.filter((r) => r.state !== 'pending').slice(-capacity)
-        : []
+      const history = capacity ? next.runs.filter((r) => !retained(r)).slice(-capacity) : []
       next.runs = [...history, ...keep]
     }
     for (const raw of actions) {
@@ -170,6 +204,7 @@ export class ReceptionScheduler {
         occurrence: at,
         createdAt: at,
         expiresAt: at + 600000,
+        eventKey: key,
         state: reason ? 'blocked' : 'pending',
         reason: reason || '待提交统一确认门，尚未发送',
       })
@@ -182,6 +217,114 @@ export class ReceptionScheduler {
     if (this.closed) throw new Error('调度服务已关闭')
     const next = structuredClone(this.state)
     this.cancelPending(next, `event:${ruleId}`, '接待规则已修改或停用')
+    for (const run of next.runs)
+      if (run.taskId === `event:${ruleId}` && run.state === 'executing') {
+        run.state = 'uncertain'
+        run.reason = '规则在执行中修改或停用，请只读核对'
+      }
+    this.commit(next)
+  }
+  /** Never exposed as a generic mutation bridge. All callers live in the main process. */
+  prepareOperation(id: string, prepared: PreparedPlatformOperation, approvalId: string) {
+    if (this.closed) throw new Error('调度服务已关闭')
+    const next = structuredClone(this.state)
+    const run = next.runs.find((r) => r.id === id)
+    if (!run || !['pending', 'blocked'].includes(run.state))
+      throw new Error('事项状态已变化，请核对记录')
+    const value = preparedPlatformOperationSchema.parse(prepared)
+    if (
+      value.runId !== id ||
+      value.target.storeId !== run.storeId ||
+      value.target.uid !== run.uid ||
+      value.target.accountId !== value.basis.accountId ||
+      value.target.pageId !== value.basis.pageId ||
+      JSON.stringify(value.action) !== JSON.stringify(run.action)
+    )
+      throw new Error('平台准备目标或最终内容不匹配')
+    if (Math.min(run.expiresAt, value.expiresAt) <= this.clock()) throw new Error('事项已过期')
+    run.state = 'pending'
+    run.prepared = value
+    run.approvalId = approvalId
+    run.expiresAt = Math.min(run.expiresAt, value.expiresAt)
+    run.reason = '平台目标与内容已准备，等待用户逐条批准'
+    this.commit(next)
+  }
+  blockOperation(id: string, reason: string) {
+    if (this.closed) return
+    const next = structuredClone(this.state)
+    const run = next.runs.find((r) => r.id === id)
+    if (!run || !['pending', 'blocked'].includes(run.state)) return
+    run.state = 'blocked'
+    run.reason = reason.slice(0, 300)
+    delete run.approvalId
+    delete run.prepared
+    this.commit(next)
+  }
+  beginOperation(id: string, approvalId: string): SchedulerRun {
+    if (this.closed) throw new Error('调度服务已关闭')
+    const next = structuredClone(this.state)
+    const run = next.runs.find((r) => r.id === id)
+    if (
+      !run ||
+      run.state !== 'pending' ||
+      !run.prepared ||
+      !approvalId ||
+      run.approvalId !== approvalId
+    )
+      throw new Error('事项已处理、未准备或批准已消费，请刷新核对')
+    if (run.expiresAt <= this.clock()) {
+      run.state = 'expired'
+      run.reason = '等待超过有效期，未执行'
+      delete run.approvalId
+      this.commit(next)
+      throw new Error('事项已过期')
+    }
+    run.state = 'executing'
+    run.reason = '用户已批准此项，正在串行复核并执行'
+    delete run.approvalId
+    this.commit(next)
+    return structuredClone(run)
+  }
+  finishOperation(
+    id: string,
+    state: 'confirmed' | 'failed' | 'uncertain' | 'invalidated' | 'blocked',
+    reason: string,
+    evidence?: OperationEvidence,
+    inspecting = false,
+  ) {
+    const next = structuredClone(this.state)
+    const run = next.runs.find((r) => r.id === id)
+    if (!run || (run.state !== 'executing' && !(inspecting && run.state === 'uncertain'))) return
+    if (state === 'confirmed' && !evidence) throw new Error('平台确认缺少准确目标与内容证据')
+    run.state = state
+    run.reason = reason.slice(0, 300)
+    run.completedAt = this.clock()
+    if (evidence) run.evidence = evidence
+    delete run.approvalId
+    this.commit(next)
+  }
+  invalidateOperations(storeId: string | undefined, reason: string) {
+    if (this.closed) return
+    const next = structuredClone(this.state)
+    let changed = false
+    for (const run of next.runs) {
+      if (storeId && run.storeId !== storeId) continue
+      if (!['pending', 'blocked', 'executing'].includes(run.state)) continue
+      run.state = run.state === 'executing' ? 'uncertain' : 'invalidated'
+      run.reason = reason.slice(0, 300)
+      delete run.approvalId
+      changed = true
+    }
+    if (changed) this.commit(next)
+  }
+  invalidateOperation(id: string, reason: string) {
+    if (this.closed) return
+    const next = structuredClone(this.state)
+    const run = next.runs.find((r) => r.id === id)
+    if (!run || !['pending', 'blocked'].includes(run.state)) return
+    run.state = 'invalidated'
+    run.reason = reason.slice(0, 300)
+    delete run.approvalId
     this.commit(next)
   }
   private blockReason(task: SchedulerTask): string {
@@ -200,9 +343,10 @@ export class ReceptionScheduler {
     const now = this.clock()
     if (command.type === 'cancel') {
       const run = next.runs.find((r) => r.id === command.id)
-      if (!run || run.state !== 'pending') throw new Error('事项已取消或过期')
+      if (!run || !['pending', 'blocked'].includes(run.state)) throw new Error('事项已取消或过期')
       run.state = 'cancelled'
       run.reason = '用户已取消，不发送'
+      delete run.approvalId
     } else {
       const old = command.id ? next.tasks.find((t) => t.id === command.id) : undefined
       if (command.id && !old) throw new Error('任务不存在，请刷新')
@@ -232,9 +376,10 @@ export class ReceptionScheduler {
     const next = structuredClone(this.state)
     let changed = false
     for (const run of next.runs)
-      if (run.state === 'pending' && run.expiresAt <= at) {
+      if (['pending', 'blocked'].includes(run.state) && run.expiresAt <= at) {
         run.state = 'expired'
         run.reason = '等待超过十分钟，未批准不发送'
+        delete run.approvalId
         changed = true
       }
     for (const task of next.tasks) {
@@ -258,9 +403,10 @@ export class ReceptionScheduler {
       changed = true
     }
     if (changed) {
-      const pending = next.runs.filter((r) => r.state === 'pending')
+      const pending = next.runs.filter(retained)
       if (pending.length > 500) throw new Error('待处理事项过多，请先取消或处理')
-      const history = next.runs.filter((r) => r.state !== 'pending').slice(-(500 - pending.length))
+      const capacity = 500 - pending.length
+      const history = capacity ? next.runs.filter((r) => !retained(r)).slice(-capacity) : []
       next.runs = [...history, ...pending].sort((a, b) => a.createdAt - b.createdAt)
       this.commit(next)
     }

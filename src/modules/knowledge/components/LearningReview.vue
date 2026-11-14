@@ -1,14 +1,45 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import { createLearningService } from '../services'
 import type { LearningCandidate } from '../learning'
-const props = defineProps<{ candidates: LearningCandidate[] }>()
+import type {
+  PlatformLearningCandidate,
+  PlatformLearningSnapshot,
+} from '@/shared/contracts/platform-learning'
+import { platformLearningTransportKey } from '../platform-learning'
+const props = withDefaults(
+  defineProps<{
+    candidates: LearningCandidate[]
+    platformCandidates?: PlatformLearningCandidate[]
+  }>(),
+  { platformCandidates: () => [] },
+)
+const emit = defineEmits<{ platformUpdated: [snapshot: PlatformLearningSnapshot] }>()
+type ReviewRow = LearningCandidate & { platform?: PlatformLearningCandidate }
 const runtime = useRuntimeStore(),
   task = useTask(),
-  service = createLearningService(runtime.run)
-const selected = ref<LearningCandidate | null>(null),
+  service = createLearningService(runtime.run),
+  platformTransport = inject(platformLearningTransportKey, null)
+const rows = computed<ReviewRow[]>(() => [
+  ...props.candidates,
+  ...props.platformCandidates.map((row) => ({
+    question: row.question,
+    answer: row.answer,
+    original: row.original,
+    productIds: row.productIds,
+    source: {
+      kind: `platform-${row.source}` as 'platform-products' | 'platform-chats',
+      ...row.identity,
+      taskId: row.taskId,
+      candidateId: row.id,
+      ...row.evidence,
+    },
+    platform: row,
+  })),
+])
+const selected = ref<ReviewRow | null>(null),
   question = ref(''),
   answer = ref(''),
   approved = ref(false)
@@ -22,13 +53,31 @@ watch(
     task.message.value = ''
   },
 )
+watch(
+  () => props.platformCandidates,
+  (next) => {
+    const current = selected.value?.platform
+    if (
+      current &&
+      !next.some(
+        (row) =>
+          row.id === current.id &&
+          (row.status === 'pending' ||
+            (task.pending.value && (row.status === 'saving' || row.status === 'saved'))),
+      )
+    ) {
+      selected.value = null
+      approved.value = false
+    }
+  },
+)
 watch([question, answer], () => {
   approved.value = false
 })
-function preview(row: LearningCandidate) {
+function preview(row: ReviewRow) {
   selected.value = row
-  question.value = row.question
-  answer.value = row.answer
+  question.value = row.platform?.reviewed?.question ?? row.question
+  answer.value = row.platform?.reviewed?.answer ?? row.answer
   approved.value = false
   task.error.value = ''
   task.message.value = ''
@@ -39,6 +88,23 @@ async function save() {
     if (!row || row.source.storeId !== runtime.selectedStoreId)
       throw new Error('候选店铺已变化，请重新预览')
     const workspace = runtime.snapshot.workspaceId
+    if (row.platform) {
+      if (!platformTransport) throw new Error('平台学习服务尚未就绪，请刷新后重试')
+      const next = await platformTransport.review({
+        workspaceId: workspace,
+        candidateId: row.platform.id,
+        question: question.value,
+        answer: answer.value,
+        confirmed: approved.value,
+      })
+      if (workspace !== runtime.snapshot.workspaceId || row !== selected.value) return
+      emit('platformUpdated', next)
+      selected.value = null
+      approved.value = false
+      task.message.value =
+        '已保存为停用知识包，来源审计随包保存。请到“意图问法与知识包”审核并启用。'
+      return
+    }
     await service.confirm(
       {
         ...row,
@@ -64,24 +130,38 @@ async function save() {
   <div class="runtime-two-columns">
     <div>
       <button
-        v-for="(row, index) in candidates"
-        :key="index"
+        v-for="(row, index) in rows"
+        :key="row.platform?.id ?? index"
         class="runtime-entry"
-        :disabled="task.pending.value || saved.includes(row)"
+        :disabled="
+          task.pending.value ||
+          saved.includes(row) ||
+          (row.platform && row.platform.status !== 'pending')
+        "
         @click="preview(row)"
       >
         <b>{{ row.question }}</b>
-        <p>{{ row.source.kind }} · {{ saved.includes(row) ? '本次已入库' : '待人工确认' }}</p>
+        <p>
+          {{ row.source.kind }} ·
+          {{
+            row.platform?.status === 'saved' || saved.includes(row)
+              ? '已入库'
+              : row.platform?.status === 'saving'
+                ? '正在入库'
+                : '待人工确认'
+          }}
+        </p>
+        <p v-if="row.platform?.error" role="alert">{{ row.platform.error }}</p>
       </button>
-      <p v-if="!candidates.length">暂无候选。先选择店铺并预览已有资料。</p>
+      <p v-if="!rows.length">暂无候选。先选择店铺并预览已有资料或开始平台采集。</p>
     </div>
     <form v-if="selected" class="runtime-form" @submit.prevent="save">
       <strong>原始来源（仅供审核，不代表事实正确）</strong>
       <pre class="learning-source">{{ JSON.stringify(selected.source, null, 2) }}</pre>
       <details>
         <summary>查看原始问答</summary>
-        <p>{{ selected.question }}</p>
-        <p class="learning-original">{{ selected.answer }}</p>
+        <p>{{ selected.original?.question ?? selected.question }}</p>
+        <p class="learning-original">{{ selected.original?.answer ?? selected.answer }}</p>
       </details>
       <p>商品绑定：{{ selected.productIds.join('、') || '无，仅限当前店铺' }}</p>
       <label

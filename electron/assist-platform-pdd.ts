@@ -89,6 +89,113 @@ export function readPddTicketDom(): PddTicketDom {
   }
 }
 
+/** Prepare the bounded pending-work-order query using native form controls. */
+export async function preparePddTicketQuery(captcha?: () => boolean): Promise<void> {
+  const guard = () => {
+    if (captcha?.()) throw Error('platform_verification_required')
+    if (
+      location.origin !== 'https://mms.pinduoduo.com' ||
+      location.pathname !== '/aftersales/work_order/list'
+    )
+      throw Error('工单查询来源已改变')
+  }
+  guard()
+  const root = document.querySelector('#pdd-app-skeleton-main-content')
+  if (!root) throw Error('工单筛选尚未就绪')
+  const field = (label: string, selector = 'input[data-testid="beast-core-select-htmlInput"]') => {
+    const found = new Set<HTMLInputElement>()
+    const labels = Array.from(root.querySelectorAll('*')).filter(
+      (element) => element.textContent?.trim().replace(/[:：]$/, '') === label,
+    )
+    for (const leaf of labels) {
+      for (
+        let parent: Element | null = leaf;
+        parent && parent !== root;
+        parent = parent.parentElement
+      ) {
+        const inputs = parent.querySelectorAll<HTMLInputElement>(selector)
+        if (inputs.length === 1) {
+          found.add(inputs[0])
+          break
+        }
+        if (inputs.length > 1) break
+      }
+    }
+    if (found.size !== 1) throw Error(`工单${label}筛选尚未唯一识别`)
+    return [...found][0]
+  }
+  const visible = (element: Element) => {
+    const entering = Boolean(element.closest('[class*="PT_portalEnterActive_"]'))
+    for (let parent: Element | null = element; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent)
+      if (
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        (style.opacity === '0' && !entering)
+      )
+        return false
+    }
+    return element.getClientRects().length > 0
+  }
+  const wait = async (ready: () => boolean) => {
+    const deadline = Date.now() + 2000
+    while (Date.now() < deadline) {
+      guard()
+      if (ready()) return
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    }
+    throw Error('工单原生筛选尚未完成')
+  }
+  const choose = async (label: string, values: string[]) => {
+    if (values.includes(field(label).value)) return
+    field(label).click()
+    await wait(() => {
+      const options = Array.from(
+        document.querySelectorAll('li[class*="ST_itemRendererLabel_"]'),
+      ).filter((option) => visible(option) && values.includes(option.textContent?.trim() ?? ''))
+      if (options.length > 1) throw Error(`工单${label}选项尚未唯一识别`)
+      if (!options.length) return false
+      ;(options[0] as HTMLElement).click()
+      return true
+    })
+    await wait(() => values.includes(field(label).value))
+  }
+  const order = field('订单编号', 'input[placeholder="请输入订单编号"]')
+  if (
+    root.querySelectorAll('input[data-testid="beast-core-select-htmlInput"]').length !== 3 ||
+    Array.from(root.querySelectorAll('input')).some(
+      (input) =>
+        input !== order && !input.readOnly && input.type !== 'hidden' && input.value.trim(),
+    )
+  )
+    throw Error('工单包含未识别的额外筛选条件')
+  if (order.value) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    if (!setter || order.readOnly) throw Error('工单订单编号筛选无法清除')
+    setter.call(order, '')
+    order.dispatchEvent(new Event('input', { bubbles: true }))
+    order.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+  await choose('工单状态', ['待处理'])
+  await choose('问题类型', ['全部'])
+  await choose('创建时间', ['近60天内', '近60天'])
+  await wait(() => field('订单编号', 'input[placeholder="请输入订单编号"]').value === '')
+  const dates = root.querySelectorAll<HTMLInputElement>(
+    '[data-testid="beast-core-rangePicker-htmlInput"]',
+  )
+  const date = (time: number) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(time)
+  const now = Date.now()
+  if (dates.length !== 1 || dates[0].value !== `${date(now - 60 * 86400000)} ~ ${date(now)}`)
+    throw Error('工单近60天实际日期尚未核对')
+  guard()
+}
+
 /** 仅点击已核对的查询/待商家处理入口；请求完成由主进程观察，不改写平台网络函数。 */
 export function clickPddQuery(
   kind: 'ticket' | 'aftersale' = 'ticket',

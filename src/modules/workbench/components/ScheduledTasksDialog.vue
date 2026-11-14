@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { getSchedulerService, getSchedulerWorkspaceId } from '../services/scheduler'
+import { OperationApprovalPanel, useReceptionOperations } from '@/modules/reception'
+import type { ReceptionBridge } from '@/shared/contracts/platform-operations'
 import {
   schedulerTaskInputSchema,
   type AutomationAction,
@@ -10,7 +12,12 @@ import {
   type SchedulerTask,
 } from '@/shared/contracts/scheduler'
 const props = withDefaults(
-  defineProps<{ modelValue?: boolean; service?: SchedulerBridge; workspaceId?: string }>(),
+  defineProps<{
+    modelValue?: boolean
+    service?: SchedulerBridge
+    receptionService?: ReceptionBridge
+    workspaceId?: string
+  }>(),
   { modelValue: false, workspaceId: '' },
 )
 const emit = defineEmits<{ 'update:modelValue': [visible: boolean] }>()
@@ -22,6 +29,10 @@ const editing = ref<SchedulerTask>()
 const service = computed(() => props.service ?? getSchedulerService())
 const workspaceId = computed(
   () => props.workspaceId || (service.value ? getSchedulerWorkspaceId() : ''),
+)
+const operations = useReceptionOperations(
+  () => (props.modelValue ? workspaceId.value : ''),
+  () => props.receptionService,
 )
 const form = reactive({
   name: '',
@@ -38,6 +49,30 @@ const form = reactive({
   timezone: 'Asia/Shanghai',
   once: '',
   minutes: 60,
+})
+const storeFacts = computed(() => operations.snapshot.value?.facts ?? [])
+const selectedFacts = computed(() => storeFacts.value.find((row) => row.storeId === form.storeId))
+const trustedChoice = computed(() => {
+  const facts = selectedFacts.value
+  if (
+    !facts ||
+    facts.error ||
+    !facts.accountId ||
+    Date.now() - facts.observedAt > 600000 ||
+    !facts.buyers.some((row) => row.uid === form.uid)
+  )
+    return false
+  if (form.kind === 'transfer')
+    return facts.agents.some(
+      (row) => row.agentId === form.agentId && (row.canTransfer === true || row.online === true),
+    )
+  if (form.kind === 'payment-reminder')
+    return facts.orders.some(
+      (row) => row.orderId === form.orderId && row.uid === form.uid && row.status === 'unpaid',
+    )
+  if (form.kind === 'welcome-video')
+    return facts.mediaAssets?.some((row) => row.url === form.url) === true
+  return true
 })
 let timer: ReturnType<typeof setInterval> | undefined
 let generation = 0
@@ -139,7 +174,10 @@ function edit(row?: SchedulerTask) {
   error.value = ''
 }
 async function save() {
-  if (!snapshot.value) return
+  if (!snapshot.value || !trustedChoice.value) {
+    error.value = '请从当前真实平台状态中选择店铺、买家、订单、审核视频或可转接客服'
+    return
+  }
   const action =
     form.kind === 'transfer'
       ? { kind: form.kind, agentId: form.agentId }
@@ -191,13 +229,27 @@ const labels: Record<AutomationAction['kind'], string> = {
   'payment-reminder': '催付提醒',
 }
 const states = {
-  pending: '待提交确认',
-  blocked: '能力未接入',
+  pending: '待批准',
+  blocked: '能力或证据不足',
+  executing: '执行中',
+  confirmed: '已确认',
+  failed: '执行失败',
+  uncertain: '待核对',
+  invalidated: '已失效',
   cancelled: '已取消',
   expired: '已过期',
 }
 function time(at: number) {
   return new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+}
+function refreshAll() {
+  void refresh()
+  void operations.refresh()
+}
+function resetStoreTarget() {
+  form.uid = ''
+  form.orderId = ''
+  form.agentId = ''
 }
 </script>
 <template>
@@ -217,10 +269,14 @@ function time(at: number) {
     <p v-if="!service" role="status">定时服务尚未接入；浏览器仅供预览，无法保存或后台执行。</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="snapshot?.error" role="alert">{{ snapshot.error }}</p>
+    <p v-if="operations.error.value" role="alert">{{ operations.error.value }}</p>
+    <p v-if="operations.snapshot.value?.error" role="alert">
+      {{ operations.snapshot.value.error }}
+    </p>
     <div class="st-toolbar" data-v-6379a767="">
       <button :disabled="!snapshot || busy" class="st-add" type="button" @click="edit()">
         添加任务</button
-      ><button :disabled="!service || busy" type="button" @click="refresh">刷新</button
+      ><button :disabled="!service || busy" type="button" @click="refreshAll">刷新</button
       ><span v-if="snapshot">{{ snapshot.running ? '调度已启动' : '调度未启动' }}</span>
     </div>
     <div class="st-table" data-v-6379a767="">
@@ -247,7 +303,14 @@ function time(at: number) {
         </button>
       </article>
     </div>
-    <h3>执行记录（不代表平台已发送）</h3>
+    <OperationApprovalPanel
+      v-if="operations.snapshot.value"
+      :workspace-id="workspaceId"
+      :runs="operations.snapshot.value.runs"
+      :busy="operations.busy.value"
+      @command="operations.execute"
+    />
+    <h3>调度执行记录（以平台确认与证据为准）</h3>
     <p v-if="!snapshot?.runs.length">暂无记录</p>
     <article v-for="run in [...(snapshot?.runs ?? [])].reverse()" :key="run.id" class="task-entry">
       <strong>{{ states[run.state] }} · {{ labels[run.action.kind] }}</strong>
@@ -273,8 +336,37 @@ function time(at: number) {
     >
       <form class="scheduler-form" @submit.prevent="save">
         <label>任务名称<input v-model="form.name" maxlength="80" required /></label>
-        <label>店铺编号<input v-model="form.storeId" required /></label
-        ><label>买家 UID<input v-model="form.uid" required /></label>
+        <p v-if="!storeFacts.length">尚未取得真实平台店铺和买家，请打开平台后刷新。</p>
+        <label
+          >真实平台店铺<select
+            v-model="form.storeId"
+            required
+            :disabled="busy || !storeFacts.length"
+            @change="resetStoreTarget"
+          >
+            <option value="" disabled>请选择已读取的店铺</option>
+            <option
+              v-for="store in storeFacts"
+              :key="store.storeId"
+              :value="store.storeId"
+              :disabled="Boolean(store.error) || !store.accountId"
+            >
+              {{ store.storeName }}
+            </option>
+          </select></label
+        ><label
+          >真实平台买家<select
+            v-model="form.uid"
+            required
+            :disabled="busy || !selectedFacts?.buyers.length"
+            @change="form.orderId = ''"
+          >
+            <option value="" disabled>请选择平台买家</option>
+            <option v-for="buyer in selectedFacts?.buyers" :key="buyer.uid" :value="buyer.uid">
+              {{ buyer.name }}（{{ buyer.uid }}）
+            </option>
+          </select></label
+        >
         <label
           >任务类型<select v-model="form.kind">
             <option v-for="(label, kind) in labels" :key="kind" :value="kind">{{ label }}</option>
@@ -283,15 +375,76 @@ function time(at: number) {
         <label v-if="form.kind === 'welcome-text' || form.kind === 'payment-reminder'"
           >待确认文字<textarea v-model="form.text" maxlength="2000" required />
         </label>
-        <label v-if="form.kind === 'welcome-image' || form.kind === 'welcome-video'"
+        <label v-if="form.kind === 'welcome-image'"
           >平台已验证的 HTTPS 媒体地址<input v-model="form.url" type="url" required
         /></label>
+        <label v-if="form.kind === 'welcome-video'"
+          >平台已审核视频素材<select
+            v-model="form.url"
+            required
+            :disabled="!selectedFacts?.mediaAssets?.length"
+          >
+            <option value="" disabled>请选择平台已审核视频</option>
+            <option v-for="asset in selectedFacts?.mediaAssets" :key="asset.url" :value="asset.url">
+              {{ asset.name }}
+            </option></select
+          ><video
+            v-if="selectedFacts?.mediaAssets?.some((asset) => asset.url === form.url)"
+            :src="form.url"
+            controls
+            preload="metadata"
+            aria-label="定时视频预览"
+        /></label>
         <label v-if="form.kind === 'transfer'"
-          >平台客服编号<input v-model="form.agentId" required
-        /></label>
+          >真实平台客服<select
+            v-model="form.agentId"
+            required
+            :disabled="busy || !selectedFacts?.agents.length"
+          >
+            <option value="" disabled>请选择平台可转接客服</option>
+            <option
+              v-for="agent in selectedFacts?.agents"
+              :key="agent.agentId"
+              :value="agent.agentId"
+              :disabled="agent.canTransfer !== true && agent.online !== true"
+            >
+              {{ agent.name
+              }}{{
+                agent.online === true
+                  ? '（在线）'
+                  : agent.canTransfer === true
+                    ? '（平台可转接）'
+                    : agent.online === false
+                      ? '（离线）'
+                      : '（状态未知）'
+              }}
+            </option>
+          </select></label
+        >
         <label v-if="form.kind === 'payment-reminder'"
-          >订单编号<input v-model="form.orderId" required
-        /></label>
+          >真实待付款订单<select
+            v-model="form.orderId"
+            required
+            :disabled="busy || !selectedFacts?.orders.length"
+          >
+            <option value="" disabled>请选择此买家的未付款订单</option>
+            <option
+              v-for="order in selectedFacts?.orders.filter(
+                (row) => row.uid === form.uid && row.status === 'unpaid',
+              )"
+              :key="order.orderId"
+              :value="order.orderId"
+            >
+              {{ order.label }}（{{ order.orderId }}）
+            </option>
+          </select></label
+        >
+        <p
+          v-for="capability in selectedFacts?.capabilities.filter((row) => row.kind === form.kind)"
+          :key="capability.kind"
+        >
+          {{ capability.available ? '能力已验证' : '外部阻塞' }}：{{ capability.reason }}
+        </p>
         <label
           >调度方式<select v-model="form.type">
             <option value="daily">每天固定时间</option>
@@ -321,7 +474,7 @@ function time(at: number) {
         </p>
         <p v-if="error" role="alert">{{ error }}</p>
         <button type="button" :disabled="busy" @click="editor = false">取消</button>
-        <button type="submit" :disabled="busy">保存任务</button>
+        <button type="submit" :disabled="busy || !trustedChoice">保存任务</button>
       </form>
     </el-dialog>
   </el-dialog>

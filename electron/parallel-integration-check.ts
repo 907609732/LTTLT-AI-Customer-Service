@@ -7,6 +7,7 @@ import { createWindow, rendererPath } from './windows'
 import { createLocalRuntime, requireAppFrame, type LocalRuntime } from './local-runtime'
 import { createWorkspaceRuntime } from './workspace-runtime'
 import { registerBusinessIpc } from './business-ipc'
+import { registerPlatformFeatureIpc } from './platform-feature-ipc'
 import { registerDesktopIpc } from './ipc'
 import { registerCustomPhrasesIpc } from './custom-phrases-ipc'
 import { registerStoreSyncIpc } from './store-sync-ipc'
@@ -144,6 +145,7 @@ app
     off = [
       registerDesktopIpc(),
       registerBusinessIpc(runtime),
+      registerPlatformFeatureIpc({ runtime, authorize: requireAppFrame }),
       registerCustomPhrasesIpc(runtime, () => path.join(runtime.dataDirectory(), 'custom-phrases')),
       registerStoreSyncIpc({
         ipcMain,
@@ -337,18 +339,46 @@ app
       assert.equal(scheduler.workspaceId, runtime.snapshot().workspaceId)
       await assert.rejects(evaluate('window.yunduoDesktop.schedulerSnapshot("old")'), /工作区/)
       checks.push('调度真实IPC工作区校验')
+      const currentWorkspace = runtime.snapshot().workspaceId
+      assert.equal(
+        (
+          await evaluate<{ workspaceId: string }>(
+            `window.yunduoDesktop.platformLearning.snapshot({workspaceId:${JSON.stringify(currentWorkspace)}})`,
+          )
+        ).workspaceId,
+        currentWorkspace,
+      )
+      assert.equal(
+        (
+          await evaluate<{ workspaceId: string }>(
+            `window.yunduoDesktop.receptionSnapshot(${JSON.stringify(currentWorkspace)})`,
+          )
+        ).workspaceId,
+        currentWorkspace,
+      )
+      await assert.rejects(
+        evaluate(
+          'window.yunduoDesktop.platformLearning.snapshot({workspaceId:"00000000-0000-4000-8000-000000000000"})',
+        ),
+        /工作区/,
+      )
+      checks.push('平台学习及接待真实preload/IPC读取与旧工作区拒绝')
+      // A simulated store has no native buyer facts. Seed a durable synthetic task through its
+      // actual IPC instead of fabricating selectable native customers in the updated form.
+      await evaluate(
+        `window.yunduoDesktop.schedulerExecute(${JSON.stringify({ type: 'save', workspaceId: currentWorkspace, task: { name: '跨进程调度验收', storeId: meta.a, uid: 'parallel-buyer', enabled: false, action: { kind: 'welcome-text', text: '隔离待确认文字，禁止真实发送' }, schedule: { type: 'once', at: Date.now() + 3 * 86400000 } } })})`,
+      )
       await load('/')
       await click('定时任务', '.sidebar-footer button')
-      await click('添加任务')
-      await input('.scheduler-form label:nth-child(1) input', '跨进程调度验收')
-      await input('.scheduler-form label:nth-child(2) input', meta.a)
-      await input('.scheduler-form label:nth-child(3) input', 'parallel-buyer')
-      await input('.scheduler-form textarea', '隔离待确认文字，禁止真实发送')
-      await click('保存任务', '.scheduler-form button')
       await wait(
         'document.querySelector(".scheduled-tasks-dialog")?.innerText.includes("跨进程调度验收")',
       )
       assert.equal(runtime.scheduler().snapshot().tasks.length, 1)
+      await click('启用', '.scheduled-tasks-dialog .task-entry button')
+      await wait('document.querySelector(".scheduled-tasks-dialog")?.innerText.includes("下次")')
+      await click('停用', '.scheduled-tasks-dialog .task-entry button')
+      await wait('document.querySelector(".scheduled-tasks-dialog")?.innerText.includes("已停用")')
+      assert.equal(runtime.scheduler().snapshot().tasks[0]?.enabled, false)
       await click('启用', '.scheduled-tasks-dialog .task-entry button')
       await wait('document.querySelector(".scheduled-tasks-dialog")?.innerText.includes("下次")')
       runtime.scheduler().tick(Date.now() + 4 * 86400000)
@@ -359,8 +389,8 @@ app
       )
       await click('刷新', '.scheduled-tasks-dialog .st-toolbar button')
       await wait('document.querySelector(".scheduled-tasks-dialog")?.innerText.includes("未发送")')
-      await click('停用', '.scheduled-tasks-dialog .task-entry button')
-      checks.push('真实调度界面新增启停、到期阻塞且不发送')
+      assert.equal(runtime.scheduler().snapshot().tasks[0]?.enabled, false)
+      checks.push('真实调度IPC保存、界面启停、未接平台到期阻塞且不发送')
       await screenshot('scheduler-blocked-no-send')
     } else {
       await load('/')
@@ -370,8 +400,11 @@ app
       )
       assert.equal(runtime.scheduler().snapshot().tasks.length, 1)
       assert.equal(runtime.scheduler().snapshot().tasks[0]?.enabled, false)
-      assert.equal(runtime.scheduler().snapshot().runs[0]?.state, 'blocked')
-      checks.push('第三独立进程恢复调度任务及阻塞记录，未恢复批准')
+      const restoredRun = runtime.scheduler().snapshot().runs[0]
+      assert.equal(restoredRun?.state, 'invalidated')
+      assert.match(restoredRun?.reason ?? '', /服务关闭|重启/)
+      assert.equal(restoredRun?.approvalId, undefined)
+      checks.push('第三独立进程恢复调度任务及记录，旧事项失效且未恢复批准')
       await screenshot('scheduler-after-process-restart')
     }
     assert.deepEqual(await evaluate('window.__vueErrors || []'), [])

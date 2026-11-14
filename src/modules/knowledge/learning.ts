@@ -6,6 +6,20 @@ export type LearningSource =
   | { kind: 'product'; storeId: string; productId: string; version: number; updatedAt: number }
   | { kind: 'document'; storeId: string; label: string; line: number }
   | { kind: 'size'; storeId: string; label: string }
+  | {
+      kind: 'platform-products' | 'platform-chats'
+      storeId: string
+      platform: string
+      accountId: string
+      platformStoreId: string
+      taskId: string
+      candidateId: string
+      recordId: string
+      uid?: string
+      messageIds: string[]
+      capturedAt: number
+      sourceUrl?: string
+    }
 export interface LearningCandidate {
   question: string
   answer: string

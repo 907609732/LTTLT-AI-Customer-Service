@@ -22,7 +22,7 @@ test('generated locale overlays use the native namespace and preserve existing t
 
 test('administrator literal messages exist in both runtime language catalogs',()=>{
  const catalogs=['en','zh'].map(language=>JSON.parse(readFileSync(resolve(upstream,`web/src/i18n/locales/${language}.json`),'utf8')).translation);
- for(const file of ['admin-page.tsx','admin-usage.tsx']){
+ for(const file of ['admin-page.tsx','admin-usage.tsx','admin-billing.tsx']){
   const source=readFileSync(resolve(root,'overlay/web/src/features/lingtu',file),'utf8');
   const keys=[...source.matchAll(/\bt\((?:'([^'\\]*(?:\\.[^'\\]*)*)'|"([^"\\]*(?:\\.[^"\\]*)*)")/g)].map(match=>(match[1]??match[2]).replaceAll("\\'","'").replaceAll('\\"','"'));
   assert.ok(keys.length>10,`expected administrator messages in ${file}`);

@@ -11,6 +11,7 @@ import {
   commandSchema,
   snapshotSchema,
   resultSchema,
+  intentsSchema,
   emptySnapshot,
   type BackendCommand,
   type BackendEvent,
@@ -47,6 +48,16 @@ import { registerStoreBrowserEnvironment } from './store-browser'
 import { createReportingPipeline } from './reporting-pipeline'
 import { createStoreSync } from './store-sync-service'
 import { createFileScheduler } from './scheduler-storage'
+import { createFileReceptionAutomation } from './reception-automation-storage'
+import { ReceptionOperationsService } from './reception-operation-service'
+import { createPlatformLearningService } from './platform-learning-service'
+import { PlatformOrderService } from './platform-order-service'
+import { createPddOrderProvider } from './pdd-order-provider'
+import { createPddLearningProvider } from './pdd-learning-provider'
+import { createPddOperationsProvider } from './pdd-operations-provider'
+import { platformLearningOpenSourceSchema } from '../src/shared/contracts/platform-learning'
+import { RuntimeResourceDisposer } from './runtime-disposal'
+import { PlatformWriteCoordinator } from './platform-write-coordinator'
 import {
   openAssistPlatformItemSchema,
   refreshAssistPlatformSchema,
@@ -304,6 +315,9 @@ export function createLocalRuntime(options: {
     allowExternalClient: true,
     getWindow: options.getWindow,
   })
+  const platformAdapters = new Map<string, unknown>()
+  const operationAdapters = new Map<string, unknown>()
+  const platformWrites = new PlatformWriteCoordinator()
   const backend = loadFactory<BackendFactory>(
     'electron/backend.cjs',
     'createBackend',
@@ -311,11 +325,23 @@ export function createLocalRuntime(options: {
     dataDir,
     // 项目自有平台 id 由这里注入，拼多多/抖店等真实平台的默认清单不受影响。
     extraPlatforms: [{ id: SIM_PLATFORM_ID, label: SIM_PLATFORM_LABEL }],
-    adapterFactory: (store: { id: string; storeName?: string; platform: string }, deps: unknown) =>
-      store.platform === SIM_PLATFORM_ID
-        ? createSimAdapter(store, simHub)
-        : // 必须先做文案改写再交给厂商工厂：厂商适配器表里没有 sim-local，未知平台会直接抛错。
-          configureDomTextAdapter(store.platform, host.adapterFactory(store, deps)),
+    adapterFactory: (
+      store: { id: string; storeName?: string; platform: string },
+      deps: unknown,
+    ) => {
+      const adapter =
+        store.platform === SIM_PLATFORM_ID
+          ? createSimAdapter(store, simHub)
+          : // 必须先做文案改写再交给厂商工厂：厂商适配器表里没有 sim-local，未知平台会直接抛错。
+            configureDomTextAdapter(store.platform, host.adapterFactory(store, deps))
+      platformAdapters.set(store.id, adapter)
+      if (store.platform === 'pdd-web') {
+        const coordinated = platformWrites.bind(store.id, adapter)
+        operationAdapters.set(store.id, coordinated.operations)
+        return coordinated.backend
+      }
+      return adapter
+    },
     managerFactory: createSimManagerFactory(
       host.managerFactory as (deps: Record<string, unknown>) => never,
       simHub,
@@ -370,6 +396,70 @@ export function createLocalRuntime(options: {
     if (closed || !managed.canAccessWorkspace())
       throw new Error('当前账号工作区不可用，请重新登录或刷新')
   }
+  const providerStore = (id: string) => {
+    assertActive()
+    const raw = localBackend.snapshot() as {
+      stores?: {
+        id: string
+        storeName: string
+        platform: string
+        mallId?: string
+        aiEnabled: boolean
+      }[]
+    }
+    return raw.stores?.find((store) => store.id === id)
+  }
+  const accountId = () =>
+    managed.active.mode === 'local'
+      ? 'local'
+      : String(managed.snapshot().session.account?.userId ?? 'signed-out')
+  const providerOptions = {
+    namespace: managed.partitionNamespace,
+    getStore: providerStore,
+    getAdapter: (id: string) => platformAdapters.get(id),
+    accountId,
+    assertActive,
+    identityScript: () =>
+      loadFactory<{ buildIdentityScript(input: { timeoutMs: number; refresh: boolean }): string }>(
+        'desk-v1/src/adapters/pdd-identity.js',
+        'buildIdentityScript',
+      ).buildIdentityScript({ timeoutMs: 5000, refresh: true }),
+  }
+  const learningProvider = createPddLearningProvider(providerOptions)
+  const learning = createPlatformLearningService({
+    directory: dataDir,
+    workspaceId,
+    port: {
+      ...learningProvider,
+      assertActive,
+      async listPacks() {
+        assertActive()
+        const result = resultSchema.parse(
+          await localBackend.execute({ action: 'list-intent-packs', values: {} }),
+        )
+        assertActive()
+        return intentsSchema.parse(result.data).packs
+      },
+      async savePack(pack) {
+        assertActive()
+        const result = resultSchema.parse(
+          await localBackend.execute({ action: 'save-intent-pack', values: pack }),
+        )
+        assertActive()
+        const id = typeof result.data.id === 'string' ? result.data.id : ''
+        if (!id) throw Error('知识包未返回有效ID')
+        return { id }
+      },
+    },
+  })
+  const orderProvider = createPddOrderProvider(providerOptions)
+  const orders = new PlatformOrderService({ directory: dataDir, workspaceId, port: orderProvider })
+  const featureParent = options.getWindow()
+  const closeFeatureWindows = () => {
+    learningProvider.dispose()
+    orderProvider.dispose()
+  }
+  featureParent?.once('closed', closeFeatureWindows)
   const storeSync = createStoreSync({
     directory: path.join(dataDir, 'store-sync-backups'),
     port: {
@@ -394,37 +484,85 @@ export function createLocalRuntime(options: {
       const snapshot = read()
       if (!snapshot.stores.some((store) => store.id === task.storeId))
         throw new Error('店铺不存在或已移除')
-      if (
-        !snapshot.conversations.some(
-          (conversation) => conversation.storeId === task.storeId && conversation.uid === task.uid,
-        )
-      )
-        throw new Error('目标会话尚未采集或已移除')
     },
     capability: (task) => {
       if (closed || !managed.canAccessWorkspace()) return '当前账号工作区不可用'
       const snapshot = read()
-      if (!snapshot.stores.some((store) => store.id === task.storeId)) return '店铺不存在或已移除'
-      if (
-        !snapshot.conversations.some(
-          (conversation) => conversation.storeId === task.storeId && conversation.uid === task.uid,
-        )
-      )
-        return '目标会话尚未采集或已移除'
-      return '平台事件与统一发送确认尚未验证；任务未发送'
+      const store = snapshot.stores.find((store) => store.id === task.storeId)
+      if (!store) return '店铺不存在或已移除'
+      if (store.platform !== 'pdd-web') return '当前平台原生接待操作尚未接通；任务未发送'
+      return ''
     },
+  })
+  const automation = createFileReceptionAutomation({
+    directory: dataDir,
+    scheduler,
+    encryption: safeStorage,
+  })
+  const operationsProvider = createPddOperationsProvider({
+    ...providerOptions,
+    workspaceId,
+    getAdapter: (id: string) => operationAdapters.get(id),
+    withExclusive: (storeId, operation) => platformWrites.exclusive(storeId, operation),
+    transferKeywords: (storeId) => {
+      const snapshot = read()
+      return snapshot.handoffByStore[storeId]?.keywords ?? snapshot.config.safety.handoffKeywords
+    },
+  })
+  const operations = new ReceptionOperationsService({
+    workspaceId,
+    stores: () =>
+      read()
+        .stores.filter((store) => store.platform === 'pdd-web')
+        .map((store) => store.id),
+    scheduler,
+    automation,
+    port: operationsProvider,
+    isCurrent: () => !closed && managed.canAccessWorkspace(),
   })
   syncScheduler = () => {
     if (!runtimeStarted || closed) return
     try {
-      if (managed.canAccessWorkspace()) scheduler.start()
-      else scheduler.pause()
+      if (managed.canAccessWorkspace()) operations.start()
+      else {
+        operations.pause()
+        orders.pause()
+      }
     } catch {
       scheduler.lastError = '调度服务未能恢复，请检查磁盘或重启后刷新核对'
     }
   }
   review.sync()
   scheduleReporting()
+  const disposer = new RuntimeResourceDisposer([
+    () => storeSync.dispose(),
+    () => operations.dispose(),
+    () => platformWrites.dispose(),
+    () => featureParent?.removeListener('closed', closeFeatureWindows),
+    () => learning.dispose(),
+    () => learningProvider.dispose(),
+    () => orders.dispose(),
+    () => orderProvider.dispose(),
+    () => platformAdapters.clear(),
+    () => operationAdapters.clear(),
+    () => scheduler.dispose(),
+    () => assistCollector.dispose(),
+    () => disposeBrowserEnvironment(),
+    () => {
+      assistDetails.clear()
+      observedAssistDetails.clear()
+    },
+    () => assistHost.dispose(),
+    () => managed.dispose(),
+    () => review.dispose(),
+    () => {
+      if (logWindow && !logWindow.isDestroyed()) logWindow.destroy()
+    },
+    () => listeners.clear(),
+    () => simServer.dispose(),
+    () => localBackend.dispose(),
+    () => host.close(),
+  ])
   return {
     start: async () => {
       await managed.init()
@@ -452,6 +590,25 @@ export function createLocalRuntime(options: {
     scheduler() {
       assertActive()
       return scheduler
+    },
+    platformLearning() {
+      assertActive()
+      return learning
+    },
+    async openPlatformLearningSource(input: unknown) {
+      const value = platformLearningOpenSourceSchema.parse(input)
+      assertActive()
+      if (value.workspaceId !== workspaceId) throw Error('工作区已变化')
+      await learningProvider.reveal(value.storeId, value.source)
+      assertActive()
+    },
+    platformOrders() {
+      assertActive()
+      return orders
+    },
+    receptionOperations() {
+      assertActive()
+      return operations
     },
     serviceRequest(
       endpoint: string,
@@ -640,29 +797,8 @@ export function createLocalRuntime(options: {
       host.setPresentation({ storeId, visible })
     },
     async dispose() {
-      if (closed) return
       closed = true
-      storeSync.dispose()
-      // A broken scheduler file must not keep stores, credentials or timers alive during shutdown.
-      let schedulerError: unknown
-      try {
-        scheduler.dispose()
-      } catch (error) {
-        schedulerError = error
-      }
-      assistCollector.dispose()
-      disposeBrowserEnvironment()
-      assistDetails.clear()
-      observedAssistDetails.clear()
-      assistHost.dispose()
-      managed.dispose()
-      review.dispose()
-      if (logWindow && !logWindow.isDestroyed()) logWindow.destroy()
-      listeners.clear()
-      await simServer.dispose()
-      localBackend.dispose()
-      await host.close()
-      if (schedulerError) throw schedulerError
+      await disposer.dispose()
     },
   }
 }

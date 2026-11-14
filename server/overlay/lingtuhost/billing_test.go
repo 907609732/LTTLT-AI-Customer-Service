@@ -18,12 +18,46 @@ func TestBillingConfigurationFailsClosed(t *testing.T) {
 	t.Setenv("LINGTU_BILLING_STRIPE_WEBHOOK_SECRET", "")
 	t.Setenv("LINGTU_BILLING_PLANS", `[{"id":"starter","name":"Starter","currency":"cny","amount":1000,"calls":100,"valid_days":30}]`)
 	config := loadBillingConfig()
-	if config.Ready || len(config.Plans) != 1 {
+	if config.Ready || len(config.Plans) != 0 {
 		t.Fatalf("unexpected config %+v", config)
 	}
 	t.Setenv("LINGTU_BILLING_PLANS", `[{"id":"bad","name":"Bad","currency":"cny","amount":1.5,"calls":100,"valid_days":30}]`)
 	if len(loadBillingConfig().Plans) != 0 {
 		t.Fatal("fractional minor currency accepted")
+	}
+}
+
+func TestBillingRegisteredRoutesExposeVersionAndDenyAnonymousCustomersAndAdmins(t *testing.T) {
+	db := hostDB(t)
+	router := gin.New()
+	client := router.Group("/api/client", (&Host{}).clientAuth)
+	if err := RegisterBilling(router, client, db, "https://account.example"); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(router)
+	defer server.Close()
+	for _, path := range []string{"/api/client/billing", "/api/client/billing/orders", "/api/lingtu/admin/billing"} {
+		response, err := server.Client().Get(server.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != 401 {
+			t.Fatalf("%s anonymous status %d", path, response.StatusCode)
+		}
+	}
+	response, err := server.Client().Get(server.URL + "/api/lingtu/service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var info struct {
+		Version         string   `json:"version"`
+		BillingProtocol int      `json:"billing_protocol"`
+		Capabilities    []string `json:"capabilities"`
+	}
+	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version == "" || info.BillingProtocol != 2 || len(info.Capabilities) == 0 {
+		t.Fatalf("missing deployed capability/version: %+v status %d", info, response.StatusCode)
 	}
 }
 
@@ -124,6 +158,9 @@ func TestBillingSignedWebhookCommitsAndRejectsTampering(t *testing.T) {
 	if code := send(tampered, signed.Header); code != 400 {
 		t.Fatalf("tampered status %d", code)
 	}
+	// Disabling the catalog stops new purchases, not settlement of an already
+	// paid pending session with valid credentials and provider signature.
+	h.config.Ready = false
 	for range 2 {
 		if code := send(payload, signed.Header); code != 200 {
 			t.Fatalf("valid webhook status %d", code)

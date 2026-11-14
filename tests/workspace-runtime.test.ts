@@ -44,6 +44,18 @@ function fixture() {
       scheduler: () => {
         throw Error('测试未接调度')
       },
+      platformLearning: () => {
+        throw Error('测试未接学习')
+      },
+      openPlatformLearningSource: async () => {
+        throw Error('测试未接学习原页')
+      },
+      platformOrders: () => {
+        throw Error('测试未接订单')
+      },
+      receptionOperations: () => {
+        throw Error('测试未接接待')
+      },
       serviceRequest: async () => {
         if (closed) throw Error('closed')
         return { workspaceId: state.workspaceId }

@@ -8,7 +8,7 @@ import (
 )
 
 func TestLingtuConnectionProofSupportsExactManagedSectionAndBody(t *testing.T) {
-	for _, section := range []string{"model_connection", "qwen-vision"} {
+	for _, section := range []string{"model_connection", "qwen-vision", "billing"} {
 		context, _ := common.Marshal(map[string]string{"section": section, "request_hash": strings.Repeat("b", 64)})
 		first, err := BindVerificationOperation(VerificationOperation{Scope: VerificationScopeManagedConfigure, Context: context})
 		if err != nil {

@@ -9,6 +9,7 @@ import {
   KeyRound,
   Settings2,
   Menu,
+  CreditCard,
 } from 'lucide-react'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -42,6 +43,7 @@ import {
   type SaveFailure,
 } from './admin-models'
 import { AccountUsageSummary, AdminOverview } from './admin-usage'
+import { AdminBilling } from './admin-billing'
 
 import './admin-light.css'
 
@@ -1300,6 +1302,7 @@ export function AdminPage() {
     ['usage', 'Usage records', ListChecks],
     ['login', 'Sign-in methods', KeyRound],
     ['trial', 'Trial settings', Settings2],
+    ['billing', 'Billing and payments', CreditCard],
   ] as const
   return (
     <main className='lingtu-admin-light lingtu-admin-shell'>
@@ -1534,6 +1537,9 @@ export function AdminPage() {
                     busy={busy}
                   />
                 )}
+              </TabsContent>
+              <TabsContent value='billing' keepMounted>
+                {visitedTabs.has('billing') && <AdminBilling />}
               </TabsContent>
             </div>
             <footer className='admin-footer'>

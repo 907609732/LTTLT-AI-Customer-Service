@@ -8,6 +8,7 @@ const {validateMessages}=require('../shared/multimodal.cjs');
 const MESSAGES = {
   team_forbidden: '没有此团队或店铺的操作权限，请核对授权。', team_not_found: '团队记录不存在或已不可访问。', team_revision_conflict: '团队资料已变化，请刷新后重试，避免覆盖其他成员修改。', team_invalid_request: '团队操作参数不合法。', team_temporarily_unavailable: '团队服务暂时不可用，请刷新核对结果。',
   payment_not_configured: '支付尚未配置，请联系管理员。', invalid_plan: '套餐已变化，请刷新后重试。', billing_conflict: '充值订单与本次操作冲突，请刷新核对。', checkout_unavailable: '支付链接暂不可用，请勿重复付款。', billing_unavailable: '计费服务暂不可用，请稍后核对订单。',
+  service_not_deployed: '当前服务接口未部署，请联系管理员核对服务版本及代理。', plans_not_configured: '管理员尚未发布充值套餐。',
   vision_unavailable:'当前模型或本店设置未启用图片识别，请转人工处理图片。',vision_invalid_input:'图片地址或数量不受支持，请在原会话检查图片。',vision_failed:'图片识别未完成，请人工检查该会话；不会自动重试。',
   session_expired: '登录已过期，请重新登录。', account_disabled: '账号已停用。',
   trial_exhausted: '试用次数已用完。', trial_expired: '试用已到期。',
@@ -27,14 +28,15 @@ const MESSAGES = {
   invalid_request: '请求格式无效。', request_failed: '托管服务拒绝了请求。',
 };
 class ManagedSessionError extends Error {
-  constructor(code, kind) {
+  constructor(code, kind, status) {
     const known=typeof code==='string'&&Object.hasOwn(MESSAGES,code);
     super(known?MESSAGES[code]:MESSAGES.request_failed);
     this.name = 'ManagedSessionError'; this.code = known ? code : 'request_failed';
+    this.status = Number.isInteger(status) && status >= 100 && status <= 599 ? status : null;
     this.kind = kind || (['session_expired', 'account_disabled', 'access_denied', 'expired_token'].includes(code) ? 'auth' : ['trial_exhausted', 'trial_expired', 'daily_limit'].includes(code) ? 'quota' : code === 'offline' ? 'offline' : 'service');
   }
 }
-const error = (code, kind) => new ManagedSessionError(code, kind);
+const error = (code, kind, status) => new ManagedSessionError(code, kind, status);
 const finite = v => Number.isSafeInteger(v) && v >= 0;
 const userId = v => (Number.isSafeInteger(v) && v > 0) || (typeof v === 'string' && v.length > 0 && v.length <= 512);
 const text = (v, max = 512) => typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -130,11 +132,12 @@ function createManagedSession(options = {}) {
           raw = Buffer.concat(chunks).toString('utf8');
         } finally { reader.releaseLock(); }
       } else { raw = await response.text(); if (Buffer.byteLength(raw) > 2 * 1024 * 1024) throw error('invalid_response'); }
-      let data; try { data = JSON.parse(raw); } catch { throw error(response.status >= 500 ? 'offline' : 'invalid_response'); }
+      // A proxy's HTML 404 is still a missing route. Never propagate its raw body.
+      let data; try { data = JSON.parse(raw); } catch { throw error(response.status === 404 ? 'service_not_deployed' : response.status === 401 ? 'session_expired' : response.status >= 500 ? 'offline' : 'invalid_response', undefined, response.status); }
       if (!response.ok) {
-        const candidate = typeof data.error === 'string' ? data.error : data.error?.code || data.code;
-        if(response.status>=500&&!['request_uncertain','model_unavailable','model_not_ready','service_busy','rate_limited','request_pending'].includes(candidate))throw error('offline');
-        throw error(candidate === 'invalid_grant' || (response.status === 401 && !MESSAGES[candidate]) ? 'session_expired' : candidate);
+        const candidate = typeof data?.error === 'string' ? data.error : data?.error?.code || data?.code;
+        if(response.status>=500&&!['request_uncertain','model_unavailable','model_not_ready','service_busy','rate_limited','request_pending','payment_not_configured','plans_not_configured','checkout_unavailable','billing_unavailable'].includes(candidate))throw error('offline', undefined, response.status);
+        throw error(response.status === 401 || candidate === 'invalid_grant' ? 'session_expired' : response.status === 404 && !MESSAGES[candidate] ? 'service_not_deployed' : candidate, undefined, response.status);
       }
       return data;
     } catch (e) {

@@ -158,10 +158,6 @@ export function createAssistPlatformReader(options: {
           `(${(kind === 'ticket' ? readPddTicketDom : readPddAfterSaleDom).toString()})()`,
         ),
       )
-    if (kind === 'ticket') {
-      const before = await readDom()
-      if (!before.recognized) return { ...result, message: before.message }
-    }
     if (!(await refreshQuery())) return blocked()
     if (!(await verify())) return blocked()
     let dom = await readDom()

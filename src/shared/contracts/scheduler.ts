@@ -1,19 +1,8 @@
 import { z } from 'zod'
+import { automationActionSchema, platformOperationRunSchema } from './platform-operations'
+export { automationActionSchema } from './platform-operations'
 
 const id = z.string().trim().min(1).max(128)
-export const automationActionSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('welcome-text'), text: z.string().trim().min(1).max(2000) }).strict(),
-  z.object({ kind: z.literal('welcome-image'), url: z.url().startsWith('https://') }).strict(),
-  z.object({ kind: z.literal('welcome-video'), url: z.url().startsWith('https://') }).strict(),
-  z.object({ kind: z.literal('transfer'), agentId: id }).strict(),
-  z
-    .object({
-      kind: z.literal('payment-reminder'),
-      text: z.string().trim().min(1).max(2000),
-      orderId: id,
-    })
-    .strict(),
-])
 export const scheduleSchema = z.discriminatedUnion('type', [
   z
     .object({ type: z.literal('once'), at: z.number().int().nonnegative().max(8640000000000000) })
@@ -52,20 +41,7 @@ export const schedulerTaskSchema = schedulerTaskInputSchema.extend({
   nextAt: z.number().int().nonnegative(),
   revision: z.number().int().positive(),
 })
-export const schedulerRunSchema = z
-  .object({
-    id,
-    taskId: id,
-    storeId: id,
-    uid: id,
-    occurrence: z.number().int().nonnegative(),
-    action: automationActionSchema,
-    state: z.enum(['pending', 'blocked', 'cancelled', 'expired']),
-    reason: z.string().max(300),
-    createdAt: z.number().int().nonnegative(),
-    expiresAt: z.number().int().nonnegative(),
-  })
-  .strict()
+export const schedulerRunSchema = platformOperationRunSchema
 export const schedulerStateSchema = z
   .object({
     version: z.literal(1),

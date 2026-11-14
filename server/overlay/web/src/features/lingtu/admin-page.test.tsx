@@ -227,6 +227,7 @@ it('exposes all management sections by default in Chinese and persists an Englis
     '用量记录',
     '登录方式',
     '试用设置',
+    '充值与计费',
   ]) {
     expect(screen.getByRole('tab', { name })).toBeTruthy()
   }

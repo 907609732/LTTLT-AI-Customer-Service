@@ -4,6 +4,10 @@ import type { SimulatorActionResult, SimulatorStatus } from './simulation'
 import type { CustomPhrasesBridge } from '../customer-service/custom-phrases'
 import type { SchedulerCommand, SchedulerSnapshot } from './scheduler'
 import type { ManagedBusinessRequest } from './managed-business'
+import type { ManagedServiceResponse } from './managed-service-error'
+import type { PlatformLearningTransport } from './platform-learning'
+import type { PlatformOrderRequest, PlatformOrderSnapshot } from './platform-orders'
+import type { ReceptionBridge } from './platform-operations'
 import type {
   AssistMainSection,
   AssistPreferencesPatch,
@@ -21,8 +25,10 @@ export interface ScreenPoint {
   screenY: number
 }
 
-export interface DesktopApi {
-  managedBusinessRequest?(input: ManagedBusinessRequest): Promise<unknown>
+export interface DesktopApi extends Partial<ReceptionBridge> {
+  managedBusinessRequest?(input: ManagedBusinessRequest): Promise<ManagedServiceResponse>
+  platformLearning?: PlatformLearningTransport
+  platformOrderRequest?(input: PlatformOrderRequest): Promise<PlatformOrderSnapshot>
   openManagedCheckout?(input: { workspaceId: string; url: string }): Promise<void>
   customPhrases?: CustomPhrasesBridge
   storeSyncPreview?(envelope: unknown): Promise<unknown>

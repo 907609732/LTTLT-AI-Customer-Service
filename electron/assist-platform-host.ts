@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { createAssistQueryMonitor } from './assist-platform-query'
 import {
   clickPddQuery,
+  preparePddTicketQuery,
   clickPddPage,
   pddDetailId,
   hasVisiblePddCaptcha,
@@ -297,6 +298,12 @@ export function createAssistPlatformHost(options: {
         queries.run(
           entry.window.webContents,
           async () => {
+            if (kind === 'ticket') {
+              await page.executeJavaScript(
+                `(${preparePddTicketQuery.toString()})(${hasVisiblePddCaptcha.toString()})`,
+              )
+              signal?.throwIfAborted()
+            }
             await page.executeJavaScript(
               `(${clickPddQuery.toString()})(${JSON.stringify(kind)}, ${hasVisiblePddCaptcha.toString()})`,
             )

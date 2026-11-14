@@ -9,6 +9,7 @@ import { registerStoreSyncIpc } from './store-sync-ipc'
 import { registerSchedulerIpc } from './scheduler-ipc'
 import { createWorkspaceRuntime } from './workspace-runtime'
 import { registerBusinessIpc } from './business-ipc'
+import { registerPlatformFeatureIpc } from './platform-feature-ipc'
 import { PRODUCT_NAME } from '../src/shared/brand'
 import { resolveAppUserData } from './app-identity'
 import { createAssistWindowManager, type AssistWindowManager } from './assist-window'
@@ -66,6 +67,11 @@ app
         }),
     })
     const disposeBusiness = registerBusinessIpc(runtime)
+    const disposePlatformFeatures = registerPlatformFeatureIpc({
+      runtime,
+      authorize: requireAppFrame,
+    })
+    app.once('will-quit', disposePlatformFeatures)
     const activeRuntime = runtime
     const disposePhrases = registerCustomPhrasesIpc(activeRuntime, () =>
       path.join(activeRuntime.dataDirectory(), 'custom-phrases'),

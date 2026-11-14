@@ -52,4 +52,6 @@ source-files.json 为此文件同时记录 upstreamGitBlob、upstreamSha256、�
 
 ## 受限团队与计费会话适配（2026-11-14）
 
+计费诊断增量：managed-session.cjs 的错误对象新增受限整数 HTTP status；仅保留允许列表中的错误 code，将代理非 JSON 404 明确识别为接口未部署，401 统一走既有登录失效流程，商户未配置等已知 503 不再错误地将账号置为 offline。未知正文和远端错误文本均不传出。路径白名单、加密会话、身份/epoch、大小限制、超时及既有模型不确定结果保护保持原语义。原始 upstreamSha256 保留、实际哈希已更新；原生 managed-session-billing 测试覆盖 404/401/未配置/冲突与无原文泄漏。
+
 managed-session.cjs 新增主进程专用 serviceRequest，仅允许 /billing、/team、/teams 的受限路径和 GET/POST/PATCH/DELETE；拒绝路径跳转、查询串和过大正文。复用原 refresh、请求超时、epoch/退出校验，令牌不出主进程。TypeScript 策略和业务参数校验由 electron/managed-service-request.ts、managed-controller.ts 及领域服务承担。原始 upstreamSha256 保留，实际哈希已更新。新增 managed-controller 回归先失败后通过，后续须执行 vendor 完整性与上游验证。

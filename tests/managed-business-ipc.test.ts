@@ -52,7 +52,7 @@ describe('统一托管业务IPC', () => {
         workspaceId: f.snapshot.workspaceId,
         request: { endpoint: '/teams', method: 'GET' },
       }),
-    ).resolves.toEqual({ plans: [] })
+    ).resolves.toEqual({ ok: true, data: { plans: [] } })
     expect(fake.authorize).toHaveBeenCalled()
     for (const input of [
       { workspaceId: randomUUID(), request: { endpoint: '/teams' } },
@@ -66,6 +66,37 @@ describe('统一托管业务IPC', () => {
     expect(f.serviceRequest).toHaveBeenCalledTimes(1)
     f.dispose()
     expect(fake.handlers.has('managed:business-request')).toBe(false)
+  })
+  it('保留受限支付错误码，不将服务响应或密钥穿过Electron异常序列化', async () => {
+    const f = fixture()
+    f.serviceRequest.mockRejectedValueOnce(
+      Object.assign(new Error('private raw body sk_secret'), {
+        status: 404,
+        code: 'request_failed',
+      }),
+    )
+    const result = await f.invoke('business-request', {
+      workspaceId: f.snapshot.workspaceId,
+      request: { endpoint: '/billing' },
+    })
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'service_not_deployed', status: 404, retryable: false },
+    })
+    expect(JSON.stringify(result)).not.toMatch(/private raw|sk_secret/)
+  })
+  it('401使会话过期后仍返回session_expired闭集错误', async () => {
+    const f = fixture()
+    f.serviceRequest.mockImplementationOnce(async () => {
+      f.snapshot.managed.session.status = 'expired'
+      throw Object.assign(new Error('request failed'), { status: 401, code: 'session_expired' })
+    })
+    await expect(
+      f.invoke('business-request', {
+        workspaceId: f.snapshot.workspaceId,
+        request: { endpoint: '/billing' },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'session_expired', status: 401 } })
   })
   it('切换工作区后丢弃晚到响应，付款入口只接受准确服务商来源', async () => {
     const f = fixture()

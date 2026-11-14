@@ -7,9 +7,10 @@ import assert from 'node:assert/strict'
 import os from 'node:os'
 import { createWindow, rendererPath } from './windows'
 import { registerDesktopIpc } from './ipc'
-import { createLocalRuntime } from './local-runtime'
+import { createLocalRuntime, requireAppFrame } from './local-runtime'
 import { createWorkspaceRuntime } from './workspace-runtime'
 import { registerBusinessIpc } from './business-ipc'
+import { registerPlatformFeatureIpc } from './platform-feature-ipc'
 import { businessChecks } from './business-checks'
 import { domSendChecks } from './dom-send-checks'
 import { simChecks } from './sim-checks'
@@ -88,6 +89,7 @@ app
       factory: () => createLocalRuntime({ dataDir, getWindow: () => win }),
     })
     let disposeBusiness = registerBusinessIpc(runtime)
+    let disposeFeatures = registerPlatformFeatureIpc({ runtime, authorize: requireAppFrame })
     let pageSequence = 0
     let consoleErrors: string[] = []
     win.webContents.on('console-message', (_event, level, message) => {
@@ -418,11 +420,13 @@ app
       load,
       restart: async () => {
         disposeBusiness()
+        disposeFeatures()
         await runtime.dispose()
         runtime = createWorkspaceRuntime({
           factory: () => createLocalRuntime({ dataDir, getWindow: () => win }),
         })
         disposeBusiness = registerBusinessIpc(runtime)
+        disposeFeatures = registerPlatformFeatureIpc({ runtime, authorize: requireAppFrame })
         await load('/settings')
       },
     })
@@ -434,7 +438,9 @@ app
       check,
       bind(next) {
         disposeBusiness()
+        disposeFeatures()
         disposeBusiness = registerBusinessIpc(next)
+        disposeFeatures = registerPlatformFeatureIpc({ runtime: next, authorize: requireAppFrame })
       },
     })
     await domSendChecks(check)
@@ -443,6 +449,7 @@ app
     fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2))
     dispose()
     disposeBusiness()
+    disposeFeatures()
     await runtime.dispose()
     win.destroy()
     console.log(

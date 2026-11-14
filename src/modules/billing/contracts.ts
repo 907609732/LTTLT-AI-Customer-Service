@@ -13,6 +13,13 @@ export const billingCatalogSchema = z.object({
   ready: z.boolean(),
   reason: z.string().max(128),
   plans: z.array(billingPlanSchema).max(20),
+  service: z
+    .object({
+      version: z.string().max(128),
+      billing_protocol: z.literal(2),
+      capabilities: z.array(z.string().max(64)).max(20),
+    })
+    .optional(),
 })
 export const billingOrderSchema = z.object({
   id: identifier,

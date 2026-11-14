@@ -54,6 +54,18 @@ app
     let active = false
     const platformSnapshot = () => ({ workspaceId: snapshot.workspaceId, stores: [] })
     const runtime: LocalRuntime = {
+      platformLearning: () => {
+        throw Error('该检查未接平台学习')
+      },
+      openPlatformLearningSource: async () => {
+        throw Error('该检查未接平台学习原页')
+      },
+      platformOrders: () => {
+        throw Error('该检查未接平台订单')
+      },
+      receptionOperations: () => {
+        throw Error('该检查未接平台接待')
+      },
       dataDirectory: () => {
         throw Error('窗口专项不访问私有目录')
       },

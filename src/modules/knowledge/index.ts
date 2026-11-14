@@ -8,3 +8,12 @@ export { default as ShopBannedWordPanel } from './components/ShopBannedWordPanel
 export { default as IntentEditorModal } from './components/IntentEditorModal.vue'
 export { default as ExampleDialog } from './components/ExampleDialog.vue'
 export { default as ModelSwitchModal } from './components/ModelSwitchModal.vue'
+export { platformLearningTransportKey } from './platform-learning'
+export type {
+  PlatformLearningTransport,
+  PlatformLearningSnapshot,
+  PlatformLearningStart,
+  PlatformLearningTaskRequest,
+  PlatformLearningReview,
+  PlatformLearningOpenSource,
+} from './platform-learning'

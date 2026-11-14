@@ -1,56 +1,66 @@
-# 套餐、充值和调用账本交接（2026-11-14）
+# 充值与计费修复交接（2026-11-14）
 
-状态：领域内部实现与核心增量验证完成；统筹已通知完成公共路由、受限IPC和Vue provider接入，并解除“AI余额耗尽阻止充值”的公共认证耦合。本窗口没有修改公共 router/patches.json/主进程/共享契约/vendor/HANDOFF，也没有提交、推送、部署、商户开通或真实收费。
+任务 C 的本地领域实现、直接影响检查与候选服务包已完成。主进程/平台适配的公共 IPC 装配由统筹维护。随后用户明确授权仅升级大陆现有服务；已于 2026-11-14 21:14 完成实际部署及客户端只读验收，计费路由的大陆 404 已修复。没有 git stage/commit/push、商户开通、订单创建、付款或正式收费。
 
-## 可直接装配的导出
+## 装配与文件边界
 
-- `server/overlay/lingtuhost/billing.go`: `RegisterBilling(router *gin.Engine, authenticated *gin.RouterGroup, db *gorm.DB, portal string) error`。在 `TrialStore.Migrate()` / `h.migrateChat()` 成功后、已有 `authenticated := group.Group("", h.clientAuth)` 建立后调用 `if err := RegisterBilling(router, authenticated, model.DB, portal); err != nil { return err }`。函数内部迁移独立 billing 两表、注册三个受限账号路由和 Stripe webhook、返回静态提示页，无后台 goroutine 和清理要求。不改现有 trial 请求结算路径。
-- `src/modules/billing/index.ts`: `billingTransportKey`、`BillingTransport`、`createBillingClient`、catalog/orders/checkout 的 Zod Schema 和 DTO 类型。App 装配 `app.provide(billingTransportKey, transport)`。组件仅通过模块服务操作，不接触网络、Electron 和令牌。
-- 当前 transport 契约：`request(method: 'GET'|'POST', path: '/api/client/billing'|'/api/client/billing/orders', body?: {plan_id:string;request_id:string}): Promise<unknown>`，以及 `openCheckout(url:string): Promise<void>`。主进程适配时把 `/api/client` 前缀去掉，再调用统筹新增的 `managed.serviceRequest('/billing'|'/billing/orders', {method,body,signal})`。也可以统一调整本模块 transport 参数顺序；核心限制为两个固定 endpoint、GET/POST 与固定 body，绝不允许渲染层传入认证头/账号ID/金额。
-- `openCheckout` 必须主进程再次校验精确 `https://checkout.stripe.com`、无账号密码和自定义端口，仅在当前账号/工作区仍一致时打开默认浏览器。渲染层已有相同校验；主进程不可仅信任渲染层结果。
+- `ShopRechargeView` 自带共享 `AppWindowBar`，固定返回 `/` 和 `/shop/manage`，不依赖浏览历史。浏览器隐藏原生按钮；桌面经现有 `shared/platform/desktop` 调用最小化、最大化/还原和关闭。没有修改公共 MainLayout、router、main、preload 或 local-runtime。
+- `billingTransportKey` / `BillingTransport` 的固定路径保持不变：`GET /api/client/billing`、`GET/POST /api/client/billing/orders`。请求正文仅含 `{plan_id,request_id}`。公共主进程仍先剥离 `/api/client`，再复用 `managed.serviceRequest('/billing'|'/billing/orders', ...)`；不向渲染层暴露 Bearer、账号 ID 或价格决定权。
+- 新 `shared/contracts/managed-service-error.ts` 导出 `ManagedServiceResponse`、`ManagedServiceFailure`、闭集错误码及对应 Zod schema。响应为 `{ok:true,data}` 或 `{ok:false,error:{code,status,message,retryable}}`。
+- 新 `electron/managed-service-error.ts` 导出 `toManagedServiceFailure(cause)`，只保留受限 HTTP 状态和闭集错误码，未知归 `request_failed`；消息来自本地固定文本，不序列化 cause、IPC 前缀、响应原文、请求头或凭据。统筹在业务 IPC 捕获并返回 envelope，再由平台层解包。
+- vendor 仅修改 `managed-session.cjs`：HTTP 错误保留安全 `code/status`；代理纯文本/HTML 404 标识未部署，401 走既有会话失效，已知商户未配置 503 不再将账号误置 offline。请求白名单、大小、超时、加密、epoch 与模型不确定结果保护保留。原始/实际双哈希和来源说明已更新。
 
-## HTTP 契约
+## 客户端行为
 
-1. `GET /api/client/billing` → `{ready:boolean,reason:string,plans:[{id,name,currency:'cny',amount:integer分,calls:integer,valid_days:integer}]}`。
-2. `GET /api/client/billing/orders` → `{orders:[{id,plan:{同上},state:'pending'|'paid',created_at:Unix秒,paid_at:Unix秒或0}]}`。服务端从认证身份限制当前账号最近100条，不接受客户端 user_id。
-3. `POST /api/client/billing/orders` body `{plan_id,request_id}` → `{order:{同上},checkout_url:string}`。金额、币种、调用次数和期限只由服务端配置确定；支付已入账的重试返回空URL。`request_id` 必须跨网络失败重试保持一致；换账号时清除。错误结构与原API一致 `{error:code}`，包含 `payment_not_configured/invalid_request/invalid_plan/billing_conflict/checkout_unavailable/billing_unavailable`。
-4. `POST /api/lingtu/billing/stripe/webhook`：服务商签名回调，不需要用户会话。必须在反向代理转发原始body和`Stripe-Signature`，不能要求客户端登录。仅验签后的 paid payment session 可以入账，不接受浏览器返回或客户端 outcome。测试/正式模式必须与密钥一致。严格匹配固定SDK的API版本`2025-02-24.acacia`，不忽略版本或时间窗口；商户webhook须配置此版本。
-5. `GET /lingtu/billing/payment-return`：静态提示返回客户端刷新，不声称付款成功。portal 域名需将此路径转发到同一服务端，若独立网页托管则统筹补同语义页面，不能重定向到不存在路由。
+套餐、充值订单和账本有各自错误、加载状态和重试；套餐失败不会跳过另外两项。失败不展示“暂无已发布套餐”的成功空态；没有商户配置时隐藏可购买套餐。订单明确称软件充值订单。
 
-## 配置与业务语义
+已区分 404 未部署/代理缺路由、401 登录过期、商户未配置、无已发布套餐、网络失败及订单冲突。过期/停用/离线会话保留对应的恢复提示。工作区、来源、账号变化或离开页面会丢弃迟到结果；同一页面失败重试保留 checkout 请求 ID，未知结果不创建新的自动付款。
 
-新增服务端环境变量（全部缺省关闭支付）：
+外部 checkout 只接受精确 HTTPS `checkout.stripe.com`，主进程须继续复核当前工作区及来源。返回页面只提示回客户端刷新账本；不显示充值成功或假称入账。账本同步失败保留“上次同步、尚未核实本次入账”的状态。
 
-- `LINGTU_BILLING_STRIPE_SECRET_KEY`：服务端 Stripe key，不写日志/源码/渲染层。支持 sk*test*/sk*live* 格式；本任务未填写或调用真实商户。
-- `LINGTU_BILLING_STRIPE_WEBHOOK_SECRET`：whsec\_ 签名密钥。
-- `LINGTU_BILLING_PLANS`：严格JSON数组，最多20档，禁止重复ID和未知字段。例如仅作为隔离测试配置：`[{"id":"starter","name":"测试套餐","currency":"cny","amount":1000,"calls":100,"valid_days":30}]`。这不是已批准商业定价，不默认发布套餐。
+## 服务端入口
 
-复用固定 New API 的 `stripe-go/v81 v81.4.0`（MIT）、GORM和现有 TrialStore 事务/调用次数账本，无新依赖。New API固定来源与AGPL许可保持原样。候选研究：[New API](https://github.com/QuantumNous/new-api)、[官方 Stripe Go SDK](https://github.com/stripe/stripe-go)。上游原生钱包按Token额度，本客户端托管按调用次数，故不能把原生钱包充值直接伪称本产品调用次数；采用独立订单/不可变credit凭证，原事务内增加实际TrialGrant，再复用Reserve/Settle。
+`RegisterBilling(router, authenticated, db, portal)` 签名不变，现有 routes.go 注册无需增加其他公共装配点。入口内部迁移 billing 两表，并注册：
 
-- 金额全部整数分；已存订单快照不随套餐变价改变；同账号request_id不可更换套餐参数。
-- 同一订单只能入账一次，重复事件/不同事件对同一已付session不重复增加额度；金额、币种、session必须精确匹配。SQLite并发使用既有持久化写门与事务重试；没有进程内互斥假装跨实例幂等。
-- 支付失败或结果未知保留pending，用户不能手动标记paid。重复checkout使用Stripe幂等键；已持久化session通过SDK取回，避免幂等键过期后再创一个支付链接。
-- 充值增加既有调用池；有效期为max(当前到期,入账时刻+套餐天数)，不叠加年限；已过期未用额度不恢复，used/reserved保留以兼容在途结算。使用共享调用池而非逐订单独立到期，界面明确说明。
-- 仍受现有托管模型、并发/速率/每日安全策略限制，不自动开AI，不改变逐条发送确认。摘要和回复可能各算一次。
-- 暂不提供退款/拒付自动冲正、发票、微信/支付宝、对公转账、订阅自动续费和按店铺小时扣费明细；不得称全部商业上线验收完成。上线前需补退款/拒付流程与真实商户沙箱验收。
+| 路径                                      | 约束                                                                 |
+| ----------------------------------------- | -------------------------------------------------------------------- |
+| `GET /api/lingtu/service`                 | 公开、无账号/凭据的版本能力探针；版本 `2026.11.14-billing.2`，协议 2 |
+| `GET /api/client/billing`                 | 原受限会话；返回 ready/reason/plans 和 service                       |
+| `GET/POST /api/client/billing/orders`     | 同一认证；当前账号订单与服务端价格，幂等创建/取回 checkout           |
+| `GET/POST /api/lingtu/admin/billing`      | AdminAuth；写入另需交互式登录、精确请求安全证明、修订号检查          |
+| `POST /api/lingtu/admin/billing/check`    | AdminAuth 和限流；官方 SDK 只读账号检查，不创建订单或付款            |
+| `POST /api/lingtu/billing/stripe/webhook` | 官方 SDK 原文验签、付款模式/金额/session 核对及事务幂等入账          |
+| `GET /lingtu/billing/payment-return`      | 静态核对提示页，不声明付款或到账                                     |
 
-## 文件和验证
+管理网页新增「充值与计费」，组件为 `admin-billing.tsx`，沿用现有 API、Query、表单、单次安全证明与中英翻译。proof section 白名单只增加 billing，保留精确 body 绑定和不可重放语义。
 
-新增：server/overlay/{lingtu,lingtuhost}/billing{,\_test}.go；src/modules/billing/{contracts,services,use-billing}.ts；components/BillingDashboard.vue；tests/billing.test.ts。修改：billing/index.ts、README及ShopRechargeView/OrdersPanel/UsagePanel/ShopAccountPanel四个组件。ShopAccountPanel现按既有viewKey实际装配订单与额度页，避免navigation仍指向账号聚合入口时新组件悬空；账号说明按实际托管状态显示。未改其他领域文件。
+管理员只保存沙箱 `sk_test_` 配置和自行填写的整数分套餐，没有预设商业售价。保存到 `ManagedSetting` 的加密 `billing_stripe` 行，保留审计、修订冲突和空密钥保留/显式清除。只在行不存在时兼容原环境变量；清除不会偷偷回退到环境凭据。新配置无需重启即生效；禁用购买但保留凭据时，已有有效签名付款仍可入账。
 
-已完成验证：先跑新增Go测试缺实现编译失败、客户端测试缺service失败，然后实现；账本测试2项通过、host配置/paid-session规则2项通过、transport契约2项通过。后续完整本范围增量结果追加在此文件末尾。
+只读商户检查明确返回 `webhook:not_verified`、`payment:not_tested`；不返回密钥、不记录上游原文、不创建订单。沿用 Stripe Go v81.4.0（MIT）、Gin、GORM 和原 TrialStore；没有第二套钱包或试用账本语义变更。详细配置、回滚、Nginx 返回路径和实际商户条件见 `server/BILLING_DEPLOYMENT.md`。
 
-环境：实际源码是当前E盘client；Node24.18、Go1.27.3与现有依赖可用，未系统安装新环境。prepare初次被旧127.0.0.1 Git代理阻断，使用单次`git -c http.proxy=`克隆固定上游后完成prepare，不改全局代理。
+## 实际验证
 
-下一验收：统筹已接公共注册、受限IPC及Vue provider（已只读核对实际main.ts与routes.go），集中prepare后以隔离账号/数据库、Stripe官方测试签名payload核对整链路和界面；当前生产/真实商户/真实收费均未验收。
+仅运行本任务与直接影响范围，未运行全量 Release/check/server:verify：
 
-## 最终增量证据
+- 桌面模块：`vitest tests/billing.test.ts tests/managed-service-error.test.ts`，17 项通过。覆盖首次路由固定返回、浏览器隐藏与桌面适配调用、401 恢复状态、套餐失败仍读订单/账本、失败非空态、账号切换/卸载迟到结果、整数金额/URL、受限正文和结构化错误不泄漏。
+- vendor 原生计费会话 3 项通过；`managed-controller.test.ts` 6 项通过。先观察 404/503/409 状态丢失及未配置误标 offline 的失败，再实现。
+- `vue-tsc -p artifacts/billing-repair/tsconfig.json` 与计费改动范围 ESLint 通过，严格选项继承根配置；未关闭 strict。
+- 原生 Go 17 项通过，命令过滤为 `TestBilling|TestTrialGrantIsNotResetByLoginOrRestart|TestLingtuConnectionProofSupportsExactManagedSectionAndBody`，包含真实回环 HTTP、受限签名会话、匿名 401/停用 403、加密存储、修订冲突、精确 body/重放拒绝、SDK checkout/商户查询、伪签名与篡改拒绝、8 次并发仅一次入账、过期额度不复活、事务回滚及原调用 Reserve/Settle。报告 `server/artifacts/billing-go-tests.jsonl`。
+- 管理网页 20 项通过（admin-page 与 admin-billing）；原生 typecheck 检查 1430 文件通过，变更范围 oxlint 通过，翻译生成检查 2 项通过。先观察缺商户表单/检查入口失败，再实现。生成原生路由后检查，未把初次尚未生成的路由类型错误当作业务失败。
+- 原生网页构建、Linux amd64 和 Windows amd64 服务编译通过。冻结 Bun 1.4.4 安装；只针对构建子进程清除已失效的 127.0.0.1 代理以下载锁定 Go 依赖，没有降低版本或改全局代理。
+- 实际 Windows Go 进程在全新临时 SQLite、随机主密钥/会话密钥、动态数字回环端口启动，明确移除继承 SQL/Redis 配置。版本探针 200；`/me`、`/billing`、`/billing/orders`、管理员 billing 均 401；支付返回页 200 且只提示核对。进程已停止，成功测试临时资料已移除。报告 `server/artifacts/billing-process-http.json`。
+- vendor/server 来源清单完整性检查（80/92 文件）和 diff 空白检查通过；Go 文件已 gofmt。
 
-- Go：`go test ./lingtu ./lingtuhost -run 'TestBilling|TestTrialGrantIsNotResetByLoginOrRestart' -count=1 -parallel=1 -p=1 -v`，7项新增billing测试+1项既有试用不重置回归全部通过（lingtu0.582s，lingtuhost1.549s）。范围包含并发8次重复回调只入账一次、金额不匹配拒绝、充值后实际Reserve/Settle、过期不复活旧余额、凭证冲突整笔回滚、官方SDK向本机httptest的价格/幂等键与重试GET、伪签名/篡改签名拒绝和合法签名重复入账去重。SDK请求仅发向本机fixture，不是Stripe沙箱付款或实账成功。
-- 客户端：`npx vitest run tests/billing.test.ts --maxWorkers=1 --minWorkers=1`，6项通过：Zod/金额/URL边界，checkout仅传套餐与请求ID，账号切换丢弃迟到响应，实际Vue DOM本机模式不显示虚构套餐/支付成功，既有账号聚合入口真实装配订单/额度组件，用户离开页面后不打开迟到checkout。
-- `npx eslint src/modules/billing tests/billing.test.ts`通过；`npx vue-tsc --noEmit -p artifacts/billing/tsconfig.json`通过。专用忽略产物中的tsconfig继承项目配置，仅包含billing文件、该测试、src/env.d.ts；没有通过关闭strict消除错误。最初项目范围vue-tsc遇到其他并行领域TeamPanel/TeamWorkOrderPanel的隐式any，因此改用精确范围验证，没有抢改他人文件。
-- Go文件gofmt完成；只对billing相关文件Prettier，无全目录格式化。
-- 补充复用核对：Grep MCP读取Stripe官方`webhook/client.go`和测试（MIT），Context7确认签名/默认时间窗口/API版本要求；当前Context7只有更新SDK版本的索引，因此最终接口兼容以本机锁定v81.4.0源码和实际Go编译/fixture验证为准。skills.sh候选主要面向Vercel/Node或第三方平台，不引入不匹配工作流；使用现有Go官方SDK与现有事务能力。
-- 按统筹最新要求，停止再次prepare公共.upstream或重启桌面；最后Go验证基于本任务overlay复制到生成目录，后续公共prepare与整合检查由统筹集中完成。
+## 候选产物与剩余验收
 
-尚未验收：真实商户配置/Stripe沙箱与正式事件、MySQL/PostgreSQL矩阵、最终整合客户端截图与桌面跨IPC闭环、退款拒付/发票和国内支付方式。当前服务仅支持每账号调用池，不实现团队共享额度。没有全量Release构建或生产修改。
+`server/artifacts/billing-repair-release/` 和 `server/artifacts/billing-repair-20261114.tar.gz` 包含 Linux 服务、同次网页、许可、说明和摘要清单，不包含数据库或凭据。Linux 服务 SHA256：`0c628fd4a71c47e6af38ac76b6c0510126c6dd5390a866e5d58788f398bc7053`；包 SHA256：`91d054526f2f1b676a9a0eed3efba8f9f7f0fc6465eb2ecf68e0f1c2157fc442`。该包已通过已有 SSH 通道上传大陆现有服务器，未公开发布。
+
+大陆生产实际 `current` 为 `/opt/lingtu-kefu/releases/20261114T130358Z-billing.2`，旧 `/opt/lingtu-kefu/releases/223e923b73fb-web` 保留。服务器内受限备份目录 `/opt/lingtu-kefu/backups/20261114T130358Z-billing.2` 包含在线快照、停服后的最终一致数据库、原主密钥/环境/unit/Nginx，目录 700、数据库/凭据 600；没有下载业务数据或密钥。
+
+切换前的 Linux 实机隔离进程使用全新临时 SQLite/随机 keys、明确移除生产 SQL/Redis，上限 256 MiB、峰值约 83 MB，通过后才停止旧服务、最终备份和原子切换。原调用账本逐行指纹一致、生产环境/主密钥未变，商户配置仍不存在。仅为账号域名增加支付返回页精确代理，nginx-t 后 reload；其他 Nginx 配置摘要不变，没有更改 DNS/TLS、其他站点或重启整机。成功后未触发回滚，旧 release 和备份保持可用。
+
+回环、服务器 HTTPS/SNI 和用户电脑 NoProxy 外网复核：版本探针 200=`2026.11.14-billing.2`/协议 2，匿名 me/billing/orders/admin billing 均 401，API 健康、管理页及支付返回核对页均 200。服务 active/running，自动重启 0。
+
+统筹的原已登录客户端通过真实受限 preload 查询套餐/充值订单成功：`ready:false`、`payment_not_configured`、套餐 0、订单 0；真实充值页账本同步、版本与协议展示正常，商户未配置提示明确、购买按钮 0，没有未部署提示或 Vue 错误。没有创建订单或付款。本机脱敏证据在 `server/artifacts/billing-production-deployment-20261114.json`，完整部署/回滚位置见 `server/BILLING_DEPLOYMENT.md`。
+
+停止在当前无商户、无支付的安全状态。真实商户沙箱凭据、回调投递、明确授权的测试付款/到账、MySQL/PostgreSQL、退款拒付/发票及其他支付方式仍未验收；不能把路由修复和无配置只读验收称为真实支付已接通。

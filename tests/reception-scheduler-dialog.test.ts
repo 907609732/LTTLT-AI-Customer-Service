@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ScheduledTasksDialog from '../src/modules/workbench/components/ScheduledTasksDialog.vue'
 import type { SchedulerBridge, SchedulerSnapshot } from '../src/shared/contracts/scheduler'
+import type { ReceptionBridge } from '../src/shared/contracts/platform-operations'
 const empty = (workspaceId = 'w'): SchedulerSnapshot => ({
   workspaceId,
   running: true,
@@ -14,6 +15,26 @@ const global = {
   stubs: {
     ElDialog: { props: ['modelValue'], template: '<section v-if="modelValue"><slot /></section>' },
   },
+}
+const receptionService: ReceptionBridge = {
+  receptionSnapshot: async () => ({
+    workspaceId: 'w',
+    rules: [],
+    runs: [],
+    facts: [
+      {
+        storeId: 's',
+        storeName: '真实店铺',
+        accountId: 'account',
+        observedAt: Date.now(),
+        capabilities: [{ kind: 'welcome-text', available: true, reason: '当前网页输入与回显' }],
+        buyers: [{ uid: 'u', name: '真实买家' }],
+        orders: [],
+        agents: [],
+      },
+    ],
+  }),
+  receptionExecute: async () => ({ workspaceId: 'w', rules: [], runs: [], facts: [] }),
 }
 describe('任务弹窗真实服务边界', () => {
   it('未接线明确不可保存', () => {
@@ -28,15 +49,16 @@ describe('任务弹窗真实服务边界', () => {
       schedulerExecute: vi.fn(async () => empty()),
     }
     const wrapper = mount(ScheduledTasksDialog, {
-      props: { modelValue: true, service, workspaceId: 'w' },
+      props: { modelValue: true, service, receptionService, workspaceId: 'w' },
       global,
     })
     await flushPromises()
     await wrapper.find('button').trigger('click')
     const inputs = wrapper.findAll('input')
     await inputs[0].setValue('欢迎任务')
-    await inputs[1].setValue('s')
-    await inputs[2].setValue('u')
+    const selects = wrapper.findAll('select')
+    await selects[0].setValue('s')
+    await selects[1].setValue('u')
     await wrapper.find('textarea').setValue('您好')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -51,6 +73,23 @@ describe('任务弹窗真实服务边界', () => {
         }),
       }),
     )
+    wrapper.unmount()
+  })
+  it('没有可信平台选择时不能手填店铺、买家、订单或客服事实', async () => {
+    const service: SchedulerBridge = {
+      schedulerSnapshot: async () => empty(),
+      schedulerExecute: vi.fn(async () => empty()),
+    }
+    const wrapper = mount(ScheduledTasksDialog, {
+      props: { modelValue: true, service, workspaceId: 'w' },
+      global,
+    })
+    await flushPromises()
+    await wrapper.find('button').trigger('click')
+    expect(wrapper.find('input[name="storeId"]').exists()).toBe(false)
+    expect(wrapper.find('input[name="uid"]').exists()).toBe(false)
+    expect(wrapper.findAll('select')[0].attributes('disabled')).toBeDefined()
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
   it('切换工作区清除旧数据并丢弃迟到结果', async () => {

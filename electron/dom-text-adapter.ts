@@ -50,11 +50,13 @@ export function configureDomTextAdapter(
   )
     throw new Error('拼多多页面操控接口不完整')
   const adapter = value as HookAdapter
+  // Keep the internal focus primitive; the public method is coordinated with media operations.
+  const focusConversation = adapter.focusConversation.bind(adapter)
   let reviewQueue: Promise<unknown> = Promise.resolve()
   adapter.reviewHistory = (uid, focus = false) => {
     // 多个候选共用同一店铺页面：定位与取快照串行执行，后台检查不抢切买家。
     const result = reviewQueue.then(async () => {
-      if (focus && !(await adapter.focusConversation(uid)).ok)
+      if (focus && !(await focusConversation(uid)).ok)
         return { known: false, uid, page: '', messages: [], reason: 'focus_failed' }
       return adapter._callHook('reviewHistory', [String(uid)], {
         label: '网页会话复核',
