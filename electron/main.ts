@@ -38,7 +38,7 @@ app.on('second-instance', () => {
 })
 
 function openWindow(): void {
-  const win = createWindow()
+  const win = createWindow({ startMaximized: true })
   primaryWindow = win
   void loadRenderer(win).catch((error) => {
     console.error(error)
@@ -57,7 +57,7 @@ app
       runtime: () => runtime,
     })
     app.once('will-quit', dispose)
-    primaryWindow = createWindow()
+    primaryWindow = createWindow({ startMaximized: true })
     // 独立目录，绝不自动迁移或复用其他客服软件的数据和平台登录态。
     runtime = createWorkspaceRuntime({
       factory: () =>

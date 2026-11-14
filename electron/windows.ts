@@ -29,7 +29,7 @@ export function isTrustedRenderer(url: string, devUrl = getDevUrl()): boolean {
 
 /** 生产启动与冒烟复用同一窗口及导航策略。 */
 export function createWindow(
-  options: { smoke?: boolean; auxiliary?: boolean } = {},
+  options: { smoke?: boolean; auxiliary?: boolean; startMaximized?: boolean } = {},
 ): BrowserWindow {
   const auxiliary = options.auxiliary === true
   const win = new BrowserWindow({
@@ -56,7 +56,11 @@ export function createWindow(
   const id = win.webContents.id
   appWebContents.add(id)
   win.webContents.once('destroyed', () => appWebContents.delete(id))
-  if (!options.smoke && !auxiliary) win.once('ready-to-show', () => win.show())
+  if (!options.smoke && !auxiliary)
+    win.once('ready-to-show', () => {
+      if (options.startMaximized) win.maximize()
+      win.show()
+    })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isExternalUrl(url)) void shell.openExternal(url).catch(console.error)
     return { action: 'deny' }
