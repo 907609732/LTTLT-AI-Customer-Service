@@ -29,16 +29,26 @@ export function isTrustedRenderer(url: string, devUrl = getDevUrl()): boolean {
 
 /** 生产启动与冒烟复用同一窗口及导航策略。 */
 export function createWindow(
-  options: { smoke?: boolean; auxiliary?: boolean; startMaximized?: boolean } = {},
+  options: {
+    smoke?: boolean
+    auxiliary?: boolean
+    startMaximized?: boolean
+    compact?: boolean
+    parent?: BrowserWindow
+  } = {},
 ): BrowserWindow {
   const auxiliary = options.auxiliary === true
+  const compact = options.compact === true
   const win = new BrowserWindow({
-    width: auxiliary ? 300 : 1440,
-    height: auxiliary ? 900 : 920,
-    minWidth: auxiliary ? 300 : 1160,
+    width: compact ? 340 : auxiliary ? 300 : 1440,
+    height: compact ? 300 : auxiliary ? 900 : 920,
+    minWidth: compact ? 340 : auxiliary ? 300 : 1160,
     maxWidth: auxiliary ? 300 : undefined,
-    minHeight: auxiliary ? 420 : 720,
-    maximizable: !auxiliary,
+    minHeight: compact ? 300 : auxiliary ? 420 : 720,
+    maximizable: !auxiliary && !compact,
+    resizable: !compact,
+    parent: options.parent,
+    skipTaskbar: compact,
     frame: false,
     show: false,
     backgroundColor: '#f4f6fb',
@@ -56,7 +66,7 @@ export function createWindow(
   const id = win.webContents.id
   appWebContents.add(id)
   win.webContents.once('destroyed', () => appWebContents.delete(id))
-  if (!options.smoke && !auxiliary)
+  if (!options.smoke && !auxiliary && !compact)
     win.once('ready-to-show', () => {
       if (options.startMaximized) win.maximize()
       win.show()

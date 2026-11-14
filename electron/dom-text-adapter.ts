@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
+import { pageReviewFingerprint, pageReviewSchema } from './conversation-review'
 
 const resultSchema = z.object({
   ok: z.boolean(),
@@ -39,6 +40,7 @@ export function configureDomTextAdapter(
   platform: string,
   value: unknown,
   typingIntervalMs = TYPING_INTERVAL_MS,
+  sendAuthorization?: (uid: string, text: string) => (() => boolean) | undefined,
 ): unknown {
   if (platform !== 'pdd-web') return value
   if (
@@ -57,11 +59,31 @@ export function configureDomTextAdapter(
     // 多个候选共用同一店铺页面：定位与取快照串行执行，后台检查不抢切买家。
     const result = reviewQueue.then(async () => {
       if (focus && !(await focusConversation(uid)).ok)
-        return { known: false, uid, page: '', messages: [], reason: 'focus_failed' }
-      return adapter._callHook('reviewHistory', [String(uid)], {
-        label: '网页会话复核',
-        timeoutMs: 5000,
-      })
+        throw new Error('无法定位这位买家，未取得生成前网页消息基线，请打开会话后重试。')
+      const deadline = Date.now() + 5000
+      let page: string | undefined
+      for (;;) {
+        const snapshot = await adapter._callHook('reviewHistory', [String(uid)], {
+          label: '网页会话复核',
+          timeoutMs: Math.max(1, deadline - Date.now()),
+        })
+        if (!focus) return snapshot
+        const parsed = pageReviewSchema.safeParse(snapshot)
+        if (parsed.success) {
+          if (page && parsed.data.page && parsed.data.page !== page)
+            throw new Error('等待网页消息时页面已经切换，请重新打开买家会话后重试。')
+          if (parsed.data.page) page = parsed.data.page
+          if (parsed.data.uid !== String(uid))
+            throw new Error('网页消息属于其他买家，未取得目标买家的生成前基线。')
+          if (pageReviewFingerprint(parsed.data)) return parsed.data
+        }
+        // 定位只代表切换动作已发起；必须等真实消息加载后再允许上游开始生成。
+        // 不能在确认阶段补采基线，否则生成期间的新消息会被误当成原始上下文。
+        const remaining = deadline - Date.now()
+        if (remaining <= 0)
+          throw new Error('这位买家的网页消息尚未加载，未开始生成，请等待会话加载后重试。')
+        await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remaining)))
+      }
     })
     reviewQueue = result.catch(() => undefined)
     return result
@@ -72,6 +94,12 @@ export function configureDomTextAdapter(
     if (!uid || !content || content.length > 2000)
       throw new Error('网页回复需要有效买家和 1–2000 字正文')
     if (sending) return { ok: false, reason: 'input_busy', detail: 'send_in_progress' }
+    const authorization = sendAuthorization?.(String(uid), content)
+    const current = options.isCurrent
+    // AI 候选的单次授权在入口消费；停止 AI 或切换发送模式后，已开始的逐字输入也必须停止。
+    // 显式人工发送没有候选授权，仍按原有会话及网页 guard 校验。
+    if (authorization)
+      options = { ...options, isCurrent: () => (!current || current()) && authorization() }
     sending = true
     const operationId = randomUUID()
     const interval = Math.max(1, Math.min(150, typingIntervalMs))

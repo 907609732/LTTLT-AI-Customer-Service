@@ -9,6 +9,7 @@ import {
   type LogEntry,
   type ModelTrace,
   type ReplyReview,
+  type StoreSendModeState,
 } from '../src/shared/contracts/review'
 
 const threadSchema = z.array(
@@ -33,6 +34,7 @@ export interface SendProposal {
   retryNewMessage?: boolean
 }
 type Pending = {
+  sendMode: StoreSendModeState
   row: ReplyReview
   resolve: (approved: boolean) => void
   proposal: SendProposal
@@ -66,6 +68,7 @@ export class ReviewConsole {
     private read: () => BackendSnapshot,
     private changed: () => void,
     worker: (storeId: string) => WorkerObservation | undefined = () => undefined,
+    private options: { readMode?: (storeId: string) => StoreSendModeState } = {},
   ) {
     this.messageDiagnostics = new MessageDiagnostics(read, worker)
   }
@@ -329,12 +332,19 @@ export class ReviewConsole {
     this.changed()
   }
   private current(item: Pending) {
+    const mode = this.mode(item.row.storeId)
     return (
       !this.closed &&
+      Date.now() - item.row.at <= 10 * 60 * 1000 &&
+      (item.sendMode.mode !== 'auto' ||
+        (mode.mode === 'auto' && mode.revision === item.sendMode.revision)) &&
       item.proposal.isCurrent() &&
       this.fingerprint(item.row.storeId, item.row.uid) === item.baseline &&
       !!this.read().stores.find((s) => s.id === item.row.storeId && s.runtime.online && s.aiEnabled)
     )
+  }
+  private mode(storeId: string): StoreSendModeState {
+    return this.options.readMode?.(storeId) ?? { mode: 'review', revision: 0 }
   }
   /** 复核平台最新历史，防止确认期间刚到的新消息尚未来得及写入本机归档。 */
   private newPageBuyer(before: unknown, after: unknown) {
@@ -413,6 +423,8 @@ export class ReviewConsole {
       : { ok: true }
   }
   async propose(proposal: SendProposal): Promise<boolean> {
+    // 在任何异步读取前固定授权版本；之后开启自动模式不会追认旧审核候选。
+    const sendMode = { ...this.mode(proposal.storeId) }
     if (this.closed || !proposal.isCurrent()) return false
     if (this.pending.size >= 100) {
       this.log(
@@ -453,27 +465,32 @@ export class ReviewConsole {
         (t) => t.storeId === proposal.storeId && t.uid === proposal.uid && t.purpose === 'reply',
       )
     const row: ReplyReview = {
+      sendMode: sendMode.mode,
       id: randomUUID(),
       at: Date.now(),
       ...this.identity(proposal.storeId, proposal.uid),
       text: redact(proposal.text),
       traceId: trace?.id || '',
       status: 'pending',
-      reason: '等待你确认后才发送；关闭日志窗不会发送。',
+      reason:
+        sendMode.mode === 'auto'
+          ? '本店已显式开启自动发送，正在复核会话；平台尚未确认发送。'
+          : '等待你确认后才发送；关闭日志窗不会发送。',
     }
     if (row.traceId)
       this.messageDiagnostics.byTrace(
         row.traceId,
         aiState(
           'confirming',
-          'awaiting_confirmation',
-          '已生成回复，等待你确认；尚未向买家发送。',
+          sendMode.mode === 'auto' ? 'auto_verifying' : 'awaiting_confirmation',
+          row.reason,
           null,
           row.traceId,
         ),
       )
     return new Promise<boolean>((resolve) => {
       const item: Pending = {
+        sendMode,
         row,
         resolve,
         proposal,
@@ -508,7 +525,16 @@ export class ReviewConsole {
           this.replies.filter((r) => r.status !== 'pending' && r.status !== 'sending').slice(-100),
         )
       this.pending.set(row.id, item)
-      this.log('待确认发送', proposal.text, proposal.storeId, proposal.uid)
+      this.log(
+        sendMode.mode === 'auto' ? '自动发送复核' : '待确认发送',
+        proposal.text,
+        proposal.storeId,
+        proposal.uid,
+      )
+      if (sendMode.mode === 'auto')
+        void this.approve(item, true).catch(() => {
+          // 临时不可读只保留候选供人工核对，不自动循环批准或重试发送。
+        })
     })
   }
   private finish(item: Pending, status: 'rejected' | 'expired', reason: string) {
@@ -549,12 +575,26 @@ export class ReviewConsole {
       this.finish(item, 'rejected', '你已取消发送，本会话暂停 AI；可在辅助中心恢复。')
       return
     }
+    await this.approve(item, false)
+  }
+  /** 人工与显式自动模式共用当前性、历史、过期及一次性放行检查。 */
+  private async approve(item: Pending, automatic: boolean) {
+    const id = item.row.id
     if (!this.current(item)) {
       this.finish(item, 'expired', '会话或店铺状态已变化，未发送，请重新生成。')
       throw new Error(item.row.reason)
     }
-    const history = await this.historyCurrent(item.proposal)
-    if (this.pending.get(value.id) !== item || item.row.status !== 'pending')
+    let history: Awaited<ReturnType<ReviewConsole['historyCurrent']>>
+    try {
+      history = await this.historyCurrent(item.proposal)
+    } catch {
+      history = {
+        ok: false,
+        retryable: true,
+        reason: '平台历史暂时读取失败，未发送。候选已保留，请稍后再次确认。',
+      }
+    }
+    if (this.pending.get(id) !== item || item.row.status !== 'pending')
       throw new Error('候选已在其他窗口处理或失效')
     if (!this.current(item)) {
       this.finish(item, 'expired', '复核期间会话或店铺状态已变化，未发送，请重新生成。')
@@ -569,23 +609,29 @@ export class ReviewConsole {
       throw new Error(history.reason)
     }
     // 异步复核期间另一窗口可能已批准；第二次检查确保一次确认只能放行一次。
-    if (!this.pending.has(value.id)) throw new Error('候选已在其他窗口处理')
+    if (!this.pending.has(id)) throw new Error('候选已在其他窗口处理')
     clearInterval(item.timer)
-    this.pending.delete(value.id)
+    this.pending.delete(id)
     item.row.status = 'sending'
-    item.row.reason = '你已确认，正在等待平台发送结果。'
+    item.row.reason = automatic
+      ? '本店自动模式复核通过，正在等待平台发送结果。'
+      : '你已确认，正在等待平台发送结果。'
     if (item.row.traceId)
       this.messageDiagnostics.byTrace(
         item.row.traceId,
-        aiState(
-          'sending',
-          'sending',
-          '你已确认，正在逐字输入并等待平台发送确认。',
-          true,
-          item.row.traceId,
-        ),
+        aiState('sending', 'sending', item.row.reason, true, item.row.traceId),
       )
-    this.log('确认发送', item.proposal.text, item.row.storeId, item.row.uid)
+    this.log(
+      automatic ? '自动模式放行' : '确认发送',
+      item.proposal.text,
+      item.row.storeId,
+      item.row.uid,
+    )
+    // changed 回调可能触发模式变更或停止 AI；在向原发送 worker 放行前最后核对。
+    if (!this.current(item)) {
+      this.finish(item, 'expired', '放行前店铺、会话或发送模式已变化，未发送。')
+      return
+    }
     item.resolve(true)
   }
   dispose() {

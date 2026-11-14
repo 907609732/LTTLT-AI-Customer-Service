@@ -163,7 +163,16 @@ async function setAi(shop: LocalStore) {
 }
 async function openLogs() {
   await task.run(async () => {
-    await runtime.run({ action: 'open-runtime-logs' })
+    await runtime.run({ action: 'open-reply-monitor' })
+  })
+}
+async function setSendMode(shop: LocalStore, mode: 'review' | 'auto') {
+  await task.run(async () => {
+    const result = await runtime.run({
+      action: 'set-store-send-mode',
+      values: { storeId: shop.id, mode },
+    })
+    task.message.value = result.message
   })
 }
 async function openBackend(shop: LocalStore) {
@@ -204,8 +213,8 @@ async function navigate(path: string) {
       </nav>
       <div class="titlebar-drag-region" aria-hidden="true"></div>
       <div class="top-actions">
-        <button class="top-pill" aria-label="实时日志" @click="openLogs">
-          日志<span v-if="runtime.snapshot.review.replies.some((r) => r.status === 'pending')">
+        <button class="top-pill" aria-label="回复监控" @click="openLogs">
+          回复监控<span v-if="runtime.snapshot.review.replies.some((r) => r.status === 'pending')">
             ·
             {{ runtime.snapshot.review.replies.filter((r) => r.status === 'pending').length }}
             待确认</span
@@ -344,6 +353,7 @@ async function navigate(path: string) {
             :busy="task.pending.value"
             @open="openShop(shop)"
             @toggle-ai="setAi(shop)"
+            @send-mode="setSendMode(shop, $event)"
             @setup="setup.open(shop.id)"
             @import-knowledge="notifyUnavailable('导入知识入口已预留，功能暂未接入')"
             @settings="notifyUnavailable('店铺设置入口已预留，功能暂未接入')"

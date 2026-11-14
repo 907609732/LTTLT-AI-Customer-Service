@@ -1,5 +1,5 @@
 import { simpleLoginChecks } from './simple-login-checks'
-import { app, WebContentsView, type Session } from 'electron'
+import { app, BrowserWindow, WebContentsView, type Session } from 'electron'
 import type { BackendSnapshot } from '../src/shared/contracts/backend'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -391,6 +391,46 @@ app
         } finally {
           for (const ses of sessions) ses.protocol.unhandle('https')
         }
+      }
+    })
+    await check('reply-monitor:compact-window', '/reply-monitor', async () => {
+      await load('/')
+      await runtime.execute({
+        workspaceId: runtime.snapshot().workspaceId,
+        action: 'open-reply-monitor',
+        values: {},
+      })
+      const monitor = BrowserWindow.getAllWindows().find((item) =>
+        item.webContents.getURL().endsWith('#/reply-monitor'),
+      )
+      assert.ok(monitor, '必须打开小型回复监控')
+      try {
+        for (let i = 0; i < 80; i++) {
+          if (
+            (await monitor.webContents.executeJavaScript('document.body.innerText')).includes(
+              '回复监控',
+            )
+          )
+            break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        const text = (await monitor.webContents.executeJavaScript(
+          'document.body.innerText',
+        )) as string
+        assert.ok(text.includes('回复监控'))
+        assert.ok(text.includes('高级日志'))
+        assert.equal(monitor.getParentWindow(), win)
+        assert.equal(monitor.isAlwaysOnTop(), false, '不可置顶覆盖其他应用')
+        const bounds = monitor.getBounds(),
+          parent = win.getContentBounds()
+        assert.equal(bounds.width, 340)
+        assert.equal(bounds.height, 300)
+        assert.ok(Math.abs(bounds.x - parent.x - 12) <= 2)
+        assert.ok(Math.abs(bounds.y + bounds.height - parent.y - parent.height + 12) <= 2)
+        const image = await monitor.webContents.capturePage()
+        fs.writeFileSync(path.join(output, 'reply-monitor.png'), image.toPNG())
+      } finally {
+        monitor.destroy()
       }
     })
     await check('desktop-ipc', '/', async () => {

@@ -19,6 +19,7 @@ const props = defineProps<{ shop: LocalStore; selected?: boolean; busy?: boolean
 const emit = defineEmits<{
   open: []
   toggleAi: []
+  sendMode: [mode: 'review' | 'auto']
   setup: []
   importKnowledge: []
   settings: []
@@ -52,7 +53,14 @@ const error = computed(
     props.shop.runtime.collectionError ||
     '',
 )
-type MenuCommand = 'setup' | 'importKnowledge' | 'settings' | 'backend' | 'close'
+type MenuCommand =
+  | 'setup'
+  | 'importKnowledge'
+  | 'settings'
+  | 'backend'
+  | 'close'
+  | 'review'
+  | 'auto'
 const menu: { command: MenuCommand; label: string; glyph: string }[] = [
   { command: 'setup', label: '基础设置', glyph: '☰' },
   { command: 'importKnowledge', label: '导入知识', glyph: '↥' },
@@ -83,6 +91,10 @@ function command(value: MenuCommand) {
       break
     case 'close':
       emit('close')
+      break
+    case 'review':
+    case 'auto':
+      emit('sendMode', value)
       break
   }
 }
@@ -158,6 +170,7 @@ onBeforeUnmount(closeMenu)
           <div class="store-status-row">
             <span class="store-status" :class="{ online }"><i />{{ status }}</span>
             <span class="platform-label" :title="platform.label">{{ platform.label }}</span>
+            <span class="send-mode">{{ shop.sendMode === 'auto' ? '自动发送' : '审核发送' }}</span>
           </div>
           <span v-if="error" class="store-error" :title="error">{{ error }}</span>
         </div>
@@ -175,6 +188,23 @@ onBeforeUnmount(closeMenu)
           ><span class="menu-icon" aria-hidden="true">{{ item.glyph }}</span
           >{{ item.label }}</ElDropdownItem
         >
+        <ElDropdownItem
+          command="review"
+          :disabled="busy"
+          divided
+          :class="{ 'mode-selected': shop.sendMode !== 'auto' }"
+        >
+          <span class="menu-icon" aria-hidden="true">{{ shop.sendMode !== 'auto' ? '✓' : '' }}</span
+          >审核发送
+        </ElDropdownItem>
+        <ElDropdownItem
+          command="auto"
+          :disabled="busy"
+          :class="{ 'mode-selected': shop.sendMode === 'auto' }"
+        >
+          <span class="menu-icon" aria-hidden="true">{{ shop.sendMode === 'auto' ? '✓' : '' }}</span
+          >自动发送
+        </ElDropdownItem>
       </ElDropdownMenu>
     </template>
   </ElDropdown>
@@ -345,5 +375,13 @@ onBeforeUnmount(closeMenu)
 }
 .store-sidebar-menu :deep(.close-item:not(.is-disabled)) {
   color: #f04f4f;
+}
+.send-mode {
+  margin-left: auto;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.store-sidebar-menu :deep(.mode-selected) {
+  color: #3478fa;
 }
 </style>

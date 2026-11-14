@@ -8,6 +8,12 @@ import { PRODUCT_NAME } from '@/shared/brand'
  */
 export const routes: RouteRecordRaw[] = [
   {
+    path: '/reply-monitor',
+    name: 'reply-monitor',
+    component: () => import('@/modules/auxiliary').then((m) => m.ReplyMonitorView),
+    meta: { title: '回复监控', float: true },
+  },
+  {
     path: '/logs',
     name: 'runtime-logs',
     component: () => import('@/modules/auxiliary').then((m) => m.RuntimeLogsView),

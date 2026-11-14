@@ -1,5 +1,13 @@
 # 架构导航
 
+## 店铺发送模式与回复监控（2026-11-15）
+
+复用 Electron 43 的 parent/showInactive/setBounds，不新增依赖；小监控为受信独立渲染路由 `/reply-monitor`，在主窗口内左下角随动，非全局置顶。`createWindow({compact:true,parent})` 不参与主窗口默认最大化或自动聚焦。详细日志仍由手动入口打开。
+
+方案检索采用[Electron官方BrowserWindow实现与文档](https://github.com/electron/electron/blob/main/docs/api/browser-window.md)：与现有Electron43/Windows技术栈一致，复用项目已使用的MIT许可依赖；原生父子窗口和无焦点显示已覆盖需求，无需第三方悬浮窗库。
+
+`set-store-send-mode`、`open-reply-monitor` 使用原有受信、工作区绑定业务命令，无新 IPC 通道。StoreSendModes 在 managed.dataDir 下原子保存模式，快照装配时附加店铺 sendMode。审核与显式自动模式共用 ReviewConsole，自动候选绑定运行期模式版本；旧审核候选不会因后来开启自动而获批。网页适配器在模型前等待有效消息基线，不修改 vendor。发送与取消检查延续至逐字输入和最终点击，详见 RUNTIME_LOGS.md。
+
 E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独立项目根，完整目录与文件边界见 PROJECT_LAYOUT.md。所有工具从此根执行；.github/workflows/lingtu-ai-desktop.yml 也从仓库根运行 npm，不再设置外层 yunduo-ui 工作目录。客户端实际运行依赖本工程 vendor，独立服务端保存在本工程 server，不引用兄弟工作区。
 
 ## 启动链路

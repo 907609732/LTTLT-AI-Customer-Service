@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { reviewSnapshotSchema, emptyReview } from './review'
 import { managedStateSchema, emptyManagedState } from './managed'
 import { reportingSnapshotSchema } from './reporting'
+import { storeSendModeSchema } from './review'
+export { storeSendModeSchema, type StoreSendMode } from './review'
 
 export const actions = [
   'save-model-source',
@@ -14,6 +16,8 @@ export const actions = [
   'acknowledge-model-issue',
   'add-store',
   'open-runtime-logs',
+  'open-reply-monitor',
+  'set-store-send-mode',
   'review-reply',
   'set-store-group',
   'remove-store',
@@ -88,6 +92,7 @@ export const storeSchema = z.object({
   platform: z.string(),
   group: z.string().default(''),
   aiEnabled: z.boolean(),
+  sendMode: storeSendModeSchema.optional(),
   runtime: z.object({
     open: z.boolean().default(false),
     online: z.boolean().default(false),

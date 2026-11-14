@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ReviewConsole, type SendProposal } from '../electron/review-console'
 import { emptySnapshot } from '../src/shared/contracts/backend'
 
 const consoles: ReviewConsole[] = []
-function setup() {
+function setup(options: ConstructorParameters<typeof ReviewConsole>[3] = {}) {
   const snap = emptySnapshot()
   snap.stores.push({
     id: 'shop',
@@ -27,6 +27,8 @@ function setup() {
   const console = new ReviewConsole(
     () => snap,
     () => {},
+    undefined,
+    options,
   )
   consoles.push(console)
   const proposal: SendProposal = {
@@ -47,9 +49,92 @@ function setup() {
   }
 }
 afterEach(() => {
+  vi.useRealTimers()
   for (const console of consoles.splice(0)) console.dispose()
 })
 describe('AI 回复人工确认', () => {
+  it('显式自动模式复用历史复核，平台回执前只标记发送中', async () => {
+    const { console, proposal } = setup({ readMode: () => ({ mode: 'auto', revision: 1 }) })
+    const history = vi.fn(proposal.getHistory)
+    proposal.getHistory = history
+    expect(await console.propose(proposal)).toBe(true)
+    expect(history).toHaveBeenCalledTimes(1)
+    expect(console.snapshot().replies[0]).toMatchObject({ status: 'sending', sendMode: 'auto' })
+    console.event({ type: 'reply:sent', storeId: 'shop', uid: 'buyer' })
+    expect(console.snapshot().replies[0].status).toBe('sent')
+  })
+  it('复核期间自动切审核再切自动也不能放行旧候选', async () => {
+    let revision = 1
+    const { console, proposal } = setup({ readMode: () => ({ mode: 'auto', revision }) })
+    proposal.getHistory = async () => {
+      revision += 2
+      return { known: true, messages: proposal.thread }
+    }
+    expect(await console.propose(proposal)).toBe(false)
+    expect(console.snapshot().replies[0].status).toBe('expired')
+  })
+  it('从审核切自动不会放行已经等待审核的候选', async () => {
+    let mode: 'review' | 'auto' = 'review'
+    const { console, proposal } = setup({ readMode: () => ({ mode, revision: 1 }) })
+    const pending = console.propose(proposal)
+    mode = 'auto'
+    console.sync()
+    expect(console.snapshot().replies[0].status).toBe('pending')
+    await console.decide({ id: console.snapshot().replies[0].id, approve: true })
+    expect(await pending).toBe(true)
+  })
+  it('自动模式无法核对历史时保留待审核且不自动重试', async () => {
+    const { console, proposal } = setup({ readMode: () => ({ mode: 'auto', revision: 1 }) })
+    proposal.getHistory = async () => ({ known: false, messages: [] })
+    const pending = console.propose(proposal)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(console.snapshot().replies[0].status).toBe('pending')
+    console.dispose()
+    expect(await pending).toBe(false)
+  })
+  it('自动复核期间停止 AI、新消息及到期均阻止放行', async () => {
+    for (const change of ['stop', 'message', 'expiry']) {
+      const { console, proposal, snap, stop } = setup({
+        readMode: () => ({ mode: 'auto', revision: 1 }),
+      })
+      proposal.getHistory = async () => {
+        if (change === 'stop') stop()
+        else if (change === 'message')
+          snap.conversations[0].messages.push({
+            from: 'buyer',
+            content: '新问题',
+            ts: 200,
+            type: 'text',
+          })
+        else {
+          vi.useFakeTimers()
+          vi.setSystemTime(Date.now() + 11 * 60 * 1000)
+        }
+        return { known: true, messages: proposal.thread }
+      }
+      expect(await console.propose(proposal)).toBe(false)
+      expect(console.snapshot().replies[0].status).toBe('expired')
+      vi.useRealTimers()
+    }
+  })
+  it('自动模式仍阻止无效网页基线与变化后的网页消息', async () => {
+    for (const invalid of [true, false]) {
+      const { console, proposal } = setup({ readMode: () => ({ mode: 'auto', revision: 1 }) })
+      const page = {
+        known: true,
+        uid: 'buyer',
+        page: 'one',
+        messages: [{ from: 'buyer', content: '价格', media: [] }],
+      }
+      proposal.pageReview = invalid ? { ...page, known: false } : page
+      proposal.getPageReview = async () => ({
+        ...page,
+        messages: [...page.messages, { from: 'buyer', content: '新问题', media: [] }],
+      })
+      expect(await console.propose(proposal)).toBe(false)
+      expect(console.snapshot().replies[0].status).toBe('expired')
+    }
+  })
   it('买家卡片区分构造请求与实际提交，并跟踪生成、确认及发送', async () => {
     const { console, snap, proposal } = setup()
     console.sync()

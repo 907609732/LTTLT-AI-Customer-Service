@@ -125,3 +125,16 @@ it('设置页点击卡片先返回工作台，再展示平台页', async () => {
   expect(router.currentRoute.value.path).toBe('/')
   expect(present).toHaveBeenLastCalledWith('shop-a', true)
 })
+
+it('单店模式切换只调用指定命令，主入口打开回复监控', async () => {
+  const { wrapper, run } = await fixture()
+  wrapper.findComponent(StoreSidebarCard).vm.$emit('sendMode', 'auto')
+  await flushPromises()
+  expect(run).toHaveBeenLastCalledWith({
+    action: 'set-store-send-mode',
+    values: { storeId: 'shop-a', mode: 'auto' },
+  })
+  await wrapper.get('[aria-label="回复监控"]').trigger('click')
+  await flushPromises()
+  expect(run).toHaveBeenLastCalledWith({ action: 'open-reply-monitor' })
+})
