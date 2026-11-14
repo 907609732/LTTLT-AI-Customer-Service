@@ -13,6 +13,7 @@ import { downloadText } from '@/shared/platform/files'
 import type { Product, ProductDraft } from '@/shared/contracts/backend'
 import type { ProductCatalogRow } from '@/shared/contracts/product-catalog'
 import { useProductService } from '../services'
+import PlatformProductDetailsDialog from './PlatformProductDetailsDialog.vue'
 withDefaults(defineProps<{ viewKey?: string }>(), { viewKey: 'goods' })
 const runtime = useRuntimeStore(),
   service = useProductService(),
@@ -20,7 +21,6 @@ const runtime = useRuntimeStore(),
   router = useRouter()
 const rows = ref<ProductCatalogRow[]>([]),
   total = ref(0),
-  codesRevision = ref(0),
   page = ref(1),
   pageSize = ref(20),
   loading = ref(false),
@@ -32,7 +32,7 @@ const query = ref(''),
 const chosen = ref<ProductCatalogRow[]>([]),
   table = ref<TableInstance>(),
   editing = ref(false),
-  codeOpen = ref(false),
+  detailRow = ref<ProductCatalogRow | null>(null),
   importOpen = ref(false),
   batchOpen = ref(false)
 const currentStore = computed(() => runtime.currentStore),
@@ -142,7 +142,6 @@ async function load() {
     if (ticket !== sequence || !isCurrent(scope)) return
     rows.value = next.items
     total.value = next.total
-    codesRevision.value = next.codesRevision
     stale.value = false
     if (page.value > 1 && !next.items.length && next.total > 0) {
       page.value = Math.ceil(next.total / pageSize.value)
@@ -265,66 +264,6 @@ async function remove(row: Product) {
     await load()
     requireCurrent(scope)
     task.message.value = '商品知识已删除。'
-  })
-}
-interface CodeDraft {
-  id: string
-  version: number
-  productId: string
-  title: string
-  old: string
-  merchantCode: string
-}
-const codeRows = ref<CodeDraft[]>([]),
-  codeScope = ref(''),
-  codeRevision = ref(0),
-  codeOriginal = ref('')
-function editCodes(values: ProductCatalogRow[]) {
-  codeRows.value = values.map((r) => ({
-    id: r.id,
-    version: r.version,
-    productId: r.productId,
-    title: r.title,
-    old: r.merchantCode,
-    merchantCode: r.merchantCode,
-  }))
-  codeScope.value = key()
-  codeRevision.value = codesRevision.value
-  codeOriginal.value = JSON.stringify(codeRows.value)
-  codeOpen.value = true
-}
-async function closeCodes(done: () => void) {
-  if (task.pending.value) return
-  if (JSON.stringify(codeRows.value) !== codeOriginal.value) {
-    try {
-      await ElMessageBox.confirm('商家编码尚未保存，确认放弃修改？', '放弃修改', {
-        type: 'warning',
-      })
-    } catch {
-      return
-    }
-  }
-  done()
-}
-async function saveCodes() {
-  const scope = codeScope.value,
-    store = selected.value
-  await task.run(async () => {
-    requireCurrent(scope)
-    await service.setCodes(store, {
-      revision: codeRevision.value,
-      rows: codeRows.value.map((r) => ({
-        id: r.id,
-        version: r.version,
-        merchantCode: r.merchantCode,
-      })),
-      confirmed: true,
-    })
-    requireCurrent(scope)
-    codeOpen.value = false
-    await load()
-    requireCurrent(scope)
-    task.message.value = '商家编码已保存，平台商品编号保持原值。'
   })
 }
 const batchFields = reactive({
@@ -530,7 +469,7 @@ watch(
     page.value = 1
     clearSelection()
     editing.value = false
-    codeOpen.value = false
+    detailRow.value = null
     batchOpen.value = false
     importOpen.value = false
     preview.value = null
@@ -602,10 +541,6 @@ watch(
             @click="openBatch"
             >批量编辑</el-button
           ><el-button
-            :disabled="!chosen.length || task.pending.value || loading || stale"
-            @click="editCodes(chosen)"
-            >批量设编码</el-button
-          ><el-button
             type="danger"
             plain
             :disabled="!chosen.length || task.pending.value || loading || stale"
@@ -640,7 +575,9 @@ watch(
             collectionTask.status === 'running'
               ? '正在采集'
               : collectionTask.status === 'completed'
-                ? '采集完成'
+                ? collectionTask.sourceLimited
+                  ? '部分采集完成'
+                  : '采集完成'
                 : collectionTask.status === 'failed'
                   ? '采集失败'
                   : collectionTask.status === 'paused'
@@ -655,9 +592,16 @@ watch(
         </p>
         <p v-else-if="collecting">正在打开平台并准备采集…</p>
         <p v-if="collectionTask?.status === 'completed'">
-          列表已刷新；新采集商品默认停用，已有商品知识保持原样。
+          列表已刷新；新商品默认停用。确认资料后，可在编辑中启用检索，或勾选后批量修改使用状态。
         </p>
         <p v-if="collectionError" role="alert">{{ collectionError }}</p>
+        <p
+          v-if="collectionTask?.sourceLimited"
+          style="max-height: 48px; overflow: auto"
+          role="alert"
+        >
+          {{ collectionTask.scope }}
+        </p>
         <el-button link @click="learn">查看采集记录 / 审核问答候选</el-button>
       </div>
       <p v-if="stale" class="stale-warning">
@@ -672,7 +616,9 @@ watch(
         class="goods-table"
         :height="
           collectionTask || collectionError || collecting
-            ? 'max(220px, calc(100vh - 475px))'
+            ? collectionTask?.sourceLimited
+              ? 'max(220px, calc(100vh - 525px))'
+              : 'max(220px, calc(100vh - 475px))'
             : 'max(220px, calc(100vh - 380px))'
         "
         :selectable="() => !task.pending.value && !stale"
@@ -690,18 +636,13 @@ watch(
           show-overflow-tooltip
         />
         <el-table-column prop="title" label="商品名称" min-width="280" show-overflow-tooltip />
-        <el-table-column label="商家编码" width="150"
-          ><template #default="{ row }"
-            ><el-button
-              link
-              type="primary"
-              :disabled="task.pending.value || stale"
-              :data-product-code="row.id"
-              @click="editCodes([row])"
-              >{{ row.merchantCode || '设置编码' }}</el-button
-            ></template
-          ></el-table-column
-        >
+        <el-table-column label="平台商家编码" width="150">
+          <template #default="{ row }">
+            <span :data-platform-code="row.id">{{
+              row.merchantCode || (row.platformDetail ? '平台未填写' : '尚未采集')
+            }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="使用状态" width="100"
           ><template #default="{ row }"
             ><span class="goods-status" :class="{ enabled: row.enabled }">{{
@@ -709,8 +650,10 @@ watch(
             }}</span></template
           ></el-table-column
         >
-        <el-table-column label="操作" width="120"
+        <el-table-column label="操作" width="190"
           ><template #default="{ row }"
+            ><el-button link type="primary" :data-platform-detail="row.id" @click="detailRow = row"
+              >平台详情</el-button
             ><el-button
               link
               type="primary"
@@ -781,7 +724,7 @@ watch(
             >商品名称<el-input v-model="draft.title" aria-label="商品名称" maxlength="200"
           /></label>
         </div>
-        <p class="field-hint">商家编码在列表“设置编码”中独立管理，不会替换平台商品编号。</p>
+        <p class="field-hint">平台商家编码与SKU资料从平台只读采集；这里仅编辑本机接待知识。</p>
         <h3>接待知识</h3>
         <label
           >商品说明<el-input
@@ -802,6 +745,9 @@ watch(
         /></label>
         <h3>使用设置</h3>
         <el-switch v-model="draft.enabled" active-text="用于商品知识检索" />
+        <p class="field-hint">
+          启用并保存后，AI可检索本商品知识和已采集的SKU资料，无需另外训练；未明确规格时应先询问。不会自动开启店铺AI。
+        </p>
         <div class="dialog-actions">
           <el-button :disabled="task.pending.value" @click="closeEditor(() => (editing = false))"
             >取消</el-button
@@ -811,40 +757,7 @@ watch(
         </div>
       </form>
     </el-dialog>
-    <el-dialog
-      v-model="codeOpen"
-      title="设置商家编码"
-      width="760px"
-      append-to-body
-      :before-close="closeCodes"
-      :close-on-click-modal="false"
-      class="goods-dialog"
-    >
-      <el-alert v-if="task.error.value" :title="task.error.value" type="error" :closable="false" />
-      <p class="field-hint">编码仅用于本机识别和筛选，留空可清除；不会修改平台商品编号。</p>
-      <div class="code-list">
-        <article v-for="row in codeRows" :key="row.id">
-          <div>
-            <strong>{{ row.title }}</strong
-            ><small>{{ row.productId }} · 现编码：{{ row.old || '未设置' }}</small>
-          </div>
-          <el-input
-            v-model="row.merchantCode"
-            :aria-label="`商家编码 ${row.productId}`"
-            maxlength="100"
-            placeholder="填写新编码"
-            :disabled="task.pending.value"
-          />
-        </article>
-      </div>
-      <template #footer
-        ><el-button :disabled="task.pending.value" @click="closeCodes(() => (codeOpen = false))"
-          >取消</el-button
-        ><el-button data-save-codes type="primary" :loading="task.pending.value" @click="saveCodes"
-          >保存编码</el-button
-        ></template
-      >
-    </el-dialog>
+    <PlatformProductDetailsDialog v-if="detailRow" :row="detailRow" @close="detailRow = null" />
     <el-dialog
       v-model="batchOpen"
       :title="`批量编辑 ${batchRows.length} 项`"
@@ -905,7 +818,7 @@ watch(
       class="goods-dialog"
       ><p>
         选择文件 → 预览 → 确认。每批最多1000条、1MB；必须有 productId、title，其他可选
-        description、specifications、price、enabled。商家编码独立管理，CSV不包含商家编码。
+        description、specifications、price、enabled。平台编码、详情和SKU来自采集档案，不随此CSV修改。
       </p>
       <el-alert
         v-if="task.error.value"

@@ -19,6 +19,21 @@ import {
 } from './assist-platform-pdd'
 import { createAssistQueryMonitor } from './assist-platform-query'
 import {
+  platformProductDetailSchema,
+  type PlatformProductDetail,
+} from '../src/shared/contracts/platform-product'
+import { readPddProductDetail, advancePddProductSkuViewport } from './platform-product-dom'
+import {
+  createPlatformProductObserver,
+  createPlatformProductEntryObserver,
+  type PlatformProductObserver,
+  type PlatformProductEntryObserver,
+} from './platform-product-observer'
+import {
+  mergePlatformProductDetail,
+  combinePlatformProductViewports,
+} from './platform-product-merge'
+import {
   createPddHistoryObserver,
   pddHistoryPaths,
   pddChatDomSchema,
@@ -34,6 +49,8 @@ const urls = {
   products: 'https://mms.pinduoduo.com/goods/goods_list',
   chats: 'https://mms.pinduoduo.com/mms-chat/search',
 } as const
+/** Only a verified native platform restriction may be skipped; identity or read errors stop the page. */
+export class PlatformProductDetailBlockedError extends Error {}
 interface LearningPage {
   id?: number
   session?: Session
@@ -62,6 +79,12 @@ export interface PddLearningProviderOptions {
   createWindow?(partition: string): PddLearningWindow
   now?(): number
   timeoutMs?: number
+  /** Isolated reader seam; production always follows the native per-product detail entry. */
+  readProductDetail?(input: {
+    productId: string
+    identity: PlatformLearningIdentity
+    signal: AbortSignal
+  }): Promise<PlatformProductDetail | undefined>
   createHistoryObserver?(page: LearningPage): NativeHistoryObserver
   /** Native query seam for isolated page tests; production uses the shared Session monitor. */
   runQuery?(
@@ -362,9 +385,10 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
     source: keyof typeof urls,
     signal?: AbortSignal,
     navigate = true,
+    slot: string = source,
   ) {
     storeFor(id)
-    const key = `${id}:${source}`
+    const key = `${id}:${slot}`
     let win = windows.get(key)
     if (!win || win.isDestroyed()) {
       const partition = assistPartition(options.namespace, id, 'pdd-web')
@@ -501,6 +525,135 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
     queue = pending.catch(() => undefined)
     return pending
   }
+  async function detailFor(
+    list: LearningPage,
+    productId: string,
+    input: PlatformLearningCollectInput,
+  ) {
+    if (options.readProductDetail)
+      return options.readProductDetail({
+        productId,
+        identity: input.identity,
+        signal: input.signal,
+      })
+    await verify(input.identity, input.signal, list)
+    let settle: (url: string) => void = () => {}
+    const opened = new Promise<string>((resolve) => {
+      settle = resolve
+    })
+    list.setWindowOpenHandler(({ url }) => {
+      try {
+        const target = new URL(url, urls.products)
+        if (
+          isAllowedAssistUrl('pdd-web', target.href) &&
+          target.pathname === '/goods/goods_add/index' &&
+          target.searchParams.get('goods_id') === productId &&
+          target.searchParams.get('type') === 'edit'
+        )
+          settle(target.href)
+      } catch {
+        /* Unrelated popup remains blocked. */
+      }
+      return { action: 'deny' }
+    })
+    let target: string
+    let entry: PlatformProductEntryObserver | undefined
+    try {
+      entry = createPlatformProductEntryObserver(list)
+      await bounded(entry.ready(), input.signal)
+      entry.begin(productId)
+      await bounded(
+        list.executeJavaScript(
+          `(() => { const root=document.querySelector('#pdd-app-skeleton-main-content');const row=[...(root?.querySelectorAll('tbody tr')||[])].find(r=>[...r.querySelectorAll('.goods-id')].some(n=>n.textContent?.replace(/\\s/g,'')==='ID:'+${JSON.stringify(productId)}));const edit=row?.querySelector('[data-tracking-click-viewid="edit"]');if(!edit)throw Error('商品详情原生入口未识别');edit.click(); })()`,
+          true,
+        ),
+        input.signal,
+      )
+      target = await bounded(
+        Promise.race([
+          opened,
+          entry.wait(input.signal, timeoutMs).then((result) => {
+            if (result.status === 'blocked')
+              throw new PlatformProductDetailBlockedError(result.reason)
+            return opened
+          }),
+        ]),
+        input.signal,
+      )
+    } finally {
+      entry?.dispose()
+      if (!list.isDestroyed()) list.setWindowOpenHandler(() => ({ action: 'deny' }))
+    }
+    const win = await windowFor(
+      input.identity.storeId,
+      'products',
+      input.signal,
+      false,
+      'product-details',
+    )
+    const page = win.webContents
+    let observer: PlatformProductObserver | undefined
+    const aborted = () => {
+      if (!win.isDestroyed()) win.destroy()
+    }
+    input.signal.addEventListener('abort', aborted, { once: true })
+    try {
+      check(input.signal)
+      // Newly created WebContents has no document yet; initialize it before enabling CDP domains.
+      if (!page.getURL() || page.getURL() === 'about:blank')
+        await bounded(win.loadURL(urls.products), input.signal)
+      observer = createPlatformProductObserver(page)
+      await bounded(observer.ready(), input.signal)
+      observer.begin({ productId, mallId: input.identity.platformStoreId })
+      await bounded(win.loadURL(target!), input.signal)
+      await verify(input.identity, input.signal, page)
+      const native = await bounded(observer.wait(input.signal, timeoutMs), input.signal)
+      const until = Date.now() + Math.max(timeoutMs, Math.min(60000, native.skus.length * 100))
+      let detail: PlatformProductDetail | undefined
+      let stalled = 0
+      while (Date.now() < until) {
+        check(input.signal)
+        try {
+          const raw = await bounded(
+            page.executeJavaScript(
+              `(() => {try{return (${readPddProductDetail.toString()})(${JSON.stringify(productId)})}catch(cause){return {readError:cause instanceof Error?cause.message:'商品详情字段未识别'}}})()`,
+            ),
+            input.signal,
+          )
+          if (raw && typeof raw === 'object' && typeof Reflect.get(raw, 'readError') === 'string')
+            throw Error(String(Reflect.get(raw, 'readError')))
+          const viewport = platformProductDetailSchema.parse(raw)
+          const previous = detail?.skus.length ?? 0
+          detail = detail ? combinePlatformProductViewports(detail, viewport) : viewport
+          if (detail.skus.length === native.skus.length) break
+          if (detail.skus.length > native.skus.length) throw Error('SKU表格数量超过平台声明')
+          stalled = detail.skus.length === previous ? stalled + 1 : 0
+          const moved = z
+            .object({ advanced: z.boolean(), position: z.number().nonnegative() })
+            .parse(
+              await bounded(
+                page.executeJavaScript(`(${advancePddProductSkuViewport.toString()})()`),
+                input.signal,
+              ),
+            )
+          if (!moved.advanced && stalled >= 5) throw Error('SKU滚动范围未覆盖原生声明的全部规格')
+          await bounded(new Promise<void>((r) => setTimeout(r, 100)), input.signal)
+        } catch (cause) {
+          if (Date.now() + 100 >= until) throw cause
+          await bounded(new Promise<void>((r) => setTimeout(r, 100)), input.signal)
+        }
+      }
+      if (!detail) throw Error('商品详情未读取完整')
+      await verify(input.identity, input.signal, page)
+      return mergePlatformProductDetail(detail, native, input.identity.platformStoreId)
+    } catch (cause) {
+      if (!input.signal.aborted && !win.isDestroyed()) win.show()
+      throw cause
+    } finally {
+      input.signal.removeEventListener('abort', aborted)
+      observer?.dispose()
+    }
+  }
   async function collectProducts(
     input: PlatformLearningCollectInput,
   ): Promise<PlatformLearningPage<PlatformLearningProduct>> {
@@ -593,6 +746,22 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
         if (saved?.total !== undefined && dom.total !== saved.total)
           throw Error('平台商品总数已变化，请重新建立采集范围')
         await verify(input.identity, input.signal, page)
+        const items: PlatformLearningProduct[] = []
+        const blocked: string[] = []
+        for (const item of dom.items) {
+          let detail: PlatformProductDetail | undefined
+          try {
+            detail = await detailFor(page, item.id, input)
+          } catch (cause) {
+            check(input.signal)
+            if (!(cause instanceof PlatformProductDetailBlockedError)) throw cause
+            await verify(input.identity, input.signal, page)
+            blocked.push(`${item.id}：${cause.message.slice(0, 100)}`)
+          }
+          if (detail && detail.productId !== item.id) throw Error('平台详情商品编号不一致')
+          items.push({ ...item, ...(detail ? { platformDetail: detail } : {}) })
+        }
+        await verify(input.identity, input.signal, page)
         const next =
           dom.hasNext === true && dom.page !== null
             ? JSON.stringify({
@@ -606,13 +775,22 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
             : null
         return {
           identity: input.identity,
-          items: dom.items,
+          items,
           nextCursor: next,
           exhausted: next === null,
           ...(dom.total !== null ? { total: dom.total } : {}),
-          scope: dom.scope,
+          scope:
+            (items.some((x) => x.platformDetail)
+              ? dom.scope.replace('未读取商品详情或规格', '详情与SKU另行逐项核验')
+              : dom.scope) +
+            (items.some((x) => x.platformDetail)
+              ? '；逐商品读取详情与SKU，缺失字段保持未知，图片未OCR'
+              : '') +
+            (blocked.length
+              ? `；${blocked.length}个商品详情受平台限制，未覆盖：${blocked.slice(0, 10).join('；')}${blocked.length > 10 ? '；其余受限项请单独核对' : ''}`
+              : ''),
           capturedAt: now(),
-          rangeComplete: dom.hasNext !== null && dom.page !== null,
+          rangeComplete: dom.hasNext !== null && dom.page !== null && blocked.length === 0,
         }
       } catch (cause) {
         if (!input.signal.aborted && !win.isDestroyed()) win.show()

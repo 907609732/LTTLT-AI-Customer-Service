@@ -1,4 +1,6 @@
 import { createCollectedProductWriter } from './collected-products'
+import { createPlatformProductStore } from './platform-product-store'
+import { createProductSpecContext } from './product-spec-context'
 import { createProductCatalog } from './product-catalog'
 import { applyStoreZoom } from './store-zoom'
 import { createRequire } from 'node:module'
@@ -15,6 +17,8 @@ import {
   snapshotSchema,
   resultSchema,
   intentsSchema,
+  productsPageSchema,
+  type Product,
   emptySnapshot,
   type BackendCommand,
   type BackendEvent,
@@ -321,6 +325,13 @@ export function createLocalRuntime(options: {
   const platformAdapters = new Map<string, unknown>()
   const operationAdapters = new Map<string, unknown>()
   const platformWrites = new PlatformWriteCoordinator()
+  const platformProducts = createPlatformProductStore({
+    directory: dataDir,
+    assertActive: () => assertActive(),
+    assertStore: (storeId) => {
+      if (!providerStore(storeId)) throw Error('店铺已移除')
+    },
+  })
   const backend = loadFactory<BackendFactory>(
     'electron/backend.cjs',
     'createBackend',
@@ -358,7 +369,44 @@ export function createLocalRuntime(options: {
     managedReady: () => managed.ready(),
     managedCapabilities: () => managed.capabilities(),
     localVisionSupport: localVisionCapability,
-    prepareModelContext: createAssistedContext(traceModel),
+    prepareModelContext: createProductSpecContext(
+      {
+        assertActive: () => assertActive(),
+        getDetail: platformProducts.get,
+        listProducts: async (storeId) => {
+          const rows: Product[] = []
+          let revision: number | undefined, total: number | undefined
+          for (let offset = 0; offset <= 10000; offset += 100) {
+            assertActive()
+            if (!providerStore(storeId)) throw Error('店铺已移除')
+            const page = productsPageSchema.parse(
+              resultSchema.parse(
+                await localBackend.execute({
+                  action: 'list-products',
+                  storeId,
+                  values: { offset, limit: 100 },
+                }),
+              ).data,
+            )
+            assertActive()
+            if (
+              page.total > 10000 ||
+              (total !== undefined && (total !== page.total || revision !== page.revision))
+            )
+              throw Error('商品知识读取期间已变化')
+            total = page.total
+            revision = page.revision
+            if (page.items.some((x) => x.storeId !== storeId || rows.some((y) => y.id === x.id)))
+              throw Error('商品知识分页身份或记录不一致')
+            rows.push(...page.items)
+            if (rows.length === total) return rows
+            if (!page.items.length || rows.length > total) throw Error('商品知识分页不完整')
+          }
+          throw Error('商品知识超出读取上限')
+        },
+      },
+      createAssistedContext(traceModel),
+    ),
     resolveConversationThread: createConversationThread(() => read().conversations),
     beforeSend: (proposal: SendProposal) => {
       const decision = review.propose(proposal)
@@ -387,6 +435,7 @@ export function createLocalRuntime(options: {
   const localBackend = backend
   const productCatalog = createProductCatalog({
     directory: dataDir,
+    getPlatformProduct: platformProducts.get,
     execute: (command) => localBackend.execute(command),
     assertActive: () => {
       if (closed || !managed.canAccessWorkspace()) throw Error('商品知识工作区已关闭或不可访问')
@@ -444,6 +493,7 @@ export function createLocalRuntime(options: {
   }
   const learningProvider = createPddLearningProvider(providerOptions)
   const productWriter = createCollectedProductWriter({
+    savePlatformProduct: platformProducts.upsert,
     execute: (command) => localBackend.execute(command),
     assertActive,
     assertStore: (storeId) => {

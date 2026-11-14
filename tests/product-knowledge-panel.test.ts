@@ -25,6 +25,36 @@ const row = {
   price: '10',
   enabled: true,
   merchantCode: 'ABC',
+  platformDetail: {
+    productId: 'platform-1',
+    title: '平台商品名称',
+    merchantCode: 'ABC',
+    description: '平台采集的商品说明',
+    attributes: [{ name: '材质', value: '铜' }],
+    images: ['https://example.com/product.jpg', 'javascript:alert(1)'],
+    skus: [
+      {
+        skuId: 'sku-cn',
+        specs: [{ name: '版本', value: '国内版' }],
+        merchantCode: 'LOCK-CN',
+        barcode: '6901234567892',
+        price: '32.00',
+        stock: 0,
+      },
+      {
+        skuId: 'sku-world',
+        specs: [{ name: '版本', value: '全球版' }],
+        merchantCode: 'LOCK-WORLD',
+        barcode: '',
+        price: '42.00',
+        stock: null,
+      },
+    ],
+    capturedAt: 1000,
+    sourceUrl: 'https://mms.pinduoduo.com/goods/goods_list',
+    detailStatus: 'complete',
+    detailNote: '',
+  },
 }
 const collection = {
   start: vi.fn(),
@@ -147,6 +177,24 @@ it('采集失败明确显示原因，恢复可点击状态', async () => {
   expect(wrapper.get('[data-goods-learn]').attributes('disabled')).toBeUndefined()
   expect(service.list).toHaveBeenCalledTimes(2)
 })
+it('平台明确限制个别详情时显示部分完成及原因，不伪装完整采集', async () => {
+  const snapshot = collectionSnapshot()
+  const limited = {
+    ...snapshot,
+    tasks: snapshot.tasks.map((t) => ({
+      ...t,
+      coverage: 'partial' as const,
+      sourceLimited: true,
+      scope: '平台限制：商品禁售中，不可编辑',
+    })),
+  }
+  collection.start.mockResolvedValue(limited)
+  const { wrapper } = await setup()
+  await wrapper.get('[data-goods-learn]').trigger('click')
+  await flushPromises()
+  expect(wrapper.text()).toContain('部分采集完成')
+  expect(wrapper.text()).toContain('商品禁售中')
+})
 it('空商品列表说明直接采集入列，无进度时预留分页空间', async () => {
   service.list.mockResolvedValue({ revision: 1, codesRevision: 2, total: 0, items: [] })
   const { wrapper } = await setup()
@@ -222,23 +270,61 @@ it('取消删除不执行任何删除命令', async () => {
   await flushPromises()
   expect(run).not.toHaveBeenCalled()
 })
-it('商家编码独立保存，保留平台商品编号与编码修订号', async () => {
+it('平台商家编码只读，不提供本机设置或批量设编码入口', async () => {
   const { wrapper } = await setup()
-  await wrapper.get('[data-product-code="p1"]').trigger('click')
-  await flushPromises()
-  const input = document.querySelector<HTMLInputElement>('input[aria-label="商家编码 platform-1"]')!
-  expect(input).toBeTruthy()
-  input.value = 'XM-YSP'
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-  await flushPromises()
-  ;(document.querySelector('[data-save-codes]') as HTMLButtonElement).click()
-  await flushPromises()
-  expect(service.setCodes).toHaveBeenCalledWith('s1', {
-    revision: 2,
-    rows: [{ id: 'p1', version: 1, merchantCode: 'XM-YSP' }],
-    confirmed: true,
-  })
+  expect(wrapper.get('[data-platform-code="p1"]').text()).toBe('ABC')
+  expect(wrapper.find('[data-product-code]').exists()).toBe(false)
+  expect(wrapper.text()).not.toContain('批量设编码')
+  expect(wrapper.text()).not.toContain('设置编码')
+  expect(service.setCodes).not.toHaveBeenCalled()
   expect(service.save).not.toHaveBeenCalled()
+})
+it('平台详情按SKU分别展示规格、商家编码与条形码，零库存不当未知', async () => {
+  const { wrapper } = await setup()
+  await wrapper.get('[data-platform-detail="p1"]').trigger('click')
+  await flushPromises()
+  const detail = document.querySelector('[aria-label="平台商品详情"]')!
+  expect(detail.textContent).toContain('平台采集的商品说明')
+  expect(detail.textContent).toContain('材质：铜')
+  const skus = detail.querySelectorAll('[data-platform-sku]')
+  expect(skus).toHaveLength(2)
+  expect(skus[0].textContent).toContain('版本：国内版')
+  expect(skus[0].textContent).toContain('LOCK-CN')
+  expect(skus[0].textContent).toContain('6901234567892')
+  expect(skus[0].querySelector('[data-sku-stock]')!.textContent).toBe('0')
+  expect(skus[1].textContent).toContain('版本：全球版')
+  expect(skus[1].querySelector('[data-sku-barcode]')!.textContent).toBe('平台未提供')
+  expect(skus[1].querySelector('[data-sku-stock]')!.textContent).toBe('平台未提供')
+  expect(detail.querySelectorAll('img')).toHaveLength(1)
+  expect(detail.querySelector('img')!.getAttribute('src')).toBe('https://example.com/product.jpg')
+})
+it('区分未采集平台详情与平台未填写编码，切店后关闭旧详情', async () => {
+  service.list.mockResolvedValue({
+    revision: 1,
+    codesRevision: 2,
+    total: 2,
+    items: [
+      { ...row, merchantCode: '', platformDetail: null },
+      {
+        ...row,
+        id: 'p2',
+        productId: 'platform-2',
+        merchantCode: '',
+        platformDetail: { ...row.platformDetail, productId: 'platform-2', merchantCode: '' },
+      },
+    ],
+  })
+  const { wrapper, runtime } = await setup()
+  expect(wrapper.get('[data-platform-code="p1"]').text()).toBe('尚未采集')
+  expect(wrapper.get('[data-platform-code="p2"]').text()).toBe('平台未填写')
+  await wrapper.get('[data-platform-detail="p1"]').trigger('click')
+  await flushPromises()
+  expect(document.querySelector('[aria-label="平台商品详情"]')!.textContent).toContain(
+    '尚未采集平台详情',
+  )
+  runtime.selectedStoreId = 's2'
+  await flushPromises()
+  expect(document.querySelector('[aria-label="平台商品详情"]')).toBeNull()
 })
 it('批量编辑只改勾选字段，部分失败准确列出，不重试成功项', async () => {
   service.list.mockResolvedValue({

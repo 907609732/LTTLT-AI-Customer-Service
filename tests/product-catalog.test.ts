@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { createProductCatalog } from '../electron/product-catalog'
+import type { PlatformProductDetail } from '../src/shared/contracts/platform-product'
 
 const roots: string[] = []
 afterEach(() => {
@@ -25,6 +26,7 @@ function fixture() {
   }))
   let revision = 1,
     active = true
+  const details = new Map<string, PlatformProductDetail>()
   const execute = vi.fn(
     async (command: { storeId: string; values: { offset: number; limit: number } }) => ({
       status: 'ok',
@@ -39,79 +41,97 @@ function fixture() {
   const assertActive = () => {
     if (!active) throw Error('工作区已变化')
   }
-  const assertStore = (storeId: string) => {
-    if (storeId !== 'a') throw Error('店铺不存在')
+  const assertStore = (id: string) => {
+    if (id !== 'a') throw Error('店铺不存在')
   }
-  const make = () => createProductCatalog({ directory, execute, assertActive, assertStore })
+  const make = () =>
+    createProductCatalog({
+      directory,
+      execute,
+      assertActive,
+      assertStore,
+      getPlatformProduct: (_storeId, productId) => details.get(productId) ?? null,
+    })
   return {
-    make,
-    items,
-    execute,
     directory,
+    items,
+    details,
+    execute,
+    make,
     setRevision: (value: number) => (revision = value),
     close: () => (active = false),
   }
 }
-it('搜索全店各页并返回筛选后的总数，编码默认空且不改变平台商品编号', async () => {
+function source(): PlatformProductDetail {
+  return {
+    productId: 'platform-134',
+    title: '最后一页目标商品',
+    merchantCode: 'PLATFORM-GOODS',
+    description: '平台资料',
+    attributes: [],
+    images: [],
+    capturedAt: 1,
+    sourceUrl: 'https://mms.pinduoduo.com/goods/goods_list',
+    detailStatus: 'complete',
+    detailNote: '',
+    skus: [
+      {
+        skuId: 'real-sku',
+        merchantCode: 'SKU-CODE',
+        barcode: '',
+        specs: [{ name: '版本', value: '全球版' }],
+        price: '32',
+        stock: 8,
+      },
+    ],
+  }
+}
+it('搜索全店各页，未采集平台编码时明确为空，不改变商品编号', async () => {
   const f = fixture(),
-    catalog = f.make()
-  const page = await catalog.list('a', { query: '最后一页' })
+    page = await f.make().list('a', { query: '最后一页' })
   expect(page.total).toBe(1)
-  expect(page.items[0]).toMatchObject({ id: 'p134', merchantCode: '', productId: 'platform-134' })
+  expect(page.items[0]).toMatchObject({
+    id: 'p134',
+    merchantCode: '',
+    platformDetail: null,
+    productId: 'platform-134',
+  })
   expect(f.execute).toHaveBeenCalledTimes(2)
 })
-it('编码原子保存并跨实例恢复，编码搜索与分页保持一致', async () => {
-  const f = fixture(),
-    catalog = f.make()
-  await catalog.setCodes('a', {
-    revision: 0,
-    confirmed: true,
-    rows: [{ id: 'p134', version: 1, merchantCode: 'XM-YSP' }],
-  })
-  const page = await f.make().list('a', { merchantCode: 'xm-y', offset: 0, limit: 100 })
-  expect(page.codesRevision).toBe(1)
-  expect(page.total).toBe(1)
-  expect(page.items[0].merchantCode).toBe('XM-YSP')
+it('只读平台商品编码与SKU编码可检索，并返回完整结构化来源', async () => {
+  const f = fixture()
+  f.details.set('platform-134', source())
+  for (const code of ['platform-goods', 'sku-code']) {
+    const page = await f.make().list('a', { merchantCode: code })
+    expect(page.total).toBe(1)
+    expect(page.items[0].merchantCode).toBe('PLATFORM-GOODS')
+    expect(page.items[0].platformDetail?.skus[0].skuId).toBe('real-sku')
+  }
 })
-it('旧编码版本、商品版本、跨店和重复行均拒绝，批次失败不部分写入', async () => {
+it('旧本机编码不再冒充平台编码，原存档不读取也不覆盖', async () => {
+  const f = fixture(),
+    directory = path.join(f.directory, 'product-codes')
+  fs.mkdirSync(directory)
+  const target = path.join(directory, 'legacy.json')
+  fs.writeFileSync(target, '{historical-local-data')
+  const page = await f.make().list('a', {})
+  expect(page.items.every((row) => row.merchantCode === '')).toBe(true)
+  expect(fs.readFileSync(target, 'utf8')).toBe('{historical-local-data')
+})
+it('旧编码写入命令被拒绝，不产生本机假平台编码', async () => {
   const f = fixture(),
     catalog = f.make()
-  const good = {
+  const command = {
     revision: 0,
     confirmed: true as const,
-    rows: [{ id: 'p0', version: 1, merchantCode: 'A' }],
+    rows: [{ id: 'p0', version: 1, merchantCode: 'FAKE' }],
   }
-  await catalog.setCodes('a', good)
-  await expect(catalog.setCodes('a', good)).rejects.toThrow('编码已更新')
-  await expect(
-    catalog.setCodes('a', {
-      ...good,
-      revision: 1,
-      rows: [
-        { id: 'p0', version: 1, merchantCode: 'B' },
-        { id: 'p1', version: 9, merchantCode: 'C' },
-      ],
-    }),
-  ).rejects.toThrow('商品已更新')
-  await expect(catalog.setCodes('b', { ...good, revision: 1 })).rejects.toThrow('店铺不存在')
-  await expect(
-    catalog.setCodes('a', { ...good, revision: 1, rows: [good.rows[0], good.rows[0]] }),
-  ).rejects.toThrow('商品重复')
-  expect((await catalog.list('a', {})).items[0].merchantCode).toBe('A')
+  await expect(catalog.setCodes('a', command)).rejects.toThrow('只读来源')
+  await expect(catalog.setCodes('b', command)).rejects.toThrow('店铺不存在')
+  expect(fs.existsSync(path.join(f.directory, 'product-codes'))).toBe(false)
 })
-it('并发更新仅一项成功，账号关闭后的迟到读取不会发布', async () => {
-  const f = fixture(),
-    catalog = f.make(),
-    input = {
-      revision: 0,
-      confirmed: true as const,
-      rows: [{ id: 'p0', version: 1, merchantCode: 'A' }],
-    }
-  const outcomes = await Promise.allSettled([
-    catalog.setCodes('a', input),
-    catalog.setCodes('a', input),
-  ])
-  expect(outcomes.filter((x) => x.status === 'fulfilled')).toHaveLength(1)
+it('账号关闭后的迟到读取不会发布', async () => {
+  const f = fixture()
   f.execute.mockImplementationOnce(async () => {
     f.close()
     return {
@@ -120,11 +140,10 @@ it('并发更新仅一项成功，账号关闭后的迟到读取不会发布', a
       data: { revision: 1, total: f.items.length, items: f.items.slice(0, 100) },
     }
   })
-  await expect(catalog.list('a', {})).rejects.toThrow('工作区已变化')
+  await expect(f.make().list('a', {})).rejects.toThrow('工作区已变化')
 })
-it('分页期间商品修订变化或重复页会停止，不声明筛选完整', async () => {
-  const f = fixture(),
-    catalog = f.make()
+it('分页期间修订变化不会声明全店搜索完整', async () => {
+  const f = fixture()
   f.execute.mockImplementationOnce(async () => {
     f.setRevision(2)
     return {
@@ -133,12 +152,11 @@ it('分页期间商品修订变化或重复页会停止，不声明筛选完整'
       data: { revision: 1, total: f.items.length, items: f.items.slice(0, 100) },
     }
   })
-  await expect(catalog.list('a', {})).rejects.toThrow('采集期间已变化')
+  await expect(f.make().list('a', {})).rejects.toThrow('采集期间已变化')
 })
-it('原生分页重复、跨店行和总数缺口均不能成为全店搜索结果', async () => {
+it('分页重复、跨店行和空缺都被拒绝', async () => {
   for (const variant of ['duplicate', 'foreign', 'empty']) {
-    const f = fixture(),
-      catalog = f.make()
+    const f = fixture()
     f.execute.mockImplementation(async (command) => ({
       status: 'ok',
       message: '',
@@ -155,41 +173,12 @@ it('原生分页重复、跨店行和总数缺口均不能成为全店搜索结�
                 : f.items.slice(0, 35),
       },
     }))
-    await expect(catalog.list('a', {})).rejects.toThrow(/分页重复|店铺不符|分页为空/)
+    await expect(f.make().list('a', {})).rejects.toThrow(/分页重复|店铺不符|分页为空/)
   }
 })
-it('损坏编码存档不会降级为空或覆盖原文件，未知查询字段拒绝', async () => {
-  const f = fixture(),
-    catalog = f.make()
-  await catalog.setCodes('a', {
-    revision: 0,
-    confirmed: true,
-    rows: [{ id: 'p0', version: 1, merchantCode: 'A' }],
-  })
-  const directory = path.join(f.directory, 'product-codes'),
-    target = path.join(directory, fs.readdirSync(directory)[0])
-  fs.writeFileSync(target, '{broken')
-  await expect(catalog.list('a', {})).rejects.toThrow('存档损坏')
-  await expect(
-    catalog.setCodes('a', {
-      revision: 1,
-      confirmed: true,
-      rows: [{ id: 'p0', version: 1, merchantCode: 'B' }],
-    }),
-  ).rejects.toThrow('存档损坏')
-  expect(fs.readFileSync(target, 'utf8')).toBe('{broken')
-  await expect(catalog.list('a', { accountId: 'other' })).rejects.toThrow()
-})
-it('不同实例同时设置旧编码版本仍只有一个提交成功', async () => {
-  const f = fixture(),
-    input = {
-      revision: 0,
-      confirmed: true as const,
-      rows: [{ id: 'p0', version: 1, merchantCode: 'A' }],
-    }
-  const result = await Promise.allSettled([
-    f.make().setCodes('a', input),
-    f.make().setCodes('a', input),
-  ])
-  expect(result.filter((row) => row.status === 'fulfilled')).toHaveLength(1)
+it('来源编号不符及未知查询字段不能进入商品目录', async () => {
+  const f = fixture()
+  f.details.set('platform-134', { ...source(), productId: 'other' })
+  await expect(f.make().list('a', {})).rejects.toThrow('来源编号不一致')
+  await expect(f.make().list('a', { accountId: 'other' })).rejects.toThrow()
 })

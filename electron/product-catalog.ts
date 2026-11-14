@@ -1,6 +1,3 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { productsPageSchema, type Product } from '../src/shared/contracts/backend'
 import {
@@ -8,6 +5,10 @@ import {
   productCatalogQuerySchema,
   setProductCodesSchema,
 } from '../src/shared/contracts/product-catalog'
+import {
+  platformProductDetailSchema,
+  type PlatformProductDetail,
+} from '../src/shared/contracts/platform-product'
 
 interface Options {
   directory: string
@@ -18,52 +19,15 @@ interface Options {
   }): Promise<unknown>
   assertActive(): void
   assertStore(storeId: string): void
+  getPlatformProduct?(storeId: string, productId: string): PlatformProductDetail | null
 }
-const storedSchema = z
-  .object({
-    version: z.literal(1),
-    revision: z.number().int().nonnegative(),
-    items: z
-      .array(
-        z
-          .object({ id: z.string().min(1).max(128), merchantCode: z.string().trim().max(100) })
-          .strict(),
-      )
-      .max(10000),
-  })
-  .strict()
-  .refine(
-    (value) => new Set(value.items.map((row) => row.id)).size === value.items.length,
-    '编码存档存在重复商品',
-  )
-type Stored = z.infer<typeof storedSchema>
 const nativePageSchema = z.object({ status: z.literal('ok'), data: productsPageSchema })
-const writes = new Map<string, Promise<void>>()
-
-/** Adds local merchant codes without changing upstream product IDs, records or retrieval policy. */
+/** Platform codes are read-only source facts; legacy local-code files remain untouched. */
 export function createProductCatalog(options: Options) {
   const check = (storeId: string) => {
     z.string().min(1).max(64).parse(storeId)
     options.assertActive()
     options.assertStore(storeId)
-  }
-  const file = (storeId: string) =>
-    path.join(
-      options.directory,
-      'product-codes',
-      createHash('sha256').update(storeId).digest('hex') + '.json',
-    )
-  function load(storeId: string): Stored {
-    check(storeId)
-    const target = file(storeId)
-    if (!fs.existsSync(target)) return { version: 1, revision: 0, items: [] }
-    if (fs.statSync(target).size > 4 * 1024 * 1024)
-      throw Error('商品编码存档超出容量，原文件未修改')
-    try {
-      return storedSchema.parse(JSON.parse(fs.readFileSync(target, 'utf8')))
-    } catch {
-      throw Error('商品编码存档损坏，原文件未修改，请恢复备份')
-    }
   }
   async function allProducts(storeId: string) {
     check(storeId)
@@ -101,87 +65,44 @@ export function createProductCatalog(options: Options) {
     }
     throw Error('商品列表超出单次读取容量')
   }
-  function commit(storeId: string, state: Stored) {
-    check(storeId)
-    const target = file(storeId),
-      temporary = target + '.' + randomUUID() + '.tmp'
-    fs.mkdirSync(path.dirname(target), { recursive: true })
-    try {
-      fs.writeFileSync(temporary, JSON.stringify(storedSchema.parse(state)), {
-        flag: 'wx',
-        mode: 0o600,
-      })
-      fs.renameSync(temporary, target)
-    } finally {
-      if (fs.existsSync(temporary)) fs.unlinkSync(temporary)
-    }
-  }
   return {
     async list(storeId: string, values: unknown) {
       const query = productCatalogQuerySchema.parse(values)
-      const codes = load(storeId)
       const products = await allProducts(storeId)
       check(storeId)
-      if (load(storeId).revision !== codes.revision) throw Error('商品编码已更新，请刷新重试')
-      const byId = new Map(codes.items.map((row) => [row.id, row.merchantCode]))
       const needle = query.query.toLocaleLowerCase(),
         codeNeedle = query.merchantCode.toLocaleLowerCase()
       const rows = products.rows
-        .map((row) => ({ ...row, merchantCode: byId.get(row.id) ?? '' }))
+        .map((row) => {
+          const raw = options.getPlatformProduct?.(storeId, row.productId) ?? null
+          const platformDetail = raw ? platformProductDetailSchema.parse(raw) : null
+          if (platformDetail && platformDetail.productId !== row.productId)
+            throw Error('平台商品来源编号不一致')
+          return { ...row, merchantCode: platformDetail?.merchantCode ?? '', platformDetail }
+        })
         .filter(
           (row) =>
             (!needle ||
               row.title.toLocaleLowerCase().includes(needle) ||
               row.productId.toLocaleLowerCase().includes(needle)) &&
-            (!codeNeedle || row.merchantCode.toLocaleLowerCase().includes(codeNeedle)),
+            (!codeNeedle ||
+              [
+                row.merchantCode,
+                ...(row.platformDetail?.skus.map((sku) => sku.merchantCode) ?? []),
+              ].some((code) => code.toLocaleLowerCase().includes(codeNeedle))),
         )
+      check(storeId)
       return productCatalogPageSchema.parse({
         revision: products.revision,
-        codesRevision: codes.revision,
+        codesRevision: 0,
         total: rows.length,
         items: rows.slice(query.offset, query.offset + query.limit),
       })
     },
-    async setCodes(storeId: string, input: unknown) {
-      const request = setProductCodesSchema.parse(input)
+    async setCodes(storeId: string, input: unknown): Promise<{ revision: number }> {
       check(storeId)
-      const target = file(storeId)
-      const previous = writes.get(target) ?? Promise.resolve()
-      const job = previous.then(async () => {
-        const codes = load(storeId)
-        if (codes.revision !== request.revision) throw Error('商品编码已更新，请刷新后重新设置')
-        const products = await allProducts(storeId)
-        const byId = new Map(products.rows.map((row) => [row.id, row]))
-        for (const row of request.rows) {
-          const product = byId.get(row.id)
-          if (!product) throw Error('商品不存在或不属于此店铺')
-          if (product.version !== row.version) throw Error('商品已更新，请刷新后重新设置编码')
-        }
-        check(storeId)
-        if (load(storeId).revision !== request.revision)
-          throw Error('商品编码已更新，请刷新后重新设置')
-        const next = new Map(codes.items.map((row) => [row.id, row.merchantCode]))
-        for (const row of request.rows) {
-          if (row.merchantCode) next.set(row.id, row.merchantCode)
-          else next.delete(row.id)
-        }
-        // Discard metadata for removed product UUIDs; never attach an old code to a new product.
-        const items = [...next]
-          .filter(([id]) => byId.has(id))
-          .map(([id, merchantCode]) => ({ id, merchantCode }))
-        commit(storeId, { version: 1, revision: codes.revision + 1, items })
-        return { revision: codes.revision + 1 }
-      })
-      const tail = job.then(
-        () => {},
-        () => {},
-      )
-      writes.set(target, tail)
-      try {
-        return await job
-      } finally {
-        if (writes.get(target) === tail) writes.delete(target)
-      }
+      setProductCodesSchema.parse(input)
+      throw Error('平台商家编码为只读来源，请在平台后台维护后重新采集')
     },
   }
 }

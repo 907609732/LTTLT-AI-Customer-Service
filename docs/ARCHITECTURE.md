@@ -110,3 +110,7 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 ## 商品目录查询与本地商家编码
 
 主进程createProductCatalog复用原商品知识分页，公共execute对list-products及set-product-codes作受限装配；编码独立JSON按账号/店铺隔离，写锁+revision CAS+商品版本检查后原子提交。前端商品服务解析严格目录契约，组件只用领域服务。原产品结构、模型检索及CSV格式不变，无新依赖或vendor补丁。
+
+后续平台编码修正：目录merchantCode和platformDetail来自platform-product-store账号/店铺隔离侧档，旧本机编码不再显示为平台编码，旧set-product-codes明确拒绝且保留旧文件。pdd-learning-provider通过原生商品编辑入口只读导航，platform-product-dom及platform-product-observer分别读取表单与固定原生详情响应，platform-product-merge按规格组合核验后保存。没有新IPC或vendor修改；平台页面仍无应用preload，未知字段不补造。
+
+createProductSpecContext装配于正式AiClient及训练共用prepareModelContext，在既有通用表达和token计量之前选择本店enabled商品的匹配SKU；来源仅作user数据块，静态约束保留系统优先级。旧商品全文命中被受核验规格替换，意图资料及图片仍保留；未指定/未知/歧义规格要求澄清。工作区变化或取消后不继续发模型请求，发送确认门不变。

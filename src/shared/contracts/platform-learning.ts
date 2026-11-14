@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { platformProductDetailSchema } from './platform-product'
 
 const id = z.string().trim().min(1).max(200)
 const timestamp = z.number().finite().nonnegative()
@@ -45,6 +46,7 @@ export const platformLearningProductSchema = z
     specifications: z.string().max(20000),
     sourceUrl: z.string().url().max(2000).optional(),
     updatedAt: timestamp.optional(),
+    platformDetail: platformProductDetailSchema.optional(),
   })
   .strict()
 export type PlatformLearningProduct = z.infer<typeof platformLearningProductSchema>

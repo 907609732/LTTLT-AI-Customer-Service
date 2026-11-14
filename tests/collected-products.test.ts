@@ -51,6 +51,50 @@ function fixture() {
   })
   return { rows, execute, assertIdentity, writer }
 }
+it('重复采集刷新平台详情侧档但不覆盖人工商品正文或启用状态', async () => {
+  const f = fixture()
+  await f.writer.write({ identity, products: [goods[0]!], signal: new AbortController().signal })
+  f.rows[0]!.description = '人工安装说明'
+  f.rows[0]!.enabled = true
+  const detail = {
+    productId: 'p0',
+    title: '商品0',
+    merchantCode: 'PLATFORM-1',
+    description: '平台资料',
+    attributes: [],
+    images: [],
+    skus: [
+      {
+        skuId: 'sku-a',
+        specs: [{ name: '型号', value: 'A' }],
+        merchantCode: 'A',
+        barcode: '6901234567892',
+        price: '19.90',
+        stock: 0,
+      },
+    ],
+    capturedAt: 1,
+    sourceUrl: 'https://mms.pinduoduo.com/goods/goods_add/index?goods_id=p0',
+    detailStatus: 'partial' as const,
+    detailNote: '',
+  }
+  const savePlatformProduct = vi.fn()
+  const writer = createCollectedProductWriter({
+    execute: f.execute,
+    assertActive: () => {},
+    assertStore: () => {},
+    assertIdentity: f.assertIdentity,
+    savePlatformProduct,
+  })
+  await writer.write({
+    identity,
+    products: [{ ...goods[0]!, platformDetail: detail }],
+    signal: new AbortController().signal,
+  })
+  expect(savePlatformProduct).toHaveBeenCalledWith('s', detail)
+  expect(f.rows[0]).toMatchObject({ description: '人工安装说明', enabled: true })
+  expect(f.rows).toHaveLength(1)
+})
 it('七个真实来源商品写入停用行，重复读取不重复且人工编辑不覆盖', async () => {
   const f = fixture(),
     input = { identity, products: goods, signal: new AbortController().signal }

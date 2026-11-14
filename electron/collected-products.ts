@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { productsPageSchema, productSchema } from '../src/shared/contracts/backend'
+import type { PlatformProductDetail } from '../src/shared/contracts/platform-product'
 import {
   platformLearningIdentitySchema,
   platformLearningProductSchema,
@@ -21,6 +22,7 @@ interface Options {
   assertActive(): void
   assertStore(storeId: string): void
   assertIdentity(identity: PlatformLearningIdentity): Promise<void>
+  savePlatformProduct?(storeId: string, detail: PlatformProductDetail): void
 }
 const draftSchema = z
   .object({
@@ -38,20 +40,21 @@ export function createCollectedProductWriter(options: Options) {
     async write(input: CollectedProductsInput): Promise<void> {
       const identity = platformLearningIdentitySchema.parse(input.identity)
       // Validate the whole page before the first write; never silently shorten source material.
-      const drafts = z
-        .array(platformLearningProductSchema)
-        .max(10000)
-        .parse(input.products)
-        .map((row) =>
-          draftSchema.parse({
-            productId: row.id,
-            title: row.title,
-            description: row.description,
-            specifications: row.specifications,
-            price: '',
-            enabled: false,
-          }),
-        )
+      const sources = z.array(platformLearningProductSchema).max(10000).parse(input.products)
+      for (const row of sources) {
+        if (row.platformDetail && row.platformDetail.productId !== row.id)
+          throw Error('平台详情与商品编号不一致')
+      }
+      const drafts = sources.map((row) =>
+        draftSchema.parse({
+          productId: row.id,
+          title: row.title,
+          description: row.description,
+          specifications: row.specifications,
+          price: '',
+          enabled: false,
+        }),
+      )
       const check = () => {
         input.signal.throwIfAborted()
         options.assertActive()
@@ -102,6 +105,12 @@ export function createCollectedProductWriter(options: Options) {
       }
       await verify()
       for (const draft of drafts) {
+        const detail = sources.find((row) => row.id === draft.productId)?.platformDetail
+        if (detail && options.savePlatformProduct) {
+          await verify()
+          options.savePlatformProduct(identity.storeId, detail)
+          await verify()
+        }
         if (productIds.has(draft.productId)) continue
         await verify()
         const result = z.object({ status: z.literal('ok'), data: productSchema }).parse(

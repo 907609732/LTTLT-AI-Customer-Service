@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createPddLearningProvider,
+  PlatformProductDetailBlockedError,
   type PddLearningWindow,
 } from '../electron/pdd-learning-provider'
 import type { NativeHistoryObserver } from '../electron/platform-learning-chat'
@@ -26,6 +27,12 @@ beforeEach(() => {
     </tbody></table><div>共有 1 条</div></main>`
 })
 function fixture() {
+  const readProductDetail = vi.fn(
+    async () =>
+      undefined as
+        | import('../src/shared/contracts/platform-product').PlatformProductDetail
+        | undefined,
+  )
   let mallId = 'mall-1',
     origin = 'https://mms.pinduoduo.com/chat-merchant/index.html'
   let active = true,
@@ -108,6 +115,7 @@ function fixture() {
       return win
     },
     now: () => 1000,
+    readProductDetail,
     timeoutMs: 100,
     createHistoryObserver: () => historyObserver,
     runQuery: async (
@@ -123,6 +131,7 @@ function fixture() {
   providers.push(provider)
   return {
     provider,
+    readProductDetail,
     loaded,
     partitions,
     adapter,
@@ -143,6 +152,56 @@ function fixture() {
 }
 
 describe('PDD learning provider real-page boundary', () => {
+  it('只跳过平台明确拒绝的禁售详情，保留列表且标明范围不完整', async () => {
+    const f = fixture()
+    f.readProductDetail.mockRejectedValue(
+      new PlatformProductDetailBlockedError('商品禁售中，不可编辑'),
+    )
+    const result = await f.provider.collectProducts({
+      identity: await f.provider.identity('shop'),
+      range,
+      cursor: null,
+      signal: new AbortController().signal,
+    })
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]?.platformDetail).toBeUndefined()
+    expect(result.rangeComplete).toBe(false)
+    expect(result.scope).toContain('商品禁售中')
+  })
+  it('将已核对的原生商品详情与本页同编号商品合并', async () => {
+    const f = fixture()
+    const detail = {
+      productId: '12345678',
+      title: '纯棉上衣',
+      merchantCode: 'PDD-001',
+      description: '纯棉',
+      attributes: [],
+      images: [],
+      skus: [
+        {
+          skuId: 'sku-red',
+          specs: [{ name: '颜色', value: '红' }],
+          merchantCode: 'RED',
+          barcode: '690000000001',
+          price: '19.90',
+          stock: 0,
+        },
+      ],
+      capturedAt: 1000,
+      sourceUrl: 'https://mms.pinduoduo.com/goods/goods_add/index?goods_id=12345678',
+      detailStatus: 'partial' as const,
+      detailNote: '',
+    }
+    f.readProductDetail.mockResolvedValue(detail)
+    const result = await f.provider.collectProducts({
+      identity: await f.provider.identity('shop'),
+      range,
+      cursor: null,
+      signal: new AbortController().signal,
+    })
+    expect(result.items[0]?.platformDetail).toEqual(detail)
+    expect(f.readProductDetail).toHaveBeenCalledOnce()
+  })
   it('reads a verified goods page using the store login partition and normalizes only visible facts', async () => {
     const f = fixture()
     const identity = await f.provider.identity('shop')

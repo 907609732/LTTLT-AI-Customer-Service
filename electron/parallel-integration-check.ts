@@ -12,6 +12,7 @@ import { registerDesktopIpc } from './ipc'
 import { registerCustomPhrasesIpc } from './custom-phrases-ipc'
 import { registerStoreSyncIpc } from './store-sync-ipc'
 import { registerSchedulerIpc } from './scheduler-ipc'
+import { createPlatformProductStore } from './platform-product-store'
 import type { PhraseLibrary } from '../src/shared/customer-service/custom-phrases'
 import type { BackendResult, CommandInput } from '../src/shared/contracts/backend'
 
@@ -339,6 +340,32 @@ app
           },
         })
       }
+      createPlatformProductStore({
+        directory: runtime.dataDirectory(),
+        assertActive: () => {},
+        assertStore: () => {},
+      }).upsert(meta.a, {
+        productId: 'ui-check-29',
+        title: '隔离跨页验收29',
+        merchantCode: 'PLATFORM-CODE-29',
+        description: '平台原生合成来源',
+        attributes: [],
+        images: [],
+        capturedAt: Date.now(),
+        sourceUrl: 'https://mms.pinduoduo.com/goods/goods_add/index?goods_id=ui-check-29',
+        detailStatus: 'partial',
+        detailNote: '隔离测试',
+        skus: [
+          {
+            skuId: 'fixture-sku-29',
+            specs: [{ name: '型号', value: 'A款' }],
+            merchantCode: 'SKU-CODE-29',
+            barcode: '0690000000029',
+            price: '19.90',
+            stock: 0,
+          },
+        ],
+      })
       const catalogResult = await execute({
         action: 'list-products',
         storeId: meta.a,
@@ -361,17 +388,20 @@ app
       await wait(
         'document.querySelectorAll(".goods-table .el-table__row").length===1 && document.querySelector(".goods-table")?.innerText.includes("ui-check-29")',
       )
-      await evaluate('document.querySelector("[data-product-code]").click()')
-      await input('input[aria-label="商家编码 ui-check-29"]', 'UI-CODE-29')
-      await evaluate('document.querySelector("[data-save-codes]").click()')
-      await wait('document.querySelector(".goods-table")?.innerText.includes("UI-CODE-29")')
+      assert.equal(await evaluate('document.querySelector("[data-product-code]")'), null)
+      await wait('document.querySelector(".goods-table")?.innerText.includes("PLATFORM-CODE-29")')
+      await evaluate('document.querySelector("[data-platform-detail]").click()')
+      await wait(
+        'document.body.innerText.includes("0690000000029") && document.body.innerText.includes("SKU-CODE-29")',
+      )
+      await screenshot('product-platform-sku-details')
       await load('/shop/manage?panel=goods')
-      await input('input[aria-label="商家编码筛选"]', 'UI-CODE-29')
+      await input('input[aria-label="商家编码筛选"]', 'PLATFORM-CODE-29')
       await click('查询', '[data-goods-query] button')
       await wait(
-        'document.querySelectorAll(".goods-table .el-table__row").length===1 && document.querySelector(".goods-table")?.innerText.includes("UI-CODE-29")',
+        'document.querySelectorAll(".goods-table .el-table__row").length===1 && document.querySelector(".goods-table")?.innerText.includes("PLATFORM-CODE-29")',
       )
-      checks.push('单店商品页无重复店铺表、全店跨页搜索、真实编码保存及重载筛选')
+      checks.push('商品页跨页查询、平台编码只读重载筛选及完整SKU条码详情')
       await screenshot('product-knowledge-code-persisted')
       for (const panel of ['kb', 'intent-doc', 'team', 'workorder', 'home']) {
         await load(`/shop/manage?panel=${panel}`)

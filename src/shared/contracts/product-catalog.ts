@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { productSchema } from './backend'
+import { platformProductDetailSchema } from './platform-product'
 
 export const productCatalogRowSchema = productSchema.extend({
-  merchantCode: z.string().max(100).default(''),
+  merchantCode: z.string().max(200).default(''),
+  platformDetail: platformProductDetailSchema.nullable().default(null),
 })
 export type ProductCatalogRow = z.infer<typeof productCatalogRowSchema>
 export const productCatalogQuerySchema = z
@@ -10,7 +12,7 @@ export const productCatalogQuerySchema = z
     offset: z.number().int().min(0).max(10000).default(0),
     limit: z.number().int().min(1).max(200).default(20),
     query: z.string().trim().max(200).default(''),
-    merchantCode: z.string().trim().max(100).default(''),
+    merchantCode: z.string().trim().max(200).default(''),
   })
   .strict()
 export type ProductCatalogQuery = z.input<typeof productCatalogQuerySchema>
