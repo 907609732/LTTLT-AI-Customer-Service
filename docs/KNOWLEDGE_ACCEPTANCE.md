@@ -44,3 +44,25 @@
 - Electron TypeScript、这5个变更源码/测试文件ESLint、Prettier和diff空白检查通过。本轮未改Vue布局、未重跑native或全量检查；前述截图与原生组合仍是e1689e3证据，不冒充本轮新增验收。
 
 M1知识历史选中项的显示归属留给统筹全分支审查；M2已有Windows/Rollup告警与实店/真实模型未验证边界不变。完整命令、失败输出和自审在本地Task5报告追加部分。
+
+## 最终全分支审查修正（FIX_BASE `3c8a46e` → `2f962c1`）
+
+最终审查发现I1–I4及M1后已完成一次集中修正，本节是 `2f962c1` 的源码/定向证据，等待统筹一次scoped rereview。十项实施取舍与代价已正式归档为 [KNOWLEDGE_DECISIONS.md](KNOWLEDGE_DECISIONS.md)。
+
+- I1：301及4000字符问题完整保存；自动键使用完整原文JSON编码的SHA256。旧live中的已知超长自动键在同事务修复current/approved/全部history，审核和来源关系保持。manager→真实SQLite的保存、显式发布、重开编辑、全库/同款备份恢复均通过。已经生成的旧坏archive仍严格拒绝且原文件未改变；修复live后重新备份，不放宽schema。
+- I2：实际manager任务按钮可继续 `needs-confirmation` 的collect/daily-check；submitted学习和cancelled任务没有bare resume。
+- I3：A/B实际界面分别只显示共享知识及本店本商品/SKU覆盖；真实仓储保存范围再次校验，A不能保存B覆盖。B来源的共享依据可在A侧对照并查看来源历史，标明来源店铺；全家族绑定仍供影响预览。
+- I4：在真实文件替换边界强制终止子进程，覆盖主库/WAL/SHM移走及新库就位四阶段；随后新owner在SQLite创建/迁移之前停止，现场所有文件内容哈希不变，原库、暂存库和恢复点保留。畸形/伪路径意图同样停止，不跟随标记路径操作。主入口专用用户提示受限于可信账号目录，明确完整复制及维护步骤。详见 [恢复中断维护步骤](KNOWLEDGE_LIBRARY.md#恢复中断维护步骤)。
+- M1：选中、创建、放弃草稿清理历史；A→B→A期间旧session的迟到结果不会显示。
+
+验证命令及结果：
+
+- `npx.cmd vitest run tests/knowledge-manager.test.ts tests/knowledge-backup.test.ts tests/knowledge-repository.test.ts tests/knowledge-migration.test.ts tests/knowledge-restore-crash.test.ts tests/knowledge-restore-startup.test.ts tests/workspace-runtime.test.ts`：19:10，**7文件71/71通过，15.59秒**。第一次组合检查为70通过/1失败：旧自冲突测试fixture给product编辑器放了无所属绑定的条目；改成有效共享canonical fixture后，保留原A→B→A版本断言通过。
+- 随后追加B店UI切换与旧坏archive只读拒绝断言，并补齐child fixture的LocalRuntime类型：`npx.cmd vitest run tests/knowledge-manager.test.ts tests/knowledge-backup.test.ts tests/knowledge-restore-crash.test.ts -t 'current product overrides|already-written|real process kill'`：19:12，**6通过、30跳过，6.18秒**，与前项重叠不相加。
+- `npx.cmd vue-tsc --noEmit`、`npx.cmd tsc -p tsconfig.electron.json`通过。初次增量类型检查发现fixture缺少返回boolean的unsubscribe和openSimulatorPage，以及Node22类型未列出fork windowsHide；仅修正测试fixture契约并重新通过，未跳过类型。
+- 14个变更TS/Vue/测试文件的ESLint、定向Prettier、`git diff --check`、`node scripts/check-boundaries.mjs`通过。初次ESLint的4个未使用解构变量已修正。
+- `npm.cmd run build`源码Vite及desktop构建通过；仍有已知Zod注释和大chunk警告，不称无警告。本轮没有运行全量check、全量上游/桌面或Release打包。
+
+全程合成临时目录、隐藏Node子进程，无用户应用或真实数据恢复。新界面证据是Vue交互测试，没有本轮新截图或真实Electron窗口验收；前文原生13项/7项及截图依旧属于 **`e1689e3`**，不提升为当前修正的原生验收。物理断电、Windows硬件缓存故障、实店PDD/CDN、真实模型语义/OCR、计费及安装包仍未验收。中断后选择fail-closed，须维护恢复；Windows仅文件flush、无Node目录fsync的限制已明示。
+
+完整RED/GREEN输出摘要、自审及剩余边界见本机 `.superpowers/sdd/2026-11-15-knowledge-library/final-fix-report.md`。下一项是统筹针对本次差异的一次复审，验收条件为I1–I4/M1关闭且上述外部边界保留；不含推送、合并、公开发布。

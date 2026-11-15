@@ -1,6 +1,6 @@
 # 当前状态与源码验收
 
-2026-11-15 知识库五项重构已在隔离分支实现，待统筹独立审查：统一SQLite、管理窗、采集/学习、09:00日检、真实待学箱、CSV/JSON往返、全库/同款备份与owner恢复。实际隔离验证和外部限制见 `.superpowers/sdd/2026-11-15-knowledge-library/task-5-report.md`、`docs/KNOWLEDGE_LIBRARY.md`；下一项为Task5 gate与全分支审查，不是继续开发Task3/4。未推送、合并或发布。
+2026-11-15 知识库五项重构及最终全分支审查修正已在隔离分支实现，修正代码提交 `2f962c1`（FIX_BASE `3c8a46e`）。I1长问题和全部旧历史键、I2部分采集/日检继续按钮、I3本店编辑及跨店共享来源、I4中断恢复启动保护、M1历史会话归属均有定向证据。7文件71项通过；后续6项补查通过且不重复累计，Vue/桌面类型、局部lint/格式/边界及源码构建通过（保留已有Rollup警告）。详情见 [KNOWLEDGE_ACCEPTANCE.md](KNOWLEDGE_ACCEPTANCE.md)、[KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md) 与 [KNOWLEDGE_DECISIONS.md](KNOWLEDGE_DECISIONS.md)。完整修正报告在本机 `.superpowers/sdd/2026-11-15-knowledge-library/final-fix-report.md`。下一项为统筹一次scoped rereview，验收条件为五项关闭；不是重做Tasks1–5或默认跑全量。旧坏archive仍严格拒绝，需修复live后重新备份；替换中断保持停机，按文档在完整副本上维护恢复。当前未增加原生截图，既有native证据仍为 `e1689e3`。实店PDD/CDN、真实模型/OCR/计费、物理断电和Release仍未验收。未操作真实数据、重启用户应用、推送、合并或发布。
 
 ## 2026-11-15 本轮主干合并范围
 
