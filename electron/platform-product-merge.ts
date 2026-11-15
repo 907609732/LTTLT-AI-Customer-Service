@@ -76,12 +76,21 @@ export function mergePlatformProductDetail(
       throw Error('商品SKU库存在读取期间已变化，请重试')
     return { ...source, specs: row.specs }
   })
+  const missingDynamics = skus.filter(
+    (row) => !row.skuId || !row.price || row.stock === null,
+  ).length
   return platformProductDetailSchema.parse({
     ...dom,
     description: native.description || dom.description,
     skus,
-    detailStatus: 'partial',
+    // Completion describes verified raw collection, not optional barcode entry or later OCR/learning.
+    detailStatus: skus.length && !missingDynamics ? 'complete' : 'partial',
     detailNote:
-      '商品与全部SKU已由原生响应和详情表格交叉核对；未提供的条形码保持空白。详情图片未OCR；价格和库存为采集时快照。',
+      (skus.length
+        ? missingDynamics
+          ? `${missingDynamics}个SKU编号、价格或库存未取得；`
+          : '商品与全部SKU已由原生响应和详情表格交叉核对；'
+        : '未取得SKU资料；') +
+      '平台未提供的条形码保持空白；图片已作为原料读取，OCR与知识学习需另行启动；价格和库存为采集时快照。',
   })
 }

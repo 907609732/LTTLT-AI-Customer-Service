@@ -9,6 +9,7 @@ function fixture() {
     <h1>编辑商品 商品ID: 12345678</h1>
     <div id="basic.goods_name"><input value="纯棉上衣"></div>
     <div id="property"><div id="basic.propertys.0.value"><label>材质</label><input value="纯棉"></div></div>
+    <div id="basic.carousel_gallery">已上传1/10张<img src="https://img.example.com/main.png"></div>
     <div id="detail_pic"><div>上传图片 查看教程</div><div contenteditable="true">实际商品说明</div><img src="https://img.example.com/detail.png"><i style="background-image:url('https://img.example.com/background.png')"></i><img src="http://unsafe.example.com/x"></div>
     <div id="sku.out_goods_sn"><input value="TOP-01"></div>
     <section id="sku"><table><thead><tr><th>颜色</th><th>尺码</th><th>当前库存</th><th>库存增减</th><th>改后库存</th><th>*拼单价(元)</th><th>单买价(元)</th><th>规格编码</th><th>商品条形码</th></tr></thead>
@@ -24,6 +25,23 @@ beforeEach(() => {
   fixture()
 })
 afterEach(() => vi.unstubAllGlobals())
+it('includes actual carousel pictures with detail pictures and excludes tutorial or unrelated images', () => {
+  document.getElementById('basic.carousel_gallery')!.remove()
+  document
+    .getElementById('goods_create')!
+    .insertAdjacentHTML(
+      'beforeend',
+      `<section id="picture"><div id="basic.carousel_gallery">已上传<span>2</span>/10张<div style="background-image:url('https://img.example.com/main.png')"></div><img src="https://img.example.com/second.png"></div><img src="https://img.example.com/tutorial.png"></section>`,
+    )
+  expect(readPddProductDetail('12345678').images).toEqual([
+    'https://img.example.com/main.png',
+    'https://img.example.com/second.png',
+    'https://img.example.com/detail.png',
+    'https://img.example.com/background.png',
+  ])
+  document.getElementById('basic.carousel_gallery')!.querySelector('img')!.remove()
+  expect(() => readPddProductDetail('12345678')).toThrow('主图')
+})
 
 it('reads only product fields, preserves SKU dimensions and distinct barcode, and never edits fields', () => {
   const clicked = vi.fn()
@@ -62,11 +80,23 @@ it('reads only product fields, preserves SKU dimensions and distinct barcode, an
     },
   ])
   expect(data.images).toEqual([
+    'https://img.example.com/main.png',
     'https://img.example.com/detail.png',
     'https://img.example.com/background.png',
   ])
   expect(JSON.stringify(data)).not.toMatch(/无关导航|查看教程|库存增减/)
   expect(clicked).not.toHaveBeenCalled()
+})
+it('refuses unloaded image regions and unknown advertised main-image counts', () => {
+  document.getElementById('basic.carousel_gallery')!.remove()
+  expect(() => readPddProductDetail('12345678')).toThrow('主图')
+  fixture()
+  document.getElementById('basic.carousel_gallery')!.innerHTML =
+    '<img src="https://img.example.com/main.png">'
+  expect(() => readPddProductDetail('12345678')).toThrow('主图')
+  fixture()
+  document.getElementById('detail_pic')!.innerHTML = ''
+  expect(() => readPddProductDetail('12345678')).toThrow('详情')
 })
 it('does not invent SKU identifiers or use merchant codes as barcodes when columns are absent', () => {
   document.querySelectorAll('tr').forEach((row) => row.lastElementChild?.remove())

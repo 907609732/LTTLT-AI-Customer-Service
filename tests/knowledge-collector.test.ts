@@ -58,6 +58,15 @@ function detail(overrides: Partial<PlatformProductDetail> = {}): PlatformProduct
   }
 }
 describe('collector material revisions', () => {
+  it('uses current dynamic capture time after recollecting a removed family', () => {
+    const f = fixture()
+    f.materials.write('s', detail({ capturedAt: 1000 }))
+    f.repository.removeCanonical(f.binding.canonicalId)
+    f.materials.write('s', detail({ capturedAt: 2000 }))
+    expect(f.repository.listProducts({ storeId: 's' }).items[0]?.productSummary?.capturedAt).toBe(
+      2000,
+    )
+  })
   it('shows actual SKU/specification and original capture expiry on lightweight cards', () => {
     const f = fixture()
     f.materials.write('s', detail())
@@ -659,7 +668,10 @@ it('retries only partial items after an explicit resume and clears their previou
   f.provider.collectProducts = async (input) => {
     const page = await original(input)
     if (!input.catalogOnly && partial)
-      page.items[0]!.platformDetail = detail({ detailStatus: 'partial' })
+      page.items[0]!.platformDetail = detail({
+        detailStatus: 'partial',
+        detailNote: '2个SKU价格或库存未取得',
+      })
     return page
   }
   const { jobId } = await f.coordinator.request({
@@ -669,6 +681,7 @@ it('retries only partial items after an explicit resume and clears their previou
     catalog,
   })
   expect((await settle(f, jobId)).status).toBe('needs-confirmation')
+  expect(f.repository.getJob(jobId)?.error).toContain('2个SKU价格或库存未取得')
   partial = false
   await f.coordinator.request({ action: 'resume', storeId: 's', jobId })
   expect((await settle(f, jobId)).status).toBe('succeeded')

@@ -157,20 +157,43 @@ export function readPddProductDetail(productId: string): PlatformProductDetail {
         : []
     })
   const detail = byId('detail_pic')
+  const carousel = byId('basic.carousel_gallery')
+  if (!carousel) throw Error('商品主图区域尚未加载')
+  if (
+    !detail ||
+    !detail.querySelector(
+      'img,textarea,[contenteditable="true"],.detail-decoration-display,[style*="background-image"]',
+    )
+  )
+    throw Error('商品详情内容区域尚未加载')
   const images = new Set<string>()
   const addImage = (input: string) => {
     try {
       const image = new URL(input, location.href)
-      if (image.protocol === 'https:' && !image.username && !image.password) images.add(image.href)
+      if (image.protocol === 'https:' && !image.username && !image.password) {
+        images.add(image.href)
+        return true
+      }
     } catch {
       /* Invalid source images are omitted, never converted into textual facts. */
     }
+    return false
   }
-  for (const image of Array.from(detail?.querySelectorAll<HTMLImageElement>('img[src]') || []))
-    addImage(image.src)
-  for (const node of Array.from(detail?.querySelectorAll<HTMLElement>('[style]') || [])) {
-    for (const match of node.style.backgroundImage.matchAll(/url\(["']?([^"')]+)["']?\)/g))
-      if (match[1]) addImage(match[1])
+  for (const region of [carousel, detail]) {
+    let observed = 0
+    for (const node of Array.from(
+      region?.querySelectorAll<HTMLElement>('img[src],[style]') || [],
+    )) {
+      let found = node instanceof HTMLImageElement && addImage(node.src)
+      for (const match of node.style.backgroundImage.matchAll(/url\(["']?([^"')]+)["']?\)/g))
+        if (match[1]) found = addImage(match[1]) || found
+      if (found) observed++
+    }
+    if (region?.id === 'basic.carousel_gallery') {
+      const declared = text(region).match(/已上传\s*(\d+)\s*\/\s*\d+\s*张/)
+      if (!declared || Number(declared[1]) < 1 || Number(declared[1]) !== observed)
+        throw Error('商品主图数量尚未读取完整')
+    }
   }
   // Only actual text-editor values count as description; upload tutorials and platform hints do not.
   const description = Array.from(

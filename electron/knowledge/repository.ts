@@ -744,7 +744,7 @@ export class KnowledgeRepository {
       .get(binding.id) as { code: string | null } | undefined
     const capture = this.db
       .prepare(
-        "SELECT min(json_extract(json_extract(s.body,'$.text'),'$.capturedAt')) AS at FROM sources s JOIN bindings b ON b.id=s.binding_id WHERE b.store_id=? AND b.product_id=? AND b.active=1 AND json_extract(s.body,'$.label')='平台动态快照' AND json_valid(json_extract(s.body,'$.text'))",
+        "SELECT min(json_extract(json_extract(s.body,'$.text'),'$.capturedAt')) AS at FROM sources s JOIN bindings b ON b.id=s.binding_id WHERE b.store_id=? AND b.product_id=? AND b.active=1 AND COALESCE(json_extract(s.body,'$.removed'),0)=0 AND NOT EXISTS(SELECT 1 FROM metadata m WHERE m.key='cleared-source:'||s.id AND m.value='1') AND json_extract(s.body,'$.label')='平台动态快照' AND json_valid(json_extract(s.body,'$.text'))",
       )
       .get(binding.storeId, binding.productId) as { at: number | null }
     const capturedAt = capture.at,

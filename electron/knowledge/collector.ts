@@ -465,12 +465,13 @@ export function createKnowledgeCollector(
           }
           done.push(item.id)
           const limitations: string[] = []
-          if (
-            !item.platformDetail ||
-            item.platformDetail.detailStatus !== 'complete' ||
-            page.rangeComplete !== true
-          )
-            limitations.push(`${item.id}：${page.scope}`)
+          if (!item.platformDetail) limitations.push(`${item.id}：未取得商品详情；${page.scope}`)
+          else if (item.platformDetail.detailStatus !== 'complete')
+            limitations.push(
+              `${item.id}：${item.platformDetail.detailNote || '商品详情字段未核对完整'}`,
+            )
+          if (page.rangeComplete !== true)
+            limitations.push(`${item.id}：目录页码或范围未完整核对；${page.scope}`)
           if (images.some((image) => image.error))
             limitations.push(
               `${item.id}：${images.filter((image) => image.error).length}张图片未取得字节`,

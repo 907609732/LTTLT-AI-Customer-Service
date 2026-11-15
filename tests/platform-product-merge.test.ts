@@ -28,6 +28,25 @@ const dom: PlatformProductDetail = {
   detailStatus: 'partial',
   detailNote: '',
 }
+it('finishes verified raw collection without requiring optional barcodes or OCR, but keeps unknown dynamics partial', () => {
+  const native = {
+    productId: 'g',
+    mallId: 'm',
+    title: dom.title,
+    merchantCode: 'G',
+    description: '',
+    skus: dom.skus.map((row, i) => ({ ...row, skuId: String(i + 1) })),
+  }
+  expect(mergePlatformProductDetail(dom, native, 'm').detailStatus).toBe('complete')
+  const missing = {
+    ...native,
+    skus: native.skus.map((row) => ({ ...row, price: '', stock: null })),
+  }
+  const unknown = { ...dom, skus: dom.skus.map((row) => ({ ...row, price: '', stock: null })) }
+  const partial = mergePlatformProductDetail(unknown, missing, 'm')
+  expect(partial.detailStatus).toBe('partial')
+  expect(partial.detailNote).toContain('价格或库存')
+})
 it('按真实规格组合合并原生ID和条码，不能按行序错配', () => {
   const native = {
     productId: 'g',
