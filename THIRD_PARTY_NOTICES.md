@@ -31,3 +31,13 @@
 商业许可只能覆盖授权方拥有或取得有效再许可权的材料。贡献者保留其合法权利；仅按 AGPL 获得的贡献不得直接推定为可闭源再许可。维护者须按 [CONTRIBUTING.md](CONTRIBUTING.md) 核实相应授权。
 
 若具体文件含有更具体的第三方许可或权利声明，应保留并遵守该声明。发现缺失或错误的来源信息时，可在本仓库提交仅包含必要公开信息的 Issue，由维护者核实更正；不要公开上传未授权的私密材料。
+
+## Knowledge document parsing (Task4, 2026-11-15)
+
+The application directly uses the following already pinned dependencies; it does not embed an Open WebUI/FastGPT/LlamaIndex application or copy their source:
+
+- PDF.js / pdfjs-dist 6.5.438 — Apache-2.0, Mozilla and contributors. https://github.com/mozilla/pdf.js . Worker, CMaps, standard fonts and WASM remain with the installed package. Its installed optional `@napi-rs/canvas` implementation supplies native raster rendering and image tiling.
+- Mammoth 1.13.0 — BSD-2-Clause, Copyright (c) 2013 Michael Williamson. https://github.com/mwilliamson/mammoth.js . Two unmodified test documents are retained under `tests/fixtures/knowledge-ingestion`; their copyright and complete license accompany them in `MAMMOTH-LICENSE.txt`.
+- read-excel-file 9.3.17 — MIT, https://github.com/catamphetamine/read-excel-file . Uses v9's all-sheets Node API.
+
+Package licenses are retained in their installed distribution. Existing PapaParse, Zod and js-tiktoken are reused for CSV, schema validation and per-call token accounting respectively. All other new knowledge-ingestion fixtures are synthetic local test materials with no customer content.

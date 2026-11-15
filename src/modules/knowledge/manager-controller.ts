@@ -1,3 +1,5 @@
+import { publishKnowledgeBatch, type BatchReviewResult } from './batch-review'
+import { useKnowledgeIngestion } from './ingestion-controller'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { getDesktop } from '@/shared/platform/desktop'
@@ -91,6 +93,22 @@ export function useKnowledgeManager() {
     catalogOpen = ref(false),
     catalogSearch = ref(''),
     estimate = ref<KnowledgeEstimate>()
+  const batchResults = ref<BatchReviewResult[]>([])
+  const learningSelection = ref<{ bindingIds: string[]; sourceIds: string[] }>()
+  const ingestion = useKnowledgeIngestion({
+    client,
+    storeId,
+    binding: detailBinding,
+    refresh,
+    notice,
+  })
+  const importPreview = ingestion.preview
+  watch(storeId, () => {
+    ingestion.reset()
+    estimate.value = undefined
+    learningSelection.value = undefined
+    batchResults.value = []
+  })
   const stores = computed(() => runtime.snapshot.stores),
     currentStore = computed(() => stores.value.find((s) => s.id === storeId.value))
   let leaseRevision = 0,
@@ -224,6 +242,22 @@ export function useKnowledgeManager() {
         if (id !== ticket) return
         entries.value = result.items
         total.value = result.total
+      }
+      if (detail.value && detailBinding.value && detailTab.value === 'sources') {
+        const latest = await service.query({
+          type: 'detail',
+          canonicalId: detail.value.canonical!.id,
+          storeId: s,
+        })
+        assertLease(w, s)
+        if (id === ticket)
+          sources.value = latest.sources.filter(
+            (source) =>
+              source.bindingId === detailBinding.value?.id ||
+              latest.bindings.some(
+                (b) => b.id === source.bindingId && b.productId === detailBinding.value?.productId,
+              ),
+          )
       }
     } catch (cause) {
       if (id === ticket && !disposed) error.value = reason(cause)
@@ -589,9 +623,42 @@ export function useKnowledgeManager() {
   async function confirmPublish() {
     const values = reviewEntries.value.filter((e) => !excluded.value.includes(e.id))
     if (!values.length) throw Error('请至少保留一个条目')
-    for (const entry of values) await client().publish(entry.draft)
+    const service = client()
+    const targetResult = await service.pipeline({
+      action: 'review-targets',
+      storeId: storeId.value,
+      entryIds: reviewEntries.value.map((e) => e.id),
+    })
+    batchResults.value = await publishKnowledgeBatch(
+      reviewEntries.value,
+      excluded.value,
+      service.publish,
+      async (entry) => {
+        if (targetResult.targets?.[entry.id]) return targetResult.targets[entry.id]!
+        const scope = entry.draft.scope
+        if (scope.kind === 'canonical') {
+          const detail = await service.query({ type: 'detail', canonicalId: scope.canonicalId })
+          return (
+            detail.bindings
+              .filter((b) => !b.skuId)
+              .map((b) => `${b.storeId}/${b.productId}`)
+              .join('、') ||
+            detail.canonical?.title ||
+            scope.canonicalId
+          )
+        }
+        if (scope.kind === 'binding')
+          return (
+            detail.value?.bindings.find((b) => b.id === scope.bindingId)?.productId ||
+            `商品关联 ${scope.bindingId}`
+          )
+        return scope.kind === 'store'
+          ? `店铺 ${scope.storeId}`
+          : `通用模板 ${scope.storeIds.join('、')}`
+      },
+    )
     reviewEntries.value = []
-    notice.value = `已审核发布 ${values.length} 条，生效店铺：${affected.value.join('、')}`
+    notice.value = `已发布 ${batchResults.value.filter((r) => r.status === 'approved').length} 条，跳过 ${batchResults.value.filter((r) => r.status === 'skipped').length} 条，失败 ${batchResults.value.filter((r) => r.status === 'failed').length} 条；请查看逐商品结果。`
     await refresh()
     if (detail.value && detailBinding.value)
       await openProduct({
@@ -830,37 +897,51 @@ export function useKnowledgeManager() {
       canonicalId: binding.canonicalId,
       storeId: binding.storeId,
     })
+    learningSelection.value = {
+      bindingIds: [binding.id],
+      sourceIds: d.sources
+        .filter(
+          (s) =>
+            s.bindingId === binding.id ||
+            d.bindings.some((b) => b.id === s.bindingId && b.productId === binding.productId),
+        )
+        .map((s) => s.id),
+    }
     estimate.value = await client().pipeline({
       action: 'estimate',
       storeId: binding.storeId,
-      bindingIds: [binding.id],
-      sourceIds: d.sources.filter((s) => s.bindingId === binding.id).map((s) => s.id),
+      ...learningSelection.value,
     })
     detailBinding.value = binding
     sources.value = d.sources
   }
   async function startLearn() {
-    if (!estimate.value || !detailBinding.value) return
+    if (!estimate.value || !learningSelection.value) return
     const result = await client().pipeline({
       action: 'start',
       storeId: storeId.value,
       kind: 'learn',
-      bindingIds: [detailBinding.value.id],
-      sourceIds: sources.value.map((s) => s.id),
+      ...learningSelection.value,
       estimateId: estimate.value.estimateId,
     })
     estimate.value = undefined
     notice.value = `已建立学习任务 ${result.jobId}`
     await setView('jobs')
   }
-  async function chooseSources() {
-    const result = await client().pipeline({
-      action: 'choose-sources',
+  const chooseSources = () => ingestion.choose()
+  const archiveChats = async () => {
+    ingestion.archiveOpen.value = true
+  }
+  const confirmArchive = () => ingestion.choose(true)
+  const applyImport = ingestion.apply
+  async function learnStore() {
+    const result = await client().pipeline({ action: 'store-materials', storeId: storeId.value })
+    learningSelection.value = { bindingIds: [], sourceIds: result.sourceIds }
+    estimate.value = await client().pipeline({
+      action: 'estimate',
       storeId: storeId.value,
-      bindingId: detailBinding.value?.id,
+      ...learningSelection.value,
     })
-    notice.value = `已登记 ${result.sourceIds.length} 份原始资料，尚未学习或发布`
-    await refresh()
   }
   async function applyContext(context: KnowledgeWindowContext) {
     if (context.workspaceId !== runtime.snapshot.workspaceId) return
@@ -973,6 +1054,9 @@ export function useKnowledgeManager() {
         catalogOpen.value = false
         catalogSearch.value = ''
         estimate.value = undefined
+        learningSelection.value = undefined
+        ingestion.reset()
+        batchResults.value = []
         workspace.value = next
         storeId.value = ''
         view.value = 'library'
@@ -1090,6 +1174,15 @@ export function useKnowledgeManager() {
     learnProduct,
     startLearn,
     chooseSources,
+    archiveChats,
+    confirmArchive,
+    archiveOpen: ingestion.archiveOpen,
+    archiveFrom: ingestion.archiveFrom,
+    archiveTo: ingestion.archiveTo,
+    learnStore,
+    applyImport,
+    importPreview,
+    batchResults,
     hide,
     changed,
   }

@@ -1,3 +1,5 @@
+import { createKnowledgeSourcePipeline } from './knowledge/source-pipeline'
+import { readFile, stat } from 'node:fs/promises'
 import { createKnowledgePipelineCoordinator } from './knowledge/pipeline'
 import { createKnowledgeCollector } from './knowledge/collector'
 import { createCollectedProductWriter } from './collected-products'
@@ -15,7 +17,7 @@ import { SendModeAuthorizations } from './send-mode-authorizations'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { app, BrowserWindow, safeStorage, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, safeStorage, shell, dialog, type IpcMainInvokeEvent } from 'electron'
 import {
   createManagedController,
   type ManagedSessionFactory,
@@ -454,6 +456,8 @@ export function createLocalRuntime(options: {
     onKnowledgeModel: (port: KnowledgeModelPort) =>
       knowledge.setModel({
         complete: port.complete,
+        identity: () =>
+          JSON.stringify([managed.active.mode, read().config.ai.baseUrl, read().config.ai.model]),
         vision: () =>
           managed.active.mode === 'managed'
             ? {
@@ -584,6 +588,59 @@ export function createLocalRuntime(options: {
       getStore: providerStore,
       changed: () => {
         if (!closed) for (const listener of listeners) listener({ type: 'knowledge:changed' })
+      },
+    }),
+  )
+  knowledgePipeline.register(
+    createKnowledgeSourcePipeline({
+      repository: knowledgeRepository,
+      assertStore: knowledge.assertStore,
+      model: {
+        complete: knowledge.complete,
+        vision: knowledge.vision,
+        identity: knowledge.modelIdentity,
+      },
+      assertActive,
+      changed: () => {
+        if (!closed) for (const listener of listeners) listener({ type: 'knowledge:changed' })
+      },
+      chats: () => read().conversations,
+      chooseFiles: async () => {
+        const result = await dialog.showOpenDialog({
+          title: '选择知识资料',
+          properties: ['openFile', 'multiSelections'],
+          filters: [
+            {
+              name: '知识资料',
+              extensions: [
+                'pdf',
+                'docx',
+                'xlsx',
+                'csv',
+                'txt',
+                'md',
+                'png',
+                'jpg',
+                'jpeg',
+                'webp',
+                'gif',
+                'bmp',
+                'json',
+              ],
+            },
+          ],
+        })
+        assertActive()
+        if (result.canceled) return []
+        if (result.filePaths.length > 100) throw Error('一次最多100份资料')
+        return Promise.all(
+          result.filePaths.map(async (file) => {
+            const info = await stat(file)
+            if (!info.isFile() || info.size > 100 * 1024 * 1024)
+              throw Error('仅接受100MB以内普通文件')
+            return { name: path.basename(file), bytes: await readFile(file) }
+          }),
+        )
       },
     }),
   )

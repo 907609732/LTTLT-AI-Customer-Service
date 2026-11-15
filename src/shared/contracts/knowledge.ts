@@ -91,6 +91,10 @@ export interface ProductBinding {
 }
 export const sourceLocatorSchema = z
   .object({
+    imageAssetId: id.optional(),
+    image: z.number().int().positive().optional(),
+    column: z.number().int().positive().optional(),
+    tile: z.number().int().positive().optional(),
     page: z.number().int().positive().optional(),
     sheet: z.string().max(200).optional(),
     row: z.number().int().positive().optional(),

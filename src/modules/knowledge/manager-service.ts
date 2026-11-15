@@ -1,3 +1,4 @@
+import { knowledgePipelineInputSchema } from '@/shared/contracts/knowledge-pipeline'
 import { getKnowledgeBridge } from '@/shared/platform/knowledge'
 import { getBackendBridge } from '@/shared/platform/backend'
 import type {
@@ -85,9 +86,11 @@ export function createKnowledgeClient(workspaceId: string) {
     pipeline<T extends KnowledgePipelineInput>(
       input: T,
     ): Promise<KnowledgePipelineResults[T['action']]> {
-      return request({ workspaceId, operation: 'pipeline', input }) as Promise<
-        KnowledgePipelineResults[T['action']]
-      >
+      return request({
+        workspaceId,
+        operation: 'pipeline',
+        input: knowledgePipelineInputSchema.parse(input),
+      }) as Promise<KnowledgePipelineResults[T['action']]>
     },
     backup() {
       return request({ workspaceId, operation: 'backup' }) as Promise<{ directory: string }>

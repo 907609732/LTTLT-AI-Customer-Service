@@ -57,3 +57,21 @@ export const jobKindLabel = (value: string) =>
       string
     >
   )[value] || value
+export function sourceLocationLabel(
+  locator: import('@/shared/contracts/knowledge').KnowledgeSourceLocator,
+) {
+  return (
+    [
+      locator.page && `第${locator.page}页`,
+      locator.sheet && `工作表 ${locator.sheet}`,
+      locator.row && `第${locator.row}行`,
+      locator.column && `第${locator.column}列`,
+      locator.line && `文本第${locator.line}行`,
+      locator.image && `图片${locator.image}`,
+      locator.tile && `分块${locator.tile}`,
+      locator.messageId && `消息 ${locator.messageId}`,
+    ]
+      .filter(Boolean)
+      .join(' · ') || '已保存原始文件'
+  )
+}

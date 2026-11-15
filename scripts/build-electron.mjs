@@ -13,6 +13,6 @@ await build({
   platform: 'node',
   target: 'node20',
   format: 'cjs',
-  external: ['electron'],
+  external: ['electron', 'pdfjs-dist', 'mammoth', 'read-excel-file', '@napi-rs/canvas'],
   sourcemap: true,
 })

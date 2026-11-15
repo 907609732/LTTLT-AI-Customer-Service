@@ -26,11 +26,11 @@
 
 `runtime.knowledge().setPipeline(port)` 只注册一次协调器；`KnowledgePipelinePort.request` 类型来自 `src/shared/contracts/knowledge-pipeline.ts`。动作包括 capabilities、catalog、choose-sources、estimate、start、pause、resume、cancel。首次采集使用目录identityVersion/scopeToken及明确productIds或allMatching/total；已有资料刷新/学习使用bindingIds/sourceIds，学习携带estimateId。start/resume必须先持久化并返回jobId，再在独立worker中做I/O，不占工作区命令队列。协调器负责store移除和dispose取消；后台每次回写仍须检查账号、店铺与任务版本。
 
-协调器当前只注册Task3目录/采集，尚未注册的导入、学习与日检capabilities仍为false；UI按真实能力禁用动作。后续任务负责来源选择器、文件解析、扫描页处理、模型结果校验、学习工作器与每日检查。没有恢复备份的UI；恢复API仍为Task1的停写校验接口。
+协调器已注册Task3目录/采集与Task4文件/学习；日检尚未注册，capabilities如实为false。Task4具体行为见下节，每日检查留给Task5。没有恢复备份的UI；恢复API仍为Task1的停写校验接口。
 
 旧跨店商品复制与回滚不能确认物理映射或保留动态差异，运行时拒绝其商品写入；同步页将商品项禁用并提供知识库入口，文字欢迎、识图及人工关键词配置同步保留。
 
-复用既有Vue3、Electron43、Zod、MiniSearch、PapaParse与模型服务，无新依赖。针对性验证脚本：`node scripts/verify-knowledge-manager.mjs`，使用独立构建、临时账号、合成资料、loopback模型和hidden/offscreen窗口，证据位于 `artifacts/knowledge-manager-check/evidence`。它不访问实店，不显示用户窗口，不调用付费模型，不代表真实平台或模型效果验收。
+原Task2复用既有Vue3、Electron43、Zod、MiniSearch、PapaParse与模型服务；Task4使用已锁定的PDF.js/Mammoth/read-excel-file，详见下节。针对性验证脚本：`node scripts/verify-knowledge-manager.mjs`，使用独立构建、临时账号、合成资料、loopback模型和hidden/offscreen窗口，证据位于 `artifacts/knowledge-manager-check/evidence`。它不访问实店，不显示用户窗口，不调用付费模型，不代表真实平台或模型效果验收。
 
 ## 目录优先的只读采集（Task3）
 
@@ -47,3 +47,19 @@
 图片只允许当前已验证详情实际给出的HTTPS平台CDN URL，经当前店铺Session读取，禁跳转、限制10MB/图与50MB/商品，校验PNG/JPEG/GIF/WebP MIME和字节。SVG/未知类型/失败保留计数和来源，不冒充图片已识别；成功字节以SHA256资产登记供预览/后续模型。远端URL不是模型图片支持，没有OCR、文件解析、模型学习、自动发布或日检调度。
 
 本轮复用已有真实来源文档与脱敏夹具（PRODUCT_KNOWLEDGE.md、PLATFORM_PRODUCT_DETAILS.md）。新的实店多页、CDN真实下载验收尚未执行：用户桌面控制仍被Esc停止，没有操作用户窗口、重启其他worktree应用或访问真实付费模型。只运行直接相关测试及临时数据的hidden/offscreen验收。
+
+## 资料导入、学习和审核（Task4，2026-11-15）
+
+当前已在同一 dispatcher 注册 `createKnowledgeSourcePipeline`，没有替换 Task3 collector 或二次 setPipeline。主进程 `sources.ts` 复用锁定 PDF.js6.5.438、Mammoth1.13.0、read-excel-file9.3.17 和既有 PapaParse/Zod；`imports.ts` 管导入预览与逐项任务，`learning.ts` 管估算、当前模型调用和 durable checkpoints，`source-pipeline.ts` 只做分派。Vue 新增 ingestion-controller、batch-review 及专用预览/图片/费用不确定/结果组件，组件不接触路径、密钥或网络。
+
+- 商品内路径：商品卡“编辑”→“原始资料 / 来源版本”→“导入本商品资料”；标题/编号与预览逐行目标可核对，PDF/图片只绑定该物理商品。该入口在真实离屏渲染用 elementFromPoint 证明未被编辑层遮挡。商品说明不需要借用全店通用来源。顶部导入明确标为“商品CSV / 通用资料”；无商品目标时预览写明“本店通用问答/资料”，必须再次确认。
+- 主进程原生文件选择只回传 opaque sourceIds；原始字节按 hash 保存一次。PDF每页文本和栅格块、DOCX提取行/内嵌图序号、XLSX所有sheet/行/列值、CSV逻辑行、文本行、聊天messageId均有来源。新增 locator.imageAssetId 指向主进程生成的安全图片，assetId仍指原文件。图片/扫描页经≤1400×1400分块进入当前模型；原始PDF/DOCX不加载进有业务preload的页面。图片查看只显示已校验位图，不执行HTML、脚本或外链。Mammoth关闭外部文件访问，转换HTML从不渲染。
+- TXT/MD/CSV/JSON使用BOM、严格UTF8、证据支持的UTF16或GB18030解码，预览标明编码并保留原字节。CSV productId/title创建或更新当前店铺物理商品原料，不变成一个巨型商品文档；同文件同商品内容变化更新来源revision。价格/库存/启用等其他列保留原文件，不当作永久已审核事实。旧意图JSON只产生未审核问答，忽略导入启用/审核/其他店铺标记；产品编号必须在所选本店已有绑定中完整映射，否则拒绝。重复目标/来源、目标范围、编码和解析警告在预览中显示，25行分页不删掉其他导入项。
+- 已有归档入口：“导入本机归档聊天”→日期范围→实际数量/时间预览→确认导入→“学习本店通用资料”→估算→明确开始。只使用 `read().conversations` 当前店铺已实际归档的 buyer/seller 文字，每会话有限现有记录（最多100条）；媒体只计数，范围之外和其他店铺不导入，不主动抓取平台历史。文件聊天支持JSON消息数组 `{from:'buyer'|'seller', content, msgId?, ts?}`，来源保留文件、消息ID/行。两类聊天默认store scope，不自动提升共享商品服务/发货/售后承诺。
+- main-only model port 增加 guarded vision/modelIdentity/assertStore 元数据/守卫；complete仍复用当前AiClient、加密Key或托管chat计费。学习按实际cl100k BPE每次计量≤8192输入估算token、每图预留1536、maxTokens4096，自己完整分块，不依赖只在reply执行的压缩器。估算固定来源revision、目标binding revision/完整family以及当前模型/能力；start范围变化或后台写入前租约变化均拒绝。平台raw/capture/catalog不学习为共享事实，动态项仅binding/store且expiresAt=实际capturedAt+TTL，绝不以现在续期。
+- 所有付费调用先估算再由用户明确start。任务先持久化/返回jobId，再异步执行，不占workspace命令tail或在网络期间持有SQL事务。每调用先写submitted、后写received原响应，再在同事务保存候选和完成索引。结果不确定为needs-confirmation；普通resume不重放，只有明确resolve-uncertain retry（提示可能重复计费）或skip（保留覆盖不完整提示）。已收到响应但保存失败的resume只重用落盘响应。取消/暂停/移店/账号退出中止在途工作，迟到结果不入库；关闭管理窗不拥有或销毁任务。重启running/queued learn/import/collect等待人工；submitted保持需明确决定。
+- 模型输出严格schema和allowed sourceId，纯文字答案/证据必须是本分块连续原文；图片为当前模型转写，仍需人工核对，不宣称模型语义正确。模型不能决定店铺/SKU/发布。只saveDraft；零候选、缺失平台图片及明确跳过均有完成提示，不把空解析或图片URL当识别成功。已有编辑/排除/模板店铺应用/本店有效期覆盖保留。批量审核逐商品显示approved/skipped/failed，某条stale不掩盖已成功项，失败草稿原文保留。
+
+新增同一窄pipeline动作：preview-import、archive-chat(from/to)、store-materials、review-targets、resolve-uncertain(decision)。start(kind:import)的estimateId是主进程预览ID；start(kind:learn)是学习估算ID。已有pause/resume/cancel按持久job.kind分派。知识服务的pipeline输入先经Zod变成普通数据再走Electron structured clone，防止Vue响应式数组无法跨IPC。
+
+验证：`node scripts/verify-knowledge-ingestion.mjs`复用已有hidden/offscreen测试架构，真实CJS/Electron+preload+隔离SQLite+本机HTTP模型，覆盖解析、CSV预览导入、商品内扫描PDF绑定/大图/图像模型输入、估算手动启动、不确定调用不重放、归档日期入口及部分批量审核。完整日志和限制见 `.superpowers/sdd/2026-11-15-knowledge-library/task-4-report.md`。尚未做真实云模型识别质量、真实店铺/买家、Release打包或最大规模吞吐验收；日检、恢复UI和性能属于Task5。GIF明确仅首帧，后续动画帧需要拆成静态图补充。

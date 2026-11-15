@@ -4,6 +4,8 @@
 
 2026-11-15目录采集：`local-runtime → knowledge/pipeline（唯一注册）→ knowledge/collector → 既有pdd-learning-provider`；原始/静态/图片/SKU动态来源分层持久化，后续解析与日检处理器经register扩展。详见[KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md)。
 
+2026-11-15资料学习：同一knowledge/pipeline追加source-pipeline→sources/imports/learning，main拥有文件路径、原件、范围/版本与模型端口；Vue通过受限预览、估算和明确retry/skip维护流程。新locator与任务恢复规则见KNOWLEDGE_LIBRARY的Task4章节。
+
 ## 店铺发送模式与回复监控（2026-11-15）
 
 复用 Electron 43 的 parent/showInactive/setBounds，不新增依赖；小监控为受信独立渲染路由 `/reply-monitor`，在主窗口内左下角随动，非全局置顶。`createWindow({compact:true,parent})` 不参与主窗口默认最大化或自动聚焦。详细日志仍由手动入口打开。

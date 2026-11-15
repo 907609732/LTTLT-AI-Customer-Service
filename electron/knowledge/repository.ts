@@ -111,11 +111,14 @@ export class KnowledgeRepository {
         for (const job of this.rows<KnowledgeJob>('jobs'))
           if (
             job.status === 'running' ||
-            (['learn', 'collect'].includes(job.kind) && job.status === 'queued')
+            (['learn', 'collect', 'import'].includes(job.kind) && job.status === 'queued')
           )
             this.put('jobs', {
               ...job,
-              status: 'paused',
+              status:
+                job.kind === 'learn' && job.checkpoint.state === 'submitted'
+                  ? 'needs-confirmation'
+                  : 'paused',
               revision: job.revision + 1,
               error: '应用已退出；请确认后继续，未自动重试模型调用',
               updatedAt: this.now(),

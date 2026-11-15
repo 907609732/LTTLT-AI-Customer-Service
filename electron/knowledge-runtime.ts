@@ -22,6 +22,7 @@ export interface KnowledgePipelinePort {
 
 /** Main-process only. Neither keys, arbitrary URLs nor publication are part of this model port. */
 export interface KnowledgeModelPort {
+  identity?(): string
   vision(): { supported: boolean; reason: string; maxImages: number }
   complete(input: {
     messages: ModelMessages
@@ -99,6 +100,7 @@ export function createKnowledgeRuntime(options: {
   }
   const api = {
     repository: repo,
+    assertStore: store,
     setModel(port: KnowledgeModelPort) {
       model = port
     },
@@ -108,6 +110,15 @@ export function createKnowledgeRuntime(options: {
       pipeline = port
     },
     complete,
+    vision() {
+      active()
+      if (!model) throw Error('当前模型服务尚未就绪')
+      return model.vision()
+    },
+    modelIdentity() {
+      active()
+      return model?.identity?.() ?? 'configured'
+    },
     cancelCompletions() {
       for (const controller of controllers) controller.abort()
     },

@@ -1,10 +1,15 @@
 <script setup lang="ts">
+import KnowledgeSourceImage from './KnowledgeSourceImage.vue'
+import KnowledgeImportPreview from './KnowledgeImportPreview.vue'
+import KnowledgeBatchResult from './KnowledgeBatchResult.vue'
+import KnowledgeUncertainCall from './KnowledgeUncertainCall.vue'
 import KnowledgeCatalogDialog from './KnowledgeCatalogDialog.vue'
 import KnowledgeThumbnail from './KnowledgeThumbnail.vue'
 import KnowledgeProductCards from './KnowledgeProductCards.vue'
 import KnowledgeDraftEditor from './KnowledgeDraftEditor.vue'
 import KnowledgeReviewDialog from './KnowledgeReviewDialog.vue'
 import {
+  sourceLocationLabel,
   entryStatusLabel,
   scopeLabel,
   fieldLabel,
@@ -102,6 +107,15 @@ const {
   learnProduct,
   startLearn,
   chooseSources,
+  archiveChats,
+  confirmArchive,
+  archiveOpen,
+  archiveFrom,
+  archiveTo,
+  learnStore,
+  applyImport,
+  importPreview,
+  batchResults,
   hide,
   changed,
 } = useKnowledgeManager()
@@ -109,6 +123,32 @@ const {
 
 <template>
   <main class="knowledge-manager">
+    <div v-if="archiveOpen" class="knowledge-modal-backdrop">
+      <section class="knowledge-modal" role="dialog" aria-label="选择归档聊天范围">
+        <h2>本机归档聊天</h2>
+        <p>
+          仅导入当前店铺已实际归档的买家/客服文字。每会话最多现有100条，媒体只计数；不主动读取平台历史。
+        </p>
+        <label>开始日期<input v-model="archiveFrom" type="date" /></label
+        ><label>结束日期<input v-model="archiveTo" type="date" /></label>
+        <footer>
+          <button @click="archiveOpen = false">取消</button
+          ><button :disabled="busy" @click="run(confirmArchive)">读取并预览所选范围</button>
+        </footer>
+      </section>
+    </div>
+    <KnowledgeImportPreview
+      v-if="importPreview"
+      :preview="importPreview"
+      :pending="busy"
+      @close="importPreview = undefined"
+      @confirm="run(applyImport)"
+    />
+    <KnowledgeBatchResult
+      v-if="batchResults.length"
+      :results="batchResults"
+      @close="batchResults = []"
+    />
     <header class="knowledge-top" data-window-drag>
       <div>
         <h1>知识库</h1>
@@ -175,8 +215,12 @@ const {
         placeholder="搜索商品名称、编号或问答"
       /><button :disabled="busy || !capabilities?.catalog" @click="run(() => loadCatalog())">
         导入平台商品</button
+      ><button :disabled="busy || !capabilities?.import" @click="run(archiveChats)">
+        导入本机归档聊天</button
+      ><button :disabled="busy || !capabilities?.learn" @click="run(learnStore)">
+        学习本店通用资料</button
       ><button :disabled="busy || !capabilities?.import" @click="run(chooseSources)">
-        导入资料</button
+        {{ tab === 'products' ? '导入商品CSV / 通用资料' : '导入本店通用资料' }}</button
       ><button
         data-testid="write-one"
         class="primary"
@@ -309,6 +353,23 @@ const {
             </p>
             <small>{{ job.id }}</small>
           </div>
+          <KnowledgeUncertainCall
+            v-if="job.kind === 'learn'"
+            :job="job"
+            :pending="busy"
+            @resolve="
+              (decision) =>
+                run(async () => {
+                  await client().pipeline({
+                    action: 'resolve-uncertain',
+                    storeId: job.storeId,
+                    jobId: job.id,
+                    decision,
+                  })
+                  await refresh()
+                })
+            "
+          />
           <button
             v-if="job.status === 'running'"
             @click="
@@ -320,7 +381,7 @@ const {
           >
             暂停</button
           ><button
-            v-if="job.status === 'paused'"
+            v-if="['paused', 'failed'].includes(job.status) && job.checkpoint.state !== 'submitted'"
             @click="
               run(async () => {
                 await client().pipeline({ action: 'resume', storeId: job.storeId, jobId: job.id })
@@ -503,17 +564,42 @@ const {
         <p v-else class="knowledge-empty">选择条目进行编辑与来源对照，或手写新的问答。</p>
       </div>
       <div v-else-if="detailTab === 'sources'" class="knowledge-sources">
+        <p v-if="detailBinding">
+          当前目标：{{ detailBinding.title || detailBinding.productId }}（{{
+            detailBinding.productId
+          }}）。PDF、Word、表格和图片只绑定此商品。
+        </p>
+        <button :disabled="busy || !capabilities?.import" @click="run(chooseSources)">
+          导入本商品资料
+        </button>
+        <button
+          v-if="detailBinding"
+          :disabled="busy || !capabilities?.learn"
+          @click="run(() => learnProduct(detailBinding!))"
+        >
+          学习本商品资料
+        </button>
         <article v-for="source in sources" :key="source.id">
           <b>{{ source.label }} · v{{ source.revision }}</b>
           <p>
             {{ sourceLabel(source.kind) }} · {{ new Date(source.updatedAt).toLocaleString() }} ·
-            {{ JSON.stringify(source.locator) }}
+            {{ sourceLocationLabel(source.locator) }}
           </p>
           <pre>{{ source.text }}</pre>
           <KnowledgeThumbnail
-            v-for="assetId in source.assetIds"
+            v-for="assetId in source.locator.assetId
+              ? source.locator.imageAssetId
+                ? [source.locator.imageAssetId]
+                : []
+              : source.assetIds"
             :key="assetId"
             :asset-id="assetId"
+            :load="client().asset"
+          /><KnowledgeSourceImage
+            v-if="source.locator.imageAssetId"
+            :asset-id="source.locator.imageAssetId"
+            :label="source.label"
+            :locator="source.locator"
             :load="client().asset"
           /><button
             @click="
