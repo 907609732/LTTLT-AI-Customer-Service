@@ -49,6 +49,109 @@ function open(directory: string) {
   return repo
 }
 describe('knowledge legacy migration', () => {
+  it('preserves enabled product-scoped intents without a Product row or existing binding', () => {
+    const directory = fixture()
+    writeFileSync(
+      join(directory, 'intent-knowledge.json'),
+      JSON.stringify({
+        version: 1,
+        revision: 2,
+        packs: [{ ...pack, productIds: ['p'], entries: [pack.entries[0]!] }],
+      }),
+    )
+    const repo = open(directory)
+    expect(repo.getMigrationState().status).toBe('complete')
+    expect(repo.listEntries({ status: 'approved' }).total).toBe(1)
+    expect(
+      repo.resolveKnowledge({ storeId: 'shop', productId: 'p', query: '发货' }).citations[0]
+        ?.answer,
+    ).toBe('48小时')
+    expect(
+      repo.resolveKnowledge({ storeId: 'other', productId: 'p', query: '发货' }).citations,
+    ).toEqual([])
+    expect(
+      repo.resolveKnowledge({ storeId: 'shop', productId: 'other', query: '发货' }).citations,
+    ).toEqual([])
+    expect(repo.resolveKnowledge({ storeId: 'shop', query: '发货' }).citations).toEqual([])
+  })
+  it('creates platform snapshot identities before importing their scoped intent answers', () => {
+    const directory = fixture(),
+      file = createHash('sha256').update('shop').digest('hex') + '.json'
+    mkdirSync(join(directory, 'platform-products'))
+    writeFileSync(
+      join(directory, 'platform-products', file),
+      JSON.stringify({
+        version: 1,
+        items: [
+          {
+            productId: 'p',
+            title: '平台真实标题',
+            merchantCode: 'P001',
+            description: '未发布原始描述',
+            attributes: [],
+            images: [],
+            skus: [],
+            capturedAt: 100,
+            sourceUrl: 'https://mms.pinduoduo.com/goods/goods_list',
+          },
+        ],
+      }),
+    )
+    writeFileSync(
+      join(directory, 'intent-knowledge.json'),
+      JSON.stringify({
+        version: 1,
+        revision: 2,
+        packs: [{ ...pack, productIds: ['p'], entries: [pack.entries[0]!] }],
+      }),
+    )
+    const repo = open(directory)
+    expect(repo.getMigrationState().status).toBe('complete')
+    expect(repo.listEntries({ status: 'approved' }).total).toBe(1)
+    expect(
+      repo.resolveKnowledge({ storeId: 'shop', productId: 'p', query: '发货' }).citations[0]
+        ?.answer,
+    ).toBe('48小时')
+    expect(repo.listProducts({ storeId: 'shop' }).items[0]?.canonical.title).toBe('平台真实标题')
+    expect(
+      repo.resolveKnowledge({ storeId: 'shop', productId: 'p', query: '未发布原始描述' }).citations,
+    ).toEqual([])
+  })
+  it('legacy product removal also revokes approved SKU answers and their citations', () => {
+    const directory = fixture(),
+      repo = open(directory)
+    const saved = repo.products.save({ ...product, id: undefined, version: undefined })
+    const root = repo.listBindings()[0]!
+    const sku = repo.bindProduct({
+      canonicalId: root.canonicalId,
+      storeId: 'shop',
+      productId: 'p',
+      skuId: 'large',
+    })
+    const draft = repo.saveDraft({
+      scope: { kind: 'binding', bindingId: sku.id },
+      question: '面料',
+      answer: 'SKU专属面料',
+    })
+    repo.publish({
+      entryId: draft.id,
+      expectedDraftRevision: draft.revision,
+      expectedSourceRevisions: {},
+    })
+    const citations = repo.resolveKnowledge({
+      storeId: 'shop',
+      productId: 'p',
+      skuId: 'large',
+      query: '面料',
+    }).citations
+    repo.products.remove('shop', saved.id, saved.version, true)
+    expect(repo.listBindings()).toEqual([])
+    expect(
+      repo.resolveKnowledge({ storeId: 'shop', productId: 'p', skuId: 'large', query: '面料' })
+        .citations,
+    ).toEqual([])
+    expect(repo.validateCitations(citations).valid).toBe(false)
+  })
   it('preserves enabled status, separates audit, backs up originals and is idempotent', () => {
     const directory = fixture()
     const original = JSON.stringify({

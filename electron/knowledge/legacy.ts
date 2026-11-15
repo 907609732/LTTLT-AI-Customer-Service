@@ -162,6 +162,27 @@ export function ingestLegacyIntent(
     entries: cleanEntries,
   }
   const activeMappings = new Set<string>()
+  const scopes: KnowledgeScope[] = []
+  if (pack.productIds.length) {
+    // Legacy intent applicability was an explicit store/product predicate, not a Product-row join.
+    // Missing identities get their own canonical entity; no same-title or cross-store merge occurs.
+    for (const storeId of new Set(pack.storeIds))
+      for (const productId of new Set(pack.productIds)) {
+        let binding = repo
+          .listBindings()
+          .find((row) => row.storeId === storeId && row.productId === productId && !row.skuId)
+        if (!binding) {
+          const canonical = repo.saveCanonical({ title: productId })
+          binding = repo.bindProduct({
+            canonicalId: canonical.id,
+            storeId,
+            productId,
+            title: productId,
+          })
+        }
+        scopes.push({ kind: 'binding', bindingId: binding.id })
+      }
+  } else scopes.push({ kind: 'template', storeIds: pack.storeIds })
   for (const [index, entry] of cleanEntries.entries()) {
     if (entry.question === auditQuestion) {
       const sourceId = repo.getMetadata(`legacy-audit:${pack.id}:${index}`)
@@ -177,17 +198,6 @@ export function ingestLegacyIntent(
       repo.setMetadata(`legacy-audit:${pack.id}:${index}`, raw.id)
       continue
     }
-    const scopes: KnowledgeScope[] = pack.productIds.length
-      ? repo
-          .listBindings()
-          .filter(
-            (binding) =>
-              !binding.skuId &&
-              pack.storeIds.includes(binding.storeId) &&
-              pack.productIds.includes(binding.productId),
-          )
-          .map((binding) => ({ kind: 'binding', bindingId: binding.id }))
-      : [{ kind: 'template', storeIds: pack.storeIds }]
     for (const scope of scopes) {
       const key = `legacy-intent-entry:${pack.id}:${index}:${scope.kind === 'binding' ? scope.bindingId : 'template'}`
       activeMappings.add(key)

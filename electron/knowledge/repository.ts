@@ -225,6 +225,13 @@ export class KnowledgeRepository {
       if (!this.getCanonical(value.canonicalId)) throw Error('共享商品不存在')
       const old = value.id ? this.getBinding(value.id) : null
       this.expectRevision(old, value.expectedRevision, value.id)
+      if (
+        old &&
+        (old.storeId !== value.storeId ||
+          old.productId !== value.productId ||
+          old.skuId !== value.skuId)
+      )
+        throw Error('商品绑定身份（店铺、商品编号、SKU）不能直接修改，请新建绑定并重新审核')
       const next: ProductBinding = {
         id: old?.id ?? randomUUID(),
         canonicalId: value.canonicalId,
@@ -264,19 +271,41 @@ export class KnowledgeRepository {
     return this.transaction(() => {
       const old = this.getBinding(id)
       this.expectRevision(old, expectedRevision, id)
-      const next = { ...old!, active: false, revision: old!.revision + 1, updatedAt: this.now() }
-      this.db
-        .prepare('UPDATE bindings SET active=0,body=? WHERE id=?')
-        .run(JSON.stringify(next), id)
-      return next
+      const targets = old!.skuId
+        ? [old!]
+        : [
+            old!,
+            ...this.listBindings().filter(
+              (binding) =>
+                binding.id !== id &&
+                binding.storeId === old!.storeId &&
+                binding.productId === old!.productId,
+            ),
+          ]
+      let result = old!
+      for (const target of targets) {
+        const next = {
+          ...target,
+          active: false,
+          revision: target.revision + 1,
+          updatedAt: this.now(),
+        }
+        this.db
+          .prepare('UPDATE bindings SET active=0,body=? WHERE id=?')
+          .run(JSON.stringify(next), target.id)
+        if (target.id === id) result = next
+      }
+      return result
     })
   }
   removeStore(storeId: string) {
     return this.transaction(() => {
       // Store removal revokes applications without modifying the shared approved version.
       this.setMetadata(`removed-store:${storeId}`, '1')
-      for (const binding of this.listBindings().filter((b) => b.storeId === storeId))
-        this.unlinkBinding(binding.id, binding.revision)
+      for (const binding of this.listBindings().filter((b) => b.storeId === storeId)) {
+        const current = this.getBinding(binding.id)
+        if (current?.active) this.unlinkBinding(current.id, current.revision)
+      }
       for (const job of this.rows<KnowledgeJob>('jobs').filter(
         (job) =>
           job.storeId === storeId && !['succeeded', 'failed', 'cancelled'].includes(job.status),

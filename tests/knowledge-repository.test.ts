@@ -58,6 +58,125 @@ function publish(
   })
 }
 describe('durable SQLite knowledge repository', () => {
+  it('rejects physical binding identity changes while allowing revision-guarded canonical reassociation', () => {
+    const { repository } = fixture()
+    const { binding } = product(repository)
+    publish(
+      repository,
+      repository.saveDraft({
+        scope: { kind: 'binding', bindingId: binding.id },
+        question: '面料',
+        answer: 'A专属面料',
+      }),
+    )
+    for (const replacement of [{ storeId: 'b' }, { productId: 'B' }, { skuId: 'other' }]) {
+      expect(() =>
+        repository.bindProduct({
+          id: binding.id,
+          expectedRevision: binding.revision,
+          canonicalId: binding.canonicalId,
+          storeId: binding.storeId,
+          productId: binding.productId,
+          skuId: binding.skuId,
+          ...replacement,
+        }),
+      ).toThrow(/身份|identity/)
+    }
+    expect(
+      repository.resolveKnowledge({ storeId: 'a', productId: 'B', query: '面料' }).citations,
+    ).toEqual([])
+    const shared = repository.saveCanonical({ title: '人工确认同款' })
+    const reassociated = repository.bindProduct({
+      id: binding.id,
+      expectedRevision: binding.revision,
+      canonicalId: shared.id,
+      storeId: 'a',
+      productId: 'p',
+    })
+    expect(reassociated.revision).toBe(2)
+    expect(
+      repository.resolveKnowledge({ storeId: 'a', productId: 'p', query: '面料' }).citations[0]
+        ?.answer,
+    ).toBe('A专属面料')
+    expect(() =>
+      repository.bindProduct({
+        id: binding.id,
+        expectedRevision: binding.revision,
+        canonicalId: shared.id,
+        storeId: 'a',
+        productId: 'p',
+      }),
+    ).toThrow(/revision/)
+  })
+  it('atomically unlinks a root product and all its SKU applications only in the current store', () => {
+    const { repository } = fixture()
+    const { canonical, binding } = product(repository)
+    const sku = product(repository, 'a', 'p', canonical.id, 'large').binding
+    product(repository, 'b', 'p', canonical.id)
+    product(repository, 'b', 'p', canonical.id, 'large')
+    publish(
+      repository,
+      repository.saveDraft({
+        scope: { kind: 'canonical', canonicalId: canonical.id },
+        question: '面料',
+        answer: '共享面料',
+        conflictKey: 'material',
+      }),
+    )
+    publish(
+      repository,
+      repository.saveDraft({
+        scope: { kind: 'binding', bindingId: sku.id },
+        question: '面料',
+        answer: 'SKU专属面料',
+        conflictKey: 'material',
+      }),
+    )
+    const citations = repository.resolveKnowledge({
+      storeId: 'a',
+      productId: 'p',
+      skuId: 'large',
+      query: '面料',
+    }).citations
+    expect(citations[0]?.answer).toBe('SKU专属面料')
+    repository.unlinkBinding(binding.id, binding.revision)
+    expect(repository.listBindings().filter((row) => row.storeId === 'a')).toEqual([])
+    expect(repository.listProducts({ storeId: 'a' }).total).toBe(0)
+    expect(
+      repository.resolveKnowledge({ storeId: 'a', productId: 'p', skuId: 'large', query: '面料' })
+        .citations,
+    ).toEqual([])
+    expect(
+      repository.resolveKnowledge({ storeId: 'a', productId: 'p', query: '面料' }).citations,
+    ).toEqual([])
+    expect(repository.validateCitations(citations).valid).toBe(false)
+    expect(
+      repository.resolveKnowledge({ storeId: 'b', productId: 'p', skuId: 'large', query: '面料' })
+        .citations[0]?.answer,
+    ).toBe('共享面料')
+  })
+  it('removes a store with root and SKU bindings without using stale cascade revisions', () => {
+    const { repository } = fixture()
+    const { canonical } = product(repository)
+    product(repository, 'a', 'p', canonical.id, 'large')
+    product(repository, 'b', 'p', canonical.id)
+    publish(
+      repository,
+      repository.saveDraft({
+        scope: { kind: 'canonical', canonicalId: canonical.id },
+        question: '面料',
+        answer: '共享面料',
+      }),
+    )
+    const job = repository.createJob({ kind: 'collect', storeId: 'a', payload: {} })
+    expect(() => repository.removeStore('a')).not.toThrow()
+    expect(repository.getJob(job.id)?.status).toBe('cancelled')
+    expect(repository.listBindings().map((row) => row.storeId)).toEqual(['b'])
+    expect(
+      repository.resolveKnowledge({ storeId: 'b', productId: 'p', query: '面料' }).citations[0]
+        ?.answer,
+    ).toBe('共享面料')
+  })
   it('invalidates existing citations when a reviewed override changes the effective answer', () => {
     const { repository } = fixture()
     const { canonical, binding } = product(repository)

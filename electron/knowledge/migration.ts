@@ -18,6 +18,7 @@ import {
   legacyIntentSchema,
   ingestLegacyProduct,
   ingestLegacyIntent,
+  auditQuestion,
 } from './legacy'
 const digest = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const productsSchema = z
@@ -117,16 +118,6 @@ export function migrateLegacyKnowledge(
         state.idMap[`product:${product.id}`] = mapping.canonicalId
         state.idMap[`binding:${product.id}`] = mapping.bindingId
       }
-      for (const pack of intentState.packs) {
-        ingestLegacyIntent(repo, pack, true)
-        state.idMap[`intent:${pack.id}`] = pack.id
-        for (const [index, entry] of pack.entries.entries()) {
-          if (entry.question === '【学习来源审计，请保持停用】') {
-            const sourceId = repo.getMetadata(`legacy-audit:${pack.id}:${index}`)
-            if (sourceId) state.idMap[`audit:${pack.id}:${index}`] = sourceId
-          }
-        }
-      }
       const stores = [
         ...new Set([
           ...productState.items.map((row) => row.storeId),
@@ -187,6 +178,36 @@ export function migrateLegacyKnowledge(
                 title: sku.specs.map((spec) => `${spec.name}:${spec.value}`).join(' '),
               })
         }
+      }
+      // Import available platform identities first so scoped intents reuse their real binding/title.
+      for (const pack of intentState.packs) {
+        ingestLegacyIntent(repo, pack, true)
+        state.idMap[`intent:${pack.id}`] = pack.id
+        for (const [index, entry] of pack.entries.entries()) {
+          if (entry.question === auditQuestion) {
+            const sourceId = repo.getMetadata(`legacy-audit:${pack.id}:${index}`)
+            if (sourceId) state.idMap[`audit:${pack.id}:${index}`] = sourceId
+          }
+        }
+        const scopeCount = pack.productIds.length
+          ? new Set(pack.storeIds).size * new Set(pack.productIds).size
+          : 1
+        const entries = pack.entries.filter((entry) => entry.question !== auditQuestion)
+        const keys = z
+          .array(z.string())
+          .parse(JSON.parse(repo.getMetadata(`legacy-intent-mappings:${pack.id}`) ?? '[]'))
+        const migrated = keys
+          .map((key) => repo.getMetadata(key))
+          .map((id) => (id ? repo.getEntry(id) : null))
+        const expectedApproved = pack.enabled
+          ? entries.filter((entry) => entry.enabled).length * scopeCount
+          : 0
+        if (
+          migrated.length !== entries.length * scopeCount ||
+          migrated.some((entry) => !entry) ||
+          migrated.filter((entry) => entry?.approved).length !== expectedApproved
+        )
+          throw Error('迁移意图条目/生效数量核验失败')
       }
       if (
         repo.rows('legacy_products').length !== productState.items.length ||
