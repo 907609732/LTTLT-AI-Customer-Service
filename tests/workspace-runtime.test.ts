@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-function fixture(directory?: string) {
+function fixture(directory?: string, requiresInitializedSession = false) {
   const source = { ...emptySnapshot().managed.configured }
   const instances: LocalRuntime[] = []
   const calls: string[] = []
@@ -39,12 +39,15 @@ function fixture(directory?: string) {
     state.managed.configured = { ...source }
     const listeners = new Set<(event: BackendEvent) => void>()
     let closed = false
+    let initialized = false
     const runtime: LocalRuntime = {
       knowledge: () => {
         throw Error('测试未接知识库')
       },
       dataDirectory: () => {
         if (closed) throw Error('closed')
+        if (requiresInitializedSession && !initialized)
+          throw Error('当前账号工作区不可用，请重新登录或刷新')
         return directory ?? state.workspaceId
       },
       storeSync: () => {
@@ -79,6 +82,7 @@ function fixture(directory?: string) {
           await new Promise<void>((resolve) => {
             resumeStart = resolve
           })
+        initialized = true
       },
       snapshot: () => structuredClone(state),
       async execute(command) {
@@ -202,46 +206,56 @@ describe('workspace runtime activation', () => {
       }
     },
   )
-  it('closes the actual knowledge writer and reopens the same workspace source without changing settings', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'workspace-restore-')),
-      f = fixture(dir)
-    const repository = createKnowledgeRepository({ directory: dir, workspaceId: 'w' })
-    const c = repository.saveCanonical({ title: '原内容' })
-    const backup = repository.createBackup(join(dir, 'backup'))
-    const knowledge = createKnowledgeRuntime({
-      repository,
-      workspaceId: 'w',
-      stores: () => [],
-      assertActive() {},
-      changed() {},
-      chooseRestore: async () => backup.directory,
-    })
-    const preview = (await knowledge.request({
-      workspaceId: 'w',
-      operation: 'restore-preview',
-    })) as { token: string }
-    vi.spyOn(f.instances[0], 'knowledge').mockReturnValue(knowledge)
-    vi.spyOn(f.instances[0], 'dataDirectory').mockReturnValue(dir)
-    vi.spyOn(f.instances[0], 'dispose').mockImplementation(async () => {
-      f.calls.push('dispose')
-      knowledge.dispose()
-      repository.dispose()
-    })
-    try {
-      const old = f.manager.snapshot().workspaceId
-      const result = await f.manager.restoreKnowledge(old, preview.token)
-      expect(result.workspaceId).not.toBe(old)
-      expect(f.calls).toEqual(['dispose'])
-      expect(f.source.mode).toBe('local')
-      const restored = createKnowledgeRepository({ directory: dir, workspaceId: 'verify' })
-      expect(restored.getCanonical(c.id)?.title).toBe('原内容')
-      restored.dispose()
-    } finally {
-      await f.manager.dispose()
-      repository.dispose()
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
+  it.each(['restore', 'clear'] as const)(
+    'initializes the account session before checking the %s replacement directory',
+    async (operation) => {
+      const dir = mkdtempSync(join(tmpdir(), 'workspace-restore-')),
+        f = fixture(dir, true)
+      await f.manager.start()
+      const repository = createKnowledgeRepository({ directory: dir, workspaceId: 'w' })
+      const c = repository.saveCanonical({ title: '原内容' })
+      const backup = repository.createBackup(join(dir, 'backup'))
+      const knowledge = createKnowledgeRuntime({
+        repository,
+        workspaceId: 'w',
+        stores: () => [],
+        assertActive() {},
+        changed() {},
+        chooseRestore: async () => backup.directory,
+      })
+      const preview = (await knowledge.request({
+        workspaceId: 'w',
+        operation: operation === 'restore' ? 'restore-preview' : 'clear-preview',
+        ...(operation === 'clear' ? { scope: { kind: 'account' } } : {}),
+      })) as { token: string }
+      vi.spyOn(f.instances[0], 'knowledge').mockReturnValue(knowledge)
+      vi.spyOn(f.instances[0], 'dataDirectory').mockReturnValue(dir)
+      vi.spyOn(f.instances[0], 'dispose').mockImplementation(async () => {
+        f.calls.push('dispose')
+        knowledge.dispose()
+        repository.dispose()
+      })
+      try {
+        const old = f.manager.snapshot().workspaceId
+        const result =
+          operation === 'restore'
+            ? await f.manager.restoreKnowledge(old, preview.token)
+            : await f.manager.clearKnowledge(old, preview.token, '清空当前账号')
+        expect(result.workspaceId).not.toBe(old)
+        expect(f.calls).toEqual(['dispose'])
+        expect(f.source.mode).toBe('local')
+        const restored = createKnowledgeRepository({ directory: dir, workspaceId: 'verify' })
+        expect(restored.getCanonical(c.id)?.title).toBe(
+          operation === 'restore' ? '原内容' : undefined,
+        )
+        restored.dispose()
+      } finally {
+        await f.manager.dispose()
+        repository.dispose()
+        rmSync(dir, { recursive: true, force: true })
+      }
+    },
+  )
   it('stops old platform sync during activation and restores an open assist window on replacement', async () => {
     const f = fixture()
     const oldActive = vi.spyOn(f.instances[0], 'setAssistPlatformActive')

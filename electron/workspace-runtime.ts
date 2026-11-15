@@ -89,12 +89,16 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
         if (closed) throw Error('应用已退出，恢复文件已保存；下次启动核对')
         const next = options.factory()
         pendingDisposal = next
+        // Managed account access is restored asynchronously by start(). Check the configured
+        // source first, then verify the authenticated directory after initialization.
+        if (JSON.stringify(next.snapshot().managed.configured) !== configured)
+          throw Error('恢复时账号配置已改变，请重新登录核对')
+        await next.start()
         if (
           next.dataDirectory() !== plan.directory ||
           JSON.stringify(next.snapshot().managed.configured) !== configured
         )
           throw Error('恢复时账号配置已改变，请重新登录核对')
-        await next.start()
         current = next
         pendingDisposal = undefined
         unavailable = undefined

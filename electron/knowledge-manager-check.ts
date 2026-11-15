@@ -13,6 +13,7 @@ import { createKnowledgeWindow } from './knowledge-window'
 import { registerKnowledgeIpc } from './knowledge-ipc'
 import { createWorkspaceRuntime } from './workspace-runtime'
 import { knowledgeTypingCheck } from './knowledge-typing-check'
+import { knowledgeManagedClearCheck } from './knowledge-managed-clear-check'
 import { createCollectorMaterials } from './knowledge/collector-materials'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowledge-manager-check-'))
@@ -505,6 +506,10 @@ app
     )
     await delay(250)
     manager.dispose()
+    await knowledgeManagedClearCheck(root, parent!)
+    checks.push(
+      'managed encrypted-session fixture: current-shop and account clear initialize authentication first, retain logged-in account/store/configuration, rebuild successfully and leave AI off',
+    )
     fs.writeFileSync(
       path.join(output, 'report.json'),
       JSON.stringify(
