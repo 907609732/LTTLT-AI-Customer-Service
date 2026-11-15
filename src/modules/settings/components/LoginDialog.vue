@@ -1,17 +1,44 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import { modelPresets } from '../model-presets'
+import { AccountBillingDetails } from '@/modules/billing'
 const visible = defineModel<boolean>({ default: false })
 const runtime = useRuntimeStore(),
-  task = useTask()
+  task = useTask(),
+  router = useRouter()
 const provider = ref<keyof typeof modelPresets>('deepseek'),
   apiKey = ref('')
 const awaitingLogin = ref(false),
   activating = ref(false)
 const managed = computed(() => runtime.snapshot.managed)
 const session = computed(() => managed.value.session)
+const billingSection = ref<'orders' | 'usage' | null>(null)
+const canViewBilling = computed(
+  () =>
+    managed.value.active.mode === 'managed' &&
+    !managed.value.restartRequired &&
+    session.value.status === 'signed_in' &&
+    Boolean(session.value.account),
+)
+const quotaExpiry = computed(() => {
+  const expires = session.value.account?.trial.expiresAt
+  return expires ? new Date(expires * 1000).toLocaleString('zh-CN') : '未提供'
+})
+watch(
+  [
+    () => visible.value,
+    () => canViewBilling.value,
+    () => runtime.snapshot.workspaceId,
+    () => managed.value.active.apiOrigin,
+    () => session.value.account?.userId,
+  ],
+  () => {
+    billingSection.value = null
+  },
+)
 watch(provider, () => {
   apiKey.value = ''
 })
@@ -103,6 +130,12 @@ async function accountAction(
     await runtime.run({ action })
   })
 }
+async function recharge() {
+  await task.run(async () => {
+    await router.push('/shop/recharge')
+    visible.value = false
+  })
+}
 </script>
 <template>
   <el-dialog
@@ -142,7 +175,16 @@ async function accountAction(
         </form>
       </section>
       <section class="login-option service-option">
-        <h2>服务端登录 <span class="recommended">推荐</span></h2>
+        <div class="service-heading">
+          <h2>服务端登录 <span class="recommended">推荐</span></h2>
+          <el-button
+            type="primary"
+            data-account-recharge
+            :disabled="task.pending.value || session.status === 'authorizing'"
+            @click="recharge"
+            >充值</el-button
+          >
+        </div>
         <template v-if="session.status === 'authorizing'">
           <p>请在浏览器中完成登录和授权</p>
           <p v-if="session.login">
@@ -154,7 +196,28 @@ async function accountAction(
         </template>
         <template v-else-if="session.status === 'signed_in' && session.account">
           <p>{{ session.account.displayName }}</p>
-          <p>剩余 {{ session.account.trial.remaining }} 次</p>
+          <dl class="account-quota" aria-label="服务端账号额度">
+            <dt>总额度</dt>
+            <dd>{{ session.account.trial.limit }} 次</dd>
+            <dt>剩余额度</dt>
+            <dd>{{ session.account.trial.remaining }} 次</dd>
+            <dt>到期时间</dt>
+            <dd>{{ quotaExpiry }}</dd>
+          </dl>
+          <div class="billing-links">
+            <el-button
+              data-account-billing="orders"
+              :disabled="!canViewBilling || task.pending.value"
+              @click="billingSection = 'orders'"
+              >我的订单</el-button
+            >
+            <el-button
+              data-account-billing="usage"
+              :disabled="!canViewBilling || task.pending.value"
+              @click="billingSection = 'usage'"
+              >算力消耗</el-button
+            >
+          </div>
           <div class="account-actions">
             <el-button
               v-if="managed.active.mode !== 'managed' || managed.restartRequired"
@@ -170,7 +233,7 @@ async function accountAction(
               link
               :disabled="task.pending.value"
               @click="accountAction('managed-refresh')"
-              >刷新次数</el-button
+              >刷新额度</el-button
             >
           </div>
         </template>
@@ -195,6 +258,18 @@ async function accountAction(
         </template>
       </section>
     </div>
+  </el-dialog>
+  <el-dialog
+    v-if="billingSection && visible && canViewBilling"
+    :model-value="true"
+    :title="billingSection === 'orders' ? '我的订单' : '算力消耗'"
+    width="860px"
+    append-to-body
+    destroy-on-close
+    :close-on-click-modal="false"
+    @close="billingSection = null"
+  >
+    <AccountBillingDetails :key="billingSection" :section="billingSection" compact />
   </el-dialog>
 </template>
 <style scoped>
@@ -230,6 +305,16 @@ async function accountAction(
   background: #f3f1ff;
   border-color: #e8e4ff;
 }
+.service-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.service-heading h2 {
+  margin: 0;
+}
 .recommended {
   color: #5b68ed;
   font-size: 12px;
@@ -238,6 +323,30 @@ async function accountAction(
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.account-quota {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 16px;
+  margin: 20px 0;
+  font-size: 13px;
+}
+.account-quota dt {
+  color: #66718a;
+}
+.account-quota dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.billing-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.billing-links .el-button {
+  margin-left: 0;
 }
 .account-actions .el-button {
   margin-left: 0;

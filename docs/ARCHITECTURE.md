@@ -1,5 +1,17 @@
 # 架构导航
 
+## 主页账号账本入口（2026-11-15）
+
+配置中心移除orders/usage注册和账户账单菜单。settings的LoginDialog经billing/index公开AccountBillingDetails复用既有账本UI，compact详情不拉套餐、不创建支付，仅查询本账号订单或同步调用账本。主卡只显示总额度、剩余额度和trial.expiresAt；额度期限与授权凭证期限严格区分。父弹窗关闭/身份变化卸载详情，同账号普通刷新保留详情；不新增跨进程权限或传输凭据。
+
+## 配置入口归并（2026-11-15）
+
+后续精简：配置中心移除登录账号、软件偏好、团队管理面板注册/菜单及联系客服按钮，旧面板参数回店铺列表。账号鉴权、团队领域数据与已有服务保留，不改变实际软件登录。
+
+配置中心只保留AI训练场；旧sim面板别名进入training，模拟顾客全链路诊断服务与既有数据保留。移除模型定制面板注册/导航/公开组件导出，旧aicustom参数回店铺列表。店铺列表“基础设置”和工作台右键基础设置共用既有六步助手；客服风格统一编辑基础语气、详略、自定义提示词和1–2000字上限。
+
+createSetupRules仍复用list/save/bind-model-profile原命令、CAS校验和店铺独立克隆。载入从当前生效方案回填去除自有政策块后的提示词与真实字数上限，兼容旧v1数据；保存提示词在方案正文中，不把长正文再复制进政策JSON。保留全局、共享方案和其他店铺绑定，无新IPC或依赖。
+
 ## 店铺发送模式与回复监控（2026-11-15）
 
 复用 Electron 43 的 parent/showInactive/setBounds，不新增依赖；小监控为受信独立渲染路由 `/reply-monitor`，在主窗口内左下角随动，非全局置顶。`createWindow({compact:true,parent})` 不参与主窗口默认最大化或自动聚焦。详细日志仍由手动入口打开。
@@ -126,3 +138,5 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 后续平台编码修正：目录merchantCode和platformDetail来自platform-product-store账号/店铺隔离侧档，旧本机编码不再显示为平台编码，旧set-product-codes明确拒绝且保留旧文件。pdd-learning-provider通过原生商品编辑入口只读导航，platform-product-dom及platform-product-observer分别读取表单与固定原生详情响应，platform-product-merge按规格组合核验后保存。没有新IPC或vendor修改；平台页面仍无应用preload，未知字段不补造。
 
 createProductSpecContext装配于正式AiClient及训练共用prepareModelContext，在既有通用表达和token计量之前选择本店enabled商品的匹配SKU；来源仅作user数据块，静态约束保留系统优先级。旧商品全文命中被受核验规格替换，意图资料及图片仍保留；未指定/未知/歧义规格要求澄清。工作区变化或取消后不继续发模型请求，发送确认门不变。
+
+2026-11-15：全局回复间隔通过settings公开ReplyPacingSettings控件嵌入shops基础设置客服风格，沿用save-config/REPLY_PACING，主进程强制最少1秒。reply-pacing-v2为工作区内迁移标记，不携带凭证。独立定时任务在生产createFileScheduler传timedTasksEnabled:false；持久化任务停用、未执行事项取消，保留接待事件调度和历史。旧/settings路由跳转配置中心，侧栏仅留快捷回复。

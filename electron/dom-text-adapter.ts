@@ -35,7 +35,7 @@ interface HookAdapter {
 }
 
 /** 网页定位 + 浏览器内部按钮事件，不调用系统鼠标，也不降级为回车。 */
-export const TYPING_INTERVAL_MS = 50
+export const TYPING_INTERVAL_MS = 0
 export function configureDomTextAdapter(
   platform: string,
   value: unknown,
@@ -96,13 +96,13 @@ export function configureDomTextAdapter(
     if (sending) return { ok: false, reason: 'input_busy', detail: 'send_in_progress' }
     const authorization = sendAuthorization?.(String(uid), content)
     const current = options.isCurrent
-    // AI 候选的单次授权在入口消费；停止 AI 或切换发送模式后，已开始的逐字输入也必须停止。
+    // AI 候选的单次授权在入口消费；停止 AI 或切换发送模式后，已开始的填写也必须停止。
     // 显式人工发送没有候选授权，仍按原有会话及网页 guard 校验。
     if (authorization)
       options = { ...options, isCurrent: () => (!current || current()) && authorization() }
     sending = true
     const operationId = randomUUID()
-    const interval = Math.max(1, Math.min(150, typingIntervalMs))
+    const interval = Math.max(0, Math.min(150, typingIntervalMs))
     let cancelRequested = false
     const cancellation = options.isCurrent
       ? setInterval(() => {
@@ -110,7 +110,7 @@ export function configureDomTextAdapter(
             cancelRequested = true
             void adapter
               ._callHook('cancelNativeTextSend', [String(uid), operationId], {
-                label: '停止逐字输入',
+                label: '停止填写回复',
                 timeoutMs: 5000,
               })
               .catch(() => {})
@@ -119,6 +119,19 @@ export function configureDomTextAdapter(
       : undefined
     try {
       if (options.isCurrent && !options.isCurrent()) return { ok: false, reason: 'cancelled' }
+      // 复用页面已有的一次性 setEditor 分支；整段填写前后仍核对消息，不能因提速放过新消息。
+      let baseline: string | undefined
+      if (interval === 0) {
+        const before = await adapter._callHook('reviewHistory', [String(uid)], {
+          label: '填写前网页消息核对',
+          timeoutMs: 5000,
+        })
+        const parsed = pageReviewSchema.safeParse(before)
+        baseline = pageReviewFingerprint(before)
+        if (!baseline || !parsed.success || parsed.data.uid !== String(uid))
+          return { ok: false, reason: 'hook_not_ready', detail: 'page_review_unavailable' }
+        if (options.isCurrent && !options.isCurrent()) return { ok: false, reason: 'cancelled' }
+      }
       const prepared = await adapter._callHook(
         'prepareNativeTextSend',
         [String(uid), content, operationId, { mode: 'button', typeDelayMs: interval }],
@@ -144,6 +157,18 @@ export function configureDomTextAdapter(
         return { ok: false, reason: 'send_unconfirmed', detail: 'invalid_button_preparation' }
       }
       if (ready.success) {
+        if (interval === 0) {
+          const after = await adapter._callHook('reviewHistory', [String(uid)], {
+            label: '填写后网页消息核对',
+            timeoutMs: 5000,
+          })
+          if (pageReviewFingerprint(after) !== baseline)
+            return {
+              ok: false,
+              reason: 'conversation_not_found',
+              detail: 'conversation_changed_while_filling',
+            }
+        }
         if (cancelRequested || (options.isCurrent && !options.isCurrent()))
           return { ok: false, reason: 'cancelled' }
         const wc = adapter._wc()

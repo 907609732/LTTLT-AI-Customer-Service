@@ -5,22 +5,17 @@ import {
   ShopKbPanel,
   ShopIntentPanel,
   ShopIntentLearnPanel,
-  ShopAiCustomPanel,
   ShopBannedWordPanel,
   ShopTrainingPanel,
 } from '@/modules/knowledge'
 import { QcReplyPanel, ShopWorkOrderPanel, ShopWipPanel } from '@/modules/quality'
-import { ShopAccountPanel } from '@/modules/billing'
-import { SimConsoleView } from '@/modules/simulation'
 import { StoreSyncView } from '@/modules/sync'
-import { TeamPanel } from '@/modules/account'
 
 /** 标题、面板和菜单共用此注册表；不再维护三份相互漂移的映射。 */
 export const panelRegistry = {
   home: { title: '数据看板', component: ShopHomePanel },
   shops: { title: '店铺与商品', component: ShopsListPanel },
   sync: { title: '跨店同步', component: StoreSyncView },
-  sim: { title: '模拟客服台', component: SimConsoleView },
   goods: { title: '店铺商品', component: ShopGoodsPanel },
   desk: { title: '店铺工作台', component: ShopGoodsPanel },
   transfer: { title: '转接人工', component: ShopOpsPanel },
@@ -31,16 +26,10 @@ export const panelRegistry = {
   'intent-doc': { title: '文档转意图', component: ShopIntentLearnPanel },
   'intent-chat': { title: '聊天转意图', component: ShopIntentLearnPanel },
   training: { title: 'AI训练场', component: ShopTrainingPanel },
-  aicustom: { title: '模型定制', component: ShopAiCustomPanel },
   kb: { title: '尺码规格', component: ShopKbPanel },
   banned: { title: 'AI禁用词', component: ShopBannedWordPanel },
   workorder: { title: '工单登记', component: ShopWorkOrderPanel },
   qc: { title: '客服质检', component: QcReplyPanel },
-  orders: { title: '我的订单', component: ShopAccountPanel },
-  usage: { title: '算力消耗', component: ShopAccountPanel },
-  general: { title: '软件偏好', component: ShopAccountPanel },
-  account: { title: '登录账号', component: ShopAccountPanel },
-  team: { title: '团队管理', component: TeamPanel },
   learn: { title: '学习任务', component: ShopWipPanel },
   supervise: { title: '接待监督', component: ShopWipPanel },
   drill: { title: '训练演练', component: ShopWipPanel },
@@ -55,6 +44,11 @@ export interface NavItem {
 export function isPanelKey(value: unknown): value is PanelKey {
   return typeof value === 'string' && Object.hasOwn(panelRegistry, value)
 }
+/** 旧测试入口归并至训练场，旧模型页面回到店铺列表，由本店基础设置维护规则。 */
+export function resolvePanelKey(value: unknown): PanelKey {
+  if (value === 'sim') return 'training'
+  return isPanelKey(value) ? value : 'shops'
+}
 const item = (key: PanelKey, children?: PanelKey[]): NavItem => ({
   key,
   title: panelRegistry[key].title,
@@ -64,22 +58,17 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   { label: '数据中心', items: [item('home')] },
   {
     label: '开店准备',
-    items: [item('shops', ['transfer', 'welcome', 'auto', 'image']), item('sync'), item('sim')],
+    items: [item('shops', ['transfer', 'welcome', 'auto', 'image']), item('sync')],
   },
   {
     label: '教AI回答',
     items: [
       item('intent', ['intent-doc', 'intent-chat']),
       item('training'),
-      item('aicustom'),
       item('kb'),
       item('banned'),
     ],
   },
   { label: '客服工单', items: [item('workorder')] },
   { label: '接待质量', items: [item('qc')] },
-  {
-    label: '账户账单',
-    items: [item('orders'), item('usage'), item('team'), item('general'), item('account')],
-  },
 ]

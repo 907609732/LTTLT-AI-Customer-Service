@@ -15,6 +15,8 @@ const draftSchema = z
       'gentle',
     ]),
     length: z.enum(['short', 'balanced', 'detailed']),
+    customPrompt: z.string().max(8000).optional(),
+    maxReplyChars: z.number().int().min(1).max(2000).optional(),
     origins: z.array(z.string().min(1).max(200)).max(30),
     carriers: z.array(z.string().min(1).max(200)).max(30),
     designatedCourier: z.boolean().nullable(),
@@ -44,6 +46,8 @@ export function createBlankSetupDraft(): SetupDraft {
   return {
     style: 'practical',
     length: 'balanced',
+    customPrompt: '',
+    maxReplyChars: 200,
     origins: [],
     carriers: [],
     designatedCourier: null,
@@ -147,9 +151,14 @@ export function createSetupRules(options: {
     loaded = null
     const state = await list()
     if (token !== generation) throw Error('设置载入已过期')
-    const { block } = readBlock(effective(state, storeId).prompt)
+    const source = effective(state, storeId)
+    const { base, block } = readBlock(source.prompt)
     loaded = { storeId, state }
-    return block?.storeId === storeId ? structuredClone(block.draft) : createBlankSetupDraft()
+    return {
+      ...(block?.storeId === storeId ? structuredClone(block.draft) : createBlankSetupDraft()),
+      customPrompt: base.trim(),
+      maxReplyChars: source.maxReplyChars,
+    }
   }
   async function save(storeId: string, input: SetupDraft): Promise<void> {
     options.assertCurrent()
@@ -211,8 +220,17 @@ export function createSetupRules(options: {
     // 一个方案只保留一个受本适配器管理的区块；不能误删未知店铺的政策。
     if (original.block && original.block.storeId !== storeId)
       throw Error('当前方案包含其他店铺向导政策，请先核对本店模型规则')
-    const payload = JSON.stringify({ version: 1, storeId, draft }).replaceAll('<', '\\u003c')
-    const prompt = `${original.base.trimEnd()}\n\n${start}\n${instruction}${payload}\n${end}`.trim()
+    const { customPrompt, maxReplyChars: requestedLimit, ...policyDraft } = draft
+    if (customPrompt?.includes(start) || customPrompt?.includes(end))
+      throw Error('客服回复要求中无需粘贴向导自动生成的政策区块，请只填写补充规则')
+    const maxReplyChars = requestedLimit ?? source.maxReplyChars
+    // 提示词本身保存在既有方案正文，避免在政策JSON再复制一份，兼容旧v1向导区块。
+    const payload = JSON.stringify({ version: 1, storeId, draft: policyDraft }).replaceAll(
+      '<',
+      '\\u003c',
+    )
+    const prompt =
+      `${(customPrompt ?? original.base).trimEnd()}\n\n${start}\n${instruction}${payload}\n${end}`.trim()
     if (prompt.length > 8000) throw Error('现有模型规则与向导设置合计超过8000字符，请精简后重试')
     saving = true
     try {
@@ -225,14 +243,14 @@ export function createSetupRules(options: {
           values: {
             name: `店铺助手-${storeId}`.slice(0, 100),
             prompt,
-            maxReplyChars: source.maxReplyChars,
+            maxReplyChars,
           },
         }),
       )
       const afterSave = await list()
       if (
         saved.prompt !== prompt ||
-        saved.maxReplyChars !== source.maxReplyChars ||
+        saved.maxReplyChars !== maxReplyChars ||
         baseline.profiles.some((p) => p.id === saved.id)
       )
         conflict()

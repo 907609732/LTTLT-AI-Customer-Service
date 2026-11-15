@@ -122,7 +122,7 @@ const emit = defineEmits<{
           ><template v-else
             ><template v-if="isTemplatePreview"
               ><div class="ms-banner ms-banner--ok">
-                「通用接待」下可在「模型定制」中用品类模板包配置店铺说话规范。
+                店铺说话规范和回复字数可在该店铺「基础设置 → 客服风格」中配置。
               </div></template
             ><template v-else
               ><div class="ms-banner ms-banner--warn">

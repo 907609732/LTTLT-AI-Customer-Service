@@ -250,31 +250,50 @@ export async function businessChecks(options: {
         !JSON.stringify((await snapshot()).review).includes('fixture-only-not-a-provider-key'),
       )
     })
-    await check('business:reply-pacing-settings', '/settings', async () => {
-      await load('/settings')
-      assert.equal((await snapshot()).config.reply.perUidMinIntervalMs, 60000)
+    await check('business:reply-pacing-settings', '/', async () => {
+      if (!(await snapshot()).stores.length)
+        await execute({
+          action: 'add-store',
+          values: { platform: 'sim-local', storeName: '间隔验证店' },
+        })
+      await load('/shop/manage?panel=shops')
+      await wait(`Boolean(document.querySelector('[data-action="basic-settings"]'))`)
+      await win.webContents.executeJavaScript(
+        `document.querySelector('[data-action="basic-settings"]').click()`,
+      )
+      await wait(`Boolean(document.querySelector('button.wizard-step'))`)
+      await win.webContents.executeJavaScript(
+        `document.querySelectorAll('button.wizard-step')[1].click()`,
+      )
+      await wait(`Boolean(document.querySelector('.reply-pacing input'))`)
+      const footer = await win.webContents.executeJavaScript(
+        `document.querySelector('.sidebar-footer').innerText`,
+      )
+      assert.match(footer, /快捷回复/)
+      assert.doesNotMatch(footer, /设置|定时任务/)
+      assert.equal((await snapshot()).config.reply.perUidMinIntervalMs, 1000)
       const change = async (seconds: number) => {
         await win.webContents.executeJavaScript(
-          `(()=>{const input=document.querySelector('.reply-pacing input');if(!input)throw Error('缺少回复间隔输入');input.value=${seconds};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+          `(()=>{const input=document.querySelector('.reply-pacing input');input.value=${seconds};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
         )
         await win.webContents.executeJavaScript(
           `document.querySelector('.reply-pacing button[type="submit"]').click()`,
         )
         await wait(
-          `Array.from(document.querySelector('.reply-pacing p')?.textContent||'').filter(char=>char.trim()).join('').includes('当前：${seconds}秒')`,
+          `document.querySelector('.reply-pacing p').textContent.includes('当前：${seconds} 秒')`,
         )
       }
       await change(15)
       assert.equal((await snapshot()).config.reply.perUidMinIntervalMs, 15000)
-      await change(0)
-      assert.equal((await snapshot()).config.reply.perUidMinIntervalMs, 0)
       await assert.rejects(
         execute({
           action: 'save-config',
           screenId: 'REPLY_PACING',
-          values: { seconds: -1, expectedMs: 0 },
+          values: { seconds: 0, expectedMs: 15000 },
         }),
       )
+      await change(1)
+      assert.equal((await snapshot()).config.reply.perUidMinIntervalMs, 1000)
       await assert.rejects(
         execute({
           action: 'save-config',
@@ -282,18 +301,12 @@ export async function businessChecks(options: {
           values: { seconds: 30, expectedMs: 15000 },
         }),
       )
-      await execute({
-        action: 'save-config',
-        screenId: 'REPLY_PACING',
-        values: { seconds: 60, expectedMs: 0 },
-      })
-      await load('/settings')
-      assert.equal((await snapshot()).config.reply.perUidMinIntervalMs, 60000)
-      await win.webContents.executeJavaScript(
-        `document.querySelector('.reply-pacing').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`,
+      fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })
+      fs.writeFileSync(
+        path.resolve('artifacts/desktop/reply-pacing-settings.png'),
+        (await win.webContents.capturePage()).toPNG(),
       )
-      const shot = await win.webContents.capturePage()
-      fs.writeFileSync(path.resolve('artifacts/desktop/reply-pacing-settings.png'), shot.toPNG())
+      await win.webContents.executeJavaScript(`document.querySelector('[data-dismiss]').click()`)
     })
     await check('business:context-compression-16k-to-8k', '/logs', async () => {
       const before = calls.length

@@ -51,7 +51,13 @@ export async function domSendChecks(check: Check) {
   const adapter = configureDomTextAdapter(
     'pdd-web',
     new PddWebAdapter({ getWebContents: () => wc }),
-    1, // 夹具加速；生产默认每个可见字符 50ms。
+    1, // 仅旧逐字路径的防回归夹具；正式默认整段填写。
+    (uid, text) => sendAuthorizations?.consume('fixture', uid, text),
+  ) as TestAdapter
+  const bulkAdapter = configureDomTextAdapter(
+    'pdd-web',
+    new PddWebAdapter({ getWebContents: () => wc }),
+    undefined,
     (uid, text) => sendAuthorizations?.consume('fixture', uid, text),
   ) as TestAdapter
   const load = async (mode: string) => {
@@ -72,6 +78,30 @@ export async function domSendChecks(check: Check) {
       `({clicks:window.clicks,keys:window.keys,value:document.querySelector('textarea').value,text:document.querySelector('#messages').textContent})`,
     ) as Promise<{ clicks: number; keys: number; value: string; text: string }>
   try {
+    await check('dom-fill:whole-reply-single-input', '/fixture/pdd', async () => {
+      await load('success')
+      const text = '您好👨‍👩‍👧‍👦，这是整段回复。\n换行和规格信息也一次填入。'.repeat(20)
+      assert.equal((await bulkAdapter.sendText('buyer', text)).ok, true)
+      const inputs = (await fixture.webContents.executeJavaScript('window.inputs')) as {
+        value: string
+      }[]
+      assert.equal(inputs.length, 1, '整段回复只触发一次填写')
+      assert.equal(inputs[0].value, text, '第一次填写已经包含完整正文')
+      assert.equal((await stats()).clicks, 1)
+      assert.equal((await stats()).text, text)
+    })
+    for (const mode of ['busy', 'edited', 'new-message'])
+      await check(`dom-fill:${mode}-no-send`, '/fixture/pdd', async () => {
+        await load(mode === 'new-message' ? 'success' : mode)
+        if (mode === 'new-message')
+          await fixture.webContents.executeJavaScript(
+            `document.querySelector('textarea').addEventListener('input',()=>{const item=document.createElement('div');item.className='chat-item customerMessage';item.innerHTML='<p class="chat-message-content">买家刚发的新消息</p>';document.querySelector('#buyer-history').append(item)},{once:true});void 0`,
+          )
+        assert.equal((await bulkAdapter.sendText('buyer', '不能误发的整段回复')).ok, false)
+        assert.equal((await stats()).clicks, 0)
+        if (mode === 'busy') assert.equal((await stats()).value, '人工草稿')
+        if (mode === 'edited') assert.equal((await stats()).value, '人工改写')
+      })
     await check('dom-typing:visible-character-steps', '/fixture/pdd', async () => {
       await load('success')
       const text = '您好👨‍👩‍👧‍👦，请问商品？'
@@ -149,7 +179,7 @@ export async function domSendChecks(check: Check) {
         assert.equal((await stats()).clicks, 0)
         await review.decide({ id: review.snapshot().replies[0].id, approve: true })
         assert.equal(await approved, true)
-        assert.equal((await adapter.sendText('buyer', '明确确认后发送')).ok, true)
+        assert.equal((await bulkAdapter.sendText('buyer', '明确确认后发送')).ok, true)
         assert.equal((await stats()).clicks, 1)
       } finally {
         review.dispose()
@@ -201,7 +231,7 @@ export async function domSendChecks(check: Check) {
         })
         assert.equal(approved, true)
         assert.equal((await stats()).clicks, 0, '统一复核本身不得偷偷点击发送')
-        assert.equal((await adapter.sendText('buyer', '隔离页面自动回复')).ok, true)
+        assert.equal((await bulkAdapter.sendText('buyer', '隔离页面自动回复')).ok, true)
         assert.equal((await stats()).clicks, 1)
       } finally {
         review.dispose()
@@ -245,7 +275,7 @@ export async function domSendChecks(check: Check) {
           await sendAuthorizations.authorize(proposal, () => review.propose(proposal)),
           true,
         )
-        const pending = adapter.sendText('buyer', text, { isCurrent: () => true })
+        const pending = bulkAdapter.sendText('buyer', text, { isCurrent: () => true })
         for (let i = 0; i < 100; i++) {
           if (await fixture.webContents.executeJavaScript('window.inputs.length>0')) break
           await new Promise((resolve) => setTimeout(resolve, 10))

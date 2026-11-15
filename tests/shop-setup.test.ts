@@ -112,7 +112,7 @@ it('登录失败恢复引导，切工作区后的迟到结果不得呈现旧店�
   expect(setup.visible).toBe(false)
 })
 
-it('知识、接待和模型入口进入真实配置页并可返回引导', async () => {
+it('知识和训练入口进入真实配置页，移除旧模型设置入口', async () => {
   const { setup, runtime } = fixture()
   runtime.snapshot.stores[0]!.runtime.online = true
   const router = createRouter({
@@ -145,15 +145,7 @@ it('知识、接待和模型入口进入真实配置页并可返回引导', asyn
   expect(setup.visible).toBe(true)
   setup.step = 0
   await nextTick()
-  await wrapper
-    .findAll('button')
-    .find((button) => button.text().includes('模型连接设置'))!
-    .trigger('click')
-  await flushPromises()
-  expect(router.currentRoute.value.path).toBe('/settings')
-  setup.resume()
-  await flushPromises()
-  await nextTick()
+  expect(wrapper.text()).not.toContain('模型连接设置')
   await wrapper
     .findAll('button')
     .find((button) => button.text().includes('AI 训练场'))!

@@ -6,6 +6,7 @@ import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import type { LocalStore } from '@/shared/contracts/backend'
 import AddShopDialog from './AddShopDialog.vue'
+import { useShopSetupStore } from '../setup-store'
 import pddIcon from '@/assets/figma-add-img00.png'
 import qianniuIcon from '@/assets/figma-add-img3.png'
 import xianyuIcon from '@/assets/figma-add-img31.png'
@@ -87,6 +88,12 @@ watch(
 function navigate(shop: LocalStore, panel: string) {
   runtime.selectedStoreId = shop.id
   void router.push({ path: '/shop/manage', query: { panel } })
+}
+function configureBasics(shop: LocalStore) {
+  runtime.selectedStoreId = shop.id
+  const setup = useShopSetupStore()
+  setup.open(shop.id)
+  setup.step = 1
 }
 async function refresh() {
   await task.run(async () => {
@@ -277,6 +284,9 @@ const reception = [
           <div class="shop-card__col">
             <div class="shop-card__col-hd"><b>接待配置</b><em>按店设置接待</em></div>
             <div class="shop-card__acts">
+              <button class="chip" data-action="basic-settings" @click="configureBasics(shop)">
+                基础设置
+              </button>
               <button
                 v-for="item in reception"
                 :key="item.key"

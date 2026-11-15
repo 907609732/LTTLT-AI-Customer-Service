@@ -71,6 +71,23 @@ function fixture() {
   }
 }
 
+it('客服风格载入旧模型提示词和字数上限，编辑仅保存到本店', async () => {
+  const f = fixture()
+  const draft = ready(await f.service.load('a'))
+  expect(draft).toMatchObject({ customPrompt: '原有规则', maxReplyChars: 321 })
+  Object.assign(draft, { customPrompt: '本店回复先回答问题，勿猜库存', maxReplyChars: 280 })
+  await f.service.save('a', draft)
+  expect(f.state.profiles[1]!.prompt).toContain('本店回复先回答问题，勿猜库存')
+  expect(f.state.profiles[1]!.prompt).not.toContain('原有规则')
+  expect(f.state.profiles[1]!.maxReplyChars).toBe(280)
+  expect(f.state.bindings.b).toBe('shared')
+  expect(f.state.profiles[0]!.prompt).toBe('原有规则')
+  expect(await f.service.load('a')).toMatchObject({
+    customPrompt: '本店回复先回答问题，勿猜库存',
+    maxReplyChars: 280,
+  })
+})
+
 describe('店铺向导规则适配', () => {
   it('自有区块严格解码，用户政策含标记文字也能安全回填，不接受损坏风格', async () => {
     const f = fixture()
@@ -140,6 +157,8 @@ describe('店铺向导规则适配', () => {
       const draft = ready(await service.load('a'))
       Object.assign(draft, {
         origins: ['测试发货地'],
+        customPrompt: '不得猜库存\n先说明适配条件',
+        maxReplyChars: 256,
         length: 'short',
         dispatchTime: '商家人工确认',
         cashbackSupported: true,
@@ -153,7 +172,8 @@ describe('店铺向导规则适配', () => {
       const actual = store.resolve('a', global)
       expect(actual.ai.systemPrompt).toContain('测试发货地')
       expect(actual.ai.systemPrompt).toContain('不得猜库存')
-      expect(actual.reply.maxReplyChars).toBe(188)
+      expect(actual.reply.maxReplyChars).toBe(256)
+      expect(actual.ai.systemPrompt).toContain('先说明适配条件')
       expect(store.resolve('b', global).ai.systemPrompt).toBe('不得猜库存')
       expect(store.resolve('unbound', global)).toEqual(global)
       expect(store.snapshot().profiles.find((p) => p.id === shared.id)?.version).toBe(1)

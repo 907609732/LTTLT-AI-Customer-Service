@@ -11,6 +11,7 @@ import type { CommandInput } from '../src/shared/contracts/backend'
 export async function managedChecks(options: {
   win: BrowserWindow
   dataDir: string
+  outputDir: string
   original: LocalRuntime
   bind(runtime: LocalRuntime): void
   load(route: string): Promise<void>
@@ -80,6 +81,8 @@ export async function managedChecks(options: {
         },
         capabilities: { model: 'managed-fixture', vision: false, max_images: 4 },
       }
+    else if (endpoint === '/api/client/billing/orders' && request.method === 'GET')
+      result = { orders: [] }
     else if (endpoint === '/api/client/chat/completions') {
       chatCalls.push(JSON.parse(text) as Record<string, unknown>)
       if (uncertain) {
@@ -199,14 +202,77 @@ export async function managedChecks(options: {
           `document.body.innerText.includes('托管夹具账号')&&document.body.innerText.includes('剩余')`,
         ),
       )
+      const quotaText = (await win.webContents.executeJavaScript(
+        `document.querySelector('.service-option').innerText`,
+      )) as string
+      for (const label of ['总额度', '剩余额度', '到期时间', '我的订单', '算力消耗'])
+        assert.ok(quotaText.includes(label))
+      assert.ok(quotaText.includes(new Date(expires * 1000).toLocaleString('zh-CN')))
       await win.webContents.executeJavaScript(
         `document.querySelector('.service-option').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`,
       )
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const visible = await win.webContents.executeJavaScript(`(() => {
+          const dialog=document.querySelector('.simple-login-dialog');
+          if(!dialog)return false;
+          const rect=dialog.getBoundingClientRect();
+          return rect.width>400&&rect.height>200&&rect.top>=0&&rect.top<innerHeight&&!document.getAnimations().some(animation=>animation.playState==='running');
+        })()`)
+        if (visible) break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
       const screenshot = await win.webContents.capturePage()
       fs.writeFileSync(
-        path.resolve('artifacts/desktop/managed-account-settings.png'),
+        path.join(options.outputDir, 'managed-account-settings.png'),
         screenshot.toPNG(),
       )
+      for (const section of ['usage', 'orders']) {
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[data-account-billing="${section}"]').click()`,
+        )
+        for (let i = 0; i < 80; i++) {
+          if (
+            await win.webContents.executeJavaScript(
+              `Boolean(document.querySelector('.billing-dashboard.compact'))`,
+            )
+          )
+            break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        assert.ok(
+          await win.webContents.executeJavaScript(
+            `Boolean(document.querySelector('.billing-dashboard.compact'))`,
+          ),
+        )
+        for (let i = 0; i < 80; i++) {
+          const ready = await win.webContents.executeJavaScript(
+            section === 'orders'
+              ? `document.querySelector('.billing-dashboard.compact')?.innerText.includes('暂无可核实的充值订单记录')`
+              : `document.querySelector('.billing-dashboard.compact')?.innerText.includes('已结算')`,
+          )
+          if (ready) break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        const detailText = (await win.webContents.executeJavaScript(
+          `document.querySelector('.billing-dashboard.compact')?.innerText`,
+        )) as string
+        assert.ok(
+          detailText?.includes(section === 'orders' ? '暂无可核实的充值订单记录' : '已结算'),
+        )
+        assert.ok(!detailText.includes('可选套餐'))
+        await win.webContents.executeJavaScript(
+          `Array.from(document.querySelectorAll('.el-dialog__headerbtn')).at(-1).click()`,
+        )
+        for (let i = 0; i < 80; i++) {
+          if (
+            !(await win.webContents.executeJavaScript(
+              `Boolean(document.querySelector('.billing-dashboard.compact'))`,
+            ))
+          )
+            break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+      }
     })
     await check(
       'managed:uncertain-request-stops-retry-until-explicit-review',

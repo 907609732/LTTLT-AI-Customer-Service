@@ -5,6 +5,7 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import ShopsListPanel from '../src/modules/shops/components/ShopsListPanel.vue'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 import { ElMessageBox } from 'element-plus'
+import { useShopSetupStore } from '../src/modules/shops/setup-store'
 
 async function fixture() {
   setActivePinia(createPinia())
@@ -52,6 +53,19 @@ it('单店配置和商品导航使用点击店铺，不沿用上一家', async (
   await flushPromises()
   expect(runtime.selectedStoreId).toBe('s0')
   expect(router.currentRoute.value.query.panel).toBe('goods')
+  wrapper.unmount()
+})
+it('店铺基础设置直接进入该店客服风格，不触发保存或开启AI', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.snapshot.workspaceId = 'config-workspace'
+  const run = vi.spyOn(runtime, 'run')
+  await wrapper.get('[data-store="s1"] [data-action="basic-settings"]').trigger('click')
+  const setup = useShopSetupStore()
+  expect(setup.storeId).toBe('s1')
+  expect(setup.step).toBe(1)
+  expect(setup.visible).toBe(true)
+  expect(run).not.toHaveBeenCalled()
+  expect(runtime.snapshot.stores[1]!.aiEnabled).toBe(false)
   wrapper.unmount()
 })
 it('分组保存失败显示错误，不伪造保存成功', async () => {

@@ -8,12 +8,14 @@ import type { SchedulerTask, SchedulerTaskInput } from '../src/shared/contracts/
 export function createFileScheduler(options: {
   workspaceId: string
   directory: string
+  timedTasksEnabled?: boolean
   capability?: (task: SchedulerTask) => string
   validateTask: (task: SchedulerTaskInput) => void
 }) {
   const storage = createAutomationStore(options.directory, 'reception-scheduler.json')
   return new ReceptionScheduler({
     workspaceId: options.workspaceId,
+    timedTasksEnabled: options.timedTasksEnabled,
     capability: options.capability,
     validateTask: options.validateTask,
     load: storage.load,

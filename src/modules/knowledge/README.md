@@ -4,9 +4,9 @@
 
 公开入口：index.ts。跨模块必须从该入口引用，禁止访问 components 或 demo 的内部路径。
 
-界面入口：ShopIntentPanel、ShopIntentLearnPanel、ShopTrainingPanel、TrainingCorrectModal、ShopAiCustomPanel、ShopKbPanel、ShopBannedWordPanel、IntentEditorModal、ExampleDialog、ModelSwitchModal。
+界面入口：ShopIntentPanel、ShopIntentLearnPanel、ShopTrainingPanel、TrainingCorrectModal、ShopKbPanel、ShopBannedWordPanel、IntentEditorModal、ExampleDialog、ModelSwitchModal。模型定制独立页面与公开导出已移除，店铺提示词/字数上限统一在店铺基础设置的“客服风格”维护；规则存储和历史方案保留。
 
-当前业务状态：ShopIntentPanel、ShopAiCustomPanel、ShopBannedWordPanel、ShopTrainingPanel 已接意图知识、规则方案、禁用词和训练。ShopIntentLearnPanel 可选择本机已有资料、平台商品和平台聊天；本机来源仍复用商品规格、当前会话快照及明确“问：/答：”文本。平台来源经过可注入端口读取实际平台资料，任务、范围、游标、候选和审核记录持久化。两类来源均需人工确认后新增停用知识包。ShopKbPanel 录入本店指定商品的尺码规格，经过相同预览确认入库。来源审计以停用条目随包持久化并随 JSON 导出，不参与检索；意图编辑器只读展示并强制保持该条目停用。审核后在意图知识页显式启用知识包。
+当前业务状态：ShopIntentPanel、ShopBannedWordPanel、ShopTrainingPanel 已接意图知识、规则方案、禁用词和训练。ShopIntentLearnPanel 可选择本机已有资料、平台商品和平台聊天；本机来源仍复用商品规格、当前会话快照及明确“问：/答：”文本。平台来源经过可注入端口读取实际平台资料，任务、范围、游标、候选和审核记录持久化。两类来源均需人工确认后新增停用知识包。ShopKbPanel 录入本店指定商品的尺码规格，经过相同预览确认入库。来源审计以停用条目随包持久化并随 JSON 导出，不参与检索；意图编辑器只读展示并强制保持该条目停用。审核后在意图知识页显式启用知识包。
 
 候选只整理已实际取得的文字，不运行模型，不证明事实正确。本机商品仅预览第一页最多 100 条，本机聊天最多 100 组相邻买家/客服纯文字，这些快照不能冒充平台主动采集。平台来源逐页记录实际可访问范围，达到上限、平台总数未覆盖或分页失败均明确为部分范围；读完平台声明范围也不代表平台全部资料。聊天必须显式选择北京时间起止日期，媒体和非相邻买家/客服回复不会被猜成问答。PDF/Word/OCR、任意文档智能总结、跨店尺码共用、商品互斥绑定及无人审核自动启用仍未接入。来源容量受上游 4000 字答案限制，超限拒绝而不截断。原文与人工修改结果同时保留；来源审计是可维护的本机记录，不是防篡改日志。
 

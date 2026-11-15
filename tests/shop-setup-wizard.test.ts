@@ -8,6 +8,67 @@ import { useRuntimeStore } from '../src/shared/state/runtime'
 import { useShopSetupStore } from '../src/modules/shops/setup-store'
 import { profileSchema, type ModelProfile } from '../src/shared/contracts/backend'
 const wrappers: ReturnType<typeof mount>[] = []
+it('客服风格编辑并保存全局间隔，最少1秒且保留并发版本校验', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '已保存', data: {} })
+  await wrapper.find('[data-start]').trigger('click')
+  const pacing = wrapper.find('.reply-pacing')
+  expect(pacing.exists()).toBe(true)
+  const input = pacing.findComponent({ name: 'ElInputNumber' })
+  expect(input.props('min')).toBe(1)
+  expect(input.props('modelValue')).toBe(1)
+  input.vm.$emit('update:modelValue', 2)
+  input.vm.$emit('change', 2)
+  await pacing.trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-config',
+    screenId: 'REPLY_PACING',
+    values: { seconds: 2, expectedMs: 1000 },
+  })
+  expect(wrapper.text()).toContain('全局生效')
+})
+it('客服风格统一编辑自定义回复要求和字数上限，不触发真实请求', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  const run = vi.spyOn(runtime, 'run')
+  await wrapper.find('[data-start]').trigger('click')
+  await wrapper.get('textarea[aria-label="客服回复要求"]').setValue('请简洁回答，先说明兼容型号')
+  expect(setup.draft.customPrompt).toBe('请简洁回答，先说明兼容型号')
+  expect(wrapper.find('[aria-label="回复字数上限"]').exists()).toBe(true)
+  expect(run).not.toHaveBeenCalled()
+})
+
+it('点击步骤直接修改并保留草稿，保存和载入期间禁止跳转', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  const run = vi.spyOn(runtime, 'run')
+  const steps = wrapper.findAll('button.wizard-step')
+  expect(steps).toHaveLength(6)
+  expect(steps[5]!.attributes('disabled')).toBeDefined()
+  await steps[2]!.trigger('click')
+  expect(setup.step).toBe(2)
+  setup.draft.origins = ['浙江']
+  await steps[4]!.trigger('click')
+  expect(setup.step).toBe(4)
+  await steps[2]!.trigger('click')
+  expect(setup.draft.origins).toEqual(['浙江'])
+  for (const state of ['loading', 'saving'] as const) {
+    setup[state] = true
+    await flushPromises()
+    await steps[1]!.trigger('click')
+    expect(setup.step).toBe(2)
+    setup[state] = false
+  }
+  setup.saved = true
+  setup.step = 5
+  await flushPromises()
+  await steps[3]!.trigger('click')
+  expect(setup.step).toBe(3)
+  expect(setup.saved).toBe(false)
+  expect(run).not.toHaveBeenCalled()
+})
 afterEach(() => {
   wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
   document.body.innerHTML = ''

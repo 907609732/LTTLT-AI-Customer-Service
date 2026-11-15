@@ -8,11 +8,17 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/shared/ui/BrandMark.vue'
 import { notifyUnavailable } from '@/shared/ui/feedback'
-import { navGroups, panelRegistry, isPanelKey, type PanelKey, type NavItem } from '../navigation'
+import {
+  navGroups,
+  panelRegistry,
+  resolvePanelKey,
+  type PanelKey,
+  type NavItem,
+} from '../navigation'
 const router = useRouter(),
   route = useRoute()
 const __stub = notifyUnavailable
-const activeKey = computed(() => (isPanelKey(route.query.panel) ? route.query.panel : 'shops'))
+const activeKey = computed(() => resolvePanelKey(route.query.panel))
 const expanded = ref<Partial<Record<PanelKey, boolean>>>({ shops: true, intent: true })
 const crumb = computed(() => panelRegistry[activeKey.value].title)
 const currentPanel = computed(() => panelRegistry[activeKey.value].component)
@@ -141,30 +147,6 @@ function goHome() {
               </template>
             </template>
           </nav>
-          <div class="sider__foot" data-v-105c9fec="">
-            <button
-              class="sider-recharge"
-              type="button"
-              title="打开充值选购"
-              data-nav
-              @click="router.push('/shop/recharge')"
-              data-v-105c9fec=""
-            >
-              充值
-            </button>
-            <button
-              class="sider-cs"
-              type="button"
-              title="联系客服"
-              @click="__stub('联系客服')"
-              data-v-105c9fec=""
-            >
-              <span class="sider-cs__text" data-v-105c9fec="">
-                <strong data-v-105c9fec="">联系客服</strong>
-                <em data-v-105c9fec="">微信 yunduo-kf</em>
-              </span>
-            </button>
-          </div>
         </aside>
 
         <main class="main" data-v-105c9fec="">

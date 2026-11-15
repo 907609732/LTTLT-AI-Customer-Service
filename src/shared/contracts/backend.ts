@@ -248,7 +248,7 @@ export const snapshotSchema = z.object({
   config: z.object({
     ai: z.object({ baseUrl: z.string(), model: z.string(), systemPrompt: z.string() }),
     reply: z.object({
-      perUidMinIntervalMs: z.number().int().min(0).max(3600000).default(60000),
+      perUidMinIntervalMs: z.number().int().min(1000).max(3600000).default(1000),
       enabled: z.boolean(),
       maxReplyChars: z.number(),
       fallbackAfterMs: z.number(),
@@ -336,7 +336,7 @@ export function emptySnapshot(): BackendSnapshot {
         maxReplyChars: 200,
         fallbackAfterMs: 0,
         fallbackText: '',
-        perUidMinIntervalMs: 60000,
+        perUidMinIntervalMs: 1000,
       },
       safety: { handoffKeywords: [] },
     },

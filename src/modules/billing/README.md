@@ -2,6 +2,8 @@
 
 职责：充值、订单、算力和账户界面聚合。
 
+主页LoginDialog使用公开AccountBillingDetails（BillingDashboard compact模式）展示按需订单/消耗详情；订单只查orders与刷新额度，消耗只刷新额度，不自动读取套餐/创建订单/发起支付。配置中心的orders/usage面板和账户账单菜单已移除，账户、账本与充值兼容能力保留。
+
 公开入口：index.ts。跨模块必须从该入口引用，禁止访问 components 或 demo 的内部路径。
 
 界面入口：ShopRechargeView、ShopAccountPanel、OrdersPanel、UsagePanel。

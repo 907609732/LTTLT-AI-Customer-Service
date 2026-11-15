@@ -8,6 +8,8 @@ import { createReplyMonitorWindow } from './reply-monitor-window'
 import { StoreSendModes } from './store-send-modes'
 import { SendModeAuthorizations } from './send-mode-authorizations'
 import { createRequire } from 'node:module'
+import { existsSync, writeFileSync } from 'node:fs'
+import { normalizeReplyInterval, validateReplyInterval } from './reply-pacing'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow, safeStorage, shell, type IpcMainInvokeEvent } from 'electron'
@@ -153,6 +155,21 @@ export function createLocalRuntime(options: {
     transport: options.managedTransport,
   })
   const dataDir = managed.dataDir
+  const pacingMigration = path.join(dataDir, 'reply-pacing-v2')
+  const { Config } = loadFactory<{
+    Config: new (options: { file: string }) => {
+      all(): { reply: { perUidMinIntervalMs: number } }
+      update(patch: { reply: { perUidMinIntervalMs: number } }): void
+    }
+  }>('desk-v1/src/main/config.js', 'Config')
+  const pacingConfig = new Config({ file: path.join(dataDir, 'config.json') })
+  const previousInterval = pacingConfig.all().reply.perUidMinIntervalMs
+  const nextInterval = existsSync(pacingMigration)
+    ? Math.max(1000, previousInterval)
+    : normalizeReplyInterval(previousInterval)
+  if (previousInterval !== nextInterval)
+    pacingConfig.update({ reply: { perUidMinIntervalMs: nextInterval } })
+  if (!existsSync(pacingMigration)) writeFileSync(pacingMigration, '1', { flag: 'wx' })
   const sendModes = new StoreSendModes(dataDir)
   const sendAuthorizations = new SendModeAuthorizations((id) => sendModes.read(id))
   const replyMonitor = createReplyMonitorWindow({
@@ -622,6 +639,7 @@ export function createLocalRuntime(options: {
     },
   })
   const scheduler = createFileScheduler({
+    timedTasksEnabled: false,
     workspaceId,
     directory: dataDir,
     validateTask: (task) => {
@@ -768,6 +786,8 @@ export function createLocalRuntime(options: {
       if (closed) throw new Error('本地服务已关闭')
       if (storeSync.isBusy()) throw new Error('正在跨店同步或回滚，请等待完成后再修改工作区')
       const command = commandSchema.parse(input)
+      if (command.action === 'save-config' && command.screenId === 'REPLY_PACING')
+        validateReplyInterval(command.values.seconds)
       if (command.workspaceId !== workspaceId) throw new Error('本地服务已重启，请刷新后重试')
       if (
         [

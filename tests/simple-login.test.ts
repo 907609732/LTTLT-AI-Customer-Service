@@ -2,21 +2,21 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ElementPlus from 'element-plus'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import SettingsView from '../src/modules/settings/components/SettingsView.vue'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 
 afterEach(() => {
   document.body.innerHTML = ''
 })
-it('设置默认只展示回复间隔，高级模型配置收起且不再重复账号入口', () => {
+it('间隔控件不再包含高级模型配置或账号入口', () => {
   setActivePinia(createPinia())
   const wrapper = mount(SettingsView, {
     global: { plugins: [ElementPlus], stubs: { ElTag: true } },
   })
   expect(wrapper.text()).toContain('AI 回复间隔')
   expect(wrapper.text()).not.toContain('托管 API 服务地址')
-  expect(wrapper.find('details').exists()).toBe(true)
-  expect(wrapper.find('details').attributes('open')).toBeUndefined()
+  expect(wrapper.find('details').exists()).toBe(false)
   wrapper.unmount()
 })
 import LoginDialog from '../src/modules/settings/components/LoginDialog.vue'
@@ -27,12 +27,68 @@ function loginFixture() {
   const run = vi
     .spyOn(runtime, 'run')
     .mockResolvedValue({ status: 'ok', message: '完成', data: {} })
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/', component: { template: '<div />' } },
+      { path: '/shop/recharge', component: { template: '<div />' } },
+    ],
+  })
   const wrapper = mount(LoginDialog, {
     props: { modelValue: true },
-    global: { plugins: [ElementPlus], stubs: { ElDialog: { template: '<div><slot /></div>' } } },
+    global: {
+      plugins: [ElementPlus, router],
+      stubs: { ElDialog: { template: '<div><slot /></div>' }, BillingDashboard: true },
+    },
   })
-  return { runtime, run, wrapper }
+  return { runtime, run, wrapper, router }
 }
+it('充值从服务端登录区域打开原充值页，不创建支付或切换账号', async () => {
+  const { wrapper, router, run } = loginFixture()
+  await wrapper.get('.service-option [data-account-recharge]').trigger('click')
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/shop/recharge')
+  expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([false])
+  expect(run).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+it('服务端账号展示真实总额度、剩余额度和额度到期时间，并提供订单与消耗入口', async () => {
+  const { runtime, wrapper, run } = loginFixture()
+  runtime.snapshot.managed.active.mode = 'managed'
+  runtime.snapshot.managed.session.status = 'signed_in'
+  runtime.snapshot.managed.session.account = {
+    userId: 'billing-user',
+    displayName: '测试账号',
+    trial: { limit: 100, used: 20, reserved: 3, remaining: 77, expiresAt: 1800000000 },
+  }
+  await flushPromises()
+  expect(wrapper.text()).toContain('总额度')
+  expect(wrapper.text()).toContain('100 次')
+  expect(wrapper.text()).toContain('剩余额度')
+  expect(wrapper.text()).toContain('77 次')
+  expect(wrapper.text()).toContain('到期时间')
+  expect(wrapper.text()).toContain(new Date(1800000000 * 1000).toLocaleString('zh-CN'))
+  expect(wrapper.get('[data-account-billing="orders"]').text()).toBe('我的订单')
+  expect(wrapper.get('[data-account-billing="usage"]').text()).toBe('算力消耗')
+  expect(run).not.toHaveBeenCalled()
+  await wrapper.get('[data-account-billing="orders"]').trigger('click')
+  expect(wrapper.get('billing-dashboard-stub').attributes('section')).toBe('orders')
+  runtime.snapshot = {
+    ...runtime.snapshot,
+    managed: { ...runtime.snapshot.managed, session: { ...runtime.snapshot.managed.session } },
+  }
+  await flushPromises()
+  expect(wrapper.find('billing-dashboard-stub').exists()).toBe(true)
+  await wrapper.get('[data-account-billing="usage"]').trigger('click')
+  expect(wrapper.get('billing-dashboard-stub').attributes('section')).toBe('usage')
+  runtime.snapshot.managed.session.account!.userId = 'another-user'
+  await flushPromises()
+  expect(wrapper.find('billing-dashboard-stub').exists()).toBe(false)
+  runtime.snapshot.managed.session.account!.trial.expiresAt = 0
+  await flushPromises()
+  expect(wrapper.text()).toContain('未提供')
+  wrapper.unmount()
+})
 it('Key连接失败保留输入，成功才关闭且必须验证连接', async () => {
   const { run, wrapper } = loginFixture()
   run.mockRejectedValueOnce(new Error('连接失败'))
@@ -124,27 +180,17 @@ it.each([false, true])(
     wrapper.unmount()
   },
 )
-it('设置工作区改变清除旧账号模型和回复间隔草稿', async () => {
+it('间隔控件切换工作区清除旧草稿', async () => {
   setActivePinia(createPinia())
   const runtime = useRuntimeStore()
-  const wrapper = mount(SettingsView, {
-    global: { plugins: [ElementPlus], stubs: { ElTag: true } },
-  })
-  await wrapper.find('input[aria-label="模型接口地址"]').setValue('https://old.invalid')
-  await wrapper.find('input[aria-label="模型 API Key"]').setValue('old-test-key')
-  wrapper.findComponent({ name: 'ElInputNumber' }).vm.$emit('update:modelValue', 120)
-  wrapper.findComponent({ name: 'ElInputNumber' }).vm.$emit('change', 120)
+  const wrapper = mount(SettingsView, { global: { plugins: [ElementPlus] } })
+  const input = wrapper.findComponent({ name: 'ElInputNumber' })
+  input.vm.$emit('update:modelValue', 120)
+  input.vm.$emit('change', 120)
   await flushPromises()
   runtime.snapshot.config.reply.perUidMinIntervalMs = 30000
-  runtime.snapshot.config.ai.baseUrl = 'https://new.invalid'
   runtime.snapshot.workspaceId = 'new-workspace'
   await flushPromises()
-  expect((wrapper.find('input[aria-label="模型接口地址"]').element as HTMLInputElement).value).toBe(
-    'https://new.invalid',
-  )
-  expect((wrapper.find('input[aria-label="模型 API Key"]').element as HTMLInputElement).value).toBe(
-    '',
-  )
-  expect(wrapper.findComponent({ name: 'ElInputNumber' }).props('modelValue')).toBe(30)
+  expect(input.props('modelValue')).toBe(30)
   wrapper.unmount()
 })
