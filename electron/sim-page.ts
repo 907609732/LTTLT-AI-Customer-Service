@@ -23,7 +23,7 @@ export function renderSimPage(): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
-    <title>模拟顾客页 · 灵兔 AI</title>
+    <title>模拟顾客页 · 灵兔AI电商客服</title>
     <style>
       :root {
         color-scheme: light;
@@ -647,7 +647,7 @@ export function renderSimPage(): string {
                 ok: false,
                 status: 0,
                 data: null,
-                message: '无法连接本机模拟服务，请确认桌面端『灵兔 AI』仍在运行。'
+                message: '无法连接本机模拟服务，请确认桌面端『灵兔AI电商客服』仍在运行。'
               }
             }
           )
@@ -1189,7 +1189,7 @@ export function renderSimGatePage(message: string): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
-    <title>模拟顾客页 · 灵兔 AI</title>
+    <title>模拟顾客页 · 灵兔AI电商客服</title>
     <style>
       :root {
         color-scheme: light;
@@ -1248,7 +1248,7 @@ export function renderSimGatePage(message: string): string {
       <h1>模拟顾客页打不开</h1>
       <p>${message}</p>
       <ol>
-        <li>回到灵兔 AI桌面端，打开「模拟客服台」。</li>
+        <li>回到灵兔AI电商客服桌面端，打开「模拟客服台」。</li>
         <li>选中本机模拟店铺，点「打开模拟顾客页」。</li>
         <li>用桌面端给的新地址重新打开。</li>
       </ol>

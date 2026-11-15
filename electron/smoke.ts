@@ -141,8 +141,8 @@ app
           const brand = await win.webContents.executeJavaScript(
             `({ title: document.title, name: document.querySelector('.brand-mark-copy strong')?.textContent })`,
           )
-          assert.equal(brand.title, '工作台 · 灵兔 AI')
-          assert.equal(brand.name, '灵兔 AI')
+          assert.equal(brand.title, '工作台 · 灵兔AI电商客服')
+          assert.equal(brand.name, '灵兔AI电商客服')
         }
         if (route === '/login') {
           const artwork = await win.webContents.executeJavaScript(

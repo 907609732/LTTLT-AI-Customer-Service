@@ -12,7 +12,7 @@ const emit = defineEmits<{ 'update:modelValue': [visible: boolean] }>()
     align-center
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <p>灵兔 AI 联系方式暂未配置。</p>
+    <p>灵兔AI电商客服 联系方式暂未配置。</p>
     <template #footer
       ><el-button @click="emit('update:modelValue', false)">关闭</el-button></template
     >

@@ -175,7 +175,7 @@ app
       assert.ok(address && typeof address !== 'string')
       disposeDesktop = registerDesktopIpc()
       win = createWindow()
-      win.setTitle('灵兔 AI · 知识模块隔离验收')
+      win.setTitle('灵兔AI电商客服 · 知识模块隔离验收')
       win.webContents.on('console-message', (_event, level, message) => {
         if (level >= 3) errors.push(message)
       })

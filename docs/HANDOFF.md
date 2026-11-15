@@ -244,3 +244,8 @@ Task4 round1 fixes: same-name material at the selected target revises stable sou
 288e0d0云端源码检查通过，桌面79/85。首个失败为旧模型配置页面被删除但business夹具仍查找旧输入，造成后续模型上下文/识图三项连锁失败。现自定义回环HTTP夹具走正式save-model-settings命令，登录UI另有独立验收。managed账号截图等待真实弹窗节点，修复顶部账号文字提前出现导致截图节点未挂载的竞态。ModelSourceSettings异常请求核对移入顶部LoginDialog，侧栏异常提示打开该弹窗，保留请求编号与明确勾选门，不恢复旧设置按钮。相关8项单测与10项隔离Electron流程通过，报告artifacts/desktop-selected-1794748472233/report.json。未调用真实模型或操作真实买家。下一步跟踪新提交Actions全流程。
 
 云端c0857b5的源码、完整桌面85项、知识库及打包通过；产物验收仍使用旧settings页面断言失败。package-smoke改为核对旧地址真实跳转、侧栏仅快捷回复及顶部登录入口，保留全部ASAR、隔离IPC、凭证、文档解析和真实应用启动断言。
+
+
+## 2026-11-16 桌面软件改名
+
+软件显示名统一为“灵兔AI电商客服”，覆盖统一品牌入口、桌面界面、窗口/模拟页标题及安装显示名。内部标识和用户数据路径保持兼容。独立服务端名称、生产部署及安装包发布不在本次范围。验证：app-identity 与 dialog 专项共 3 项通过，安装配置名称及 appId 校验通过。

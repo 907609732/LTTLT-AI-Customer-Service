@@ -1,6 +1,6 @@
 <div align="center">
 
-# 灵兔 AI
+# 灵兔AI电商客服
 
 **让店铺知识融入每一次回复，让客服接待更有条理。**
 
@@ -26,7 +26,7 @@
 
 ## 构建与下载
 
-当前已发布 **[灵兔 AI v1.0.1](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.1)**，包含商品知识库重构。Windows x64 可直接下载 [安装程序](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.1/LingtuAI-Setup-1.0.1-win-x64.exe) 或 [ZIP 版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.1/LingtuAI-1.0.1-win-x64.zip)，校验文件和更新说明在同一发布页。
+当前已发布 **[灵兔AI电商客服 v1.0.1](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.1)**，包含商品知识库重构。Windows x64 可直接下载 [安装程序](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.1/LingtuAI-Setup-1.0.1-win-x64.exe) 或 [ZIP 版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.1/LingtuAI-1.0.1-win-x64.zip)，校验文件和更新说明在同一发布页。
 
 安装包无代码签名，需要手动下载安装。当前版本的[构建与成品验收记录](docs/RELEASE_V1.0.1.md)包含确切源码提交、全量检查结果和校验值。后续开发版仍可从 [GitHub Actions](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml) 的 Artifacts 下载，通常保留30天；GitHub 的 Source code ZIP 是源码，不是安装包。
 

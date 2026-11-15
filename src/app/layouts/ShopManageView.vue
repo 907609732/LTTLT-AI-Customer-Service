@@ -69,10 +69,10 @@ function goHome() {
             <button
               class="btn-site"
               type="button"
-              @click="__stub('灵兔 AI 官网')"
+              @click="__stub('灵兔AI电商客服 官网')"
               data-v-105c9fec=""
             >
-              灵兔 AI 官网
+              灵兔AI电商客服 官网
             </button>
           </div>
         </div>

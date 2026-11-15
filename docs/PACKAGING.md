@@ -18,7 +18,7 @@
 
 Windows + Node/npm，先 npm ci，然后 npm run check、npm run test:desktop。执行 npm run dist:win 生成 release 下的 Windows x64 NSIS 安装程序与 ZIP；npm run pack:win 仅生成解压目录。electron-builder 固定版本并保存锁文件，Electron按锁文件固定为43.8.9。
 
-ZIP 解压后运行 LingtuAI.exe；NSIS 为当前用户安装，可选择目录并创建快捷方式。安装包无代码签名，没有自动更新与发布服务器配置，不得宣称已签名或自动升级。卸载不删除原用户数据。显示名称为灵兔 AI，npm 名称为 lingtu-ai；main 在单实例锁前显式保留原 yunduo-ui-restored 数据目录，显式 --user-data-dir 仍优先。安装 appId 保留旧值以兼容已有安装，品牌与兼容标识见 BRANDING.md。
+ZIP 解压后运行 LingtuAI.exe；NSIS 为当前用户安装，可选择目录并创建快捷方式。安装包无代码签名，没有自动更新与发布服务器配置，不得宣称已签名或自动升级。卸载不删除原用户数据。显示名称为灵兔AI电商客服，npm 名称为 lingtu-ai；main 在单实例锁前显式保留原 yunduo-ui-restored 数据目录，显式 --user-data-dir 仍优先。安装 appId 保留旧值以兼容已有安装，品牌与兼容标识见 BRANDING.md。
 
 ## 打包边界
 
