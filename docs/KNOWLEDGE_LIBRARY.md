@@ -1,6 +1,6 @@
 # 审核知识库（2026-11-15）
 
-当前隔离分支已接通统一仓储、独立管理窗口、只读采集、资料解析/模型学习、日检、待学问题、兼容导出和备份恢复。本文描述当前实现；逐次交付与验证记录在 `.superpowers/sdd/2026-11-15-knowledge-library/task-1-report.md` 至 `task-5-report.md`。尚未公开发布，实店新一轮采集和真实云模型语义质量仍未验收。
+该知识库已于2026-11-15随 [v1.0.1](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.1) 合入main并发布，包含统一仓储、独立管理窗口、只读采集、资料解析/模型学习、日检、待学问题、兼容导出和备份恢复。最终源码、全量检查与下载同次成品验收见 [RELEASE_V1.0.1.md](RELEASE_V1.0.1.md)。逐次历史交付记录在 `.superpowers/sdd/2026-11-15-knowledge-library/task-1-report.md` 至 `task-5-report.md`；实店新一轮采集和真实云模型语义质量仍未验收。
 
 ## 数据和使用入口
 

@@ -26,9 +26,9 @@
 
 ## 构建与下载
 
-当前 Windows x64 安装包与 ZIP 通过 [GitHub Actions](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml) 构建，保存在对应运行记录的 **Artifacts** 中，保留 30 天。下载需要具备仓库访问权限并登录 GitHub；过期产物需重新构建。
+当前已发布 **[灵兔 AI v1.0.1](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.1)**，包含商品知识库重构。Windows x64 可直接下载 [安装程序](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.1/LingtuAI-Setup-1.0.1-win-x64.exe) 或 [ZIP 版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.1/LingtuAI-1.0.1-win-x64.zip)，校验文件和更新说明在同一发布页。
 
-具体下载、校验与启动步骤见[打包与成品验收](docs/PACKAGING.md)。Actions 构建产物不代表已发布正式版本，GitHub 的 Source code ZIP 是源码，不是安装包。
+安装包无代码签名，需要手动下载安装。当前版本的[构建与成品验收记录](docs/RELEASE_V1.0.1.md)包含确切源码提交、全量检查结果和校验值。后续开发版仍可从 [GitHub Actions](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml) 的 Artifacts 下载，通常保留30天；GitHub 的 Source code ZIP 是源码，不是安装包。
 
 ## 主要功能
 

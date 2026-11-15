@@ -74,3 +74,7 @@ M1知识历史选中项的显示归属留给统筹全分支审查；M2已有Wind
 一个非阻断界面细节保留：商品编辑器仍显示通用店铺/模板范围选项，但商品保存守卫会拒绝这些范围；店铺通用问答和公共模板应在“通用问答”页编辑。当前商品只允许共享商品、本店商品和本店SKU覆盖，保护店铺归属。此项不涉及错误写入或发送，后续可隐藏多余选项。
 
 详细只读审查报告保留于本机 `.superpowers/sdd/2026-11-15-knowledge-library/final-review.md` 与 `final-rereview.md`。实际开源复用清单见 [KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md)，全部统筹取舍及代价见 [KNOWLEDGE_DECISIONS.md](KNOWLEDGE_DECISIONS.md)。未执行push、main合并、公开发布或真实用户数据恢复。
+
+## v1.0.1 发布后补充
+
+用户随后明确要求合入并打包发布，以上未推送/未发布为相应审查时点的历史状态。最终源码 `4bfdb7a` 已通过同次Windows云端全量check、85项实际桌面、13项知识库管理、7项资料学习及7项成品检查；下载原ZIP后本机成品7项复验通过，实际发布的4个附件均核对GitHub SHA256。已发布正式v1.0.1，完整记录及外部边界见 [RELEASE_V1.0.1.md](RELEASE_V1.0.1.md)。
