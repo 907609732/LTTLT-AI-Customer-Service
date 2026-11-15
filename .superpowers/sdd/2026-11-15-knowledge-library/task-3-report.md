@@ -122,3 +122,25 @@ All from assigned client root; no full npm check/full upstream/release suite.
 - Search is verified-page filtering until all native pages have been read, with unknown filtered total beforehand. Catalog tokens are volatile for30min; jobs persist copied exact records/identity/checkpoints. New collection requires a refreshed catalog after restart; existing paused jobs keep their durable scope but still reverify native identity/pages before writes.
 - Paused/in-flight tasks cannot resume until the old worker observes cancellation and stops; the response says it is still stopping. This prevents simultaneous old/new provider work from sharing a window. Account disposal can prevent a final paused write; repository reopen normalizes both running and queued collect to paused.
 - Root controller should independently review this commit before Task4. Task4 attaches a source/learn handler to the existing dispatcher and consumes stable source revisions/assets; Task5 adds quiet capture-based daily dynamic checks without broadening reply, send or publish authority. Real-store acceptance must wait for actual resumed user-control capability and should record exact native pages/counts/unsupported images.
+
+## Fix round 1 — Important I1, base `5ee7e7f`
+
+Scope: only the blocking lease-loss defect from `task-3-review.md`. M1 image registry capacity and M2 known validation warnings remain deferred minors for the controller's final acceptance. No Task4/5 work, user desktop/browser/visible window, real service or model, dependency, public contract or unrelated suite change.
+
+Root cause confirmed in the actual collector: resume removes partial product IDs from `done`, and each successful retry rebuilt `checkpoint.bindingLeases` from that reduced completion set. With two newly collected partial products A/B, both families initially existed only in the checkpoint ledger (four bindings, with no preexisting payload leases). Retrying A discarded B's two previously owned identities, so the unchanged membership guard thereafter treated B as an external insertion.
+
+The checkpoint ledger now accumulates independently of retry completion: retain every exact prior persisted `{id, revision}` and merge only the current synchronous transaction's product family after source writes. Other products' revisions are not refreshed from the current repository. Existing pre-write lease and full-membership checks still reject external changes. No new checkpoint key, schema/payload version or consumer API is required.
+
+Added three actual temporary-SQLite variants in `tests/knowledge-collector.test.ts`: two previously unbound products both partial → four committed root/SKU leases → resume complete A and block B → verify all four exact leases remain → explicit pause → dispose/reopen the real repository and construct a new coordinator → resume. Unchanged B completes with progress2/2 and no duplicate static source revision; externally adding a B SKU or changing B's root binding revision instead pauses and preserves B's prior partial capture and all original ledger entries.
+
+RED command: `npx vitest run tests/knowledge-collector.test.ts`. Before the production fix: **3 failed / 16 passed (19 total)**. All three new variants failed at the checkpoint invariant: actual2 leases versus original4. GREEN, same command after the fix: **19/19 passed**, 1 file, exit0. This is behavioral reproduction against the real collector/dispatcher/SQLite, not a mocked lease-map assertion alone.
+
+Final restricted checks, all exit0:
+
+- `npx tsc -p tsconfig.electron.json --pretty false`.
+- `npx tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler --lib ES2022,DOM,DOM.Iterable --esModuleInterop --skipLibCheck --types node,vitest/globals tests/knowledge-collector.test.ts`.
+- `npx eslint electron/knowledge/collector.ts tests/knowledge-collector.test.ts`.
+- `npx prettier --check electron/knowledge/collector.ts tests/knowledge-collector.test.ts` — All matched files use Prettier code style. Report formatted and checked separately.
+- `git diff --check`.
+
+Only collector.ts, its owned test file and this report changed. No broad unchanged test suite, renderer/desktop build or native/live acceptance was rerun for this focused fix. The original real-platform and throughput limits remain unchanged. This prevents new ledger loss; it does not silently adopt already missing identities from an older corrupted checkpoint, because doing so would also accept indistinguishable external bindings. Such a previously corrupted local test job remains fail-closed and requires a fresh explicit collection scope.

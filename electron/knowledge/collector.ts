@@ -398,14 +398,21 @@ export function createKnowledgeCollector(
           for (let index = issues.length - 1; index >= 0; index--)
             if (issues[index]!.startsWith(`${item.id}：`)) issues.splice(index, 1)
           issues.push(...limitations)
-          // Includes every persisted identity in the next durable checkpoint, including first collection.
-          const checkpoints = leasesFor(job.storeId, done)
+          // Completion may shrink during partial retries; the durable identity ledger must not.
+          // Preserve earlier products' exact leases and extend only this transaction's product family.
+          const checkpoints = new Map(
+            z
+              .array(leaseSchema)
+              .parse(job.checkpoint.bindingLeases ?? [])
+              .map((lease) => [lease.id, lease]),
+          )
+          for (const lease of leasesFor(job.storeId, [item.id])) checkpoints.set(lease.id, lease)
           writeJob(job, {
             expectedRevision: job.revision,
             checkpoint: {
               completedIds: done,
               issues,
-              bindingLeases: checkpoints,
+              bindingLeases: [...checkpoints.values()],
               lastBindingId: binding.id,
             },
             progress: { completed: done.length, total: records.length },

@@ -666,3 +666,143 @@ it('keeps collection unavailable when the real repository is in migration read-o
   expect(repository.readOnly).toBe(true)
   expect(await collector.capabilities('s')).toMatchObject({ collect: false })
 })
+
+it.each(['none', 'membership', 'revision'] as const)(
+  'retains all first-collection partial-product leases across retry, pause and reopen (%s)',
+  async (mutation) => {
+    const f = pipelineFixture(),
+      original = f.provider.collectProducts
+    const catalogPage = await original({
+      identity: await f.provider.identity(),
+      range: { maxPages: 5, maxRecords: 100, productStatus: 'on-sale' },
+      cursor: null,
+      signal: new AbortController().signal,
+      catalogOnly: true,
+    })
+    f.setPages([
+      {
+        ...catalogPage,
+        total: 2,
+        items: [
+          { ...catalogPage.items[0]!, id: '34567890', title: '新商品A' },
+          { ...catalogPage.items[0]!, id: '45678901', title: '新商品B' },
+        ],
+      },
+    ])
+    let partial = true,
+      blockB = false,
+      enteredB = false,
+      release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    f.provider.collectProducts = async (input) => {
+      if (!input.catalogOnly && blockB && input.productIds?.includes('45678901')) {
+        enteredB = true
+        await gate
+      }
+      const page = await original(input)
+      for (const item of page.items)
+        if (item.platformDetail) item.platformDetail.detailStatus = partial ? 'partial' : 'complete'
+      return page
+    }
+    const catalog = await f.coordinator.request({ action: 'catalog', storeId: 's' })
+    const { jobId } = await f.coordinator.request({
+      action: 'start',
+      storeId: 's',
+      kind: 'collect',
+      catalog: {
+        identityVersion: catalog.identityVersion,
+        scopeToken: catalog.scopeToken,
+        productIds: [],
+        allMatching: true,
+        total: 2,
+      },
+    })
+    const initial = await settle(f, jobId)
+    expect(initial.status).toBe('needs-confirmation')
+    expect(initial.checkpoint.completedIds).toEqual(['34567890', '45678901'])
+    const initialLeases = initial.checkpoint.bindingLeases as { id: string; revision: number }[]
+    expect(initialLeases).toHaveLength(4)
+    partial = false
+    blockB = true
+    await f.coordinator.request({ action: 'resume', storeId: 's', jobId })
+    try {
+      for (let n = 0; n < 100 && !enteredB; n++)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      const retriedA = f.repository.getJob(jobId)!
+      expect(retriedA.checkpoint.completedIds).toEqual(['34567890'])
+      // B's persisted root/SKU are still owned by this job even while B awaits a retry.
+      expect(retriedA.checkpoint.bindingLeases).toEqual(initialLeases)
+      expect(enteredB).toBe(true)
+      await f.coordinator.request({ action: 'pause', storeId: 's', jobId })
+    } finally {
+      release()
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    f.coordinator.dispose()
+    const directory = f.repository.directory
+    f.repository.dispose()
+    const reopened = createKnowledgeRepository({ directory, workspaceId: 'reopened-lease' })
+    disposals.push(() => reopened.dispose())
+    const coordinator = createKnowledgePipelineCoordinator()
+    coordinator.register(
+      createKnowledgeCollector({
+        repository: reopened,
+        provider: f.provider,
+        assertActive() {},
+        getStore: (id) => ({ id, platform: 'pdd-web' }),
+      }),
+    )
+    disposals.push(() => coordinator.dispose())
+    expect(reopened.getJob(jobId)).toMatchObject({
+      status: 'paused',
+      checkpoint: { completedIds: ['34567890'], bindingLeases: initialLeases },
+    })
+    const rootB = reopened
+      .listBindings()
+      .find((binding) => binding.productId === '45678901' && !binding.skuId)!
+    if (mutation === 'membership')
+      reopened.bindProduct({
+        canonicalId: rootB.canonicalId,
+        storeId: 's',
+        productId: rootB.productId,
+        skuId: 'external-sku',
+      })
+    if (mutation === 'revision')
+      reopened.bindProduct({
+        id: rootB.id,
+        expectedRevision: rootB.revision,
+        canonicalId: rootB.canonicalId,
+        storeId: 's',
+        productId: rootB.productId,
+        title: '外部修改',
+      })
+    blockB = false
+    await coordinator.request({ action: 'resume', storeId: 's', jobId })
+    const final = await settle({ ...f, repository: reopened, coordinator }, jobId)
+    if (mutation === 'none') {
+      expect(final.status).toBe('succeeded')
+      expect(final.progress).toEqual({ completed: 2, total: 2 })
+      expect(final.checkpoint.issues).toEqual([])
+      for (const productId of ['34567890', '45678901']) {
+        const root = reopened
+          .listBindings()
+          .find((binding) => binding.productId === productId && !binding.skuId)!
+        const source = reopened
+          .listSources({ bindingId: root.id })
+          .find((source) => source.label === '平台静态资料')!
+        expect(reopened.sourceVersions(source.id)).toHaveLength(1)
+      }
+    } else {
+      expect(final.status).toBe('paused')
+      expect(final.error).toContain('绑定')
+      expect(final.checkpoint.completedIds).toEqual(['34567890'])
+      const capture = reopened
+        .listSources({ bindingId: rootB.id })
+        .find((source) => source.label === '平台采集范围')!
+      expect(JSON.parse(capture.text).detailStatus).toBe('partial')
+    }
+    expect(final.checkpoint.bindingLeases).toEqual(initialLeases)
+  },
+)
