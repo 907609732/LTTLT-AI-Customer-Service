@@ -8,7 +8,7 @@ import {
   writeFileSync,
   realpathSync,
 } from 'node:fs'
-import { join, basename } from 'node:path'
+import { join, basename, toNamespacedPath } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { assertKnowledgeWriterStopped } from './lifecycle'
@@ -85,7 +85,10 @@ export function inspectKnowledgeBackup(backupDirectory: string): KnowledgeBackup
   }
   // Node 24 supports readOnly; the project's Node 22 declaration predates that option.
   const readOptions = { open: true, readOnly: true }
-  const probe = new DatabaseSync(join(backupDirectory, 'knowledge.sqlite'), readOptions)
+  const probe = new DatabaseSync(
+    toNamespacedPath(join(backupDirectory, 'knowledge.sqlite')),
+    readOptions,
+  )
   try {
     const integrity = probe.prepare('PRAGMA integrity_check').get() as { integrity_check: string }
     if (
@@ -317,7 +320,7 @@ export function inspectKnowledgeBackup(backupDirectory: string): KnowledgeBackup
 }
 export function knowledgeBackupScope(backupDirectory: string) {
   const readOptions = { open: true, readOnly: true },
-    db = new DatabaseSync(join(backupDirectory, 'knowledge.sqlite'), readOptions)
+    db = new DatabaseSync(toNamespacedPath(join(backupDirectory, 'knowledge.sqlite')), readOptions)
   try {
     return {
       stores: (
@@ -352,8 +355,14 @@ export function knowledgeRestoreImpact(
   canonicalId?: string,
 ) {
   const readOptions = { open: true, readOnly: true }
-  const source = new DatabaseSync(join(backupDirectory, 'knowledge.sqlite'), readOptions)
-  const target = new DatabaseSync(join(currentDirectory, 'knowledge.sqlite'), readOptions)
+  const source = new DatabaseSync(
+    toNamespacedPath(join(backupDirectory, 'knowledge.sqlite')),
+    readOptions,
+  )
+  const target = new DatabaseSync(
+    toNamespacedPath(join(currentDirectory, 'knowledge.sqlite')),
+    readOptions,
+  )
   const rows = <T>(db: InstanceType<typeof DatabaseSync>, table: string): T[] =>
     (db.prepare(`SELECT body FROM ${table}`).all() as { body: string }[]).map(
       (row) => JSON.parse(row.body) as T,
@@ -434,15 +443,20 @@ export function restoreKnowledgeBackup(options: {
   const staged = join(options.directory, `knowledge-restore-${randomUUID()}.sqlite`)
   try {
     if (manifest.scope && existsSync(join(options.directory, 'knowledge.sqlite'))) {
-      const current = new DatabaseSync(join(options.directory, 'knowledge.sqlite'))
+      const current = new DatabaseSync(
+        toNamespacedPath(join(options.directory, 'knowledge.sqlite')),
+      )
       try {
-        current.prepare('VACUUM INTO ?').run(staged)
+        current.prepare('VACUUM INTO ?').run(toNamespacedPath(staged))
       } finally {
         current.close()
       }
       const readOptions = { open: true, readOnly: true }
-      const target = new DatabaseSync(staged),
-        source = new DatabaseSync(join(options.backupDirectory, 'knowledge.sqlite'), readOptions)
+      const target = new DatabaseSync(toNamespacedPath(staged)),
+        source = new DatabaseSync(
+          toNamespacedPath(join(options.backupDirectory, 'knowledge.sqlite')),
+          readOptions,
+        )
       try {
         mergeFamily(target, source, manifest.scope.canonicalId)
       } finally {

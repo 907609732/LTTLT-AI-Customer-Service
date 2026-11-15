@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, toNamespacedPath } from 'node:path'
 import { z } from 'zod'
 import {
   knowledgeDraftSchema,
@@ -86,7 +86,8 @@ export class KnowledgeRepository {
     assertKnowledgeWriterStopped(options.directory)
     assertNoInterruptedKnowledgeRestore(options.directory)
     this.now = options.now ?? Date.now
-    this.db = new DatabaseSync(join(options.directory, 'knowledge.sqlite'))
+    // Preserve account directories; SQLite needs an explicit Windows namespace for deep paths.
+    this.db = new DatabaseSync(toNamespacedPath(join(options.directory, 'knowledge.sqlite')))
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL) STRICT;
       INSERT OR IGNORE INTO metadata VALUES('revision','0');
@@ -1038,8 +1039,8 @@ export class KnowledgeRepository {
     const directory = join(destination, `knowledge-${this.now()}-${randomUUID()}`)
     mkdirSync(directory, { recursive: true })
     const database = join(directory, 'knowledge.sqlite')
-    this.db.prepare('VACUUM INTO ?').run(database)
-    const snapshot = new DatabaseSync(database)
+    this.db.prepare('VACUUM INTO ?').run(toNamespacedPath(database))
+    const snapshot = new DatabaseSync(toNamespacedPath(database))
     let family: KnowledgeBackupManifest['scope'], snapshotAssets: KnowledgeAsset[]
     try {
       if (scope) family = pruneToFamily(snapshot, scope.canonicalId)

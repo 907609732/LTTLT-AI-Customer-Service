@@ -58,6 +58,61 @@ function publish(
   })
 }
 describe('durable SQLite knowledge repository', () => {
+  it('opens and backs up deep Windows managed-account paths without changing the account directory', () => {
+    const { directory } = fixture()
+    const accountDirectory = join(
+      directory,
+      'managed-workspaces',
+      'a'.repeat(64),
+      'b'.repeat(64),
+      'nested-account-acceptance',
+      'more-account-materials',
+    )
+    const repository = createKnowledgeRepository({
+      directory: accountDirectory,
+      workspaceId: 'long-path',
+    })
+    cleanups.push(() => repository.dispose())
+    const entry = repository.saveDraft({
+      scope: { kind: 'store', storeId: 'a' },
+      question: '路径',
+      answer: '保留原账号目录',
+    })
+    const canonical = repository.saveCanonical({ title: '深目录商品' })
+    const binding = repository.bindProduct({
+      canonicalId: canonical.id,
+      storeId: 'a',
+      productId: 'deep',
+    })
+    const productEntry = repository.saveDraft({
+      scope: { kind: 'binding', bindingId: binding.id },
+      question: '材质',
+      answer: '铜',
+    })
+    const family = repository.createBackup(join(accountDirectory, 'backups'), {
+      canonicalId: canonical.id,
+    })
+    const backup = repository.createBackup(join(accountDirectory, 'backups'))
+    expect(repository.getEntry(entry.id)?.draft.answer).toBe('保留原账号目录')
+    repository.dispose()
+    restoreKnowledgeBackup({ directory: accountDirectory, backupDirectory: family.directory })
+    const familyRestored = createKnowledgeRepository({
+      directory: accountDirectory,
+      workspaceId: 'family-reopened',
+    })
+    cleanups.push(() => familyRestored.dispose())
+    expect(familyRestored.getEntry(productEntry.id)?.draft.answer).toBe('铜')
+    expect(familyRestored.getEntry(entry.id)?.draft.answer).toBe('保留原账号目录')
+    familyRestored.dispose()
+    restoreKnowledgeBackup({ directory: accountDirectory, backupDirectory: backup.directory })
+    const reopened = createKnowledgeRepository({
+      directory: accountDirectory,
+      workspaceId: 'reopened',
+    })
+    cleanups.push(() => reopened.dispose())
+    expect(reopened.getEntry(entry.id)?.draft.answer).toBe('保留原账号目录')
+  })
+
   it('rejects physical binding identity changes while allowing revision-guarded canonical reassociation', () => {
     const { repository } = fixture()
     const { binding } = product(repository)
