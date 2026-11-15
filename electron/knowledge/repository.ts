@@ -249,11 +249,45 @@ export class KnowledgeRepository {
               b.storeId === value.storeId &&
               b.productId === value.productId &&
               b.skuId === value.skuId &&
-              this.getMetadata(`cleared-binding:${b.id}`) === '1',
+              (this.getMetadata(`cleared-binding:${b.id}`) === '1' ||
+                this.getMetadata(`removed-canonical:${b.canonicalId}`) === '1'),
           )
         : undefined
       const old = value.id ? this.getBinding(value.id) : (cleared ?? null)
       if (!cleared) this.expectRevision(old, value.expectedRevision, value.id)
+      // Recollection reuses the physical identity, but never revives a removed family's facts.
+      // Tombstone retained sources before moving this identity into the fresh family.
+      if (
+        cleared &&
+        this.getMetadata(`cleared-binding:${cleared.id}`) !== '1' &&
+        this.getMetadata(`removed-canonical:${cleared.canonicalId}`) === '1'
+      ) {
+        for (const entry of this.rows<KnowledgeEntry>('entries')) {
+          if (
+            entry.status !== 'withdrawn' &&
+            [entry.draft.scope, ...(entry.approved ? [entry.approved.scope] : [])].some(
+              (scope) => scope.kind === 'binding' && scope.bindingId === cleared.id,
+            )
+          )
+            this.withdraw(entry.id, entry.revision)
+        }
+        for (const source of this.listSources({ bindingId: cleared.id })) {
+          if (!source.removed)
+            this.saveSource({
+              id: source.id,
+              expectedRevision: source.revision,
+              kind: source.kind,
+              storeId: source.storeId,
+              bindingId: source.bindingId,
+              label: source.label,
+              text: source.text,
+              locator: source.locator,
+              assetIds: source.assetIds,
+              removed: true,
+            })
+          this.setMetadata(`cleared-source:${source.id}`, '1')
+        }
+      }
       if (
         old &&
         (old.storeId !== value.storeId ||
@@ -693,7 +727,7 @@ export class KnowledgeRepository {
     ).count
     const source = this.db
       .prepare(
-        "SELECT json_extract(json_extract(body,'$.text'),'$.skus[0].specs') AS specs,json_extract(json_extract(body,'$.text'),'$.merchantCode') AS code FROM sources WHERE binding_id=? AND json_extract(body,'$.label')='平台静态资料' AND json_valid(json_extract(body,'$.text')) LIMIT 1",
+        "SELECT json_extract(json_extract(body,'$.text'),'$.skus[0].specs') AS specs,json_extract(json_extract(body,'$.text'),'$.merchantCode') AS code FROM sources WHERE binding_id=? AND COALESCE(json_extract(body,'$.removed'),0)=0 AND json_extract(body,'$.label')='平台静态资料' AND json_valid(json_extract(body,'$.text')) LIMIT 1",
       )
       .get(binding.id) as { specs: string | null; code: string | null } | undefined
     const specifications = source?.specs
@@ -703,6 +737,11 @@ export class KnowledgeRepository {
           .map((s) => `${s.name}：${s.value}`)
           .slice(0, 4)
       : []
+    const catalog = this.db
+      .prepare(
+        "SELECT json_extract(json_extract(body,'$.text'),'$.merchantCode') AS code FROM sources WHERE binding_id=? AND COALESCE(json_extract(body,'$.removed'),0)=0 AND json_extract(body,'$.label')='平台目录快照' AND json_valid(json_extract(body,'$.text')) LIMIT 1",
+      )
+      .get(binding.id) as { code: string | null } | undefined
     const capture = this.db
       .prepare(
         "SELECT min(json_extract(json_extract(s.body,'$.text'),'$.capturedAt')) AS at FROM sources s JOIN bindings b ON b.id=s.binding_id WHERE b.store_id=? AND b.product_id=? AND b.active=1 AND json_extract(s.body,'$.label')='平台动态快照' AND json_valid(json_extract(s.body,'$.text'))",
@@ -717,7 +756,7 @@ export class KnowledgeRepository {
       capturedAt,
       expiresAt,
       expired: expiresAt !== null && expiresAt <= this.now(),
-      code: source?.code ?? '',
+      code: catalog?.code ?? source?.code ?? '',
     }
   }
   listProducts(input: KnowledgePageInput & { storeId: string }) {

@@ -11,6 +11,7 @@ import type {
   KnowledgeJob,
 } from '../src/shared/contracts/knowledge'
 import KnowledgeCatalogDialog from '../src/modules/knowledge/components/KnowledgeCatalogDialog.vue'
+import KnowledgeProductCards from '../src/modules/knowledge/components/KnowledgeProductCards.vue'
 import KnowledgeManagerView from '../src/modules/knowledge/components/KnowledgeManagerView.vue'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -35,6 +36,35 @@ const fake = vi.hoisted(() => ({
   clearPreview: vi.fn(),
   clear: vi.fn(),
 }))
+it('shows the saved shop product code on the knowledge card', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'knowledge-card-code-'))
+  const repository = createKnowledgeRepository({ directory, workspaceId: 'w' })
+  try {
+    const canonical = repository.saveCanonical({ title: '商品' })
+    repository.bindProduct({
+      canonicalId: canonical.id,
+      storeId: 's',
+      productId: '123',
+      title: '商品',
+    })
+    const card = repository.listProducts({ storeId: 's' }).items[0]!
+    card.productSummary!.code = 'XM-YSP'
+    const wrapper = mount(KnowledgeProductCards, {
+      props: {
+        products: [card],
+        selection: [],
+        page: 0,
+        canLearn: false,
+        loadAsset: async () => '',
+      },
+    })
+    expect(wrapper.text()).toContain('XM-YSP')
+    wrapper.unmount()
+  } finally {
+    repository.dispose()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
 it('renders a catalog table with thumbnail, explicit product ID, actual merchant code and missing-code state', async () => {
   const load = vi.fn(async () => 'data:image/png;base64,cG5n')
   const wrapper = mount(KnowledgeCatalogDialog, {

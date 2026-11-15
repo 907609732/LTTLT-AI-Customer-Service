@@ -213,24 +213,48 @@ export function createCollectorMaterials(repository: KnowledgeRepository) {
         title: string
         description: string
         specifications: string
+        merchantCode?: string
+        thumbnailUrl?: string
         sourceUrl: string
       },
       capturedAt: number,
       coverage?: { scope: string; pageCursor: string | null },
+      images: CollectedImage[] = [],
     ) {
       return repository.transaction(() => {
         const binding = root(storeId, item.id, item.title)
+        const thumbnailUrl = item.thumbnailUrl ? stableImageUrl(item.thumbnailUrl) : undefined
+        const previous = repository
+          .listSources({ bindingId: binding.id })
+          .find(
+            (source) =>
+              source.label === collectorMaterialLabels.catalog &&
+              !source.removed &&
+              repository.getMetadata(`cleared-source:${source.id}`) !== '1',
+          )
+        let assetIds = images.flatMap((image) => (image.assetId ? [image.assetId] : []))
+        if (!assetIds.length && thumbnailUrl && previous) {
+          // A failed refresh must not erase verified bytes for the same picture.
+          try {
+            const last = JSON.parse(previous.text) as { thumbnailUrl?: string }
+            if (last.thumbnailUrl === thumbnailUrl) assetIds = previous.assetIds
+          } catch {
+            // Legacy free-form catalog notes cannot authorize retaining an image.
+          }
+        }
         save(
           binding,
           collectorMaterialLabels.catalog,
           JSON.stringify({
             ...item,
+            ...(thumbnailUrl ? { thumbnailUrl } : {}),
             capturedAt,
             detailStatus: 'partial',
             detailNote: '详情未读取；列表动态字段不作为共享静态知识',
             ...coverage,
           }),
           { url: item.sourceUrl },
+          assetIds,
         )
         return binding
       })

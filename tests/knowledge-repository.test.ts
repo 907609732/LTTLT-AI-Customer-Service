@@ -58,6 +58,42 @@ function publish(
   })
 }
 describe('durable SQLite knowledge repository', () => {
+  it('recollects a removed family without reviving withdrawn knowledge or old source material', () => {
+    const { repository: r } = fixture()
+    const { binding, canonical } = product(r)
+    const oldSource = r.saveSource({
+      kind: 'platform',
+      storeId: 'a',
+      bindingId: binding.id,
+      label: '平台静态资料',
+      text: 'old',
+    })
+    const entry = r.saveDraft({
+      scope: { kind: 'binding', bindingId: binding.id },
+      question: '材质',
+      answer: '旧答案',
+    })
+    publish(r, entry)
+    r.unlinkBinding(binding.id, binding.revision)
+    r.removeCanonical(canonical.id)
+    const replacement = r.saveCanonical({ title: '重新采集' })
+    const next = r.bindProduct({
+      canonicalId: replacement.id,
+      storeId: 'a',
+      productId: 'p',
+      title: '重新采集',
+    })
+    expect(next.id).toBe(binding.id)
+    expect(next.revision).toBe(3)
+    expect(r.getEntry(entry.id)?.approved).toBeNull()
+    expect(r.getSource(oldSource.id)?.removed).toBe(true)
+    expect(r.getMetadata(`cleared-source:${oldSource.id}`)).toBe('1')
+    expect(r.sourceVersions(oldSource.id)).toHaveLength(2)
+    expect(r.listProducts({ storeId: 'a' }).items[0]?.binding.canonicalId).toBe(replacement.id)
+    expect(() =>
+      r.bindProduct({ canonicalId: canonical.id, storeId: 'a', productId: 'p', title: 'old' }),
+    ).toThrow(/移除/)
+  })
   it('opens and backs up deep Windows managed-account paths without changing the account directory', () => {
     const { directory } = fixture()
     const accountDirectory = join(

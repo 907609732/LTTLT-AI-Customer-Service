@@ -34,8 +34,10 @@ const emit = defineEmits<{
         }}</span>
       </div>
       <p class="knowledge-muted">
-        共享商品：{{ row.canonical.title }} · 编码：{{ row.canonical.code || '未提供' }} ·
-        {{ row.sources }} 份来源 · {{ row.productSummary?.skuCount ?? 0 }} 个SKU ·
+        共享商品：{{ row.canonical.title }} · 商品编码：{{
+          row.productSummary?.code || row.canonical.code || '暂无编码'
+        }}
+        · {{ row.sources }} 份来源 · {{ row.productSummary?.skuCount ?? 0 }} 个SKU ·
         {{ row.productSummary?.specifications.join(' / ') || '规格未采集' }}
       </p>
       <p class="knowledge-muted">

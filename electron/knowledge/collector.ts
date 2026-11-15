@@ -389,8 +389,15 @@ export function createKnowledgeCollector(
           images: CollectedImage[] = [],
           assets: { url: string; bytes: Uint8Array; mimeType: string }[] = []
         let imageBytes = 0
-        if (item.platformDetail) {
-          for (const url of item.platformDetail.images) {
+        {
+          // The verified list picture is still useful when native detail access is partial.
+          const urls = [
+            ...new Set([
+              ...(item.thumbnailUrl ? [item.thumbnailUrl] : []),
+              ...(item.platformDetail?.images ?? []),
+            ]),
+          ]
+          for (const url of urls) {
             currentJob(id, controller)
             assertSelectionLease(job, payload)
             try {
@@ -441,10 +448,13 @@ export function createKnowledgeCollector(
               title: item.title,
               description: item.description,
               specifications: item.specifications,
+              ...(item.merchantCode !== undefined ? { merchantCode: item.merchantCode } : {}),
+              ...(item.thumbnailUrl ? { thumbnailUrl: item.thumbnailUrl } : {}),
               sourceUrl: item.sourceUrl ?? 'https://mms.pinduoduo.com/goods/goods_list',
             },
             page.capturedAt,
             { scope: page.scope, pageCursor: record.cursor },
+            images.filter((image) => image.url === item.thumbnailUrl),
           )
           if (item.platformDetail) {
             if (item.platformDetail.productId !== item.id) throw Error('详情与目录商品编号不同')

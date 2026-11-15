@@ -243,6 +243,70 @@ async function selection(f: ReturnType<typeof pipelineFixture>) {
   }
 }
 describe('catalog-first durable collection', () => {
+  it('saves verified list codes and picture bytes when detail fields are unavailable', async () => {
+    let fail = false
+    let thumbnailUrl = 'https://img.pddpic.com/list.png'
+    const f = pipelineFixture(async () => {
+      if (fail) throw Error('temporary image failure')
+      return {
+        bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0]),
+        mimeType: 'image/png',
+      }
+    })
+    const original = f.provider.collectProducts
+    f.provider.collectProducts = async (input) => {
+      const page = await original(input)
+      return {
+        ...page,
+        items: page.items.map((item) => ({
+          ...item,
+          merchantCode: 'XM-YSP',
+          thumbnailUrl,
+          platformDetail: undefined,
+        })),
+      }
+    }
+    const { jobId } = await f.coordinator.request({
+      action: 'start',
+      kind: 'collect',
+      storeId: 's',
+      catalog: await selection(f),
+    })
+    await settle(f, jobId)
+    const card = f.repository.listProducts({ storeId: 's' }).items[0]!
+    expect(card.productSummary.code).toBe('XM-YSP')
+    expect(card.binding.productId).toBe('12345678')
+    expect(card.sourceSummary.thumbnailAssetId).toBeTruthy()
+    expect([...f.repository.readAsset(card.sourceSummary.thumbnailAssetId!)]).toEqual([
+      137, 80, 78, 71, 13, 10, 26, 10, 0,
+    ])
+    const source = f.repository
+      .listSources({ bindingId: card.binding.id })
+      .find((s) => s.label === '平台目录快照')!
+    expect(JSON.parse(source.text).merchantCode).toBe('XM-YSP')
+    fail = true
+    const retry = await f.coordinator.request({
+      action: 'start',
+      kind: 'collect',
+      storeId: 's',
+      catalog: await selection(f),
+    })
+    await settle(f, retry.jobId)
+    expect(
+      f.repository.listProducts({ storeId: 's' }).items[0]?.sourceSummary.thumbnailAssetId,
+    ).toBe(card.sourceSummary.thumbnailAssetId)
+    thumbnailUrl = 'https://img.pddpic.com/replacement.png'
+    const changed = await f.coordinator.request({
+      action: 'start',
+      kind: 'collect',
+      storeId: 's',
+      catalog: await selection(f),
+    })
+    await settle(f, changed.jobId)
+    expect(
+      f.repository.listProducts({ storeId: 's' }).items[0]?.sourceSummary.thumbnailAssetId,
+    ).toBeNull()
+  })
   it('provides lazy cached thumbnails and merchant codes only for the verified catalog without creating collection jobs', async () => {
     let reads = 0
     const f = pipelineFixture(async () => {
