@@ -8,9 +8,10 @@ import type {
   KnowledgeSource,
   KnowledgeVersion,
   KnowledgeEntry,
+  ProductBinding,
 } from '../../src/shared/contracts/knowledge'
 import { knowledgeRequire } from './node-loader'
-import { mergeFamily, familyClosure } from './backup-scope'
+import { mergeFamily, familyClosure, familyMergeState } from './backup-scope'
 import {
   knowledgeDraftSchema,
   knowledgeSourceInputSchema,
@@ -215,16 +216,34 @@ export function inspectKnowledgeBackup(backupDirectory: string): KnowledgeBackup
         .get(source.id, source.revision) as { body: string } | undefined
       if (source.id !== row.id || saved?.body !== row.body) throw Error('当前来源与历史不一致')
     }
-    for (const row of probe.prepare('SELECT entry_id,revision FROM reviews').all() as {
-      entry_id: string
-      revision: number
-    }[])
+    const reviewSchema = z
+      .object({
+        id: z.string().min(1),
+        entry_id: z.string().min(1),
+        revision: z.number().int().positive(),
+        at: z.number().int().nonnegative(),
+        reason: z.enum(['human-review', 'legacy-preserved', 'manual-correction']),
+      })
+      .strict()
+    for (const raw of probe.prepare('SELECT * FROM reviews').all()) {
+      const parsed = reviewSchema.safeParse(raw)
+      if (!parsed.success) throw Error('审核记录格式无效')
+      const row = parsed.data
       if (
         !probe
           .prepare('SELECT id FROM entry_versions WHERE id=? AND revision=? AND reviewed=1')
           .get(row.entry_id, row.revision)
       )
         throw Error('审核记录引用不存在')
+    }
+    if (
+      probe
+        .prepare(
+          'SELECT id FROM entry_versions v WHERE reviewed NOT IN (0,1) OR (reviewed=1 AND NOT EXISTS(SELECT 1 FROM reviews r WHERE r.entry_id=v.id AND r.revision=v.revision)) LIMIT 1',
+        )
+        .get()
+    )
+      throw Error('历史已审核版本缺少有效审核记录')
     for (const row of probe.prepare('SELECT body FROM entries').all() as { body: string }[]) {
       const entry = JSON.parse(String(row.body)) as KnowledgeEntry
       if (
@@ -309,6 +328,82 @@ export function knowledgeBackupScope(backupDirectory: string) {
     }
   } finally {
     db.close()
+  }
+}
+/** Both databases are read-only. The cached plan is pinned to the live repository revision. */
+export function knowledgeRestoreImpact(
+  backupDirectory: string,
+  currentDirectory: string,
+  canonicalId?: string,
+) {
+  const readOptions = { open: true, readOnly: true }
+  const source = new DatabaseSync(join(backupDirectory, 'knowledge.sqlite'), readOptions)
+  const target = new DatabaseSync(join(currentDirectory, 'knowledge.sqlite'), readOptions)
+  const rows = <T>(db: InstanceType<typeof DatabaseSync>, table: string): T[] =>
+    (db.prepare(`SELECT body FROM ${table}`).all() as { body: string }[]).map(
+      (row) => JSON.parse(row.body) as T,
+    )
+  try {
+    const incomingBindings = rows<ProductBinding>(source, 'bindings'),
+      currentBindings = rows<ProductBinding>(target, 'bindings')
+    const incomingEntries = rows<KnowledgeEntry>(source, 'entries'),
+      currentEntries = rows<KnowledgeEntry>(target, 'entries')
+    const incomingSources = rows<KnowledgeSource>(source, 'sources'),
+      currentSources = rows<KnowledgeSource>(target, 'sources')
+    const family = canonicalId ? familyMergeState(target, source, canonicalId) : undefined
+    const incomingIds = new Set(incomingBindings.map((b) => b.id)),
+      incomingEntryIds = new Set(incomingEntries.map((e) => e.id)),
+      incomingSourceIds = new Set(incomingSources.map((s) => s.id))
+    const deactivatedBindings = family
+      ? currentBindings.filter(
+          (b) =>
+            family.old?.primaryBindings.has(b.id) && !family.incoming.primaryBindings.has(b.id),
+        )
+      : []
+    const removedBindings = family ? [] : currentBindings.filter((b) => !incomingIds.has(b.id))
+    const removedEntries = currentEntries.filter(
+      (e) => !incomingEntryIds.has(e.id) && (!family || family.replaceableEntries.has(e.id)),
+    )
+    const affectedCurrentEntries = family
+      ? currentEntries.filter((e) => family.replaceableEntries.has(e.id))
+      : currentEntries
+    const removedSources = family ? [] : currentSources.filter((s) => !incomingSourceIds.has(s.id))
+    const allBindings = [...incomingBindings, ...currentBindings]
+    const stores = new Set(
+      [...incomingBindings, ...deactivatedBindings, ...removedBindings].map((b) => b.storeId),
+    )
+    for (const source of [...incomingSources, ...(family ? [] : currentSources)])
+      stores.add(source.storeId)
+    for (const entry of [...incomingEntries, ...affectedCurrentEntries])
+      for (const version of [entry.draft, ...(entry.approved ? [entry.approved] : [])]) {
+        const scope = version.scope
+        if (scope.kind === 'store') stores.add(scope.storeId)
+        else if (scope.kind === 'template') scope.storeIds.forEach((id) => stores.add(id))
+        else
+          for (const b of allBindings.filter((b) =>
+            scope.kind === 'binding'
+              ? b.id === scope.bindingId
+              : b.canonicalId === scope.canonicalId,
+          ))
+            stores.add(b.storeId)
+      }
+    if (!family)
+      for (const db of [source, target])
+        for (const table of ['jobs', 'misses'])
+          for (const row of rows<{ storeId: string }>(db, table)) stores.add(row.storeId)
+    return {
+      restoredBindings: incomingBindings,
+      deactivatedBindings,
+      removedBindings,
+      stores: [...stores].sort(),
+      restoredEntries: incomingEntries.length,
+      removedEntries: removedEntries.length,
+      restoredSources: incomingSources.length,
+      removedSources: removedSources.length,
+    }
+  } finally {
+    target.close()
+    source.close()
   }
 }
 export function restoreKnowledgeBackup(options: {

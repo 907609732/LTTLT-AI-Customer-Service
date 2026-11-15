@@ -33,3 +33,14 @@
 - GIF仅首帧；CSV/JSON导出为兼容文字、导回草稿。附件/历史/审核状态用完整或同款备份；同款备份可含跨商品完整原件和历史依赖，冲突拒绝覆盖。
 
 实际开源项目版本/许可/链接/用途及当前功能见 [KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md)。没有引入新的第三方依赖或整体RAG框架。
+
+## Task5审查修复第一轮（基线e1689e3）
+
+仅修正恢复预览遗漏当前新增范围、已审核历史缺少审核记录仍获准恢复两项Important问题。预览现在对照备份和当前库，逐项显示恢复/停用保留历史/移除及实际店铺、商品、SKU和数量；全库当前独有的通用知识店铺也显示。计划绑定既有revision/fingerprint/token守卫。审核校验双向检查每个reviewed版本与有效审核记录，保留legacy-preserved兼容。
+
+- RED：`npx.cmd vitest run tests/knowledge-runtime.test.ts tests/knowledge-backup.test.ts -t 'previews incoming|missing review audit|migrated legacy-preserved'`：18:35，4失败、1通过、20跳过。两类预览均缺T店；删除当前/历史审核记录且重算hash的备份均未拒绝。
+- 同命令GREEN：18:36，5通过、20跳过。又补真实临时库恢复和旧token变更拒绝；全两文件运行曾有1项测试fixture错误（误替换独立迁移fixture中的stores，options未定义），修正后定点6项通过。
+- 最终 `npx.cmd vitest run tests/knowledge-runtime.test.ts tests/knowledge-backup.test.ts`：18:39，**2文件25/25通过，25.72秒**。实际S备份后新增T根/SKU的family/full恢复结果与预览一致；全库U店无绑定通用资料计入影响，family保留无关U；缺审核记录在live文件变动前拒绝；真实legacy迁移备份仍可恢复。
+- Electron TypeScript、这5个变更源码/测试文件ESLint、Prettier和diff空白检查通过。本轮未改Vue布局、未重跑native或全量检查；前述截图与原生组合仍是e1689e3证据，不冒充本轮新增验收。
+
+M1知识历史选中项的显示归属留给统筹全分支审查；M2已有Windows/Rollup告警与实店/真实模型未验证边界不变。完整命令、失败输出和自审在本地Task5报告追加部分。

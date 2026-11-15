@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createKnowledgeRepository } from '../electron/knowledge'
+import { createKnowledgeRepository, restoreKnowledgeBackup } from '../electron/knowledge'
 import { createKnowledgeRuntime } from '../electron/knowledge-runtime'
 import { createKnowledgePlatformProducts } from '../electron/knowledge-platform-products'
 import { createKnowledgeCompatibilityPorts } from '../electron/knowledge-compatibility'
@@ -17,7 +17,11 @@ afterEach(() =>
     .reverse()
     .forEach((dispose) => dispose()),
 )
-function fixture() {
+function fixture(
+  options: Pick<Parameters<typeof createKnowledgeRuntime>[0], 'chooseRestore' | 'stores'> = {
+    stores: () => [{ id: 's', storeName: 'Shop', platform: 'sim-local' }],
+  },
+) {
   const directory = mkdtempSync(join(tmpdir(), 'knowledge-runtime-'))
   disposals.push(() => rmSync(directory, { recursive: true, force: true }))
   const repository = createKnowledgeRepository({ directory, workspaceId: 'workspace' })
@@ -29,7 +33,7 @@ function fixture() {
     assertActive: () => {
       if (!active) throw Error('account changed')
     },
-    stores: () => [{ id: 's', storeName: 'Shop', platform: 'sim-local' }],
+    ...options,
     changed: () => {},
   })
   return {
@@ -41,6 +45,79 @@ function fixture() {
   }
 }
 describe('knowledge runtime boundary and exact request evidence', () => {
+  it.each(['family', 'full'] as const)(
+    'previews incoming and current-only restore effects for %s and rejects a changed plan',
+    async (kind) => {
+      let directory = ''
+      const { runtime, repository: repo } = fixture({
+        chooseRestore: async () => directory,
+        stores: () =>
+          ['s', 't', 'u'].map((id) => ({
+            id,
+            storeName: `Shop ${id.toUpperCase()}`,
+            platform: 'sim-local',
+          })),
+      })
+      const canonical = repo.saveCanonical({ title: '旧同款' })
+      repo.bindProduct({ canonicalId: canonical.id, storeId: 's', productId: 'one' })
+      directory = repo.createBackup(
+        join(repo.directory, 'backups'),
+        kind === 'family' ? { canonicalId: canonical.id } : undefined,
+      ).directory
+      const current = kind === 'family' ? canonical : repo.saveCanonical({ title: '新同款' })
+      const extra = repo.bindProduct({ canonicalId: current.id, storeId: 't', productId: 'two' })
+      repo.bindProduct({ canonicalId: current.id, storeId: 't', productId: 'two', skuId: 'red' })
+      const general = repo.saveDraft({
+        scope: { kind: 'store', storeId: 'u' },
+        question: '当前通用问题',
+        answer: '当前资料',
+      })
+      const preview = (await runtime.request({
+        workspaceId: 'workspace',
+        operation: 'restore-preview',
+      })) as import('../src/shared/contracts/knowledge-client').KnowledgeRestorePreview
+      expect(preview.stores).toContain('Shop T')
+      expect(preview.bindings).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/恢复.*Shop S.*one.*根商品/),
+          expect.stringMatching(
+            new RegExp(`${kind === 'family' ? '停用' : '移除'}.*Shop T.*two.*red`),
+          ),
+          expect.stringMatching(
+            new RegExp(`${kind === 'family' ? '停用' : '移除'}.*Shop T.*two.*根商品`),
+          ),
+        ]),
+      )
+      expect(preview.message).toContain(kind === 'family' ? '停用2个' : '移除2个')
+      if (kind === 'full') {
+        expect(preview.stores).toContain('Shop U')
+        expect(preview.message).toContain('移除1条知识')
+      }
+      repo.saveCanonical({ title: '预览后的新资料' })
+      expect(() => runtime.prepareRestore(preview.token)).toThrow(/预览已过期|资料变化/)
+      const fresh = (await runtime.request({
+        workspaceId: 'workspace',
+        operation: 'restore-preview',
+      })) as import('../src/shared/contracts/knowledge-client').KnowledgeRestorePreview
+      const plan = runtime.prepareRestore(fresh.token)
+      repo.dispose()
+      restoreKnowledgeBackup({ directory: plan.directory, backupDirectory: plan.backupDirectory })
+      const restored = createKnowledgeRepository({
+        directory: plan.directory,
+        workspaceId: 'restored',
+      })
+      disposals.push(() => restored.dispose())
+      if (kind === 'family') {
+        expect(restored.getBinding(extra.id)?.active).toBe(false)
+        expect(restored.getEntry(general.id)?.draft.answer).toBe('当前资料')
+        expect(preview.stores).not.toContain('Shop U')
+      } else {
+        expect(restored.getBinding(extra.id)).toBe(null)
+        expect(restored.getEntry(general.id)).toBe(null)
+      }
+    },
+  )
+
   it('recommends code/title/spec matches but leaves bindings unchanged until explicit human reassociation', async () => {
     const { repository: repo, runtime } = fixture()
     const a = repo.saveCanonical({ title: '纯棉红衬衫', code: 'C01' }),

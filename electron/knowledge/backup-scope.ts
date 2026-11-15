@@ -145,13 +145,12 @@ export function pruneToFamily(
       .sort(),
   }
 }
-/** Merge into a CLOSED, staged copy. External dependency identities must already match exactly. */
-export function mergeFamily(target: DatabaseSync, source: DatabaseSync, canonicalId: string) {
+/** Shared with confirmation planning so current-only removals use the same ownership rule. */
+export function familyMergeState(target: DatabaseSync, source: DatabaseSync, canonicalId: string) {
   const incoming = familyClosure(source, canonicalId)
   const old = target.prepare('SELECT id FROM canonical WHERE id=?').get(canonicalId)
     ? familyClosure(target, canonicalId)
     : undefined
-  const sourceBindings = bodyRows<ProductBinding>(source, 'bindings')
   const owned = (v: KnowledgeVersion) =>
     v.scope.kind === 'canonical'
       ? v.scope.canonicalId === canonicalId
@@ -169,6 +168,16 @@ export function mergeFamily(target: DatabaseSync, source: DatabaseSync, canonica
       .filter((v) => !owned(v) || externalEntries.has(v.id))
       .flatMap((v) => v.sourceRefs.map((ref) => ref.sourceId)),
   )
+  return { incoming, old, owned, externalSources, replaceableEntries }
+}
+/** Merge into a CLOSED, staged copy. External dependency identities must already match exactly. */
+export function mergeFamily(target: DatabaseSync, source: DatabaseSync, canonicalId: string) {
+  const { incoming, old, owned, externalSources, replaceableEntries } = familyMergeState(
+    target,
+    source,
+    canonicalId,
+  )
+  const sourceBindings = bodyRows<ProductBinding>(source, 'bindings')
   for (const e of bodyRows<KnowledgeEntry>(target, 'entries'))
     if (incoming.entries.has(e.id) && (!owned(e.draft) || (e.approved && !owned(e.approved))))
       throw Error('此知识已调整至其他商品，无法局部覆盖')

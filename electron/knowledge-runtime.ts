@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { inspectKnowledgeBackup, knowledgeBackupScope } from './knowledge/backup'
+import {
+  inspectKnowledgeBackup,
+  knowledgeBackupScope,
+  knowledgeRestoreImpact,
+} from './knowledge/backup'
 import { createHash } from 'node:crypto'
 import { exportKnowledge } from './knowledge/export'
 import { tokenizeKnowledge } from './knowledge/resolver'
@@ -56,7 +60,13 @@ export function createKnowledgeRuntime(options: {
   const traces = new Map<string, KnowledgeCitation[]>()
   const restorePreviews = new Map<
     string,
-    { directory: string; revision: number; fingerprint: string; expires: number }
+    {
+      directory: string
+      revision: number
+      fingerprint: string
+      expires: number
+      impact: ReturnType<typeof knowledgeRestoreImpact>
+    }
   >()
   const backupFingerprint = (directory: string) =>
     createHash('sha256')
@@ -353,10 +363,16 @@ export function createKnowledgeRuntime(options: {
         const manifest = inspectKnowledgeBackup(directory)
         const scope = knowledgeBackupScope(directory)
         scope.activeStores.forEach(store)
+        const impact = knowledgeRestoreImpact(
+          directory,
+          repo.directory,
+          manifest.scope?.canonicalId,
+        )
         const token = randomUUID()
         restorePreviews.clear()
         restorePreviews.set(token, {
           directory,
+          impact,
           revision: repo.revision,
           fingerprint: backupFingerprint(directory),
           expires: Date.now() + 600000,
@@ -366,15 +382,24 @@ export function createKnowledgeRuntime(options: {
           scope: manifest.scope
             ? `共享商品 ${manifest.scope.canonicalId} 的全部店铺与SKU`
             : '完整知识库（覆盖当前库）',
-          stores: scope.stores.map(
+          stores: impact.stores.map(
             (id) => options.stores().find((s) => s.id === id)?.storeName || id,
           ),
-          bindings: scope.bindings.map(
-            (b) =>
-              `${options.stores().find((s) => s.id === b.storeId)?.storeName || b.storeId} · ${b.productId} · ${b.skuId || '根商品'}${b.active ? '' : '（已解除，保留历史）'}`,
+          bindings: (
+            [
+              ['恢复', impact.restoredBindings],
+              ['停用（保留历史）', impact.deactivatedBindings],
+              ['移除', impact.removedBindings],
+            ] as const
+          ).flatMap(([action, bindings]) =>
+            bindings.map(
+              (b) =>
+                `${action} · ${options.stores().find((s) => s.id === b.storeId)?.storeName || b.storeId} · ${b.productId} · ${b.skuId || '根商品'}${b.active ? '' : '（原已解除）'}`,
+            ),
           ),
           originalFiles: scope.originalFiles,
           message:
+            `涉及${impact.stores.length}个店铺；恢复${impact.restoredBindings.length}个商品/SKU关联、${impact.restoredEntries}条知识、${impact.restoredSources}份来源；停用${impact.deactivatedBindings.length}个关联（保留历史）；移除${impact.removedBindings.length}个关联、移除${impact.removedEntries}条知识、${impact.removedSources}份来源。` +
             '将停止当前账号运行服务与任务，保留恢复点，再重建服务；AI按原启动规则保持关闭，店铺发送模式不变。学习中已提交或已收到响应不会自动重发。原件可能含其他商品行，按完整原件保存。',
         }
       }

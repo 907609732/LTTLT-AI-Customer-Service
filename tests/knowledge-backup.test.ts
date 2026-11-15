@@ -262,3 +262,103 @@ it('rejects internally inconsistent publication even when file hashes have been 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+it.each(['current', 'historical'] as const)(
+  'rejects missing review audit for a %s reviewed version without touching live files',
+  (mode) => {
+    const dir = mkdtempSync(join(tmpdir(), 'knowledge-audit-missing-'))
+    const repo = createKnowledgeRepository({ directory: join(dir, 'live'), workspaceId: 'w' })
+    try {
+      const first = repo.saveDraft({
+        scope: { kind: 'store', storeId: 's' },
+        question: '问题',
+        answer: '版本一',
+      })
+      repo.publish({ entryId: first.id, expectedDraftRevision: 1, expectedSourceRevisions: {} })
+      if (mode === 'historical') {
+        const second = repo.saveDraft({
+          id: first.id,
+          expectedRevision: 1,
+          scope: first.scope,
+          question: '问题',
+          answer: '版本二',
+        })
+        repo.publish({
+          entryId: second.id,
+          expectedDraftRevision: second.revision,
+          expectedSourceRevisions: {},
+        })
+      }
+      const backup = repo.createBackup(join(dir, 'backup')),
+        file = join(backup.directory, 'knowledge.sqlite')
+      const db = new DatabaseSync(file)
+      db.prepare('DELETE FROM reviews WHERE revision=1').run()
+      expect(
+        (
+          db.prepare('SELECT reviewed FROM entry_versions WHERE revision=1').get() as {
+            reviewed: number
+          }
+        ).reviewed,
+      ).toBe(1)
+      db.close()
+      const manifest = JSON.parse(readFileSync(join(backup.directory, 'manifest.json'), 'utf8')),
+        bytes = readFileSync(file)
+      const item = manifest.files.find((row: { path: string }) => row.path === 'knowledge.sqlite')
+      item.size = bytes.length
+      item.sha256 = createHash('sha256').update(bytes).digest('hex')
+      writeFileSync(join(backup.directory, 'manifest.json'), JSON.stringify(manifest))
+      expect(() => inspectKnowledgeBackup(backup.directory)).toThrow(/审核/)
+      repo.dispose()
+      const before = readFileSync(join(dir, 'live', 'knowledge.sqlite'))
+      expect(() =>
+        restoreKnowledgeBackup({ directory: join(dir, 'live'), backupDirectory: backup.directory }),
+      ).toThrow(/审核/)
+      expect(readFileSync(join(dir, 'live', 'knowledge.sqlite'))).toEqual(before)
+    } finally {
+      repo.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  },
+)
+it('accepts actual migrated legacy-preserved reviews in backup and restore', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'knowledge-audit-legacy-'))
+  writeFileSync(
+    join(dir, 'intent-knowledge.json'),
+    JSON.stringify({
+      version: 1,
+      revision: 1,
+      packs: [
+        {
+          id: '22222222-2222-4222-8222-222222222222',
+          version: 1,
+          updatedAt: 100,
+          name: '历史问答',
+          enabled: true,
+          storeIds: ['s'],
+          productIds: [],
+          entries: [{ question: '发货', answer: '48小时', keywords: [], enabled: true }],
+        },
+      ],
+    }),
+  )
+  let repo = createKnowledgeRepository({ directory: dir, workspaceId: 'w' })
+  try {
+    expect(repo.getMigrationState().status).toBe('complete')
+    const backup = repo.createBackup(join(dir, 'backups')),
+      db = new DatabaseSync(join(backup.directory, 'knowledge.sqlite'))
+    expect(
+      db.prepare("SELECT id FROM reviews WHERE reason='legacy-preserved'").all().length,
+    ).toBeGreaterThan(0)
+    db.close()
+    expect(() => inspectKnowledgeBackup(backup.directory)).not.toThrow()
+    repo.dispose()
+    restoreKnowledgeBackup({ directory: dir, backupDirectory: backup.directory })
+    repo = createKnowledgeRepository({ directory: dir, workspaceId: 'new' })
+    expect(repo.resolveKnowledge({ storeId: 's', query: '发货' }).citations[0]?.answer).toBe(
+      '48小时',
+    )
+  } finally {
+    repo.dispose()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
