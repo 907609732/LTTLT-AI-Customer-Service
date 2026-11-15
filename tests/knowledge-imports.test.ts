@@ -164,3 +164,221 @@ it('does not demote an existing shared image asset when registering identical or
   importer.registerFiles('s', [{ name: 'upload.png', bytes }])
   expect(repo.row<{ id: string; mimeType: string }>('assets', asset.id)?.mimeType).toBe('image/png')
 })
+import { readFileSync } from 'node:fs'
+import { createCanvas } from '@napi-rs/canvas'
+import { createKnowledgeLearner } from '../electron/knowledge/learning'
+import type { KnowledgeAsset } from '../src/shared/contracts/knowledge'
+function chart(color: string, width = 12) {
+  const canvas = createCanvas(width, 12)
+  const context = canvas.getContext('2d')
+  context.fillStyle = color
+  context.fillRect(0, 0, width, 12)
+  return canvas.toBuffer('image/png')
+}
+it('revises changed image pixels at the same logical position and invalidates removed tiles', async () => {
+  const { repo, importer } = setup()
+  const b = repo.bindProduct({
+    storeId: 's',
+    productId: '1',
+    canonicalId: repo.saveCanonical({ title: 'A' }).id,
+  })
+  async function ingest(bytes: Buffer) {
+    const ids = importer.registerFiles('s', [{ name: 'chart.png', bytes }], b.id)
+    const p = await importer.preview('s', ids, [b.id])
+    expect((await waitImport(repo, importer.apply(p.previewId, 's').jobId)).status).toBe(
+      'succeeded',
+    )
+  }
+  await ingest(chart('red', 1412))
+  const parts = repo.listSources({ bindingId: b.id }).filter((s) => s.label === 'chart.png')
+  expect(parts).toHaveLength(2)
+  const drafts = parts.map((source) => {
+    const d = repo.saveDraft({
+      scope: { kind: 'binding', bindingId: b.id },
+      question: '图中颜色',
+      answer: '红色',
+      sourceRefs: [{ sourceId: source.id, revision: source.revision }],
+    })
+    repo.publish({
+      entryId: d.id,
+      expectedDraftRevision: d.revision,
+      expectedSourceRevisions: { [source.id]: source.revision },
+    })
+    return d
+  })
+  await ingest(chart('blue'))
+  expect(repo.getSource(parts[0]!.id)?.revision).toBe(2)
+  expect(repo.getSource(parts[1]!.id)?.revision).toBe(2)
+  for (const d of drafts)
+    expect(repo.getEntry(d.id)).toMatchObject({
+      status: 'stale',
+      approved: null,
+      draft: { answer: '红色' },
+    })
+  const learner = createKnowledgeLearner({
+    repository: repo,
+    assertActive() {},
+    changed() {},
+    model: {
+      vision: () => ({ supported: true, maxImages: 4, reason: '' }),
+      complete: async () => '{"candidates":[]}',
+    },
+  })
+  cleanup.push(() => learner.dispose())
+  await expect(learner.estimate('s', [b.id], [parts[1]!.id])).rejects.toThrow(/没有可学习/)
+  // Reverting to previously imported bytes must revive the same parts, not skip historical hashes.
+  await ingest(chart('red', 1412))
+  expect(repo.getSource(parts[0]!.id)?.revision).toBe(3)
+  expect(repo.getSource(parts[1]!.id)?.revision).toBe(3)
+  expect(repo.listSources({ bindingId: b.id }).filter((s) => s.label === 'chart.png')).toHaveLength(
+    2,
+  )
+})
+it('invalidates a removed DOCX embedded image while retaining original bytes and source history', async () => {
+  const { repo, importer } = setup()
+  async function ingest(fixture: string) {
+    const ids = importer.registerFiles('s', [
+      {
+        name: 'guide.docx',
+        bytes: readFileSync(join('tests/fixtures/knowledge-ingestion', fixture)),
+      },
+    ])
+    await waitImport(
+      repo,
+      importer.apply((await importer.preview('s', ids, [])).previewId, 's').jobId,
+    )
+  }
+  await ingest('image.docx')
+  const image = repo.listSources().find((s) => s.label === 'guide.docx' && s.locator.imageAssetId)!
+  const d = repo.saveDraft({
+    scope: { kind: 'store', storeId: 's' },
+    question: '图示',
+    answer: '旧图',
+    sourceRefs: [{ sourceId: image.id, revision: image.revision }],
+  })
+  repo.publish({
+    entryId: d.id,
+    expectedDraftRevision: d.revision,
+    expectedSourceRevisions: { [image.id]: image.revision },
+  })
+  await ingest('text.docx')
+  expect(repo.getSource(image.id)?.revision).toBe(2)
+  expect(repo.getEntry(d.id)?.status).toBe('stale')
+  expect(repo.sourceVersions(image.id)[1]?.locator.imageAssetId).toBe(image.locator.imageAssetId)
+  expect(repo.readAsset(image.locator.assetId!)).toBeTruthy()
+})
+it('preserves original filename/type across same-hash raster parsing and model-learning reuse', async () => {
+  const { repo, importer } = setup()
+  const ids = importer.registerFiles('s', [{ name: 'chart.png', bytes: chart('red') }])
+  const original = repo.getSource(ids[0]!)!
+  const before = repo.row<KnowledgeAsset>('assets', original.locator.assetId!)!
+  const preview = await importer.preview('s', ids, [])
+  await waitImport(repo, importer.apply(preview.previewId, 's').jobId)
+  expect(repo.row('assets', before.id)).toEqual(before)
+  const source = repo.listSources().find((s) => s.label === 'chart.png')!
+  let sawPng = false
+  const learner = createKnowledgeLearner({
+    repository: repo,
+    assertActive() {},
+    changed() {},
+    model: {
+      vision: () => ({ supported: true, maxImages: 4, reason: '' }),
+      complete: async (input) => {
+        sawPng = JSON.stringify(input.messages).includes('data:image/png;base64,')
+        return '{"candidates":[]}'
+      },
+    },
+  })
+  cleanup.push(() => learner.dispose())
+  const estimate = await learner.estimate('s', [], [source.id])
+  const job = await learner.start('s', [], [source.id], estimate.estimateId)
+  expect((await waitImport(repo, job.jobId)).status).toBe('succeeded')
+  expect(sawPng).toBe(true)
+  expect(repo.row('assets', before.id)).toEqual(before)
+  expect((await importer.preview('s', ids, [])).parts).toBe(1)
+  const renamed = importer.registerFiles('s', [{ name: 'same-bytes.png', bytes: chart('red') }])
+  expect((await importer.preview('s', renamed, [])).rows[0]?.label).toBe('same-bytes.png')
+  expect((await importer.preview('s', ids, [])).rows[0]?.label).toBe('chart.png')
+})
+it('updates the same PDF page raster without leaving its prior approval active', async () => {
+  const { repo, importer } = setup()
+  const original = readFileSync('tests/fixtures/knowledge-ingestion/text.pdf')
+  const changed = Buffer.from(
+    original.toString('latin1').replace('length 50 mm', 'length 60 mm'),
+    'latin1',
+  )
+  expect(changed.equals(original)).toBe(false)
+  async function ingest(bytes: Buffer) {
+    const ids = importer.registerFiles('s', [{ name: 'guide.pdf', bytes }])
+    expect(
+      (
+        await waitImport(
+          repo,
+          importer.apply((await importer.preview('s', ids, [])).previewId, 's').jobId,
+        )
+      ).status,
+    ).toBe('succeeded')
+  }
+  await ingest(original)
+  const image = repo.listSources().find((s) => s.label === 'guide.pdf' && s.locator.imageAssetId)!
+  const draft = repo.saveDraft({
+    scope: { kind: 'store', storeId: 's' },
+    question: '长度',
+    answer: '50 mm',
+    sourceRefs: [{ sourceId: image.id, revision: image.revision }],
+  })
+  repo.publish({
+    entryId: draft.id,
+    expectedDraftRevision: draft.revision,
+    expectedSourceRevisions: { [image.id]: image.revision },
+  })
+  await ingest(changed)
+  expect(repo.getSource(image.id)?.revision).toBe(2)
+  expect(repo.getSource(image.id)?.locator.imageAssetId).not.toBe(image.locator.imageAssetId)
+  expect(repo.getEntry(draft.id)).toMatchObject({ status: 'stale', approved: null })
+})
+it('retires superseded duplicate image sources created before stable part identity', async () => {
+  const { repo, importer } = setup()
+  const red = importer.registerFiles('s', [{ name: 'chart.png', bytes: chart('red') }])
+  await waitImport(
+    repo,
+    importer.apply((await importer.preview('s', red, [])).previewId, 's').jobId,
+  )
+  const source = repo.listSources().find((s) => s.label === 'chart.png')!
+  const blue = repo.addAsset(chart('blue'), { name: 'chart.png', mimeType: 'image/png' })
+  const duplicate = repo.saveSource({
+    storeId: 's',
+    kind: 'image',
+    label: source.label,
+    text: source.text,
+    locator: { ...source.locator, assetId: blue.id, imageAssetId: blue.id },
+    assetIds: [blue.id, blue.id],
+  })
+  const draft = repo.saveDraft({
+    scope: { kind: 'store', storeId: 's' },
+    question: '图示',
+    answer: '旧版本',
+    sourceRefs: [{ sourceId: duplicate.id, revision: 1 }],
+  })
+  repo.publish({
+    entryId: draft.id,
+    expectedDraftRevision: 1,
+    expectedSourceRevisions: { [duplicate.id]: 1 },
+  })
+  const next = importer.registerFiles('s', [{ name: 'chart.png', bytes: chart('blue') }])
+  await waitImport(
+    repo,
+    importer.apply((await importer.preview('s', next, [])).previewId, 's').jobId,
+  )
+  expect(repo.getSource(source.id)?.revision).toBe(2)
+  expect(repo.getSource(duplicate.id)?.removed).toBe(true)
+  expect(repo.getEntry(draft.id)?.approved).toBeNull()
+  expect(() =>
+    repo.saveDraft({
+      scope: { kind: 'store', storeId: 's' },
+      question: '旧',
+      answer: '旧',
+      sourceRefs: [{ sourceId: duplicate.id, revision: 2 }],
+    }),
+  ).toThrow(/移除/)
+})

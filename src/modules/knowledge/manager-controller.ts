@@ -276,6 +276,7 @@ export function useKnowledgeManager() {
       field: version.field,
       conflictKey: version.conflictKey,
       origin: version.origin,
+      modelEvidence: version.modelEvidence,
       sourceRefs: version.sourceRefs.map((r) => ({ sourceId: r.sourceId, revision: r.revision })),
       expiresAt: version.expiresAt,
     }

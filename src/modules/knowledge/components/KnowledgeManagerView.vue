@@ -547,6 +547,7 @@ const {
           :stores="stores"
           :has-canonical="Boolean(detail?.canonical)"
           :scope-value="scopeValue"
+          :load-asset="client().asset"
           @patch="
             (patch) => {
               if (draft) {
@@ -580,7 +581,10 @@ const {
           学习本商品资料
         </button>
         <article v-for="source in sources" :key="source.id">
-          <b>{{ source.label }} · v{{ source.revision }}</b>
+          <b
+            >{{ source.label }} · v{{ source.revision
+            }}{{ source.removed ? ' · 已从新资料移除' : '' }}</b
+          >
           <p>
             {{ sourceLabel(source.kind) }} · {{ new Date(source.updatedAt).toLocaleString() }} ·
             {{ sourceLocationLabel(source.locator) }}

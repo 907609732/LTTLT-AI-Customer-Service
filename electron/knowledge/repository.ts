@@ -334,7 +334,12 @@ export class KnowledgeRepository {
       for (const assetId of value.assetIds)
         if (!this.row<KnowledgeAsset>('assets', assetId)) throw Error('附件不存在')
       const digest = hash(
-        JSON.stringify({ text: value.text, locator: value.locator, assetIds: value.assetIds }),
+        JSON.stringify({
+          text: value.text,
+          locator: value.locator,
+          assetIds: value.assetIds,
+          ...(value.removed ? { removed: true } : {}),
+        }),
       )
       if (old?.hash === digest) return old
       const next: KnowledgeSource = {
@@ -343,6 +348,7 @@ export class KnowledgeRepository {
         storeId: value.storeId,
         ...(value.bindingId ? { bindingId: value.bindingId } : {}),
         label: value.label,
+        removed: value.removed ?? false,
         text: value.text,
         locator: value.locator,
         assetIds: value.assetIds,
@@ -397,6 +403,8 @@ export class KnowledgeRepository {
     if (bytes.byteLength > 100 * 1024 * 1024) throw Error('附件超出100MB')
     return this.transaction(() => {
       const digest = hash(bytes)
+      const existing = this.row<KnowledgeAsset>('assets', digest)
+      if (existing) return existing
       const asset: KnowledgeAsset = { id: digest, sha256: digest, size: bytes.byteLength, ...input }
       const path = join(this.options.directory, 'assets', digest)
       mkdirSync(dirname(path), { recursive: true })
@@ -425,7 +433,11 @@ export class KnowledgeRepository {
       if (parsed.field !== 'fact' && scope.kind !== 'binding' && scope.kind !== 'store')
         throw Error('共享商品不得保存dynamic价格、库存或活动')
       for (const ref of parsed.sourceRefs)
-        if (this.getSource(ref.sourceId)?.revision !== ref.revision) throw Error('source来源已变化')
+        if (
+          this.getSource(ref.sourceId)?.removed ||
+          this.getSource(ref.sourceId)?.revision !== ref.revision
+        )
+          throw Error('source来源已变化或移除')
       const next: KnowledgeVersion = {
         id: old?.id ?? randomUUID(),
         revision: (old?.revision ?? 0) + 1,
@@ -437,6 +449,7 @@ export class KnowledgeRepository {
         conflictKey: parsed.conflictKey || parsed.question,
         origin: parsed.origin,
         sourceRefs: parsed.sourceRefs,
+        ...(parsed.modelEvidence ? { modelEvidence: parsed.modelEvidence } : {}),
         expiresAt:
           parsed.expiresAt ??
           (parsed.field === 'fact'
@@ -483,6 +496,7 @@ export class KnowledgeRepository {
       for (const ref of entry.draft.sourceRefs)
         if (
           value.expectedSourceRevisions[ref.sourceId] !== ref.revision ||
+          this.getSource(ref.sourceId)?.removed ||
           this.getSource(ref.sourceId)?.revision !== ref.revision
         )
           throw Error('source来源已变化，请重新学习审核')

@@ -1,4 +1,12 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
+import {
+  importDigest as digest,
+  originalFileType,
+  partIdentity,
+  sourcePartIdentity,
+  invalidateRemovedParts,
+  type ImportDocument,
+} from './import-identity'
 import type { KnowledgeRepository } from './repository'
 import type {
   KnowledgeJob,
@@ -9,10 +17,10 @@ import type {
 } from '../../src/shared/contracts/knowledge'
 import type { KnowledgeImportPreview } from '../../src/shared/contracts/knowledge-pipeline'
 import { parseKnowledgeFile, type ParsedPart } from './sources'
-const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 export const ORIGINAL_LABEL = '原文件：'
 interface ImportItem {
   key: string
+  partKey: string
   label: string
   text: string
   locator: KnowledgeSourceLocator
@@ -29,6 +37,7 @@ interface ImportPlan {
   bindings: ProductBinding[]
   membership: string
   items: ImportItem[]
+  documents: ImportDocument[]
 }
 export function createKnowledgeImporter(options: {
   repository: KnowledgeRepository
@@ -64,16 +73,10 @@ export function createKnowledgeImporter(options: {
     active(storeId, bindingId)
     return repo.transaction(() =>
       files.map((file) => {
-        const existing = repo.row<KnowledgeAsset>(
-          'assets',
-          createHash('sha256').update(file.bytes).digest('hex'),
-        )
-        const asset =
-          existing ??
-          repo.addAsset(file.bytes, {
-            name: file.name,
-            mimeType: 'application/octet-stream',
-          })
+        const asset = repo.addAsset(file.bytes, {
+          name: file.name,
+          mimeType: originalFileType(file.name).mimeType,
+        })
         const old = repo
           .listSources({ storeId })
           .find(
@@ -82,7 +85,7 @@ export function createKnowledgeImporter(options: {
               s.locator.assetId === asset.id &&
               s.bindingId === bindingId,
           )
-        return (
+        const sourceId =
           old?.id ??
           repo.saveSource({
             storeId,
@@ -93,7 +96,9 @@ export function createKnowledgeImporter(options: {
             locator: { assetId: asset.id },
             assetIds: [asset.id],
           }).id
-        )
+        if (!repo.getMetadata(`original-file:${sourceId}`))
+          repo.setMetadata(`original-file:${sourceId}`, JSON.stringify(originalFileType(file.name)))
+        return sourceId
       }),
     )
   }
@@ -111,6 +116,7 @@ export function createKnowledgeImporter(options: {
     const before = membership(storeId),
       refs: KnowledgeSourceRef[] = [],
       items: ImportItem[] = [],
+      documents: ImportDocument[] = [],
       warnings: string[] = [],
       encodings: string[] = []
     const seen = new Set<string>()
@@ -125,7 +131,33 @@ export function createKnowledgeImporter(options: {
         throw Error('不是当前店铺登记的原始文件')
       refs.push({ sourceId: id, revision: source.revision })
       const original = repo.row<KnowledgeAsset>('assets', source.locator.assetId)!
-      const parsed = await parseKnowledgeFile(original.name, repo.readAsset(original.id))
+      const fileMetadata = repo.getMetadata(`original-file:${source.id}`)
+      const file = fileMetadata
+        ? (JSON.parse(fileMetadata) as { name: string; extension: string; mimeType: string })
+        : originalFileType(source.label.slice(ORIGINAL_LABEL.length))
+      const parsed = await parseKnowledgeFile(file.name, repo.readAsset(original.id))
+      const targets = bindings.length ? bindings.map((b) => b.id) : [source.bindingId ?? '']
+      const productRows = parsed.parts.some((part) => Boolean(part.product))
+      const documentKey = digest([
+        storeId,
+        file.name,
+        productRows ? ['csv-products'] : [...targets].sort(),
+      ])
+      const document: ImportDocument = {
+        key: documentKey,
+        label: file.name,
+        targets,
+        productRows,
+        lease: repo.getMetadata(`import-document:${documentKey}`),
+        partKeys: [],
+      }
+      if (documents.some((existing) => existing.key === document.key))
+        throw Error('同一目标不能同时导入多个同名文件；请改名或分别确认替换')
+      documents.push(document)
+      if (repo.listSources({ storeId }).some((s) => s.label === file.name && !s.removed))
+        warnings.push(
+          `${file.name}：同名资料按位置更新；被修改或移除位置的已审核引用将失效，旧版本仍可核对。`,
+        )
       active(storeId)
       warnings.push(...parsed.warnings)
       encodings.push(`${source.label.slice(ORIGINAL_LABEL.length)}：${parsed.encoding}`)
@@ -134,7 +166,7 @@ export function createKnowledgeImporter(options: {
         if (part.image)
           assetIds.push(
             repo.addAsset(part.image.bytes, {
-              name: `${original.name}图像`,
+              name: `${file.name}图像`,
               mimeType: part.image.mimeType,
             }).id,
           )
@@ -157,7 +189,16 @@ export function createKnowledgeImporter(options: {
             throw Error('意图JSON中有未映射到所选店铺/商品的编号，请先建立对应商品或修正导入文件')
         }
         for (const target of targets) {
+          const partKey = partIdentity(
+            file.name,
+            part.product?.productId ?? target?.id,
+            part.locator,
+            Boolean(part.product),
+          )
+          document.partKeys.push(partKey)
+          if (target && !document.targets.includes(target.id)) document.targets.push(target.id)
           const key = digest([
+            file.name,
             storeId,
             original.id,
             part.locator,
@@ -165,10 +206,25 @@ export function createKnowledgeImporter(options: {
             target?.id ?? '',
             part.intent ?? null,
           ])
-          const duplicate = seen.has(key) || repo.getMetadata(`import-item:${key}`) !== null
+          const previous = repo
+            .listSources({ storeId })
+            .find(
+              (source) =>
+                source.locator.assetId &&
+                sourcePartIdentity(repo, source, Boolean(part.product)) === partKey,
+            )
+          const duplicate =
+            seen.has(key) ||
+            Boolean(
+              previous &&
+                !previous.removed &&
+                previous.locator.assetId === original.id &&
+                previous.text === part.text,
+            )
           seen.add(key)
           items.push({
             key,
+            partKey,
             label: source.label.slice(ORIGINAL_LABEL.length),
             text: part.text,
             locator: {
@@ -198,7 +254,14 @@ export function createKnowledgeImporter(options: {
         productRows.add(item.product.productId)
       }
     const previewId = randomUUID(),
-      plan: ImportPlan = { storeId, sourceRefs: refs, bindings, membership: before, items }
+      plan: ImportPlan = {
+        storeId,
+        sourceRefs: refs,
+        bindings,
+        membership: before,
+        items,
+        documents,
+      }
     repo.setMetadata(`import-preview:${previewId}`, JSON.stringify(plan))
     return {
       previewId,
@@ -231,6 +294,9 @@ export function createKnowledgeImporter(options: {
   function validate(plan: ImportPlan, currentMembership = plan.membership) {
     active(plan.storeId)
     if (
+      (plan.documents ?? []).some(
+        (d) => repo.getMetadata(`import-document:${d.key}`) !== d.lease,
+      ) ||
       currentMembership !== membership(plan.storeId) ||
       plan.sourceRefs.some((ref) => repo.getSource(ref.sourceId)?.revision !== ref.revision)
     )
@@ -249,7 +315,13 @@ export function createKnowledgeImporter(options: {
     const plan = JSON.parse(raw) as ImportPlan
     if (plan.storeId !== storeId) throw Error('导入店铺不符')
     validate(plan)
-    const job = repo.createJob({ kind: 'import', storeId, payload: { ...plan } })
+    const job = repo.transaction(() => {
+      for (const document of plan.documents ?? []) {
+        document.lease = randomUUID()
+        repo.setMetadata(`import-document:${document.key}`, document.lease)
+      }
+      return repo.createJob({ kind: 'import', storeId, payload: { ...plan } })
+    })
     repo.setMetadata(`import-preview:${previewId}`, '')
     schedule(job.id)
     return { jobId: job.id }
@@ -272,6 +344,7 @@ export function createKnowledgeImporter(options: {
         : job.checkpoint) as unknown as ImportCheckpoint
       if (!['queued', 'running'].includes(job.status) || controller.signal.aborted || closed) return
       validate(plan, cp.membership)
+      repo.transaction(() => invalidateRemovedParts(repo, plan.storeId, plan.documents ?? []))
       job = repo.updateJob(id, {
         expectedRevision: job.revision,
         status: 'running',
@@ -283,7 +356,7 @@ export function createKnowledgeImporter(options: {
         validate(plan, cp.membership)
         const item = plan.items[cp.index]!
         repo.transaction(() => {
-          if (item.duplicate || repo.getMetadata(`import-item:${item.key}`)) cp.skipped++
+          if (item.duplicate) cp.skipped++
           else {
             let binding = item.bindingId ? repo.getBinding(item.bindingId) : null
             if (item.product) {
@@ -307,12 +380,16 @@ export function createKnowledgeImporter(options: {
             const previous = repo
               .listSources({ storeId: plan.storeId })
               .find(
-                (s) =>
-                  s.bindingId === binding?.id &&
-                  s.label === item.label &&
-                  (item.product ||
-                    JSON.stringify({ ...s.locator, assetId: undefined }) ===
-                      JSON.stringify({ ...item.locator, assetId: undefined })),
+                (source) =>
+                  source.locator.assetId &&
+                  sourcePartIdentity(repo, source, Boolean(item.product)) ===
+                    (item.partKey ??
+                      partIdentity(
+                        item.label,
+                        item.product?.productId ?? binding?.id,
+                        item.locator,
+                        Boolean(item.product),
+                      )),
               )
             const source = repo.saveSource({
               id: previous?.id,

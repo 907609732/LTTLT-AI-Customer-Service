@@ -20,12 +20,12 @@ async function open() {
 }
 </script>
 <template>
-  <button @click="open">查看资料图片</button><span v-if="error">{{ error }}</span>
+  <button type="button" @click="open">查看资料图片</button><span v-if="error">{{ error }}</span>
   <div v-if="image" class="knowledge-modal-backdrop">
     <section class="knowledge-modal" role="dialog" aria-label="来源图片预览">
       <p>{{ label || '资料图片' }} · {{ locator ? sourceLocationLabel(locator) : '只读预览' }}</p>
       <img :src="image" alt="来源资料原图或页面分块" style="max-width: 100%; height: auto" />
-      <footer><button @click="image = ''">关闭图片</button></footer>
+      <footer><button type="button" @click="image = ''">关闭图片</button></footer>
     </section>
   </div>
 </template>

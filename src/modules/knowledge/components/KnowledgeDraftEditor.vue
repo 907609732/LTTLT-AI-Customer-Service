@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import KnowledgeVisualEvidence from './KnowledgeVisualEvidence.vue'
 import type { KnowledgeDraftInput, ProductBinding } from '@/shared/contracts/knowledge'
 const props = defineProps<{
   draft: KnowledgeDraftInput
@@ -7,6 +8,7 @@ const props = defineProps<{
   stores: { id: string; storeName: string }[]
   hasCanonical: boolean
   scopeValue?: string
+  loadAsset?: (id: string) => Promise<string>
 }>()
 const emit = defineEmits<{
   patch: [patch: Partial<KnowledgeDraftInput>]
@@ -98,6 +100,11 @@ const minDate = computed(() => new Date().toISOString().slice(0, 16))
     <p class="knowledge-muted">
       {{ draft.sourceRefs?.length || 0 }} 个精确来源版本；手写修改不会自动审核。
     </p>
+    <KnowledgeVisualEvidence
+      v-if="draft.modelEvidence && loadAsset"
+      :evidence="draft.modelEvidence"
+      :load="loadAsset"
+    />
     <div class="knowledge-editor-actions">
       <button data-testid="save-draft" type="submit">保存草稿</button
       ><button type="button" class="primary" @click="emit('review')">审核并发布…</button

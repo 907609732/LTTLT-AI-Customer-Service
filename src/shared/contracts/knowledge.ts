@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { knowledgeVisualEvidenceSchema, type KnowledgeVisualEvidence } from './knowledge-evidence'
 
 const id = z.string().trim().min(1).max(200)
 const revision = z.number().int().positive()
@@ -25,6 +26,7 @@ export const knowledgeDraftSchema = z
     conflictKey: z.string().trim().max(300).optional(),
     origin: z.enum(['manual', 'model', 'import', 'migration']).default('manual'),
     sourceRefs: z.array(sourceRefSchema).max(1000).default([]),
+    modelEvidence: knowledgeVisualEvidenceSchema.optional(),
     expiresAt: z.number().int().nonnegative().nullable().optional(),
   })
   .strict()
@@ -40,6 +42,7 @@ export interface KnowledgeVersion {
   conflictKey: string
   origin: 'manual' | 'model' | 'import' | 'migration'
   sourceRefs: KnowledgeSourceRef[]
+  modelEvidence?: KnowledgeVisualEvidence
   expiresAt: number | null
   updatedAt: number
 }
@@ -113,6 +116,7 @@ export const knowledgeSourceInputSchema = z
     storeId: id,
     bindingId: id.optional(),
     label: z.string().max(1000),
+    removed: z.boolean().optional(),
     text: z.string().max(5_000_000),
     locator: sourceLocatorSchema.default({}),
     assetIds: z.array(id).default([]),

@@ -63,3 +63,11 @@
 新增同一窄pipeline动作：preview-import、archive-chat(from/to)、store-materials、review-targets、resolve-uncertain(decision)。start(kind:import)的estimateId是主进程预览ID；start(kind:learn)是学习估算ID。已有pause/resume/cancel按持久job.kind分派。知识服务的pipeline输入先经Zod变成普通数据再走Electron structured clone，防止Vue响应式数组无法跨IPC。
 
 验证：`node scripts/verify-knowledge-ingestion.mjs`复用已有hidden/offscreen测试架构，真实CJS/Electron+preload+隔离SQLite+本机HTTP模型，覆盖解析、CSV预览导入、商品内扫描PDF绑定/大图/图像模型输入、估算手动启动、不确定调用不重放、归档日期入口及部分批量审核。完整日志和限制见 `.superpowers/sdd/2026-11-15-knowledge-library/task-4-report.md`。尚未做真实云模型识别质量、真实店铺/买家、Release打包或最大规模吞吐验收；日检、恢复UI和性能属于Task5。GIF明确仅首帧，后续动画帧需要拆成静态图补充。
+
+### Task4 review fixes (2026-11-15)
+
+同一文件名在同一导入目标内代表资料更新，预览会说明更新与引用失效规则。逻辑位置由目标和页/图片/分块/行等位置组成，原文件/图片的 hash 仅标识内容版本。更新复用来源 ID 并提升 revision；被移除或历史重复的位置写入 `removed: true` 来源版本，保留原文、原件和历史用于核对，停止学习/引用发布并使旧审核结果 stale。原文件注册独立保存 name/extension/mimeType，解析不再依赖共享 blob 的显示名；相同 hash 的 blob 元数据不被后续栅格/学习注册覆盖。
+
+图片候选分为 `image-text` 和 `visual-relationship`：后者允许直接可见的空间位置、箭头方向或连接关系，不要求存在文字标签，也不允许推断功能、因果、操作或未显示规格。每条视觉依据包含本次请求实际持有的 imageAssetId 和 page/image/tile；主进程校验来源、位置、关系枚举与答案范围，写入未审核版本的 `modelEvidence`。审核编辑器展示依据并可打开对应图片；SQLite 重启保留这些证据。来源受守卫和结构校验不等于真实模型语义准确性验收。
+
+不确定调用只允许 `needs-confirmation` 且 submitted 的任务作明确 retry/skip；cancelled/succeeded 不可恢复且不显示该操作。取消后若需重新学习，应重新估算并开始新任务。

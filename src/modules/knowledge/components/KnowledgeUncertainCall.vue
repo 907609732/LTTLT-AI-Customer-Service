@@ -5,7 +5,7 @@ const emit = defineEmits<{ resolve: [decision: 'retry' | 'skip'] }>()
 </script>
 <template>
   <div
-    v-if="job.status === 'needs-confirmation' || job.checkpoint.state === 'submitted'"
+    v-if="job.status === 'needs-confirmation' && job.checkpoint.state === 'submitted'"
     class="knowledge-card-body"
   >
     <p>这次模型调用的结果不确定，可能已扣费。普通继续不会重发。</p>
