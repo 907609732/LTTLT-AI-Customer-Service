@@ -21,6 +21,10 @@ watch(receptionBusy, async (busy) => {
 watch(
   () => setup.visible,
   (visible) => {
+    if (!visible) {
+      receptionPending.transfer = false
+      receptionPending.welcome = false
+    }
     if (visible && route.path !== '/') void router.push('/')
   },
 )

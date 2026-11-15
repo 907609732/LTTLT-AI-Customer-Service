@@ -443,3 +443,18 @@ it('未编辑的全局关键词不作为旧草稿恢复', async () => {
     (wrapper.get('textarea[aria-label="全局人工处理关键词"]').element as HTMLTextAreaElement).value,
   ).toBe('最新关键词')
 })
+
+it('保存期间工作区失效后，新向导不会保留旧的忙碌锁', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const panel = wrapper.findAllComponents({ name: 'ShopOpsPanel' })[0]!
+  panel.vm.$emit('busy', true)
+  await flushPromises()
+  expect(wrapper.get('[data-next]').attributes('disabled')).toBeDefined()
+  runtime.snapshot.workspaceId = 'replacement-workspace'
+  await flushPromises()
+  setup.open('shop-a')
+  await flushPromises()
+  await wrapper.get('[data-start]').trigger('click')
+  expect(wrapper.get('[data-next]').attributes('disabled')).toBeUndefined()
+})
