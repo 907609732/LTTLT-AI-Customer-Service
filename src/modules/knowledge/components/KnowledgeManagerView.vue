@@ -41,6 +41,9 @@ const {
   selection,
   allScope,
   detail,
+  editableEntries,
+  editableBindings,
+  sourceOriginLabel,
   detailBinding,
   detailTab,
   draft,
@@ -103,6 +106,7 @@ const {
   backup,
   recommendations,
   entryHistory,
+  loadEntryHistory,
   deleteReview,
   previewDeleteFamily,
   confirmDeleteFamily,
@@ -391,7 +395,12 @@ const {
           >
             暂停</button
           ><button
-            v-if="['paused', 'failed'].includes(job.status) && job.checkpoint.state !== 'submitted'"
+            v-if="
+              (['paused', 'failed'].includes(job.status) ||
+                (job.status === 'needs-confirmation' &&
+                  ['collect', 'daily-check'].includes(job.kind))) &&
+              job.checkpoint.state !== 'submitted'
+            "
             @click="
               run(async () => {
                 await client().pipeline({ action: 'resume', storeId: job.storeId, jobId: job.id })
@@ -538,11 +547,11 @@ const {
       <div v-if="detailTab === 'qa'" class="knowledge-review-grid">
         <div class="knowledge-entry-list">
           <p class="knowledge-muted">
-            已审核 {{ detail?.entries.filter((e) => e.approved).length || 0 }} 条；自动保存不发布。
+            已审核 {{ editableEntries.filter((e) => e.approved).length }} 条；自动保存不发布。
           </p>
           <button v-if="detail" @click="run(writeOne)">＋ 手写问答</button
           ><button
-            v-for="entry in detail?.entries"
+            v-for="entry in editableEntries"
             :key="entry.id"
             class="knowledge-entry"
             @click="
@@ -561,20 +570,11 @@ const {
           <details v-if="sources.length">
             <summary>对照原始资料（{{ sources.length }}）</summary>
             <pre v-for="source in sources" :key="source.id"
-              >{{ source.label }} v{{ source.revision }}
+              >{{ source.label }} v{{ source.revision }} · {{ sourceOriginLabel(source) }}
 {{ source.text }}</pre
             >
           </details>
-          <button
-            v-if="draft?.id"
-            @click="
-              run(async () => {
-                entryHistory = await client().entryHistory(draft!.id!)
-              })
-            "
-          >
-            查看知识历史 / 审核版本
-          </button>
+          <button v-if="draft?.id" @click="run(loadEntryHistory)">查看知识历史 / 审核版本</button>
           <details v-if="entryHistory.length" open>
             <summary>知识版本历史</summary>
             <article v-for="row in entryHistory" :key="row.version.revision">
@@ -587,7 +587,7 @@ const {
         <KnowledgeDraftEditor
           v-if="draft"
           :draft="draft"
-          :bindings="detail?.bindings.filter((b) => b.storeId === storeId) || []"
+          :bindings="editableBindings"
           :stores="stores"
           :has-canonical="Boolean(detail?.canonical)"
           :scope-value="scopeValue"
@@ -631,7 +631,7 @@ const {
           >
           <p>
             {{ sourceLabel(source.kind) }} · {{ new Date(source.updatedAt).toLocaleString() }} ·
-            {{ sourceLocationLabel(source.locator) }}
+            {{ sourceLocationLabel(source.locator) }} · {{ sourceOriginLabel(source) }}
           </p>
           <pre>{{
             source.text === '原始文件已登记；尚未解析。'

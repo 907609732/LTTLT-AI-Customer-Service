@@ -1,12 +1,174 @@
 import { knowledgeRequire } from '../electron/knowledge/node-loader'
 const { DatabaseSync } = knowledgeRequire('node:sqlite') as typeof import('node:sqlite')
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { createKnowledgeRepository, restoreKnowledgeBackup } from '../electron/knowledge'
 import { inspectKnowledgeBackup, knowledgeBackupScope } from '../electron/knowledge/backup'
+import {
+  knowledgeDraftSchema,
+  type KnowledgeEntry,
+  type KnowledgeVersion,
+  type KnowledgeBackupManifest,
+} from '../src/shared/contracts/knowledge'
+
+it.each([301, 4000])(
+  'round trips a %i-character question through save, publish, reopen, edit and full/family restore',
+  (length) => {
+    const dir = mkdtempSync(join(tmpdir(), 'knowledge-long-question-'))
+    const directory = join(dir, 'live')
+    let repo = createKnowledgeRepository({ directory, workspaceId: 'w' })
+    try {
+      const canonical = repo.saveCanonical({ title: 'long question' })
+      repo.bindProduct({ canonicalId: canonical.id, storeId: 'a', productId: 'p' })
+      const question = '问'.repeat(length - 1) + '甲'
+      const version = repo.saveDraft({
+        scope: { kind: 'canonical', canonicalId: canonical.id },
+        question,
+        answer: 'answer',
+      })
+      const other = repo.saveDraft({
+        scope: version.scope,
+        question: question.slice(0, -1) + '乙',
+        answer: 'different',
+      })
+      expect(version.conflictKey.length).toBeLessThanOrEqual(300)
+      expect(version.conflictKey).not.toBe(other.conflictKey)
+      repo.publish({ entryId: version.id, expectedDraftRevision: 1, expectedSourceRevisions: {} })
+      repo.dispose()
+      repo = createKnowledgeRepository({ directory, workspaceId: 'reopened' })
+      const reopened = repo.getEntry(version.id)!.draft
+      const revision = reopened.revision,
+        input = knowledgeDraftSchema.strip().parse(reopened)
+      const edited = repo.saveDraft(
+        knowledgeDraftSchema.parse({ ...input, expectedRevision: revision, answer: 'edited' }),
+      )
+      expect(edited.question).toBe(question)
+      for (const scope of [undefined, { canonicalId: canonical.id }]) {
+        const backup = repo.createBackup(join(dir, 'backups'), scope)
+        inspectKnowledgeBackup(backup.directory)
+        repo.dispose()
+        restoreKnowledgeBackup({ directory, backupDirectory: backup.directory })
+        repo = createKnowledgeRepository({ directory, workspaceId: 'restored' })
+        expect(repo.getEntry(version.id)?.draft).toEqual(edited)
+        expect(repo.getEntry(version.id)?.approved).toEqual(version)
+        expect(repo.entryVersions(version.id)).toHaveLength(2)
+      }
+    } finally {
+      repo.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  },
+)
+
+it('repairs already-written automatic long keys in current, approved and every historical version without changing reviews or sources', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'knowledge-old-long-key-'))
+  const directory = join(dir, 'live')
+  let repo = createKnowledgeRepository({ directory, workspaceId: 'w' })
+  try {
+    const canonical = repo.saveCanonical({ title: 'legacy' })
+    const binding = repo.bindProduct({ canonicalId: canonical.id, storeId: 'a', productId: 'p' })
+    const source = repo.saveSource({
+      kind: 'manual',
+      storeId: 'a',
+      bindingId: binding.id,
+      label: 'evidence',
+      text: 'original',
+    })
+    const question = '旧'.repeat(4000)
+    const input = {
+      scope: { kind: 'canonical' as const, canonicalId: canonical.id },
+      question,
+      answer: 'one',
+      conflictKey: 'temporary-valid-key',
+      sourceRefs: [{ sourceId: source.id, revision: 1 }],
+    }
+    const version = repo.saveDraft(input)
+    repo.publish({
+      entryId: version.id,
+      expectedDraftRevision: 1,
+      expectedSourceRevisions: { [source.id]: 1 },
+    })
+    repo.saveDraft({ ...input, id: version.id, expectedRevision: 1, answer: 'two' })
+    repo.saveDraft({ ...input, id: version.id, expectedRevision: 2, answer: 'three' })
+    repo.publish({
+      entryId: version.id,
+      expectedDraftRevision: 3,
+      expectedSourceRevisions: { [source.id]: 1 },
+    })
+    repo.saveDraft({ ...input, id: version.id, expectedRevision: 3, answer: 'four' })
+    const legacyBackup = repo.createBackup(join(dir, 'old-archive'))
+    repo.dispose()
+    const oldDb = new DatabaseSync(join(directory, 'knowledge.sqlite'))
+    const reviews = oldDb.prepare('SELECT * FROM reviews ORDER BY revision').all()
+    for (const row of oldDb.prepare('SELECT id,body FROM entries').all() as {
+      id: string
+      body: string
+    }[]) {
+      const entry = JSON.parse(row.body) as KnowledgeEntry
+      entry.draft.conflictKey = question
+      entry.approved!.conflictKey = question
+      oldDb.prepare('UPDATE entries SET body=? WHERE id=?').run(JSON.stringify(entry), row.id)
+    }
+    for (const row of oldDb.prepare('SELECT id,revision,body FROM entry_versions').all() as {
+      id: string
+      revision: number
+      body: string
+    }[]) {
+      const history = JSON.parse(row.body) as KnowledgeVersion
+      history.conflictKey = question
+      oldDb
+        .prepare('UPDATE entry_versions SET body=? WHERE id=? AND revision=?')
+        .run(JSON.stringify(history), row.id, row.revision)
+    }
+    oldDb.close()
+    // Model an archive already generated by the old writer, including its valid file hash.
+    copyFileSync(
+      join(directory, 'knowledge.sqlite'),
+      join(legacyBackup.directory, 'knowledge.sqlite'),
+    )
+    const legacyBytes = readFileSync(join(legacyBackup.directory, 'knowledge.sqlite'))
+    const legacyManifest = JSON.parse(
+      readFileSync(join(legacyBackup.directory, 'manifest.json'), 'utf8'),
+    ) as KnowledgeBackupManifest
+    const databaseFile = legacyManifest.files.find((file) => file.path === 'knowledge.sqlite')!
+    databaseFile.sha256 = createHash('sha256').update(legacyBytes).digest('hex')
+    databaseFile.size = legacyBytes.length
+    writeFileSync(join(legacyBackup.directory, 'manifest.json'), JSON.stringify(legacyManifest))
+    expect(() => inspectKnowledgeBackup(legacyBackup.directory)).toThrow()
+    repo = createKnowledgeRepository({ directory, workspaceId: 'repaired' })
+    for (const row of repo.entryVersions(version.id)) {
+      expect(row.version.conflictKey.length).toBeLessThanOrEqual(300)
+      expect(row.version.question).toBe(question)
+      expect(row.version.sourceRefs).toEqual(input.sourceRefs)
+    }
+    const current = repo.getEntry(version.id)!
+    expect(current.approved).toEqual(
+      repo.entryVersions(version.id).find((v) => v.version.revision === 3)!.version,
+    )
+    const revision = current.draft.revision,
+      editable = knowledgeDraftSchema.strip().parse(current.draft)
+    repo.saveDraft({ ...editable, expectedRevision: revision, answer: 'five' })
+    for (const scope of [undefined, { canonicalId: canonical.id }]) {
+      const backup = repo.createBackup(join(dir, 'backups'), scope)
+      inspectKnowledgeBackup(backup.directory)
+      repo.dispose()
+      restoreKnowledgeBackup({ directory, backupDirectory: backup.directory })
+      repo = createKnowledgeRepository({ directory, workspaceId: 'restored' })
+      expect(repo.entryVersions(version.id)).toHaveLength(5)
+      const check = new DatabaseSync(join(backup.directory, 'knowledge.sqlite'))
+      expect(check.prepare('SELECT * FROM reviews ORDER BY revision').all()).toEqual(reviews)
+      check.close()
+    }
+    expect(() => inspectKnowledgeBackup(legacyBackup.directory)).toThrow()
+    expect(readFileSync(join(legacyBackup.directory, 'knowledge.sqlite'))).toEqual(legacyBytes)
+  } finally {
+    repo.dispose()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 it('backs up one canonical family with historical assets and restores it without changing unrelated families', () => {
   const dir = mkdtempSync(join(tmpdir(), 'knowledge-family-'))

@@ -137,3 +137,11 @@
 仓储writer归local-runtime所有，恢复必须由WorkspaceRuntime停完整服务并重建，不通过更换模型来源强制重启。恢复点先保存，失败回退后重建；普通IPC租约失效，显式恢复返回新workspace并重绑管理窗。保持现有按店发送模式和原启动AI关闭默认，不引入自动授权。
 
 完整试问可能超过已有reply压缩入口，低层complete补同规则16K预算门；稀有字tokenizer可能长耗时，因此复用现有codec移到worker线程，支持取消和60秒超时，不截断问题/知识，也不重写tokenizer。没有引入新重型框架或依赖。
+
+## 2026-11-15：最终审查的边界修正
+
+长问题通过完整原文SHA256自动标识解决300字键限制，保留4000字问题和已有短键/覆盖。启动一次事务修复已知旧自动键在current/approved/history的全部出现；已生成的坏archive保持严格拒绝，不原地修补，修复live后重新备份。
+
+当前商品编辑器仅投影本店本商品/SKU覆盖及共享canonical，完整家族绑定仍用于关联/影响分析；共享来源按引用投影并标明原店铺。部分collect/daily-check可显式继续，付费学习的不确定调用不获得bare resume。历史结果按条目与草稿会话隔离。
+
+恢复使用flush后的固定意图，仓储构造在打开SQLite前发现未完成意图即停止；主入口给出保留完整副本和维护恢复提示。选择fail-closed而非自动猜测回滚，保留暂存与旧三件套。Windows缺少Node目录fsync，进程强制终止已验收，物理断电未验收。详见 [知识库维护步骤](KNOWLEDGE_LIBRARY.md#恢复中断维护步骤) 和 [统筹取舍与代价](KNOWLEDGE_DECISIONS.md)。

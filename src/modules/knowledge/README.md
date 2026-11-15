@@ -31,3 +31,5 @@ app 从公开 index 导入 `platformLearningTransportKey` 与 `PlatformLearningT
 Task4 review: `KnowledgeVisualEvidence.vue` renders persisted `modelEvidence` and delegates image loading through the existing client asset callback. `KnowledgeUncertainCall.vue` only offers explicit retry/skip for the nonterminal uncertain state. Removed source positions remain visible as history but main excludes them from learning/publication. Manager integration only forwards evidence and the asset loader; evidence validation and lifecycle logic remain in focused main modules.
 
 管理组件新增实际SKU/规格/动态有效期、同款建议（人工确认）、知识历史、独立全库移除范围、待学原因/上下文和恢复预览。`manager-service` 只提交不透明恢复token；重建后的新workspace由owner返回并重绑窗口，清空旧店铺弹层和异步租约。复用项目、许可与验证范围见 [KNOWLEDGE_LIBRARY.md](../../../docs/KNOWLEDGE_LIBRARY.md)。
+
+最终审查修正：商品编辑器保留完整家族绑定供影响/关联预览，但可编辑条目与scope选项仅为共享canonical及当前店铺当前商品/SKU；来源按可编辑条目的依赖投影并标记原店铺。历史载入受entry/session约束，部分collect/daily-check任务的“继续”与付费学习不确定重试分开。主进程恢复意图、历史长键兼容及维护步骤见KNOWLEDGE_LIBRARY；不新增IPC或依赖。

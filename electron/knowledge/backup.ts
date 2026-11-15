@@ -1,8 +1,23 @@
-import { readFileSync, mkdirSync, existsSync, copyFileSync, renameSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import {
+  readFileSync,
+  mkdirSync,
+  existsSync,
+  copyFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  realpathSync,
+} from 'node:fs'
+import { join, basename } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { assertKnowledgeWriterStopped } from './lifecycle'
+import {
+  assertNoInterruptedKnowledgeRestore,
+  restoreIntentName,
+  syncKnowledgeFile,
+  syncKnowledgeDirectory,
+} from './restore-intent'
 import type {
   KnowledgeBackupManifest,
   KnowledgeSource,
@@ -411,8 +426,11 @@ export function restoreKnowledgeBackup(options: {
   backupDirectory: string
 }): KnowledgeBackupManifest {
   assertKnowledgeWriterStopped(options.directory)
+  assertNoInterruptedKnowledgeRestore(options.directory)
   const manifest = inspectKnowledgeBackup(options.backupDirectory)
   mkdirSync(options.directory, { recursive: true })
+  // All replacement paths are generated under the resolved account root, never marker input.
+  options = { ...options, directory: realpathSync(options.directory) }
   const staged = join(options.directory, `knowledge-restore-${randomUUID()}.sqlite`)
   try {
     if (manifest.scope && existsSync(join(options.directory, 'knowledge.sqlite'))) {
@@ -438,25 +456,47 @@ export function restoreKnowledgeBackup(options: {
   }
   const archive = join(options.directory, `knowledge-pre-restore-${randomUUID()}`)
   mkdirSync(archive)
+  const install = `${staged}.install`
+  const intent = join(options.directory, restoreIntentName)
+  let replacementStarted = false
   try {
     // Content-addressed assets are additive, so earlier snapshots remain recoverable.
     for (const file of manifest.files.filter((file) => file.path.startsWith('assets/'))) {
       mkdirSync(join(options.directory, 'assets'), { recursive: true })
       copyFileSync(join(options.backupDirectory, file.path), join(options.directory, file.path))
+      syncKnowledgeFile(join(options.directory, file.path))
     }
+    syncKnowledgeFile(staged)
+    copyFileSync(staged, install)
+    syncKnowledgeFile(install)
+    writeFileSync(
+      intent,
+      JSON.stringify({
+        version: 1,
+        archive: basename(archive),
+        staged: basename(staged),
+        install: basename(install),
+      }),
+      { flag: 'wx', flush: true, mode: 0o600 },
+    )
+    syncKnowledgeDirectory(options.directory)
+    replacementStarted = true
     for (const name of ['knowledge.sqlite', 'knowledge.sqlite-wal', 'knowledge.sqlite-shm']) {
       if (existsSync(join(options.directory, name)))
         renameSync(join(options.directory, name), join(archive, name))
     }
-    renameSync(staged, join(options.directory, 'knowledge.sqlite'))
-  } catch (error) {
-    for (const name of ['knowledge.sqlite', 'knowledge.sqlite-wal', 'knowledge.sqlite-shm']) {
-      if (existsSync(join(archive, name)) && !existsSync(join(options.directory, name)))
-        renameSync(join(archive, name), join(options.directory, name))
-    }
-    throw error
+    renameSync(install, join(options.directory, 'knowledge.sqlite'))
+    syncKnowledgeDirectory(archive)
+    syncKnowledgeDirectory(options.directory)
+    // Only this completed replacement clears the fixed marker; interrupted work retains all evidence.
+    rmSync(intent)
+    syncKnowledgeDirectory(options.directory)
+    replacementStarted = false
   } finally {
-    if (existsSync(staged)) rmSync(staged)
+    if (!replacementStarted && !existsSync(intent)) {
+      if (existsSync(staged)) rmSync(staged)
+      if (existsSync(install)) rmSync(install)
+    }
   }
   return manifest
 }

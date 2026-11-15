@@ -67,6 +67,38 @@ export function useKnowledgeManager() {
   const detail = ref<KnowledgeDetail>(),
     detailBinding = ref<ProductBinding>(),
     detailTab = ref<'qa' | 'sources' | 'trial' | 'bindings'>('qa')
+  const editableBindings = computed(
+    () =>
+      detail.value?.bindings.filter(
+        (b) =>
+          b.storeId === storeId.value && b.productId === detailBinding.value?.productId && b.active,
+      ) || [],
+  )
+  function canEditScope(scope: KnowledgeScope) {
+    if (!detail.value) return true
+    return scope.kind === 'canonical'
+      ? scope.canonicalId === detail.value.canonical?.id
+      : scope.kind === 'binding' && editableBindings.value.some((b) => b.id === scope.bindingId)
+  }
+  const editableEntries = computed(
+    () => detail.value?.entries.filter((e) => canEditScope(e.draft.scope)) || [],
+  )
+  function projectedSources(value: KnowledgeDetail) {
+    const bindings = value.bindings.filter(
+      (b) => b.storeId === storeId.value && b.productId === detailBinding.value?.productId,
+    )
+    const dependencies = new Set(
+      value.entries
+        .filter((e) => canEditScope(e.draft.scope))
+        .flatMap((e) => [e.draft, ...(e.approved ? [e.approved] : [])])
+        .flatMap((v) => v.sourceRefs.map((r) => r.sourceId)),
+    )
+    return value.sources.filter(
+      (s) => bindings.some((b) => b.id === s.bindingId) || dependencies.has(s.id),
+    )
+  }
+  const sourceOriginLabel = (source: KnowledgeSource) =>
+    `来源店铺：${stores.value.find((s) => s.id === source.storeId)?.storeName || source.storeId}${source.storeId !== storeId.value ? '（共享知识引用）' : '（本店）'}`
   const draft = ref<KnowledgeDraftInput>(),
     dirty = ref(false),
     saved = ref<KnowledgeVersion>(),
@@ -259,17 +291,9 @@ export function useKnowledgeManager() {
         const latest = await service.query({
           type: 'detail',
           canonicalId: detail.value.canonical!.id,
-          storeId: s,
         })
         assertLease(w, s)
-        if (id === ticket)
-          sources.value = latest.sources.filter(
-            (source) =>
-              source.bindingId === detailBinding.value?.id ||
-              latest.bindings.some(
-                (b) => b.id === source.bindingId && b.productId === detailBinding.value?.productId,
-              ),
-          )
+        if (id === ticket) sources.value = projectedSources(latest)
       }
     } catch (cause) {
       if (id === ticket && !disposed) error.value = reason(cause)
@@ -323,6 +347,7 @@ export function useKnowledgeManager() {
         throw Error('请填写问题和答案后保存；草稿仍保留在编辑器中')
       const input = knowledgeDraftSchema.parse(draft.value),
         generation = editGeneration
+      if (!canEditScope(input.scope)) throw Error('此覆盖不属于当前店铺商品，请从所属店铺打开')
       autosave.value = '正在保存草稿…'
       try {
         const version = await client().saveDraft(input)
@@ -376,6 +401,7 @@ export function useKnowledgeManager() {
   }
   function discardDraft() {
     draftSession++
+    entryHistory.value = []
     clearTimeout(timer)
     draft.value = undefined
     dirty.value = false
@@ -452,7 +478,7 @@ export function useKnowledgeManager() {
     metadataTitle.value = result.canonical?.title || ''
     metadataCode.value = result.canonical?.code || ''
     detailBinding.value = row.binding
-    sources.value = result.sources.filter((source) => source.storeId === s)
+    sources.value = projectedSources(result)
     detailTab.value = 'qa'
     question.value = ''
     trial.value = undefined
@@ -460,16 +486,26 @@ export function useKnowledgeManager() {
   }
   function editEntry(entry: KnowledgeEntry) {
     entry = currentEntry(entry)
+    if (!canEditScope(entry.draft.scope)) throw Error('此覆盖不属于当前店铺商品，请从所属店铺打开')
     draftSession++
+    entryHistory.value = []
     draft.value = editable(entry.draft)
     saved.value = entry.draft
     dirty.value = false
     autosave.value = entry.approved ? '编辑后保存为草稿，旧审核版仍保留' : '草稿 · 尚未发布'
   }
+  async function loadEntryHistory() {
+    const id = draft.value?.id,
+      session = draftSession
+    if (!id) return
+    const history = await client().entryHistory(id)
+    if (session === draftSession && draft.value?.id === id) entryHistory.value = history
+  }
   async function createOverride(entry: KnowledgeEntry) {
     await saveDraft()
     const version = currentEntry(entry).draft
     draftSession++
+    entryHistory.value = []
     draft.value = {
       scope: detailBinding.value
         ? { kind: 'binding', bindingId: detailBinding.value.id }
@@ -500,6 +536,7 @@ export function useKnowledgeManager() {
       return
     }
     draftSession++
+    entryHistory.value = []
     draft.value = {
       scope: detailBinding.value
         ? { kind: 'binding', bindingId: detailBinding.value.id }
@@ -1162,6 +1199,9 @@ export function useKnowledgeManager() {
     selection,
     allScope,
     detail,
+    editableEntries,
+    editableBindings,
+    sourceOriginLabel,
     detailBinding,
     detailTab,
     draft,
@@ -1224,6 +1264,7 @@ export function useKnowledgeManager() {
     backup,
     recommendations,
     entryHistory,
+    loadEntryHistory,
     deleteReview,
     previewDeleteFamily,
     confirmDeleteFamily,

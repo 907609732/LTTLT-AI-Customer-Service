@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, screen, ipcMain } from 'electron'
+import { reportStartupFailure } from './startup-failure'
 import { createKnowledgeWindow } from './knowledge-window'
 import { registerKnowledgeIpc } from './knowledge-ipc'
 import { registerDesktopIpc } from './ipc'
@@ -170,11 +171,10 @@ app
   })
   .catch((error) => {
     console.error(error)
-    dialog.showErrorBox(
-      '本地服务启动失败',
-      '本地配置或界面未能加载。请保留原数据，查看启动终端或日志后排查；不要删除数据后重试。',
-    )
-    app.exit(1)
+    reportStartupFailure(error, {
+      showErrorBox: dialog.showErrorBox,
+      exit: (code) => app.exit(code),
+    })
   })
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

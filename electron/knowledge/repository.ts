@@ -45,6 +45,8 @@ import {
 } from './lifecycle'
 import { knowledgeRequire } from './node-loader'
 import { pruneToFamily } from './backup-scope'
+import { questionConflictKey, repairAutomaticConflictKeys } from './conflict-keys'
+import { assertNoInterruptedKnowledgeRestore } from './restore-intent'
 const { DatabaseSync } = knowledgeRequire('node:sqlite') as typeof import('node:sqlite')
 type Table =
   | 'canonical'
@@ -82,6 +84,7 @@ export class KnowledgeRepository {
   constructor(private readonly options: KnowledgeRepositoryOptions) {
     mkdirSync(options.directory, { recursive: true })
     assertKnowledgeWriterStopped(options.directory)
+    assertNoInterruptedKnowledgeRestore(options.directory)
     this.now = options.now ?? Date.now
     this.db = new DatabaseSync(join(options.directory, 'knowledge.sqlite'))
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
@@ -109,6 +112,7 @@ export class KnowledgeRepository {
     this.migration = migrateLegacyKnowledge(this, options.directory)
     if (this.migration.status !== 'failed')
       this.transaction(() => {
+        repairAutomaticConflictKeys(this.db)
         for (const job of this.rows<KnowledgeJob>('jobs'))
           if (
             job.status === 'running' ||
@@ -487,7 +491,7 @@ export class KnowledgeRepository {
         answer: parsed.answer,
         keywords: parsed.keywords,
         field: parsed.field,
-        conflictKey: parsed.conflictKey || parsed.question,
+        conflictKey: parsed.conflictKey || questionConflictKey(parsed.question),
         origin: parsed.origin,
         sourceRefs: parsed.sourceRefs,
         ...(parsed.modelEvidence ? { modelEvidence: parsed.modelEvidence } : {}),
@@ -815,18 +819,26 @@ export class KnowledgeRepository {
   }
   detail(canonicalId: string, storeId?: string) {
     const bindings = this.listBindings(canonicalId).filter((b) => !storeId || b.storeId === storeId)
+    const entries = this.rows<KnowledgeEntry>('entries').filter((e) =>
+      e.draft.scope.kind === 'canonical'
+        ? e.draft.scope.canonicalId === canonicalId
+        : e.draft.scope.kind === 'binding' &&
+          bindings.some(
+            (b) => b.id === (e.draft.scope.kind === 'binding' ? e.draft.scope.bindingId : ''),
+          ),
+    )
+    const dependencies = new Set(
+      entries
+        .flatMap((e) => [e.draft, ...(e.approved ? [e.approved] : [])])
+        .flatMap((version) => version.sourceRefs.map((ref) => ref.sourceId)),
+    )
     return {
       canonical: this.getCanonical(canonicalId),
       bindings,
-      entries: this.rows<KnowledgeEntry>('entries').filter((e) =>
-        e.draft.scope.kind === 'canonical'
-          ? e.draft.scope.canonicalId === canonicalId
-          : e.draft.scope.kind === 'binding' &&
-            bindings.some(
-              (b) => b.id === (e.draft.scope.kind === 'binding' ? e.draft.scope.bindingId : ''),
-            ),
+      entries,
+      sources: this.listSources().filter(
+        (s) => bindings.some((b) => b.id === s.bindingId) || dependencies.has(s.id),
       ),
-      sources: this.listSources().filter((s) => bindings.some((b) => b.id === s.bindingId)),
     }
   }
   getSettings(): KnowledgeSettings {

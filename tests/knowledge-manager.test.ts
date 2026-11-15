@@ -8,9 +8,15 @@ import type {
   KnowledgeDraftInput,
   KnowledgeEntry,
   KnowledgeVersion,
+  KnowledgeJob,
 } from '../src/shared/contracts/knowledge'
 import KnowledgeCatalogDialog from '../src/modules/knowledge/components/KnowledgeCatalogDialog.vue'
 import KnowledgeManagerView from '../src/modules/knowledge/components/KnowledgeManagerView.vue'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createKnowledgeRepository } from '../electron/knowledge/repository'
+import { inspectKnowledgeBackup, restoreKnowledgeBackup } from '../electron/knowledge/backup'
 const fake = vi.hoisted(() => ({
   asset: vi.fn(),
   query: vi.fn(),
@@ -24,6 +30,7 @@ const fake = vi.hoisted(() => ({
   onContext: vi.fn(),
   onCloseRequest: vi.fn(),
   sourceHistory: vi.fn(),
+  entryHistory: vi.fn(),
   backup: vi.fn(),
 }))
 vi.mock('../src/modules/knowledge/manager-service', () => ({ createKnowledgeClient: () => fake }))
@@ -73,6 +80,7 @@ async function setup(controller = false) {
   fake.hide.mockReset().mockResolvedValue(undefined)
   fake.publish.mockReset().mockResolvedValue({ affectedBindings: [] })
   fake.sourceHistory.mockReset().mockResolvedValue([])
+  fake.entryHistory.mockReset().mockResolvedValue([])
   fake.backup.mockReset().mockResolvedValue({ directory: 'test-backup' })
   fake.context.mockResolvedValue({ workspaceId: 'w', storeId: 'a', revision: 1 })
   fake.onContext.mockReturnValue(() => {})
@@ -534,6 +542,8 @@ it('reopens product entry A after saving A then B with its newest persisted text
     manager = state!
   const a = pendingEntry(1),
     b = pendingEntry(3)
+  a.draft.scope = { kind: 'canonical', canonicalId: 'canonical' }
+  b.draft.scope = { kind: 'canonical', canonicalId: 'canonical' }
   const revisions = new Map([
     [a.id, 1],
     [b.id, 1],
@@ -660,4 +670,370 @@ it('clears the previous shop catalog and selected scope when the manager context
   expect(manager.catalogIds.value).toEqual([])
   expect(manager.catalogAll.value).toBe(false)
   wrapper.unmount()
+})
+
+it.each(['collect', 'daily-check'] as const)(
+  'continues a partial %s through the actual manager button without enabling uncertain paid or cancelled resume',
+  async (kind) => {
+    const { wrapper } = await setup()
+    const original = fake.query.getMockImplementation()!
+    const base: KnowledgeJob = {
+      id: 'partial',
+      kind,
+      storeId: 'a',
+      revision: 1,
+      status: 'needs-confirmation',
+      checkpoint: {},
+      payload: {},
+      progress: { completed: 1, total: 2 },
+      error: '图片读取不完整',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    fake.query.mockImplementation(async (input) =>
+      input.type === 'jobs'
+        ? {
+            items: [
+              base,
+              { ...base, id: 'paid', kind: 'learn', checkpoint: { state: 'submitted' } },
+              { ...base, id: 'cancelled', status: 'cancelled' },
+            ],
+            total: 3,
+            revision: 1,
+          }
+        : original(input),
+    )
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('任务'))!
+      .trigger('click')
+    await flushPromises()
+    const cards = wrapper.findAll('article.knowledge-card')
+    expect(cards).toHaveLength(3)
+    const resume = cards[0]!.findAll('button').find((button) => button.text() === '继续')
+    expect(resume).toBeDefined()
+    expect(cards[1]!.findAll('button').some((button) => button.text() === '继续')).toBe(false)
+    expect(cards[2]!.findAll('button').some((button) => button.text() === '继续')).toBe(false)
+    await resume!.trigger('click')
+    await flushPromises()
+    expect(fake.pipeline).toHaveBeenCalledWith({ action: 'resume', storeId: 'a', jobId: 'partial' })
+    expect(fake.pipeline.mock.calls.filter(([input]) => input.action === 'resume')).toHaveLength(1)
+    wrapper.unmount()
+  },
+)
+
+function sharedFamilyFixture() {
+  const canonical = { id: 'family', title: 'shared family', code: '', revision: 1, updatedAt: 1 }
+  const bindings = [
+    { id: 'a-root', storeId: 'a', productId: 'pa', skuId: '' },
+    { id: 'a-sku', storeId: 'a', productId: 'pa', skuId: 'red' },
+    { id: 'b-root', storeId: 'b', productId: 'pb', skuId: '' },
+    { id: 'b-sku', storeId: 'b', productId: 'pb', skuId: 'red' },
+    { id: 'a-other', storeId: 'a', productId: 'another-product', skuId: '' },
+  ].map((b) => ({
+    ...b,
+    canonicalId: canonical.id,
+    title: b.id,
+    revision: 1,
+    active: true,
+    updatedAt: 1,
+  }))
+  const entries: KnowledgeEntry[] = ['shared', ...bindings.map((b) => b.id)].map((id) => {
+    const draft = savedVersion({
+      id,
+      scope:
+        id === 'shared'
+          ? { kind: 'canonical', canonicalId: canonical.id }
+          : { kind: 'binding', bindingId: id },
+      question: `question-${id}`,
+      answer: `answer-${id}`,
+      sourceRefs: id === 'shared' ? [{ sourceId: 'b-origin', revision: 1 }] : [],
+    })
+    return { id, revision: 1, status: 'draft', draft, approved: null }
+  })
+  const sources = [
+    { id: 'a-origin', storeId: 'a', bindingId: 'a-root' },
+    { id: 'b-origin', storeId: 'b', bindingId: 'b-root' },
+    { id: 'b-private', storeId: 'b', bindingId: 'b-sku' },
+  ].map((s) => ({
+    ...s,
+    label: s.id,
+    kind: 'manual' as const,
+    revision: 1,
+    text: `text-${s.id}`,
+    hash: 'hash',
+    locator: {},
+    assetIds: [],
+    removed: false,
+    updatedAt: 1,
+  }))
+  const row = {
+    canonical,
+    binding: bindings[0]!,
+    sources: 1,
+    approved: 0,
+    drafts: entries.length,
+    sourceSummary: { count: 1, kinds: [], thumbnailAssetId: null },
+  }
+  return { detail: { canonical, bindings, entries, sources }, row }
+}
+
+it('shows only current product overrides, saves to A and keeps B-origin shared evidence inspectable', async () => {
+  const { wrapper } = await setup()
+  const original = fake.query.getMockImplementation()!
+  const fixture = sharedFamilyFixture()
+  fake.query.mockImplementation(async (input) =>
+    input.type === 'products'
+      ? {
+          items: [
+            {
+              ...fixture.row,
+              binding:
+                input.page.storeId === 'b' ? fixture.detail.bindings[2]! : fixture.row.binding,
+            },
+          ],
+          total: 1,
+          revision: 1,
+        }
+      : input.type === 'detail'
+        ? structuredClone(fixture.detail)
+        : original(input),
+  )
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '刷新')!
+    .trigger('click')
+  await flushPromises()
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '编辑')!
+    .trigger('click')
+  await flushPromises()
+  expect(wrapper.findAll('.knowledge-entry').map((row) => row.text())).toEqual([
+    expect.stringContaining('question-shared'),
+    expect.stringContaining('question-a-root'),
+    expect.stringContaining('question-a-sku'),
+  ])
+  const evidence = wrapper.get('.knowledge-entry-list').text()
+  expect(evidence).toContain('text-b-origin')
+  expect(evidence).toContain('来源店铺：b')
+  expect(evidence).not.toContain('text-b-private')
+  await wrapper
+    .findAll('.knowledge-entry')
+    .find((row) => row.text().includes('question-a-root'))!
+    .trigger('click')
+  await flushPromises()
+  await wrapper.get('[data-testid="draft-answer"]').setValue('edited in A')
+  await wrapper.get('form.knowledge-editor').trigger('submit')
+  await flushPromises()
+  expect(fake.saveDraft).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      id: 'a-root',
+      scope: { kind: 'binding', bindingId: 'a-root' },
+      answer: 'edited in A',
+    }),
+  )
+  expect(wrapper.get('form.knowledge-editor').text()).not.toContain('another-product')
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '原始资料 / 来源版本')!
+    .trigger('click')
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '刷新')!
+    .trigger('click')
+  await flushPromises()
+  const origin = wrapper
+    .findAll('.knowledge-sources article')
+    .find((row) => row.text().includes('b-origin'))
+  expect(origin?.text()).toContain('来源店铺：b')
+  await origin!.find('button').trigger('click')
+  await flushPromises()
+  expect(fake.sourceHistory).toHaveBeenCalledWith('b-origin')
+  await wrapper.get('[data-testid="knowledge-store"]').setValue('b')
+  await flushPromises()
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '编辑')!
+    .trigger('click')
+  await flushPromises()
+  expect(wrapper.findAll('.knowledge-entry').map((row) => row.text())).toEqual([
+    expect.stringContaining('question-shared'),
+    expect.stringContaining('question-b-root'),
+    expect.stringContaining('question-b-sku'),
+  ])
+  await wrapper
+    .findAll('.knowledge-entry')
+    .find((row) => row.text().includes('question-b-sku'))!
+    .trigger('click')
+  await flushPromises()
+  await wrapper.get('[data-testid="draft-answer"]').setValue('edited in B')
+  await wrapper.get('form.knowledge-editor').trigger('submit')
+  await flushPromises()
+  expect(fake.saveDraft).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      id: 'b-sku',
+      scope: { kind: 'binding', bindingId: 'b-sku' },
+      answer: 'edited in B',
+    }),
+  )
+  wrapper.unmount()
+})
+
+it('clears entry-owned history when selecting, creating or discarding a draft', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  manager.tab.value = 'general'
+  const version = savedVersion({
+    id: 'a',
+    scope: { kind: 'store', storeId: 'a' },
+    question: 'A',
+    answer: 'A',
+  })
+  const entry: KnowledgeEntry = {
+    id: 'a',
+    revision: 1,
+    status: 'draft',
+    draft: version,
+    approved: null,
+  }
+  manager.entryHistory.value = [{ version, reviewed: false }]
+  manager.editEntry(entry)
+  expect(manager.entryHistory.value).toEqual([])
+  manager.entryHistory.value = [{ version, reviewed: false }]
+  await manager.writeOne()
+  expect(manager.entryHistory.value).toEqual([])
+  manager.entryHistory.value = [{ version, reviewed: false }]
+  manager.discardDraft()
+  expect(manager.entryHistory.value).toEqual([])
+  wrapper.unmount()
+})
+
+it('ignores delayed history from A after B or a new A draft session is selected', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  const entries = ['A', 'B'].map(
+    (id): KnowledgeEntry => ({
+      id,
+      revision: 1,
+      status: 'draft',
+      approved: null,
+      draft: savedVersion({ id, scope: { kind: 'store', storeId: 'a' }, question: id, answer: id }),
+    }),
+  )
+  manager.editEntry(entries[0]!)
+  const pending = deferred<{ version: KnowledgeVersion; reviewed: boolean }[]>()
+  fake.entryHistory.mockReturnValueOnce(pending.promise)
+  const loaded = manager.loadEntryHistory()
+  manager.editEntry(entries[1]!)
+  manager.editEntry(entries[0]!)
+  pending.resolve([{ version: entries[0]!.draft, reviewed: false }])
+  await loaded
+  expect(manager.entryHistory.value).toEqual([])
+  fake.entryHistory.mockResolvedValueOnce([{ version: entries[0]!.draft, reviewed: true }])
+  await manager.loadEntryHistory()
+  expect(manager.entryHistory.value[0]?.reviewed).toBe(true)
+  wrapper.unmount()
+})
+
+it('persists only the current-shop override through the manager and round trips its long shared question through publication and backups', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'knowledge-manager-sqlite-'))
+  let repo = createKnowledgeRepository({ directory: join(directory, 'live'), workspaceId: 'w' })
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  try {
+    const canonical = repo.saveCanonical({ title: 'shared' })
+    const a = repo.bindProduct({ canonicalId: canonical.id, storeId: 'a', productId: 'pa' })
+    const b = repo.bindProduct({
+      canonicalId: canonical.id,
+      storeId: 'b',
+      productId: 'pb',
+      skuId: 'blue',
+    })
+    const origin = repo.saveSource({
+      storeId: 'b',
+      bindingId: b.id,
+      kind: 'manual',
+      label: 'B evidence',
+      text: 'B source',
+    })
+    const privateB = repo.saveDraft({
+      scope: { kind: 'binding', bindingId: b.id },
+      question: 'B private',
+      answer: 'unchanged B',
+    })
+    const localA = repo.saveDraft({
+      scope: { kind: 'binding', bindingId: a.id },
+      question: 'A local',
+      answer: 'old A',
+    })
+    fake.query.mockImplementation(async (query) => repo.query(query))
+    fake.saveDraft.mockImplementation(async (input: KnowledgeDraftInput) => repo.saveDraft(input))
+    fake.publish.mockImplementation(async (v: KnowledgeVersion) =>
+      repo.publish({
+        entryId: v.id,
+        expectedDraftRevision: v.revision,
+        expectedSourceRevisions: Object.fromEntries(
+          v.sourceRefs.map((r) => [r.sourceId, r.revision]),
+        ),
+      }),
+    )
+    await manager.openProduct(repo.listProducts({ storeId: 'a' }).items[0]!)
+    expect(manager.detail.value?.bindings).toHaveLength(2)
+    expect(manager.editableEntries.value.map((e) => e.id)).toEqual([localA.id])
+    expect(() => manager.editEntry(repo.getEntry(privateB.id)!)).toThrow('所属店铺')
+    manager.editEntry(repo.getEntry(localA.id)!)
+    manager.draft.value!.answer = 'saved A'
+    manager.changed()
+    await manager.saveDraft()
+    expect(repo.getEntry(localA.id)?.draft.answer).toBe('saved A')
+    expect(repo.getEntry(privateB.id)?.draft).toEqual(privateB)
+    // A stale or injected editor scope cannot autosave into B, even though the full family is retained.
+    manager.draft.value!.scope = { kind: 'binding', bindingId: b.id }
+    manager.changed()
+    await expect(manager.saveDraft()).rejects.toThrow('所属店铺')
+    manager.discardDraft()
+    await manager.writeOne()
+    manager.setScope('canonical')
+    manager.draft.value!.question = '完整问题'.repeat(1000)
+    manager.draft.value!.answer = 'shared answer'
+    manager.draft.value!.sourceRefs = [{ sourceId: origin.id, revision: 1 }]
+    manager.changed()
+    await manager.saveDraft()
+    const id = manager.draft.value!.id!
+    await manager.prepareReview()
+    expect(manager.affected.value.sort()).toEqual(['a', 'b'])
+    await manager.confirmPublish()
+    expect(repo.getEntry(id)?.status).toBe('approved')
+    await manager.closeEditor()
+    repo.dispose()
+    repo = createKnowledgeRepository({ directory: join(directory, 'live'), workspaceId: 'reopen' })
+    await manager.openProduct(repo.listProducts({ storeId: 'a' }).items[0]!)
+    expect(manager.sources.value.map((s) => s.id)).toContain(origin.id)
+    manager.editEntry(repo.getEntry(id)!)
+    manager.draft.value!.answer = 'reopened edit'
+    manager.changed()
+    await manager.saveDraft()
+    expect(repo.getEntry(id)?.draft.question).toHaveLength(4000)
+    for (const scope of [undefined, { canonicalId: canonical.id }]) {
+      const backup = repo.createBackup(join(directory, 'backups'), scope)
+      inspectKnowledgeBackup(backup.directory)
+      repo.dispose()
+      restoreKnowledgeBackup({
+        directory: join(directory, 'live'),
+        backupDirectory: backup.directory,
+      })
+      repo = createKnowledgeRepository({
+        directory: join(directory, 'live'),
+        workspaceId: 'restored',
+      })
+      expect(repo.getEntry(id)?.draft.answer).toBe('reopened edit')
+      expect(repo.getEntry(id)?.approved?.answer).toBe('shared answer')
+      expect(repo.getEntry(privateB.id)?.draft).toEqual(privateB)
+    }
+  } finally {
+    wrapper.unmount()
+    repo.dispose()
+    rmSync(directory, { recursive: true, force: true })
+  }
 })

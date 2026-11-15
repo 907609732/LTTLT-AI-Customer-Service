@@ -514,3 +514,28 @@ describe('durable SQLite knowledge repository', () => {
     expect(repository.listJobs({ storeId: 'a' }).items).toHaveLength(1)
   })
 })
+
+it('includes shared entry source dependencies even when their origin belongs outside the current product bindings', () => {
+  const { repository } = fixture()
+  const { canonical } = product(repository, 'a', 'pa')
+  const source = repository.saveSource({
+    storeId: 'b',
+    kind: 'document',
+    label: 'B shared evidence',
+    text: 'complete evidence',
+  })
+  repository.saveDraft({
+    scope: { kind: 'canonical', canonicalId: canonical.id },
+    question: 'shared fact',
+    answer: 'fact',
+    sourceRefs: [{ sourceId: source.id, revision: 1 }],
+  })
+  const unrelated = repository.saveSource({
+    storeId: 'b',
+    kind: 'document',
+    label: 'private B material',
+    text: 'not referenced',
+  })
+  expect(repository.detail(canonical.id, 'a').sources.map((s) => s.id)).toContain(source.id)
+  expect(repository.detail(canonical.id, 'a').sources.map((s) => s.id)).not.toContain(unrelated.id)
+})
