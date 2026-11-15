@@ -21,11 +21,13 @@ import type {
   KnowledgeSummary,
   KnowledgeTrial,
   KnowledgeWindowContext,
+  KnowledgeQuery,
 } from '@/shared/contracts/knowledge-client'
 import type {
   KnowledgePipelineCapabilities,
   KnowledgeCatalogPage,
   KnowledgeEstimate,
+  KnowledgePipelineInput,
 } from '@/shared/contracts/knowledge-pipeline'
 import { createKnowledgeClient } from './manager-service'
 
@@ -90,7 +92,43 @@ export function useKnowledgeManager() {
     estimate = ref<KnowledgeEstimate>()
   const stores = computed(() => runtime.snapshot.stores),
     currentStore = computed(() => stores.value.find((s) => s.id === storeId.value))
-  const client = () => createKnowledgeClient(workspace.value)
+  let leaseRevision = 0,
+    editGeneration = 0,
+    draftSession = 0
+  let activeRun: symbol | undefined
+  function client() {
+    const service = createKnowledgeClient(workspace.value),
+      revision = leaseRevision,
+      w = workspace.value,
+      shop = storeId.value
+    const guard = async <T>(promise: Promise<T>): Promise<T> => {
+      try {
+        const result = await promise
+        assertCapturedLease(revision, w, shop)
+        return result
+      } catch (cause) {
+        assertCapturedLease(revision, w, shop)
+        throw cause
+      }
+    }
+    return {
+      ...service,
+      query: <T extends KnowledgeQuery>(query: T) => guard(service.query(query)),
+      general: (input: Parameters<typeof service.general>[0]) => guard(service.general(input)),
+      command: (input: Parameters<typeof service.command>[0]) => guard(service.command(input)),
+      saveDraft: (input: KnowledgeDraftInput) => guard(service.saveDraft(input)),
+      publish: (input: KnowledgeVersion) => guard(service.publish(input)),
+      trial: (input: Parameters<typeof service.trial>[0]) => guard(service.trial(input)),
+      asset: (id: string) => guard(service.asset(id)),
+      sourceHistory: (id: string) => guard(service.sourceHistory(id)),
+      pipeline: <T extends KnowledgePipelineInput>(input: T) => guard(service.pipeline(input)),
+      backup: () => guard(service.backup()),
+      reassociate: (input: Parameters<typeof service.reassociate>[0]) =>
+        guard(service.reassociate(input)),
+      context: () => guard(Promise.resolve(service.context())),
+      hide: () => guard(Promise.resolve(service.hide())),
+    }
+  }
   let ticket = 0,
     disposed = false,
     timer: ReturnType<typeof setTimeout> | undefined,
@@ -100,15 +138,24 @@ export function useKnowledgeManager() {
   const reason = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
   async function run(action: () => Promise<void>) {
     if (busy.value) return
+    const token = Symbol()
+    activeRun = token
     busy.value = true
     error.value = ''
     try {
       await action()
     } catch (cause) {
-      error.value = reason(cause)
+      if (activeRun === token) error.value = reason(cause)
     } finally {
-      busy.value = false
+      if (activeRun === token) {
+        busy.value = false
+        activeRun = undefined
+      }
     }
+  }
+  function assertCapturedLease(revision: number, w: string, shop: string) {
+    assertLease(w, shop)
+    if (revision !== leaseRevision) throw Error('知识库显示范围已改变，已丢弃旧结果')
   }
   function assertLease(w: string, s: string) {
     if (
@@ -151,11 +198,7 @@ export function useKnowledgeManager() {
         if (id !== ticket) return
         settings.value = result
       } else if (view.value === 'review') {
-        const result = await service.query({
-          type: 'entries',
-          page: { storeId: s, offset: page.value * 20, limit: 20 },
-          status: 'draft',
-        })
+        const result = await pendingPage(service, s, search.value, page.value * 20, 20)
         assertLease(w, s)
         if (id !== ticket) return
         entries.value = result.items
@@ -202,49 +245,89 @@ export function useKnowledgeManager() {
       expiresAt: version.expiresAt,
     }
   }
-  function saveDraft() {
+  function currentEntry(entry: KnowledgeEntry): KnowledgeEntry {
+    const candidates = [
+      detail.value?.entries.find((value) => value.id === entry.id),
+      entries.value.find((value) => value.id === entry.id),
+      entry,
+    ].filter((value): value is KnowledgeEntry => Boolean(value))
+    return candidates.reduce((latest, value) => (value.revision > latest.revision ? value : latest))
+  }
+  function reconcileVersion(version: KnowledgeVersion) {
+    const update = (entry: KnowledgeEntry): KnowledgeEntry =>
+      entry.id === version.id
+        ? { ...entry, revision: version.revision, status: 'draft', draft: version }
+        : entry
+    if (detail.value) detail.value.entries = detail.value.entries.map(update)
+    entries.value = entries.value.map(update)
+  }
+  function saveOnce() {
     clearTimeout(timer)
+    const revision = leaseRevision,
+      w = workspace.value,
+      shop = storeId.value,
+      session = draftSession
     const operation = saveTail.then(async () => {
+      assertCapturedLease(revision, w, shop)
+      if (session !== draftSession) throw Error('编辑内容已切换，请重新操作')
       if (!dirty.value || !draft.value) return
       if (!draft.value.question.trim() || !draft.value.answer.trim())
         throw Error('请填写问题和答案后保存；草稿仍保留在编辑器中')
-      const w = workspace.value,
-        s = storeId.value,
-        input = knowledgeDraftSchema.parse(draft.value),
-        serialized = JSON.stringify(knowledgeDraftSchema.parse(draft.value))
+      const input = knowledgeDraftSchema.parse(draft.value),
+        generation = editGeneration
       autosave.value = '正在保存草稿…'
       try {
         const version = await client().saveDraft(input)
-        assertLease(w, s)
+        assertCapturedLease(revision, w, shop)
+        reconcileVersion(version)
+        if (session !== draftSession) throw Error('编辑内容已切换，请重新操作')
         saved.value = version
-        dirty.value = draft.value
-          ? serialized !== JSON.stringify(knowledgeDraftSchema.parse(draft.value))
-          : false
+        dirty.value = generation !== editGeneration
         if (draft.value) {
           draft.value.id = version.id
           draft.value.expectedRevision = version.revision
         }
-        autosave.value = '草稿已自动保存 · 尚未发布'
+        autosave.value = dirty.value ? '正在保存较新的编辑…' : '草稿已自动保存 · 尚未发布'
       } catch (cause) {
-        autosave.value = '保存失败，草稿已保留'
+        if (revision === leaseRevision && session === draftSession)
+          autosave.value = '保存失败，草稿已保留'
         throw cause
       }
     })
     saveTail = operation.catch(() => {})
     return operation
   }
+  async function saveDraft() {
+    const revision = leaseRevision,
+      w = workspace.value,
+      shop = storeId.value,
+      session = draftSession
+    do {
+      await saveOnce()
+      assertCapturedLease(revision, w, shop)
+      if (session !== draftSession) throw Error('编辑内容已切换，请重新操作')
+    } while (dirty.value)
+  }
   function changed() {
+    editGeneration++
     dirty.value = true
     saved.value = undefined
     autosave.value = '未发布草稿'
     clearTimeout(timer)
+    const revision = leaseRevision
     timer = setTimeout(() => {
       void saveDraft().catch((cause) => {
-        error.value = reason(cause)
+        if (
+          !disposed &&
+          revision === leaseRevision &&
+          workspace.value === runtime.snapshot.workspaceId
+        )
+          error.value = reason(cause)
       })
     }, 650)
   }
   function discardDraft() {
+    draftSession++
     clearTimeout(timer)
     draft.value = undefined
     dirty.value = false
@@ -256,7 +339,10 @@ export function useKnowledgeManager() {
     notice.value = '知识库设置已保存'
   }
   async function closeEditor() {
-    await saveDraft()
+    do {
+      await saveDraft()
+    } while (dirty.value)
+    draftSession++
     draft.value = undefined
     saved.value = undefined
     detail.value = undefined
@@ -271,6 +357,7 @@ export function useKnowledgeManager() {
   async function changeStore(next: string) {
     await run(async () => {
       await closeEditor()
+      leaseRevision++
       storeId.value = next
       selection.value = []
       allScope.value = false
@@ -317,6 +404,8 @@ export function useKnowledgeManager() {
     trialSku.value = ''
   }
   function editEntry(entry: KnowledgeEntry) {
+    entry = currentEntry(entry)
+    draftSession++
     draft.value = editable(entry.draft)
     saved.value = entry.draft
     dirty.value = false
@@ -324,7 +413,9 @@ export function useKnowledgeManager() {
   }
   async function createOverride(entry: KnowledgeEntry) {
     await saveDraft()
-    const version = entry.draft
+    const version = currentEntry(entry).draft
+    draftSession++
+    draftSession++
     draft.value = {
       scope: detailBinding.value
         ? { kind: 'binding', bindingId: detailBinding.value.id }
@@ -354,6 +445,7 @@ export function useKnowledgeManager() {
       await loadCanonicals()
       return
     }
+    draftSession++
     draft.value = {
       scope: detailBinding.value
         ? { kind: 'binding', bindingId: detailBinding.value.id }
@@ -457,7 +549,7 @@ export function useKnowledgeManager() {
     await saveDraft()
     if (dirty.value) throw Error('草稿在保存期间又有修改，请保存后重新审核')
     const list =
-      values ??
+      values?.map(currentEntry) ??
       (saved.value
         ? [
             {
@@ -505,64 +597,91 @@ export function useKnowledgeManager() {
         sourceSummary: { count: 0, kinds: [], thumbnailAssetId: null },
       })
   }
+  const pendingPage = (
+    service: ReturnType<typeof client>,
+    shop: string,
+    query: string,
+    offset: number,
+    limit: number,
+  ) =>
+    service.query({
+      type: 'entries',
+      page: { storeId: shop, search: query, offset, limit },
+      status: 'draft',
+    })
+  function listingScope() {
+    return {
+      revision: leaseRevision,
+      w: workspace.value,
+      shop: storeId.value,
+      view: view.value,
+      tab: tab.value,
+      search: search.value,
+      total: total.value,
+    }
+  }
+  function assertListing(scope: ReturnType<typeof listingScope>) {
+    assertCapturedLease(scope.revision, scope.w, scope.shop)
+    if (scope.view !== view.value || scope.tab !== tab.value || scope.search !== search.value)
+      throw Error('筛选范围已变化，请重新选择')
+  }
+  function listingPage(
+    service: ReturnType<typeof client>,
+    scope: ReturnType<typeof listingScope>,
+    offset: number,
+    limit: number,
+  ) {
+    return scope.view === 'review'
+      ? pendingPage(service, scope.shop, scope.search, offset, limit)
+      : scope.tab === 'products'
+        ? service.query({
+            type: 'products',
+            page: { storeId: scope.shop, search: scope.search, offset, limit },
+          })
+        : service.general({ storeId: scope.shop, search: scope.search, offset, limit })
+  }
   async function bulkReview() {
-    const values: KnowledgeEntry[] = [],
+    const scope = listingScope(),
       service = client(),
-      w = workspace.value,
-      shop = storeId.value
-    if (view.value === 'review')
-      values.push(...entries.value.filter((e) => selection.value.includes(e.id)))
-    else {
-      let revision: number | undefined
-      for (let offset = 0; offset < total.value; offset += 100) {
-        const result =
-          tab.value === 'products'
-            ? await service.query({
-                type: 'products',
-                page: { storeId: shop, search: search.value, offset, limit: 100 },
-              })
-            : await service.general({ storeId: shop, search: search.value, offset, limit: 100 })
-        assertLease(w, shop)
-        if (revision !== undefined && revision !== result.revision)
-          throw Error('批量范围已变化，请重新选择')
-        revision = result.revision
-        for (const item of result.items) {
-          if ('binding' in item && selection.value.includes(item.binding.id)) {
-            const d = await service.query({
-              type: 'detail',
-              canonicalId: item.canonical.id,
-              storeId: shop,
-            })
-            assertLease(w, shop)
-            values.push(...d.entries.filter((e) => e.status === 'draft'))
-          } else if ('draft' in item && selection.value.includes(item.id)) values.push(item)
-        }
+      selected = new Set(selection.value),
+      values: KnowledgeEntry[] = []
+    let revision: number | undefined
+    for (let offset = 0; offset < scope.total; offset += 100) {
+      const result = await listingPage(service, scope, offset, 100)
+      assertListing(scope)
+      if (revision !== undefined && revision !== result.revision)
+        throw Error('批量范围已变化，请重新选择')
+      revision = result.revision
+      for (const item of result.items) {
+        if ('binding' in item && selected.has(item.binding.id)) {
+          const d = await service.query({
+            type: 'detail',
+            canonicalId: item.canonical.id,
+            storeId: scope.shop,
+          })
+          assertListing(scope)
+          values.push(...d.entries.filter((entry) => entry.status === 'draft'))
+        } else if ('draft' in item && selected.has(item.id)) values.push(item)
       }
     }
-    await prepareReview([...new Map(values.map((e) => [e.id, e])).values()])
+    assertListing(scope)
+    await prepareReview([...new Map(values.map((entry) => [entry.id, entry])).values()])
   }
   async function selectAll() {
-    if (total.value > 1000) throw Error('当前范围超过1000项，请缩小筛选')
+    const scope = listingScope(),
+      service = client()
+    if (scope.total > 1000) throw Error('当前范围超过1000项，请缩小筛选')
     const ids: string[] = []
     let revision: number | undefined
-    for (let offset = 0; offset < total.value; offset += 100) {
-      const result =
-        tab.value === 'products' && view.value !== 'review'
-          ? await client().query({
-              type: 'products',
-              page: { storeId: storeId.value, search: search.value, offset, limit: 100 },
-            })
-          : await client().general({
-              storeId: storeId.value,
-              search: search.value,
-              offset,
-              limit: 100,
-            })
+    for (let offset = 0; offset < scope.total; offset += 100) {
+      const result = await listingPage(service, scope, offset, 100)
+      assertListing(scope)
       if (revision !== undefined && revision !== result.revision)
         throw Error('筛选范围已变化，请重选')
       revision = result.revision
       ids.push(...result.items.map((item) => ('binding' in item ? item.binding.id : item.id)))
     }
+    assertListing(scope)
     selection.value = ids
     allScope.value = true
   }
@@ -736,6 +855,7 @@ export function useKnowledgeManager() {
     await saveDraft()
     if (context.revision <= contextRevision && context.workspaceId === workspace.value) return
     await closeEditor()
+    leaseRevision++
     contextRevision = context.revision
     workspace.value = context.workspaceId
     storeId.value = context.storeId || stores.value[0]?.id || ''
@@ -751,7 +871,9 @@ export function useKnowledgeManager() {
   let contextRevision = -1
   async function hide() {
     await run(async () => {
-      await saveDraft()
+      do {
+        await saveDraft()
+      } while (dirty.value)
       await client().hide()
     })
   }
@@ -759,9 +881,14 @@ export function useKnowledgeManager() {
     await runtime.refresh()
     workspace.value = runtime.snapshot.workspaceId
     const service = client()
+    const mountedRevision = leaseRevision
     offContext = service.onContext?.((context) => {
       void applyContext(context).catch((cause) => {
-        error.value = reason(cause)
+        if (
+          context.workspaceId === workspace.value &&
+          workspace.value === runtime.snapshot.workspaceId
+        )
+          error.value = reason(cause)
       })
     })
     offClose = service.onCloseRequest?.(() => {
@@ -775,30 +902,70 @@ export function useKnowledgeManager() {
         await refresh()
       }
     } catch (cause) {
-      error.value = reason(cause)
+      if (mountedRevision === leaseRevision) error.value = reason(cause)
     }
   })
   watch(
     () => runtime.snapshot.workspaceId,
     (next) => {
       if (workspace.value && next !== workspace.value) {
+        leaseRevision++
+        draftSession++
+        editGeneration++
         ticket++
+        activeRun = undefined
+        busy.value = false
+        loading.value = false
         clearTimeout(timer)
+        saveTail = Promise.resolve()
+        contextRevision = -1
         draft.value = undefined
         dirty.value = false
+        saved.value = undefined
+        autosave.value = ''
         detail.value = undefined
         detailBinding.value = undefined
+        detailTab.value = 'qa'
         sources.value = []
         sourceVersions.value = []
         trial.value = undefined
         question.value = ''
-        mappingReview.value = undefined
+        trialSku.value = ''
         products.value = []
         entries.value = []
+        jobs.value = []
+        misses.value = []
+        settings.value = undefined
+        summary.value = undefined
+        capabilities.value = undefined
+        total.value = 0
         selection.value = []
+        allScope.value = false
         reviewEntries.value = []
+        excluded.value = []
+        affected.value = []
+        addingProduct.value = false
+        removing.value = false
+        newTitle.value = ''
+        newProductId.value = ''
+        canonicalId.value = ''
+        canonicals.value = []
+        metadataTitle.value = ''
+        metadataCode.value = ''
+        mappingCanonical.value = ''
+        mappingReview.value = undefined
+        catalog.value = undefined
+        catalogIds.value = []
+        catalogAll.value = false
+        catalogOpen.value = false
+        estimate.value = undefined
         workspace.value = next
         storeId.value = ''
+        view.value = 'library'
+        tab.value = 'products'
+        search.value = ''
+        page.value = 0
+        notice.value = ''
         error.value = '账号工作区已改变，请从目标店铺重新打开知识库'
       }
     },
