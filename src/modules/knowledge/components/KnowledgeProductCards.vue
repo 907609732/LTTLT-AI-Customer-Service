@@ -13,6 +13,7 @@ const emit = defineEmits<{
   select: [id: string, checked: boolean]
   edit: [row: KnowledgeProductCard]
   learn: [row: KnowledgeProductCard]
+  ocr: [row: KnowledgeProductCard]
   remove: [row: KnowledgeProductCard]
   backup: [canonicalId: string]
 }>()
@@ -59,6 +60,7 @@ const emit = defineEmits<{
       </div>
     </div>
     <div class="knowledge-card-actions">
+      <button @click="emit('ocr', row)">识别图片文字</button>
       <button class="primary" :disabled="!canLearn" @click="emit('learn', row)">开始学习</button
       ><button @click="emit('backup', row.canonical.id)">同款备份</button
       ><button @click="emit('edit', row)">编辑</button

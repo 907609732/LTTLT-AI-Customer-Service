@@ -1,4 +1,5 @@
 import { createKnowledgeSourcePipeline } from './knowledge/source-pipeline'
+import { createKnowledgeImageOcr } from './knowledge/image-ocr'
 import { readFile, stat } from 'node:fs/promises'
 import { createKnowledgePipelineCoordinator } from './knowledge/pipeline'
 import { createKnowledgeCollector } from './knowledge/collector'
@@ -478,8 +479,18 @@ export function createLocalRuntime(options: {
     onKnowledgeModel: (port: KnowledgeModelPort) =>
       knowledge.setModel({
         complete: port.complete,
+        // Keep bulk learning below the managed service's standard five-per-minute ceiling.
+        minimumIntervalMs: () => (managed.active.mode === 'managed' ? 13000 : 0),
         identity: () =>
-          JSON.stringify([managed.active.mode, read().config.ai.baseUrl, read().config.ai.model]),
+          JSON.stringify(
+            managed.active.mode === 'managed'
+              ? [
+                  'managed',
+                  managed.active.apiOrigin,
+                  managed.snapshot().session.account?.capabilities?.model ?? 'unavailable',
+                ]
+              : ['local', read().config.ai.baseUrl, read().config.ai.model],
+          ),
         vision: () =>
           managed.active.mode === 'managed'
             ? {
@@ -616,11 +627,17 @@ export function createLocalRuntime(options: {
   knowledgePipeline.register(
     createKnowledgeSourcePipeline({
       repository: knowledgeRepository,
+      imageOcr: createKnowledgeImageOcr({
+        repository: knowledgeRepository,
+        assertActive,
+        assertStore: knowledge.assertStore,
+      }),
       assertStore: knowledge.assertStore,
       model: {
         complete: knowledge.complete,
         vision: knowledge.vision,
         identity: knowledge.modelIdentity,
+        minimumIntervalMs: knowledge.modelMinimumIntervalMs,
       },
       assertActive,
       changed: () => {

@@ -1,17 +1,44 @@
 package lingtuhost
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/lingtu"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
+	"image"
+	"image/png"
 	"io"
+	"math/rand"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestLingtuKnowledgePNGTileInputIsBounded(t *testing.T) {
+	picture := image.NewNRGBA(image.Rect(0, 0, 400, 400))
+	_, _ = rand.New(rand.NewSource(1)).Read(picture.Pix)
+	var buffer bytes.Buffer
+	if err := png.Encode(&buffer, picture); err != nil {
+		t.Fatal(err)
+	}
+	data := "data:image/png;base64," + base64.StdEncoding.EncodeToString(buffer.Bytes())
+	input := `{"client_request_id":"knowledge-tile","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"` + data + `"}}]}]}`
+	if len(input) <= 128*1024 {
+		t.Fatal("fixture must exceed old body limit")
+	}
+	if _, _, err := parseChat(strings.NewReader(input)); err != nil {
+		t.Fatalf("valid tile rejected: %v", err)
+	}
+	for _, bad := range []string{"data:image/png;base64,AAA", "data:image/svg+xml;base64,PHN2Zz4=", "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("not a PNG"))} {
+		if _, _, err := parseChat(strings.NewReader(strings.Replace(input, data, bad, 1))); err == nil {
+			t.Fatal("invalid inline image accepted")
+		}
+	}
+}
 
 func TestLingtuVisionChatPartsAreCanonicalAndValidated(t *testing.T) {
 	input := `{"client_request_id":"vision-1","messages":[{"role":"user","content":[{"type":"text","text":"图片是什么"},{"type":"image_url","image_url":{"url":"https://images.example.com/photo.png"}}]}]}`
@@ -59,6 +86,23 @@ func TestLingtuVisionModelChannelAndCapabilityAreExplicit(t *testing.T) {
 	}
 	if visionCapability(visionModel)["vision"] != false {
 		t.Fatal("disabled channel must remove image capability")
+	}
+}
+
+func TestLingtuVisionCapabilityRecognizesConfiguredConnectionAliases(t *testing.T) {
+	db := managedModelDB(t)
+	channel := qwenModelFixture()
+	channel.Name = "vision-alias-test"
+	channel.Models = visionModel
+	if err := db.Create(channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	binding := lingtu.ModelConnection{ChannelID: channel.Id, Provider: "qwen", Name: "商品识图", ModelID: "managed-vision-test", Enabled: true, Revision: 1, ConfigHash: channelHash(*channel)}
+	if err := db.Create(&binding).Error; err != nil {
+		t.Fatal(err)
+	}
+	if visionCapability(binding.ModelID)["vision"] != true {
+		t.Fatal("ready Qwen visual connection alias must advertise vision")
 	}
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "lingtu-ai",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "private": true,
   "description": "灵兔AI电商客服 · 本机模型 Key 与可选托管服务的电商客服桌面端",
   "main": "dist-electron/main.cjs",
@@ -32,6 +32,7 @@
     "@modelcontextprotocol/server": "2.4.0",
     "element-plus": "2.8.8",
     "js-tiktoken": "1.0.21",
+    "jsonrepair": "3.15.0",
     "mammoth": "1.13.0",
     "minisearch": "7.2.0",
     "papaparse": "5.7.1",

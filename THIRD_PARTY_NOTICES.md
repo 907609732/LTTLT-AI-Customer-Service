@@ -45,3 +45,16 @@ The application directly uses the following already pinned dependencies; it does
 - read-excel-file 9.3.17 — MIT, https://github.com/catamphetamine/read-excel-file . Uses v9's all-sheets Node API.
 
 Package licenses are retained in their installed distribution. Existing PapaParse, Zod and js-tiktoken are reused for CSV, schema validation and per-call token accounting respectively. All other new knowledge-ingestion fixtures are synthetic local test materials with no customer content.
+
+
+## jsonrepair 3.15.0 (knowledge model output)
+
+Source: https://github.com/josdejong/jsonrepair . Unmodified package, ISC license. Used only behind a strict repair allowlist; original model responses remain available for review.
+
+The ISC License
+
+Copyright (c) 2020-2026 by Jos de Jong
+
+Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL ISC BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

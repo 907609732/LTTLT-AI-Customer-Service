@@ -153,7 +153,8 @@ function createManagedSession(options = {}) {
   function validateAccount(m) {
     if (m?.status === 'disabled') throw error('account_disabled');
     if (!m || m.user_id !== credential?.userId || m.status !== 'enabled' || !text(m.display_name) || !m.trial || !['limit', 'used', 'reserved', 'remaining', 'expires_at'].every(k => finite(m.trial[k]))) throw error('invalid_response');
-    const capabilities=m.capabilities?{vision:m.capabilities.vision===true&&m.capabilities.model==='qwen3-vl-plus'&&m.capabilities.max_images===4,model:typeof m.capabilities.model==='string'?m.capabilities.model.slice(0,128):'',maxImages:4}:undefined;
+    // The authenticated service authorizes the upstream model; configured connections have aliases.
+    const capabilities=m.capabilities?{vision:m.capabilities.vision===true&&text(m.capabilities.model,128)&&m.capabilities.max_images===4,model:typeof m.capabilities.model==='string'?m.capabilities.model.slice(0,128):'',maxImages:4}:undefined;
     return { userId: m.user_id, displayName: m.display_name,...(capabilities?{capabilities}:{}), trial: { limit: m.trial.limit, used: m.trial.used, reserved: m.trial.reserved, remaining: m.trial.remaining, expiresAt: m.trial.expires_at } };
   }
   function later(fn, ms) { timer = schedule(fn, ms); timer?.unref?.(); }
@@ -258,7 +259,7 @@ function createManagedSession(options = {}) {
     let messages;try{messages=validateMessages(payload.messages);}catch{throw error('invalid_request');}
     if(messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==='image_url'))&&!state.account?.capabilities?.vision)throw error('vision_unavailable');
     const body = { client_request_id: payload.client_request_id, messages };
-    if (Buffer.byteLength(JSON.stringify(body)) > 128*1024) throw error('invalid_request');
+    if (Buffer.byteLength(JSON.stringify(body)) > 16*1024*1024) throw error('invalid_request');
     const e = epoch;
     try {
       if (!credential || credential.expiresAt <= now()) throw error('session_expired');

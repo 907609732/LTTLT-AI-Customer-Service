@@ -6,6 +6,7 @@ import KnowledgeUncertainCall from './KnowledgeUncertainCall.vue'
 import KnowledgeCatalogDialog from './KnowledgeCatalogDialog.vue'
 import KnowledgeThumbnail from './KnowledgeThumbnail.vue'
 import KnowledgeProductCards from './KnowledgeProductCards.vue'
+import KnowledgeOcrPreview from './KnowledgeOcrPreview.vue'
 import KnowledgeDraftEditor from './KnowledgeDraftEditor.vue'
 import KnowledgeReviewDialog from './KnowledgeReviewDialog.vue'
 import {
@@ -123,6 +124,8 @@ const {
   loadCatalog,
   collectCatalog,
   learnProduct,
+  recognizeProduct,
+  ocrPreview,
   startLearn,
   chooseSources,
   archiveChats,
@@ -141,6 +144,12 @@ const {
 
 <template>
   <main class="knowledge-manager">
+    <KnowledgeOcrPreview
+      v-if="ocrPreview"
+      :preview="ocrPreview"
+      :load-asset="client().asset"
+      @close="ocrPreview = undefined"
+    />
     <div v-if="archiveOpen" class="knowledge-modal-backdrop">
       <section class="knowledge-modal" role="dialog" aria-label="选择归档聊天范围">
         <h2>本机归档聊天</h2>
@@ -284,6 +293,7 @@ const {
           @select="select"
           @edit="(row) => run(() => openProduct(row))"
           @learn="(row) => run(() => learnProduct(row.binding))"
+          @ocr="(row) => run(() => recognizeProduct(row.binding))"
           @remove="
             (row) => {
               detailBinding = row.binding
@@ -439,7 +449,12 @@ const {
               (['paused', 'failed'].includes(job.status) ||
                 (job.status === 'needs-confirmation' &&
                   ['collect', 'daily-check'].includes(job.kind))) &&
-              job.checkpoint.state !== 'submitted'
+              job.checkpoint.state !== 'submitted' &&
+              !(
+                job.kind === 'learn' &&
+                job.status === 'failed' &&
+                job.checkpoint.state === 'received'
+              )
             "
             @click="
               run(async () => {
@@ -449,6 +464,23 @@ const {
             "
           >
             继续</button
+          ><button
+            v-if="
+              job.kind === 'learn' && job.status === 'failed' && job.checkpoint.state === 'received'
+            "
+            :disabled="busy"
+            @click="
+              run(async () => {
+                await client().pipeline({
+                  action: 'retry-received',
+                  storeId: job.storeId,
+                  jobId: job.id,
+                })
+                await refresh()
+              })
+            "
+          >
+            重新生成本片段（会计费）</button
           ><button
             :disabled="['succeeded', 'cancelled', 'failed'].includes(job.status)"
             @click="

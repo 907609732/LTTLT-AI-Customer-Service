@@ -4,6 +4,7 @@ import type { KnowledgePipelineHandler } from './pipeline'
 import type { Conversation } from '../../src/shared/contracts/backend'
 import { createKnowledgeImporter } from './imports'
 import { createKnowledgeLearner } from './learning'
+import type { createKnowledgeImageOcr } from './image-ocr'
 export function createKnowledgeSourcePipeline(options: {
   repository: KnowledgeRepository
   model: KnowledgeModelPort
@@ -12,9 +13,10 @@ export function createKnowledgeSourcePipeline(options: {
   changed(): void
   chooseFiles(): Promise<{ name: string; bytes: Uint8Array }[]>
   chats(): Conversation[]
+  imageOcr?: ReturnType<typeof createKnowledgeImageOcr>
 }): KnowledgePipelineHandler {
   const importer = createKnowledgeImporter(options),
-    learner = createKnowledgeLearner(options)
+    learner = createKnowledgeLearner({ ...options, ocrText: options.imageOcr?.read })
   let closed = false
   const active = () => {
     if (closed) throw Error('资料服务已关闭')
@@ -25,12 +27,14 @@ export function createKnowledgeSourcePipeline(options: {
       return (
         [
           'choose-sources',
+          'recognize-images',
           'preview-import',
           'archive-chat',
           'store-materials',
           'review-targets',
           'estimate',
           'resolve-uncertain',
+          'retry-received',
         ].includes(input.action) ||
         (input.action === 'start' && ['import', 'learn'].includes(input.kind)) ||
         ('jobId' in input &&
@@ -44,6 +48,10 @@ export function createKnowledgeSourcePipeline(options: {
     async request(input) {
       active()
       options.assertStore?.(input.storeId)
+      if (input.action === 'recognize-images') {
+        if (!options.imageOcr) throw Error('本机图片文字识别尚未接入')
+        return options.imageOcr.recognize(input.storeId, input.bindingIds, input.sourceIds)
+      }
       if (input.action === 'choose-sources') {
         const files = await options.chooseFiles()
         active()
@@ -118,8 +126,20 @@ export function createKnowledgeSourcePipeline(options: {
             .filter((s) => !s.bindingId && !s.label.startsWith('原文件：'))
             .map((s) => s.id),
         }
-      if (input.action === 'estimate')
-        return learner.estimate(input.storeId, input.bindingIds, input.sourceIds)
+      if (input.action === 'estimate') {
+        const ocr =
+          options.imageOcr && input.bindingIds.length
+            ? await options.imageOcr.recognize(input.storeId, input.bindingIds, input.sourceIds)
+            : undefined
+        const estimate = await learner.estimate(input.storeId, input.bindingIds, input.sourceIds)
+        return {
+          ...estimate,
+          message:
+            (ocr
+              ? `已本机OCR识别${ocr.images}张图、${ocr.items.length}个分块，${ocr.characters}字；原图仍交给视觉模型核对。`
+              : '') + estimate.message,
+        }
+      }
       if (input.action === 'start') {
         if (input.kind === 'import') {
           if (!input.estimateId) throw Error('请先预览导入范围')
@@ -146,13 +166,17 @@ export function createKnowledgeSourcePipeline(options: {
         ).resume(input.storeId, input.jobId)
       if (input.action === 'resolve-uncertain')
         return learner.resolveUncertain(input.storeId, input.jobId, input.decision)
+      if (input.action === 'retry-received')
+        return learner.retryReceived(input.storeId, input.jobId)
       throw Error('资料操作不受支持')
     },
     removeStore(storeId) {
+      options.imageOcr?.removeStore(storeId)
       importer.removeStore(storeId)
       learner.removeStore(storeId)
     },
     dispose() {
+      options.imageOcr?.dispose()
       importer.dispose()
       learner.dispose()
       closed = true

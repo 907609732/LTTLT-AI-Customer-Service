@@ -35,6 +35,7 @@ import { createKnowledgeClient } from './manager-service'
 
 /** Local manager state is independent from reception selection; async results retain account/store leases. */
 export function useKnowledgeManager() {
+  const ocrPreview = ref<import('@/shared/contracts/knowledge-pipeline').KnowledgeOcrPreview>()
   const clearScope = ref<'store' | 'account'>('store')
   const clearPreview = ref<import('@/shared/contracts/knowledge-client').KnowledgeClearPreview>()
   const clearConfirmation = ref('')
@@ -146,6 +147,7 @@ export function useKnowledgeManager() {
   })
   const importPreview = ingestion.preview
   watch(storeId, () => {
+    ocrPreview.value = undefined
     clearPreview.value = undefined
     clearConfirmation.value = ''
     clearScope.value = 'store'
@@ -1036,8 +1038,9 @@ export function useKnowledgeManager() {
       sourceIds: d.sources
         .filter(
           (s) =>
-            s.bindingId === binding.id ||
-            d.bindings.some((b) => b.id === s.bindingId && b.productId === binding.productId),
+            !s.removed &&
+            (s.bindingId === binding.id ||
+              d.bindings.some((b) => b.id === s.bindingId && b.productId === binding.productId)),
         )
         .map((s) => s.id),
     }
@@ -1048,6 +1051,27 @@ export function useKnowledgeManager() {
     })
     detailBinding.value = binding
     sources.value = d.sources
+  }
+  async function recognizeProduct(binding: ProductBinding) {
+    const d = await client().query({
+      type: 'detail',
+      canonicalId: binding.canonicalId,
+      storeId: binding.storeId,
+    })
+    const sourceIds = d.sources
+      .filter(
+        (s) =>
+          !s.removed &&
+          (s.bindingId === binding.id ||
+            d.bindings.some((b) => b.id === s.bindingId && b.productId === binding.productId)),
+      )
+      .map((s) => s.id)
+    ocrPreview.value = await client().pipeline({
+      action: 'recognize-images',
+      storeId: binding.storeId,
+      bindingIds: [binding.id],
+      sourceIds,
+    })
   }
   async function startLearn() {
     if (!estimate.value || !learningSelection.value) return
@@ -1167,6 +1191,7 @@ export function useKnowledgeManager() {
         settings.value = undefined
         summary.value = undefined
         capabilities.value = undefined
+        ocrPreview.value = undefined
         total.value = 0
         selection.value = []
         allScope.value = false
@@ -1332,6 +1357,8 @@ export function useKnowledgeManager() {
     loadCatalogThumbnail,
     collectCatalog,
     learnProduct,
+    recognizeProduct,
+    ocrPreview,
     startLearn,
     chooseSources,
     archiveChats,

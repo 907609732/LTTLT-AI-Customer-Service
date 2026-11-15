@@ -55,6 +55,7 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
   let userId = 1
   let chatError = ''
   let remaining = 19
+  let vision = false
   const expiry = Math.floor(Date.now() / 1000) + 3600
   const calls: { url: string; body: Record<string, unknown> | null; bearer: string | null }[] = []
   const submitted = vi.fn()
@@ -92,7 +93,7 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
         display_name: '测试账号' + userId,
         status: 'enabled',
         trial: { limit: 20, used: 20 - remaining, reserved: 0, remaining, expires_at: expiry },
-        capabilities: { vision: false, model: 'managed-1', max_images: 4 },
+        capabilities: { vision, model: 'managed-1', max_images: 4 },
       }
     else if (endpoint.endsWith('/chat/completions')) {
       result = chatError
@@ -129,6 +130,9 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
     submitted,
     browser,
     stopAi,
+    setVision: (value: boolean) => {
+      vision = value
+    },
     setUser: (id: number) => {
       userId = id
     },
@@ -142,6 +146,24 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
 }
 
 describe('托管账号和模式隔离', () => {
+  it('preserves server-authorized vision on a configured connection alias', async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    f.setVision(true)
+    const login = f.make()
+    await login.execute('managed-login', {})
+    await vi.advanceTimersByTimeAsync(1100)
+    login.dispose()
+    const controller = f.make()
+    await controller.init()
+    expect(controller.snapshot().session.account?.capabilities).toMatchObject({
+      vision: true,
+      model: 'managed-1',
+    })
+    f.setVision(false)
+    await controller.execute('managed-refresh', {})
+    expect(controller.snapshot().session.account?.capabilities?.vision).toBe(false)
+  })
   it('额度耗尽仍能读取充值与团队业务，AI生成继续拒绝', async () => {
     vi.useFakeTimers()
     const f = fixture()

@@ -6,6 +6,14 @@ const sourceIds = z.array(identity).max(50000)
 export const knowledgePipelineInputSchema = z.discriminatedUnion('action', [
   z
     .object({
+      action: z.literal('recognize-images'),
+      storeId: identity,
+      bindingIds: ids,
+      sourceIds,
+    })
+    .strict(),
+  z
+    .object({
       action: z.literal('catalog-thumbnail'),
       storeId: identity,
       scopeToken: identity,
@@ -81,6 +89,7 @@ export const knowledgePipelineInputSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('pause'), storeId: identity, jobId: identity }).strict(),
   z.object({ action: z.literal('resume'), storeId: identity, jobId: identity }).strict(),
   z.object({ action: z.literal('cancel'), storeId: identity, jobId: identity }).strict(),
+  z.object({ action: z.literal('retry-received'), storeId: identity, jobId: identity }).strict(),
 ])
 export type KnowledgePipelineInput = z.input<typeof knowledgePipelineInputSchema>
 export interface KnowledgePipelineCapabilities {
@@ -115,6 +124,7 @@ export interface KnowledgeEstimate {
   message: string
 }
 export interface KnowledgePipelineResults {
+  'recognize-images': KnowledgeOcrPreview
   'catalog-thumbnail': { assetId: string }
   'review-targets': { targets: Record<string, string> }
   'store-materials': { sourceIds: string[] }
@@ -129,6 +139,20 @@ export interface KnowledgePipelineResults {
   pause: { jobId: string }
   resume: { jobId: string }
   cancel: { jobId: string }
+  'retry-received': { jobId: string }
+}
+export interface KnowledgeOcrPreview {
+  engine: string
+  images: number
+  characters: number
+  items: {
+    sourceId: string
+    imageAssetId: string
+    tileAssetId: string
+    image: number
+    tile: number
+    text: string
+  }[]
 }
 export interface KnowledgeImportPreview {
   previewId: string

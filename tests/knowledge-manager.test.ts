@@ -204,6 +204,46 @@ it('has two main tabs and switching knowledge shops never changes reception sele
   )
   wrapper.unmount()
 })
+it('labels received-fragment regeneration as paid and keeps uncertain jobs on their separate confirmation path', async () => {
+  const { wrapper } = await setup()
+  const original = fake.query.getMockImplementation()!
+  const jobs: KnowledgeJob[] = ['received', 'submitted'].map((state, index) => ({
+    id: `job-${index}`,
+    storeId: 'a',
+    kind: 'learn',
+    revision: 1,
+    status: index === 0 ? 'failed' : 'needs-confirmation',
+    payload: {},
+    checkpoint: { state },
+    progress: { completed: 1, total: 3 },
+    error: '格式或状态待处理',
+    createdAt: 1,
+    updatedAt: 1,
+  }))
+  fake.query.mockImplementation(async (input) =>
+    input.type === 'jobs' ? { items: jobs, total: 2, revision: 1 } : original(input),
+  )
+  await wrapper
+    .findAll('button')
+    .find((b) => b.text().startsWith('任务'))!
+    .trigger('click')
+  await flushPromises()
+  const buttons = wrapper.findAll('button').filter((b) => b.text() === '重新生成本片段（会计费）')
+  expect(buttons).toHaveLength(1)
+  await buttons[0]!.trigger('click')
+  await flushPromises()
+  expect(fake.pipeline).toHaveBeenCalledWith({
+    action: 'retry-received',
+    storeId: 'a',
+    jobId: 'job-0',
+  })
+  expect(
+    fake.pipeline.mock.calls.some(
+      ([input]) => input.action === 'retry-received' && input.jobId === 'job-1',
+    ),
+  ).toBe(false)
+  wrapper.unmount()
+})
 it('offers the first-import actions for an empty shop and reads a fresh full backend catalog without collecting automatically', async () => {
   const { wrapper } = await setup()
   const start = wrapper.get('[data-testid="knowledge-first-import"]')

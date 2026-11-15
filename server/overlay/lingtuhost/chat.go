@@ -177,18 +177,35 @@ type chatInput struct {
 
 func parseChat(r io.Reader) (chatInput, string, error) {
 	var in chatInput
-	raw, err := io.ReadAll(io.LimitReader(r, 128*1024+1))
-	if err != nil || len(raw) > 128*1024 {
+	raw, err := io.ReadAll(io.LimitReader(r, 16*1024*1024+1))
+	if err != nil || len(raw) > 16*1024*1024 {
 		return in, "", errors.New("invalid request")
 	}
 	if json.Unmarshal(raw, &in) != nil || len(in.RequestID) < 1 || len(in.RequestID) > 128 || len(in.Messages) < 1 || len(in.Messages) > 64 {
 		return in, "", errors.New("invalid request")
 	}
 	images := 0
+	textBytes := len(raw)
 	for _, m := range in.Messages {
 		if (m.Role != "system" && m.Role != "user" && m.Role != "assistant") || !validChatContent(m.Role, m.Content, &images) {
 			return in, "", errors.New("invalid message")
 		}
+		if parts, ok := m.Content.([]any); ok {
+			for _, part := range parts {
+				p, ok := part.(map[string]any)
+				if !ok || p["type"] != "image_url" {
+					continue
+				}
+				if image, ok := p["image_url"].(map[string]any); ok {
+					if url, ok := image["url"].(string); ok && strings.HasPrefix(url, "data:image/png;base64,") {
+						textBytes -= len(url)
+					}
+				}
+			}
+		}
+	}
+	if textBytes > 128*1024 {
+		return in, "", errors.New("invalid request")
 	}
 	canonical, _ := json.Marshal(in.Messages)
 	digest := sha256.Sum256(canonical)
@@ -411,7 +428,7 @@ func (h *Host) prepareChat(c *gin.Context) {
 		clientFailure(c, 503, "model_not_ready")
 		return
 	}
-	if containsImages(in.Messages) && selected != visionModel {
+	if containsImages(in.Messages) && channel.Models != visionModel {
 		clientFailure(c, 400, "vision_unavailable")
 		return
 	}

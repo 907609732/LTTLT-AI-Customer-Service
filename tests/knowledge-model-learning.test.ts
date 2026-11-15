@@ -2,7 +2,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { createKnowledgeRepository } from '../electron/knowledge'
 import { createKnowledgeLearner } from '../electron/knowledge/learning'
 import { estimateContextTokens } from '../electron/context-compression'
@@ -14,7 +14,11 @@ afterEach(() =>
     .reverse()
     .forEach((f) => f()),
 )
-function setup(complete: KnowledgeModelPort['complete']) {
+function setup(
+  complete: KnowledgeModelPort['complete'],
+  ocrText?: Parameters<typeof createKnowledgeLearner>[0]['ocrText'],
+  minimumIntervalMs = 0,
+) {
   const directory = mkdtempSync(join(tmpdir(), 'knowledge-learn-'))
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }))
   const repo = createKnowledgeRepository({ directory, workspaceId: 'w' })
@@ -25,11 +29,55 @@ function setup(complete: KnowledgeModelPort['complete']) {
     repository: repo,
     assertActive() {},
     changed() {},
-    model: { complete, vision: () => ({ supported: true, maxImages: 4, reason: '' }) },
+    model: {
+      complete,
+      vision: () => ({ supported: true, maxImages: 4, reason: '' }),
+      minimumIntervalMs: () => minimumIntervalMs,
+    },
+    ocrText,
   })
   cleanup.push(() => learner.dispose())
   return { repo, b, learner }
 }
+it('adds cached OCR as untrusted context alongside actual image pixels without changing the system rules', async () => {
+  let calls = 0
+  const { repo, b, learner } = setup(
+    async (input) => {
+      calls++
+      const content = input.messages[1]!.content
+      expect(Array.isArray(content)).toBe(true)
+      if (typeof content === 'string') throw Error('pixels missing')
+      expect(
+        content.some(
+          (p) => p.type === 'image_url' && p.image_url.url.startsWith('data:image/png;base64,'),
+        ),
+      ).toBe(true)
+      const metadata = content.find((p) => p.type === 'text')
+      expect(metadata?.type === 'text' ? metadata.text : '').toContain('50 mm')
+      expect(String(input.messages[0]!.content)).not.toContain('OCR测试文字')
+      expect(String(input.messages[0]!.content)).toContain('最多1条')
+      expect(String(input.messages[0]!.content)).toContain('"evidence":{"kind":"image-text"')
+      expect(estimateContextTokens(input.messages)).toBeLessThanOrEqual(8192)
+      return '{"candidates":[]}'
+    },
+    () => ({ text: '50 mm；OCR测试文字' }),
+  )
+  const canvas = createCanvas(100, 40),
+    a = repo.addAsset(canvas.toBuffer('image/png'), { name: 'image', mimeType: 'image/png' })
+  const s = repo.saveSource({
+    storeId: 's',
+    bindingId: b.id,
+    kind: 'image',
+    label: '参数图',
+    text: '',
+    assetIds: [a.id],
+  })
+  const e = await learner.estimate('s', [b.id], [s.id])
+  const j = await learner.start('s', [b.id], [s.id], e.estimateId)
+  expect((await settled(repo, j.jobId)).status).toBe('succeeded')
+  expect(calls).toBe(1)
+  expect(repo.listEntries({ storeId: 's' }).total).toBe(0)
+})
 async function settled(repo: ReturnType<typeof createKnowledgeRepository>, id: string) {
   for (let i = 0; i < 100; i++) {
     const job = repo.getJob(id)!
@@ -38,6 +86,123 @@ async function settled(repo: ReturnType<typeof createKnowledgeRepository>, id: s
   }
   throw Error('job did not settle')
 }
+it('paces requests before submission and cancels an unpaid wait without another model call', async () => {
+  vi.useFakeTimers()
+  try {
+    let calls = 0
+    const { repo, b, learner } = setup(
+      async () => {
+        calls++
+        return '{"candidates":[]}'
+      },
+      undefined,
+      5000,
+    )
+    const sources = ['一', '二'].map((text) =>
+      repo.saveSource({ storeId: 's', bindingId: b.id, kind: 'document', label: text, text }),
+    )
+    const ids = sources.map((s) => s.id),
+      e = await learner.estimate('s', [b.id], ids),
+      j = await learner.start('s', [b.id], ids, e.estimateId)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(calls).toBe(1)
+    expect(repo.getJob(j.jobId)?.checkpoint.state).toBe('ready')
+    await vi.advanceTimersByTimeAsync(4990)
+    expect(calls).toBe(1)
+    learner.pause('s', j.jobId)
+    await vi.advanceTimersByTimeAsync(20)
+    expect(calls).toBe(1)
+    expect(repo.getJob(j.jobId)?.status).toBe('paused')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+it('retries only a received failed fragment, preserving its response and earlier successful calls', async () => {
+  let calls = 0
+  const { repo, b, learner } = setup(async () => {
+    calls++
+    return calls === 2 ? 'truncated' : '{"candidates":[]}'
+  })
+  const ids = ['一', '二'].map(
+    (text) =>
+      repo.saveSource({ storeId: 's', bindingId: b.id, kind: 'document', label: text, text }).id,
+  )
+  const e = await learner.estimate('s', [b.id], ids),
+    j = await learner.start('s', [b.id], ids, e.estimateId)
+  const failed = await settled(repo, j.jobId)
+  expect(failed.progress.completed).toBe(1)
+  await learner.retryReceived('s', j.jobId)
+  expect(
+    JSON.parse(repo.getMetadata(`learning-rejected-response:${j.jobId}:1:${failed.revision}`)!),
+  ).toEqual({ response: 'truncated', error: failed.error })
+  expect((await settled(repo, j.jobId)).status).toBe('succeeded')
+  expect(calls).toBe(3)
+  await expect(learner.retryReceived('s', j.jobId)).rejects.toThrow()
+  const foreign = repo.createJob({ kind: 'learn', storeId: 'other', payload: {} })
+  await expect(learner.retryReceived('s', foreign.id)).rejects.toThrow('本店')
+})
+it.each(['failed', 'cancelled', 'succeeded'] as const)(
+  'rejects received-fragment regeneration for %s without a received failed result',
+  async (status) => {
+    let calls = 0
+    const { repo, learner } = setup(async () => {
+      calls++
+      return '{"candidates":[]}'
+    })
+    const j = repo.createJob({ kind: 'learn', storeId: 's', payload: {} })
+    const job = repo.updateJob(j.id, {
+      expectedRevision: j.revision,
+      status,
+      checkpoint: { state: status === 'failed' ? 'submitted' : 'received', response: '{}' },
+    })
+    await expect(learner.retryReceived('s', j.id)).rejects.toThrow()
+    expect(calls).toBe(0)
+    expect(repo.getJob(j.id)).toEqual(job)
+  },
+)
+it('accepts a single complete JSON code fence while rejecting surrounding prose', async () => {
+  for (const [response, status] of [
+    ['[]', 'succeeded'],
+    ['```json\n{"candidates":[]}\n```', 'succeeded'],
+    ['说明\n```json\n{"candidates":[]}\n```', 'failed'],
+  ]) {
+    const { repo, b, learner } = setup(async () => response!)
+    const s = repo.saveSource({
+      storeId: 's',
+      bindingId: b.id,
+      kind: 'document',
+      label: '资料',
+      text: '纯棉',
+    })
+    const e = await learner.estimate('s', [b.id], [s.id])
+    const j = await learner.start('s', [b.id], [s.id], e.estimateId)
+    expect((await settled(repo, j.jobId)).status).toBe(status)
+  }
+})
+it('keeps grounded candidates and reports rejected evidence without saving invented answers', async () => {
+  let sourceId = ''
+  const { repo, b, learner } = setup(async () =>
+    JSON.stringify({
+      candidates: [
+        { sourceId, question: '材质', answer: '纯棉', evidence: '纯棉', field: 'fact' },
+        { sourceId, question: '规格', answer: '大号、小号', evidence: '大号、小号', field: 'fact' },
+      ],
+    }),
+  )
+  sourceId = repo.saveSource({
+    storeId: 's',
+    bindingId: b.id,
+    kind: 'document',
+    label: '原料',
+    text: '纯棉；大号；小号',
+  }).id
+  const e = await learner.estimate('s', [b.id], [sourceId])
+  const j = await learner.start('s', [b.id], [sourceId], e.estimateId)
+  const result = await settled(repo, j.jobId)
+  expect(result.status).toBe('succeeded')
+  expect(result.error).toContain('1条无有效依据')
+  expect(repo.listEntries({ storeId: 's' }).items.map((x) => x.draft.answer)).toEqual(['纯棉'])
+})
 it('requires an unchanged estimate and chunks every source within actual token budget', async () => {
   const requests: number[] = []
   const { repo, b, learner } = setup(async (input) => {
@@ -485,11 +650,15 @@ it('accepts image OCR with owned provenance but rejects extra answers and dynami
     return JSON.stringify({
       candidates: [
         {
-          sourceId: data.sourceId,
+          sourceId: mode === 'missing-source' ? undefined : data.sourceId,
           question: '标注长度',
           answer: mode === 'extra' ? '50 mm，防水' : '50 mm',
           field: mode === 'dynamic' ? 'stock' : 'fact',
-          evidence: { kind: 'image-text', ...data.images[0], quote: '50 mm' },
+          evidence: {
+            kind: 'image-text',
+            ...data.images[0],
+            quote: mode === 'subset' ? '01 50 mm' : '50 mm',
+          },
         },
       ],
     })
@@ -515,6 +684,13 @@ it('accepts image OCR with owned provenance but rejects extra answers and dynami
   }
   expect((await run()).status).toBe('succeeded')
   expect(repo.listEntries({ storeId: 's' }).items[0]?.draft.modelEvidence?.kind).toBe('image-text')
+  mode = 'missing-source'
+  expect((await run()).status).toBe('succeeded')
+  mode = 'subset'
+  expect((await run()).status).toBe('succeeded')
+  expect(repo.listEntries({ storeId: 's' }).items.some((x) => x.draft.answer === '01 50 mm')).toBe(
+    true,
+  )
   for (mode of ['extra', 'dynamic']) expect((await run()).status).toBe('failed')
-  expect(repo.listEntries({ storeId: 's' }).total).toBe(1)
+  expect(repo.listEntries({ storeId: 's' }).total).toBe(2)
 })

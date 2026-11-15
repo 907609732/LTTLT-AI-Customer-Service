@@ -38,6 +38,7 @@ export interface KnowledgePipelinePort {
 /** Main-process only. Neither keys, arbitrary URLs nor publication are part of this model port. */
 export interface KnowledgeModelPort {
   identity?(): string
+  minimumIntervalMs?(): number
   vision(): { supported: boolean; reason: string; maxImages: number }
   complete(input: {
     messages: ModelMessages
@@ -226,6 +227,10 @@ export function createKnowledgeRuntime(options: {
     modelIdentity() {
       active()
       return model?.identity?.() ?? 'configured'
+    },
+    modelMinimumIntervalMs() {
+      active()
+      return model?.minimumIntervalMs?.() ?? 0
     },
     cancelCompletions() {
       for (const controller of controllers) controller.abort()

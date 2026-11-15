@@ -1,12 +1,37 @@
 package lingtuhost
 
 import (
+	"bytes"
+	"encoding/base64"
+	"image/png"
 	"net"
 	"net/url"
 	"strings"
 )
 
 const visionModel = "qwen3-vl-plus"
+
+// Local knowledge tiles are bounded pixels, not fetchable URLs or arbitrary file uploads.
+func validModelImage(raw string) bool {
+	const prefix = "data:image/png;base64,"
+	if !strings.HasPrefix(raw, prefix) {
+		return validImageURL(raw)
+	}
+	encoded := strings.TrimPrefix(raw, prefix)
+	if len(encoded) == 0 || len(encoded) > 12*1024*1024 {
+		return false
+	}
+	data, err := base64.StdEncoding.Strict().DecodeString(encoded)
+	if err != nil || len(data) > 8*1024*1024 || base64.StdEncoding.EncodeToString(data) != encoded {
+		return false
+	}
+	config, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil || config.Width < 1 || config.Height < 1 || config.Width > 1400 || config.Height > 1400 {
+		return false
+	}
+	_, err = png.Decode(bytes.NewReader(data))
+	return err == nil
+}
 
 func validImageURL(raw string) bool {
 	if len(raw) == 0 || len(raw) > 2048 || strings.TrimSpace(raw) != raw || !strings.HasPrefix(raw, "https://") {
@@ -66,7 +91,7 @@ func validChatContent(role string, content any, images *int) bool {
 				return false
 			}
 			raw, ok := image["url"].(string)
-			if !ok || !validImageURL(raw) {
+			if !ok || !validModelImage(raw) {
 				return false
 			}
 			*images++
@@ -94,9 +119,9 @@ func containsImages(messages []chatMessage) bool {
 
 func visionCapability(selected string) map[string]any {
 	supported := false
-	if selected == visionModel {
-		_, err := selectedChannel(selected)
-		supported = err == nil
+	if channel, err := selectedChannel(selected); err == nil {
+		// Configured API connections use stable aliases; inspect the admitted upstream model.
+		supported = channel.Models == visionModel
 	}
 	return map[string]any{"vision": supported, "model": selected, "max_images": 4}
 }

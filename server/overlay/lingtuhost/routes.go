@@ -2,7 +2,6 @@ package lingtuhost
 
 import (
 	"errors"
-	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -65,10 +64,7 @@ func Register(router *gin.Engine) error {
 	h.startChatCleanup()
 	oauth.SetManagedProviderResolver(h.socialConfig)
 	group := router.Group("/api/client", middleware.DisableCache(), middleware.GlobalAPIRateLimit())
-	group.Use(func(c *gin.Context) {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1024*1024)
-		c.Next()
-	})
+	group.Use(limitClientBody)
 	group.POST("/auth/device/authorize", middleware.LingtuIPRateLimit("device-authorize", 10, 60), h.authorize)
 	group.POST("/auth/device/token", middleware.LingtuIPRateLimit("device-poll", 120, 60), h.poll)
 	group.POST("/auth/refresh", middleware.LingtuIPRateLimit("client-refresh", 120, 60), h.refresh)

@@ -313,14 +313,17 @@ describe('knowledge runtime boundary and exact request evidence', () => {
   })
   it('rejects oversized protected trial input before any model call without truncating it', async () => {
     const { runtime } = fixture()
+    expect(runtime.modelMinimumIntervalMs()).toBe(0)
     let calls = 0
     runtime.setModel({
+      minimumIntervalMs: () => 13000,
       vision: () => ({ supported: false, reason: '', maxImages: 0 }),
       complete: async () => {
         calls++
         return 'answer'
       },
     })
+    expect(runtime.modelMinimumIntervalMs()).toBe(13000)
     let responsive = false
     const timer = setTimeout(() => {
       responsive = true

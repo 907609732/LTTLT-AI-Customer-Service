@@ -238,7 +238,9 @@
     {
       "path": "overlay/lingtuhost/chat.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat.go",
-      "sha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650"
+      "sha256": "e6e80f0ab1847faf03f4ebbae04d387156ff87d2a8ad803235de05139381aea2",
+      "upstreamSha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650",
+      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits."
     },
     {
       "path": "overlay/lingtuhost/chat_test.go",
@@ -268,19 +270,23 @@
     {
       "path": "overlay/lingtuhost/routes.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/routes.go",
-      "sha256": "715069fabbbfaea9beadb77aaf0e7872c78a171717cca8ecc73ceb47702f4cf1",
+      "sha256": "944495a1405b1fee1cdbacae59b755d9c2bd951156f170064f42ff04a0402a0f",
       "upstreamSha256": "06864f9097cc5e2c7010927b6f5ba3d3bba95e0099ff771abbaaebc73932d5c4",
-      "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors."
+      "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors. Reuse bounded client body middleware; only exact POST /api/client/chat/completions permits 16MiB image envelopes, all other client routes retain 1MiB."
     },
     {
       "path": "overlay/lingtuhost/vision.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/vision.go",
-      "sha256": "2214879fd65f1c14f1bdb82f8a7120af3f628a9ede833207730266664f16912d"
+      "sha256": "6991c6a73f4d68a54f8ae73b697bf56c3482cca2b1682442155b6f09f0e5da5e",
+      "upstreamSha256": "2214879fd65f1c14f1bdb82f8a7120af3f628a9ede833207730266664f16912d",
+      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits."
     },
     {
       "path": "overlay/lingtuhost/vision_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/vision_test.go",
-      "sha256": "ebfe3a1bc0ced501e1ec2cfef23a91f561fcea5b06d882e271505dbb02adac27"
+      "sha256": "e96636a4cd37d9e1559c74b13e1efbe3b94fdd9ef4297d4eae915f9cbd689c47",
+      "upstreamSha256": "ebfe3a1bc0ced501e1ec2cfef23a91f561fcea5b06d882e271505dbb02adac27",
+      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits."
     },
     {
       "path": "overlay/middleware/lingtu.go",
