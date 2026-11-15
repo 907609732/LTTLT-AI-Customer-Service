@@ -37,6 +37,11 @@ jobs:
         run: npm run check
       - name: Verify actual Electron desktop
         run: npm run test:desktop
+      - name: Verify knowledge manager and source learning
+        run: |
+          node scripts/verify-knowledge-manager.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-knowledge-ingestion.mjs
       - name: Package NSIS installer and ZIP in the cloud
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -81,5 +86,7 @@ jobs:
             artifacts/desktop/report.json
             artifacts/desktop/managed-account-settings.png
             artifacts/packaged/
+            artifacts/knowledge-manager-check/evidence/
+            artifacts/knowledge-ingestion-check/evidence/
           if-no-files-found: warn
           retention-days: 30

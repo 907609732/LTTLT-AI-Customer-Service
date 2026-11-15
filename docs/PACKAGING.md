@@ -1,5 +1,13 @@
 # Windows 桌面打包与交付约束
 
+## 2026-11-15：v1.0.1 发布授权与验证
+
+用户已在本次会话明确要求合入主干并打包发布新版本，授权本次 `v1.0.1` 的main推送、Windows构建与GitHub Release发布；不包含服务端部署、实店操作或真实消息发送。后文“尚未授权Release”为历史约束，本次按此明确授权执行。下载文件使用GitHub Release，不在业务服务器镜像大文件。客户端目前没有软件内自动更新配置，使用安装包手动升级。
+
+本次云端除全量check与桌面验收外，还执行独立知识库管理/资料学习组合验收。成品验收直接启动真实安装包程序，通过仅绑定回环端口的Electron/Node调试接口检查界面、preload、隔离业务IPC及ASAR内的PDF.js、Mammoth、read-excel-file和原生canvas资源。测试先暂停自身子进程，将该进程的窗口保持隐藏；原生截图使用 `capturePage` 的 `stayHidden`，不增加产品环境开关，不接触日常用户目录。仅测试适配器替换临时进程的原生文件选择器，以合成文件验证扫描PDF、Word内嵌图片、XLSX多工作表和PNG。测试完成关闭本次子进程及调试连接。
+
+版本与产物均须以最终Actions源码提交、成品报告和SHA256清单为准；打包成功不等于真实平台或模型语义质量验收。安装包当前无代码签名。
+
 主工程为 E:\~1awucheng\Plastic SCM\AI电商客服软件\client，其内容已作为独立仓库根，package.json、.github、src、electron同级。目录边界见PROJECT_LAYOUT.md，当前基线和结果见HANDOFF.md。server单独构建，不随桌面安装包分发；公开发布和生产部署另行授权。
 
 ## 构建

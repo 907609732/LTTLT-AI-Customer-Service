@@ -58,7 +58,7 @@ Consumes Task1 public contracts/repository. Produces KnowledgeClient bridge and 
 
 ### Task 3: PDD read-only product collection
 
-Files: electron/knowledge/collector*.ts and matching contracts/UI integration; existing store-browser/assist host only minimal reuse extensions; collector tests.
+Files: electron/knowledge/collector\*.ts and matching contracts/UI integration; existing store-browser/assist host only minimal reuse extensions; collector tests.
 
 Consumes repository source/binding and job interfaces, existing verified per-store Electron session. Produces list-on-sale product catalog and selected-product detail/SKU/image capture with full pagination and complete/partial/blocked evidence. Must inspect actual logged-in PDD page/read-only responses before finalizing selectors; never invent private URL/API or fake live acceptance.
 

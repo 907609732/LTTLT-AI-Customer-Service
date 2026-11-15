@@ -340,7 +340,26 @@ export async function businessChecks(options: {
     await check('business:logs-floating-window', '/', async () => {
       await load('/')
       await win.webContents.executeJavaScript(
-        `document.querySelector('[aria-label="实时日志"]').click()`,
+        `document.querySelector('[aria-label="回复监控"]').click()`,
+      )
+      let monitor: BrowserWindow | undefined
+      for (let i = 0; i < 400; i++) {
+        monitor = BrowserWindow.getAllWindows().find(
+          (w) => w !== win && w.webContents.getURL().endsWith('#/reply-monitor'),
+        )
+        if (
+          monitor &&
+          !monitor.webContents.isLoading() &&
+          (await monitor.webContents.executeJavaScript(
+            `Boolean(document.querySelector('[data-action="logs"]'))`,
+          ))
+        )
+          break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      assert.ok(monitor, '回复监控没有创建')
+      await monitor.webContents.executeJavaScript(
+        `document.querySelector('[data-action="logs"]').click()`,
       )
       let popup: BrowserWindow | undefined
       for (let i = 0; i < 400; i++) {

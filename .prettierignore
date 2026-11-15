@@ -5,6 +5,8 @@ artifacts
 coverage
 release
 package-lock.json
+# Local agent scratch includes generated reviews, logs and task briefs.
+.superpowers/sdd
 # Preserve the existing repository's legal text verbatim.
 COMMERCIAL_LICENSE.md
 LICENSING.md
