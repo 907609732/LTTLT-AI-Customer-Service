@@ -500,7 +500,7 @@ const orderLabels = { pending: '待处理', working: '处理中', waiting: '等�
               })
             "
           />{{ kind.label }}提醒</label
-        ><small>最小化继续提醒，关闭辅助中心停止提醒。AI 回复间隔在软件设置中调整。</small
+        ><small>最小化继续提醒，关闭辅助中心停止提醒。AI 回复间隔在基础设置的客服风格中调整。</small
         ><button @click="openMain('settings')">打开软件设置</button>
         <button @click="settingsOpen = false">完成</button>
       </div></el-dialog

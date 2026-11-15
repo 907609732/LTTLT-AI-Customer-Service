@@ -7,11 +7,13 @@ import { useTask } from '@/shared/ui/use-task'
 import type { LocalStore } from '@/shared/contracts/backend'
 import { openKnowledgeManager } from '@/modules/knowledge'
 import AddShopDialog from './AddShopDialog.vue'
+import { useShopSetupStore } from '../setup-store'
 import pddIcon from '@/assets/figma-add-img00.png'
 import qianniuIcon from '@/assets/figma-add-img3.png'
 import xianyuIcon from '@/assets/figma-add-img31.png'
 import douyinIcon from '@/assets/figma-add-img1.png'
 
+const setup = useShopSetupStore()
 const platformIcons: Record<string, string> = {
   'pdd-web': pddIcon,
   'pdd-client': pddIcon,
@@ -278,6 +280,9 @@ const reception = [
           <div class="shop-card__col">
             <div class="shop-card__col-hd"><b>接待配置</b><em>按店设置接待</em></div>
             <div class="shop-card__acts">
+              <button class="chip" data-action="basic-settings" @click="setup.open(shop.id)">
+                基础设置
+              </button>
               <button
                 v-for="item in reception"
                 :key="item.key"

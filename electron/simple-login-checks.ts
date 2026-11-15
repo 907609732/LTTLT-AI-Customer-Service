@@ -54,15 +54,9 @@ export async function simpleLoginChecks(options: {
     )
     await evaluate(`document.querySelector('.simple-login-dialog .el-dialog__headerbtn').click()`)
   })
-  await check('settings:pacing-only-with-advanced-collapsed', '/settings', async () => {
+  await check('settings:legacy-route-redirect', '/settings', async () => {
     await load('/settings')
-    const result = await evaluate<{ text: string; open: boolean }>(`(() => {
-      const page = document.querySelector('.runtime-page');
-      return {text: page.innerText, open: Boolean(page.querySelector('details[open]'))};
-    })()`)
-    assert.match(result.text, /AI 回复间隔/)
-    assert.match(result.text, /高级模型配置/)
-    assert.doesNotMatch(result.text, /托管 API 服务地址|本机工作方式/)
-    assert.equal(result.open, false)
+    assert.equal(await evaluate<boolean>(`location.hash.includes('/shop/manage')`), true)
+    assert.doesNotMatch(await evaluate<string>('document.body.innerText'), /高级模型配置/)
   })
 }

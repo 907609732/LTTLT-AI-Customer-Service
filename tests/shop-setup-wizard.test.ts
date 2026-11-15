@@ -199,3 +199,35 @@ it('恢复草稿后保存成功，再次打开以已保存规则为准', async (
   expect(setup.draft.style).toBe('cool')
   expect(setup.step).toBe(0)
 })
+
+it('恢复步骤点击和最少1秒间隔控件，保存时锁定跳转', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  const steps = wrapper.findAll('button.wizard-step')
+  expect(steps).toHaveLength(6)
+  expect(steps[5]!.attributes('disabled')).toBeDefined()
+  await steps[2]!.trigger('click')
+  setup.draft.origins = ['浙江']
+  await steps[1]!.trigger('click')
+  expect(setup.step).toBe(1)
+  expect(setup.draft.origins).toEqual(['浙江'])
+  const pacing = wrapper.find('.reply-pacing')
+  const input = pacing.findComponent({ name: 'ElInputNumber' })
+  expect(input.props('min')).toBe(1)
+  expect(input.props('modelValue')).toBe(1)
+  runtime.available = true
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '已保存', data: {} })
+  input.vm.$emit('update:modelValue', 2)
+  await pacing.trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-config',
+    screenId: 'REPLY_PACING',
+    values: { seconds: 2, expectedMs: 1000 },
+  })
+  setup.saving = true
+  await flushPromises()
+  await steps[4]!.trigger('click')
+  expect(setup.step).toBe(1)
+})

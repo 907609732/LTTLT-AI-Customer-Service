@@ -47,6 +47,7 @@ export function nextOccurrence(schedule: SchedulerTaskInput['schedule'], after: 
   throw new Error('无法计算下次执行时间')
 }
 interface Options {
+  timedTasksEnabled?: boolean
   workspaceId: string
   load(): unknown
   save(state: SchedulerState): void
@@ -82,6 +83,17 @@ export class ReceptionScheduler {
           run.reason = '应用在执行期间退出，必须只读核对平台，不可重新发送'
         }
         delete run.approvalId
+      }
+      this.commit(next)
+    }
+    if (options.timedTasksEnabled === false && this.state.tasks.length) {
+      const next = structuredClone(this.state)
+      for (const task of next.tasks) {
+        if (task.enabled) {
+          task.enabled = false
+          task.revision++
+        }
+        this.cancelPending(next, task.id, '定时任务功能已移除')
       }
       this.commit(next)
     }
@@ -338,6 +350,8 @@ export class ReceptionScheduler {
   execute(input: unknown): SchedulerSnapshot {
     if (this.closed) throw new Error('调度服务已关闭')
     const command = schedulerCommandSchema.parse(input)
+    if (this.options.timedTasksEnabled === false && ['save', 'enable'].includes(command.type))
+      throw new Error('定时任务功能已移除')
     if (command.workspaceId !== this.options.workspaceId) throw new Error('工作区已变化，请刷新')
     const next = structuredClone(this.state)
     const now = this.clock()
@@ -383,6 +397,7 @@ export class ReceptionScheduler {
         changed = true
       }
     for (const task of next.tasks) {
+      if (this.options.timedTasksEnabled === false) continue
       if (!task.enabled || task.nextAt > at) continue
       const occurrence = task.nextAt
       const reason = this.blockReason(task)

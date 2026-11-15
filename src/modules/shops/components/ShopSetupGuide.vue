@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { ReplyPacingSettings } from '@/modules/settings'
 import { useRoute, useRouter } from 'vue-router'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useShopSetupStore } from '../setup-store'
@@ -181,6 +182,11 @@ async function save() {
   validation.value = ''
   if (await setup.saveRules()) setup.step = 5
 }
+function goToStep(index: number) {
+  if (setup.loading || setup.saving || (index === 5 && !setup.saved)) return
+  if (index > 0 && index < 5) setup.saved = false
+  setup.step = index
+}
 function editAgain() {
   setup.saved = false
   setup.step = 1
@@ -189,11 +195,7 @@ async function configure(panel: string) {
   const target = setup.storeId
   setup.pauseForConfiguration()
   try {
-    await router.push(
-      panel === 'model-settings'
-        ? { path: '/settings' }
-        : { path: '/shop/manage', query: { panel } },
-    )
+    await router.push({ path: '/shop/manage', query: { panel } })
   } catch (cause) {
     if (target && setup.storeId === target) {
       setup.error = cause instanceof Error ? cause.message : String(cause)
@@ -268,16 +270,19 @@ const afterSales = [
     </header>
     <div class="wizard-scroll">
       <nav class="wizard-steps" aria-label="店铺设置步骤">
-        <div
+        <button
           v-for="(label, index) in steps"
           :key="label"
+          type="button"
+          :disabled="setup.loading || setup.saving || (index === 5 && !setup.saved)"
+          @click="goToStep(index)"
           class="wizard-step"
           :class="{ active: setup.step === index, passed: setup.step > index }"
           :aria-current="setup.step === index ? 'step' : undefined"
         >
           <span class="step-circle">{{ setup.step > index ? '✓' : index + 1 }}</span
           ><span>{{ label }}</span>
-        </div>
+        </button>
       </nav>
       <section
         class="wizard-card"
@@ -308,7 +313,6 @@ const afterSales = [
             </p>
             <div class="setup-shortcuts">
               <button @click="configure('goods')">商品知识</button
-              ><button @click="configure('model-settings')">模型连接设置</button
               ><button @click="configure('training')">AI 训练场</button
               ><button :disabled="setup.pending" @click="connect">
                 {{ setup.shop?.runtime.online ? '打开店铺' : '连接店铺' }}
@@ -338,6 +342,7 @@ const afterSales = [
                     ><small>{{ style.description }}</small>
                   </button>
                 </div>
+                <ReplyPacingSettings />
                 <h3 class="length-title">回复热度（长度控制）</h3>
                 <el-slider
                   v-model="replyLength"
@@ -582,7 +587,6 @@ const afterSales = [
             <p class="quiet-note">完成设置不会自动开启 AI，正式发送仍需逐条批准。</p>
             <div class="setup-shortcuts">
               <button @click="configure('goods')">商品知识</button
-              ><button @click="configure('model-settings')">模型连接设置</button
               ><button @click="configure('training')">AI 训练场</button>
             </div>
             <footer class="finish-actions">
@@ -707,6 +711,11 @@ const afterSales = [
   margin: 0 auto 30px;
 }
 .wizard-step {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
   position: relative;
   flex: 1;
   display: flex;
@@ -715,6 +724,17 @@ const afterSales = [
   gap: 8px;
   color: #a0a8b5;
   font-size: 14px;
+}
+.wizard-step:enabled:hover {
+  color: #2468ff;
+}
+.wizard-step:focus-visible {
+  outline: 2px solid #2468ff;
+  outline-offset: 5px;
+  border-radius: 4px;
+}
+.wizard-step:disabled {
+  cursor: default;
 }
 .wizard-step:not(:last-child)::after {
   content: '';

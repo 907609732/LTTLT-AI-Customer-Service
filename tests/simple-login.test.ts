@@ -15,8 +15,7 @@ it('设置默认只展示回复间隔，高级模型配置收起且不再重复�
   })
   expect(wrapper.text()).toContain('AI 回复间隔')
   expect(wrapper.text()).not.toContain('托管 API 服务地址')
-  expect(wrapper.find('details').exists()).toBe(true)
-  expect(wrapper.find('details').attributes('open')).toBeUndefined()
+  expect(wrapper.find('details').exists()).toBe(false)
   wrapper.unmount()
 })
 import LoginDialog from '../src/modules/settings/components/LoginDialog.vue'
@@ -124,27 +123,17 @@ it.each([false, true])(
     wrapper.unmount()
   },
 )
-it('设置工作区改变清除旧账号模型和回复间隔草稿', async () => {
+it('间隔控件切工作区清空旧草稿', async () => {
   setActivePinia(createPinia())
   const runtime = useRuntimeStore()
-  const wrapper = mount(SettingsView, {
-    global: { plugins: [ElementPlus], stubs: { ElTag: true } },
-  })
-  await wrapper.find('input[aria-label="模型接口地址"]').setValue('https://old.invalid')
-  await wrapper.find('input[aria-label="模型 API Key"]').setValue('old-test-key')
-  wrapper.findComponent({ name: 'ElInputNumber' }).vm.$emit('update:modelValue', 120)
-  wrapper.findComponent({ name: 'ElInputNumber' }).vm.$emit('change', 120)
+  const wrapper = mount(SettingsView, { global: { plugins: [ElementPlus] } })
+  const input = wrapper.findComponent({ name: 'ElInputNumber' })
+  input.vm.$emit('update:modelValue', 120)
+  input.vm.$emit('change', 120)
   await flushPromises()
   runtime.snapshot.config.reply.perUidMinIntervalMs = 30000
-  runtime.snapshot.config.ai.baseUrl = 'https://new.invalid'
   runtime.snapshot.workspaceId = 'new-workspace'
   await flushPromises()
-  expect((wrapper.find('input[aria-label="模型接口地址"]').element as HTMLInputElement).value).toBe(
-    'https://new.invalid',
-  )
-  expect((wrapper.find('input[aria-label="模型 API Key"]').element as HTMLInputElement).value).toBe(
-    '',
-  )
-  expect(wrapper.findComponent({ name: 'ElInputNumber' }).props('modelValue')).toBe(30)
+  expect(input.props('modelValue')).toBe(30)
   wrapper.unmount()
 })

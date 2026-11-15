@@ -486,19 +486,23 @@ app
         await load('/settings')
       },
     })
-    await managedChecks({
-      win,
-      dataDir,
-      original: runtime,
-      load,
-      check,
-      bind(next) {
-        disposeBusiness()
-        disposeFeatures()
-        disposeBusiness = registerBusinessIpc(next)
-        disposeFeatures = registerPlatformFeatureIpc({ runtime: next, authorize: requireAppFrame })
-      },
-    })
+    if (!selectedChecks.length || selectedChecks.some((name) => name.startsWith('managed:')))
+      await managedChecks({
+        win,
+        dataDir,
+        original: runtime,
+        load,
+        check,
+        bind(next) {
+          disposeBusiness()
+          disposeFeatures()
+          disposeBusiness = registerBusinessIpc(next)
+          disposeFeatures = registerPlatformFeatureIpc({
+            runtime: next,
+            authorize: requireAppFrame,
+          })
+        },
+      })
     await domSendChecks(check)
     await simChecks({ win, check, load })
     for (const name of selectedChecks) {

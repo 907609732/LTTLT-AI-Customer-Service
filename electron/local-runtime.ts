@@ -16,6 +16,8 @@ import { createReplyMonitorWindow } from './reply-monitor-window'
 import { StoreSendModes } from './store-send-modes'
 import { SendModeAuthorizations } from './send-mode-authorizations'
 import { createRequire } from 'node:module'
+import { existsSync } from 'node:fs'
+import { normalizeReplyInterval, validateReplyInterval } from './reply-pacing'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow, safeStorage, shell, dialog, type IpcMainInvokeEvent } from 'electron'
@@ -161,6 +163,18 @@ export function createLocalRuntime(options: {
     transport: options.managedTransport,
   })
   const dataDir = managed.dataDir
+  const { Config } = loadFactory<{
+    Config: new (options: { file: string }) => {
+      all(): { reply: { perUidMinIntervalMs: number } }
+      update(patch: { reply: { perUidMinIntervalMs: number } }): void
+    }
+  }>('desk-v1/src/main/config.js', 'Config')
+  const pacingConfigExists = existsSync(path.join(dataDir, 'config.json'))
+  const pacingConfig = new Config({ file: path.join(dataDir, 'config.json') })
+  const previousInterval = pacingConfig.all().reply.perUidMinIntervalMs
+  const nextInterval = pacingConfigExists ? normalizeReplyInterval(previousInterval) : 1000
+  if (previousInterval !== nextInterval)
+    pacingConfig.update({ reply: { perUidMinIntervalMs: nextInterval } })
   const knowledgeRepository = createKnowledgeRepository({ directory: dataDir, workspaceId })
   const knowledge = createKnowledgeRuntime({
     repository: knowledgeRepository,
@@ -780,6 +794,7 @@ export function createLocalRuntime(options: {
     },
   })
   const scheduler = createFileScheduler({
+    timedTasksEnabled: false,
     workspaceId,
     directory: dataDir,
     validateTask: (task) => {
@@ -934,6 +949,8 @@ export function createLocalRuntime(options: {
       if (closed) throw new Error('本地服务已关闭')
       if (storeSync.isBusy()) throw new Error('正在跨店同步或回滚，请等待完成后再修改工作区')
       const command = commandSchema.parse(input)
+      if (command.action === 'save-config' && command.screenId === 'REPLY_PACING')
+        validateReplyInterval(command.values.seconds)
       if (command.workspaceId !== workspaceId) throw new Error('本地服务已重启，请刷新后重试')
       if (
         [

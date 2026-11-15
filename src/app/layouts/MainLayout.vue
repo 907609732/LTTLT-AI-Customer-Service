@@ -10,9 +10,8 @@ import IconPlus from '@/shared/icons/IconPlus.vue'
 import IconMinus from '@/shared/icons/IconMinus.vue'
 import IconFullScreen from '@/shared/icons/IconFullScreen.vue'
 import IconClose from '@/shared/icons/IconClose.vue'
-import IconSetting from '@/shared/icons/IconSetting.vue'
 import { openKnowledgeManager } from '@/modules/knowledge'
-import { QuickReplyDialog, ScheduledTasksDialog } from '@/modules/workbench'
+import { QuickReplyDialog } from '@/modules/workbench'
 import { LoginDialog } from '@/modules/settings'
 import { AddShopDialog, StoreSidebarCard, useShopSetupStore } from '@/modules/shops'
 import { getDesktop } from '@/shared/platform/desktop'
@@ -67,7 +66,6 @@ const sidebarCollapsed = ref(false),
   shopStatus = ref('offline'),
   addShopVisible = ref(false),
   quickReplyVisible = ref(false),
-  scheduleVisible = ref(false),
   loginVisible = ref(false)
 const shops = computed(() =>
   runtime.snapshot.stores.filter(
@@ -83,7 +81,6 @@ watch(
     () => runtime.snapshot.stores.length,
     addShopVisible,
     quickReplyVisible,
-    scheduleVisible,
     loginVisible,
     () => setup.visible,
   ],
@@ -94,7 +91,6 @@ watch(
       runtime.snapshot.stores.some((s) => s.id === runtime.platformStoreId) &&
       !addShopVisible.value &&
       !quickReplyVisible.value &&
-      !scheduleVisible.value &&
       !loginVisible.value &&
       !setup.visible
     void runtime.presentStore(runtime.platformStoreId, visible).catch((error) => {
@@ -135,11 +131,7 @@ async function openShop(shop: LocalStore) {
     runtime.platformStoreId = shop.id
     await runtime.presentStore(
       shop.id,
-      !setup.visible &&
-        !addShopVisible.value &&
-        !quickReplyVisible.value &&
-        !scheduleVisible.value &&
-        !loginVisible.value,
+      !setup.visible && !addShopVisible.value && !quickReplyVisible.value && !loginVisible.value,
     )
   })
 }
@@ -285,7 +277,7 @@ async function navigate(path: string) {
           :title="runtime.snapshot.modelIssue.message"
           type="error"
           :closable="false"
-          @click="router.push('/settings')"
+          @click="router.push('/shop/manage')"
         />
         <el-alert
           v-if="task.error.value || runtime.error"
@@ -372,18 +364,13 @@ async function navigate(path: string) {
           {{ sidebarCollapsed ? '›' : '‹' }}
         </button>
         <footer class="sidebar-footer">
-          <button @click="router.push('/settings')">
-            <el-icon><IconSetting /></el-icon>设置</button
-          ><button @click="quickReplyVisible = true">快捷回复</button
-          ><button @click="scheduleVisible = true">定时任务</button>
+          <button @click="quickReplyVisible = true">快捷回复</button>
         </footer>
       </aside>
       <main class="workbench-main" :inert="setup.visible"><router-view /></main>
     </div>
     <LoginDialog v-model="loginVisible" />
-    <AddShopDialog v-model="addShopVisible" /><QuickReplyDialog
-      v-model="quickReplyVisible"
-    /><ScheduledTasksDialog v-model="scheduleVisible" />
+    <AddShopDialog v-model="addShopVisible" /><QuickReplyDialog v-model="quickReplyVisible" />
   </div>
 </template>
 <style scoped>

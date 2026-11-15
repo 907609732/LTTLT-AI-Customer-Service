@@ -212,3 +212,21 @@ describe('事件队列容量', () => {
     expect(scheduler.snapshot().runs).toHaveLength(500)
   })
 })
+
+it('关闭独立定时任务后旧任务停用且禁止新建', () => {
+  const original = setup()
+  original.scheduler.execute({ type: 'save', workspaceId: 'workspace', task: task() })
+  const scheduler = new ReceptionScheduler({
+    workspaceId: 'workspace',
+    timedTasksEnabled: false,
+    load: original.saved,
+    save: () => {},
+    now: () => now,
+  })
+  expect(scheduler.snapshot().tasks[0]?.enabled).toBe(false)
+  scheduler.tick(now + 2000)
+  expect(scheduler.snapshot().runs).toHaveLength(0)
+  expect(() => scheduler.execute({ type: 'save', workspaceId: 'workspace', task: task() })).toThrow(
+    '定时任务功能已移除',
+  )
+})

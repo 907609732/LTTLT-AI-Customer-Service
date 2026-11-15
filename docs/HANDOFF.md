@@ -134,3 +134,9 @@
 本轮按参考图拆出单店商品知识列表，补双搜索、批量编辑/删除、独立商家编码、状态胶囊与分页、编辑及CSV弹窗；修复顶部商品学习和同步他店占位入口，采集页按来源直达并可返回。未保存草稿/跨店晚返回/部分失败与版本冲突保护均保留。7文件44项相关测试、完整类型与限定lint通过；隔离三进程原生验收已证明31条商品跨页搜索、编码真实保存及重载筛选。截图为合成验收资料，不写真实店铺知识。编码暂不进入AI检索、不随旧CSV及跨店同步。实现设计见PRODUCT_KNOWLEDGE.md。
 
 Task4 round1 fixes: same-name material at the selected target revises stable source positions and retires removed/superseded parts; original registration name/type and shared-blob metadata survive parsing and learning. Diagram/visual OCR candidates now carry owned image/page/tile evidence in persisted draft versions and expose the exact image in the review editor. Uncertain recovery refuses cancelled/succeeded jobs. These are source/review contract fixes, not provider semantic-quality acceptance; no real paid model/platform operation or user-window automation was performed. See the appended Task4 report for exact focused checks and remaining limits.
+
+## 2026-11-15 恢复本地向导与回复间隔改动到主干
+
+旧remaining-platform-features工作树已清理且未提交改动未在Git遗留树找到。本轮按同一聊天中原有实现恢复，并适配当前main，保留后续知识库改造。前五步骤可直接点击并保留草稿；完成页仅保存成功开放。店铺卡片补回基础设置入口。回复间隔复用settings公开控件及REPLY_PACING/expectedMs命令，置客服风格页独立明确保存，全局生效；新配置默认1秒，后台最小1秒，已有合法间隔（包括60秒）保留，低于1秒修正为1秒。侧栏删除设置/定时任务并保留快捷回复，旧/settings跳转配置中心，旧高级模型页移除，顶部登录Key配置保留。独立定时任务禁止新增/启用、停用已存任务并取消未执行事项；共享接待事件调度及历史仍保留。
+
+验证：7个相关文件52项测试通过；Vue及Electron类型检查通过，修改源码ESLint通过，前端/桌面构建通过。隔离Electron新位置间隔1→15→1秒、拒绝0和乐观锁冲突、旧路由、侧栏精简2/2通过：artifacts/desktop-selected-1794747929484/report.json。首次桌面检查因主干缺少卡片基础设置入口失败，补回后复测通过。独立审查发现覆盖手动60秒的风险，已改为保留所有已有合法间隔。未运行全量Release检查，未打包/发布，不操作真实买家或调用真实模型。下一步用户在主干源码窗口验收交互。

@@ -127,8 +127,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: 'settings',
         name: 'settings',
-        component: /* lazy module entry */ () =>
-          import('@/modules/settings').then((m) => m.SettingsView),
+        redirect: '/shop/manage',
         meta: { title: '设置' },
       },
     ],
