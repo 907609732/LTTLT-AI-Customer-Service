@@ -31,9 +31,12 @@
   "dependencies": {
     "element-plus": "2.8.8",
     "js-tiktoken": "1.0.21",
+    "mammoth": "1.13.0",
     "minisearch": "7.2.0",
     "papaparse": "5.7.1",
+    "pdfjs-dist": "6.5.438",
     "pinia": "2.2.8",
+    "read-excel-file": "9.3.17",
     "vue": "3.5.11",
     "vue-router": "4.4.5",
     "zod": "4.6.7"
