@@ -52,7 +52,7 @@ export function createWindow(
     skipTaskbar: compact,
     frame: false,
     show: false,
-    backgroundColor: options.knowledge ? '#17191d' : '#f4f6fb',
+    backgroundColor: options.knowledge ? '#ffffff' : '#f4f6fb',
     title: PRODUCT_NAME,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

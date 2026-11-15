@@ -53,11 +53,11 @@ onBeforeUnmount(() => {
   flex: none;
   align-items: center;
   justify-content: center;
-  background: #272c35;
-  border: 1px solid #3c4350;
+  background: var(--km-card, #fff);
+  border: 1px solid var(--km-border, #e4e7ed);
   border-radius: 6px;
   overflow: hidden;
-  color: #9da9bc;
+  color: var(--km-muted, #606266);
   font-size: 14px;
 }
 .knowledge-thumbnail img {
