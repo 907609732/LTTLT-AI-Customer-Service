@@ -11,6 +11,10 @@ export function registerKnowledgeIpc(options: {
   authorize(event: unknown): void
   resolve(): { workspaceId: string; request(input: unknown): Promise<unknown> }
   window: KnowledgeWindowManager
+  restore?(
+    workspaceId: string,
+    token: string,
+  ): Promise<{ workspaceId: string; recovered: boolean; message: string }>
 }) {
   const handlers: Record<string, (input: unknown) => unknown> = {
     'knowledge:open': (input) => options.window.open(input),
@@ -20,6 +24,16 @@ export function registerKnowledgeIpc(options: {
       const request = knowledgeRequestSchema.parse(input),
         current = options.resolve()
       if (current.workspaceId !== request.workspaceId) throw Error('知识库工作区已改变')
+      if (request.operation === 'restore') {
+        if (!options.restore) throw Error('恢复服务尚未接入')
+        const storeId = options.window.context().storeId
+        return options.restore(request.workspaceId, request.token).then((result) => {
+          if (options.resolve().workspaceId !== result.workspaceId)
+            throw Error('恢复后账号已再次改变')
+          options.window.rebind(result.workspaceId, storeId)
+          return { ...result, context: options.window.context() }
+        })
+      }
       return current.request(request).then((result) => {
         if (options.resolve().workspaceId !== request.workspaceId)
           throw Error('知识库工作区已改变，已丢弃旧结果')

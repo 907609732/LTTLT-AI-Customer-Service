@@ -33,6 +33,43 @@ function fixture() {
   }
 }
 describe('trusted knowledge window', () => {
+  it('accepts only the owner returned new context after restore and does not treat it as a late old result', async () => {
+    const f = fixture(),
+      handlers = new Map<string, (event: unknown, input: unknown) => unknown>()
+    await f.manager.open({ workspaceId: 'w', storeId: 'a' })
+    let workspaceId = 'w'
+    const dispose = registerKnowledgeIpc({
+      ipc: { handle: (n, h) => handlers.set(n, h), removeHandler: (n) => handlers.delete(n) },
+      authorize() {},
+      window: f.manager,
+      resolve: () => ({
+        workspaceId,
+        request: async () => {
+          throw Error('must not restore inside disposed runtime')
+        },
+      }),
+      restore: async () => {
+        f.switch()
+        workspaceId = 'new'
+        return { workspaceId, recovered: false, message: 'restored' }
+      },
+    })
+    const result = await handlers.get('knowledge:request')!(
+      {},
+      { workspaceId: 'w', operation: 'restore', token: 'main-owned' },
+    )
+    expect(result).toMatchObject({
+      workspaceId: 'new',
+      context: { workspaceId: 'new', storeId: 'a' },
+    })
+    expect(() =>
+      handlers.get('knowledge:request')!(
+        {},
+        { workspaceId: 'w', operation: 'restore', token: 'main-owned' },
+      ),
+    ).toThrow('工作区')
+    dispose()
+  })
   it('focuses one clamped window with explicit local shop context; close waits for draft then hides', async () => {
     const f = fixture()
     await f.manager.open({ workspaceId: 'w', storeId: 'a' })

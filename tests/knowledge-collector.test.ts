@@ -58,6 +58,18 @@ function detail(overrides: Partial<PlatformProductDetail> = {}): PlatformProduct
   }
 }
 describe('collector material revisions', () => {
+  it('shows actual SKU/specification and original capture expiry on lightweight cards', () => {
+    const f = fixture()
+    f.materials.write('s', detail())
+    const card = f.repository.listProducts({ storeId: 's' }).items[0]!
+    expect(card.productSummary).toMatchObject({
+      skuCount: 1,
+      specifications: ['颜色：红'],
+      capturedAt: 1000,
+      expired: true,
+    })
+    expect(JSON.stringify(card)).not.toContain('description')
+  })
   it('keeps static citations through timestamp and price-only captures, with SKU-specific dynamic lineage', () => {
     const { repository: r, binding: b, materials: m } = fixture()
     m.write('s', detail())
@@ -228,6 +240,20 @@ async function selection(f: ReturnType<typeof pipelineFixture>) {
   }
 }
 describe('catalog-first durable collection', () => {
+  it('runs a quiet daily comparison for existing bindings without prior UI catalog or AI learning', async () => {
+    const f = pipelineFixture()
+    const started = await f.coordinator.request({
+      action: 'start',
+      kind: 'daily-check',
+      storeId: 's',
+      bindingIds: [f.binding.id],
+    })
+    const job = await settle(f, started.jobId)
+    expect(job.kind).toBe('daily-check')
+    expect(job.status).toBe('succeeded')
+    expect(f.repository.listEntries().total).toBe(0)
+    expect(f.repository.listSources({ bindingId: f.binding.id }).length).toBeGreaterThan(0)
+  })
   it('returns jobId while reads are blocked and cancellation immediately prevents late writes', async () => {
     const f = pipelineFixture()
     const catalog = await selection(f)

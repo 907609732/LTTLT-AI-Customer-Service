@@ -17,7 +17,15 @@ export interface ParsedPart {
   locator: KnowledgeSourceLocator
   image?: { bytes: Uint8Array; mimeType: string }
   product?: { productId: string; title: string }
-  intent?: { question: string; answer: string; keywords: string[]; productIds: string[] }
+  intent?: {
+    question: string
+    answer: string
+    keywords: string[]
+    productIds: string[]
+    skuId?: string
+    field?: 'fact' | 'price' | 'stock' | 'activity'
+    expiresAt?: number | null
+  }
   chat?: boolean
 }
 export interface ParsedFile {
@@ -186,6 +194,27 @@ export async function parseKnowledgeFile(name: string, bytes: Uint8Array): Promi
         )
       result.parts = rows.data.map((raw, i) => {
         const row = z.record(z.string(), z.string()).parse(raw)
+        if (row.format === 'lingtu-knowledge-v1') {
+          const escaped = z.array(z.string()).parse(JSON.parse(row.escapedFields || '[]'))
+          for (const key of escaped) if (row[key]?.startsWith("'")) row[key] = row[key]!.slice(1)
+          const intent = z
+            .object({
+              question: z.string().min(1).max(4000),
+              answer: z.string().min(1).max(30000),
+              keywords: z.array(z.string()),
+              productIds: z.array(z.string()),
+              skuId: z.string().max(200),
+              field: z.enum(['fact', 'price', 'stock', 'activity']),
+              expiresAt: z.number().int().nonnegative().nullable(),
+            })
+            .parse({
+              ...row,
+              keywords: JSON.parse(row.keywords || '[]'),
+              productIds: JSON.parse(row.productIds || '[]'),
+              expiresAt: row.expiresAt ? Number(row.expiresAt) : null,
+            })
+          return { text: JSON.stringify(intent), locator: { row: i + 2 }, intent }
+        }
         const product = products
           ? {
               productId: z.string().trim().min(1).max(200).parse(row.productId),
@@ -217,6 +246,9 @@ export async function parseKnowledgeFile(name: string, bytes: Uint8Array): Promi
                 question: z.string().min(1).max(4000),
                 answer: z.string().min(1).max(30000),
                 keywords: z.array(z.string()).default([]),
+                skuId: z.string().max(200).optional(),
+                field: z.enum(['fact', 'price', 'stock', 'activity']).optional(),
+                expiresAt: z.number().int().nonnegative().nullable().optional(),
               }),
             ),
             productIds: z.array(z.string()).default([]),

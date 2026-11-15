@@ -44,6 +44,7 @@ import {
   unregisterKnowledgeWriter,
 } from './lifecycle'
 import { knowledgeRequire } from './node-loader'
+import { pruneToFamily } from './backup-scope'
 const { DatabaseSync } = knowledgeRequire('node:sqlite') as typeof import('node:sqlite')
 type Table =
   | 'canonical'
@@ -111,7 +112,8 @@ export class KnowledgeRepository {
         for (const job of this.rows<KnowledgeJob>('jobs'))
           if (
             job.status === 'running' ||
-            (['learn', 'collect', 'import'].includes(job.kind) && job.status === 'queued')
+            (['learn', 'collect', 'import', 'daily-check'].includes(job.kind) &&
+              job.status === 'queued')
           )
             this.put('jobs', {
               ...job,
@@ -210,6 +212,8 @@ export class KnowledgeRepository {
   }
   saveCanonical(input: z.input<typeof canonicalProductInputSchema>): CanonicalProduct {
     const value = canonicalProductInputSchema.parse(input)
+    if (value.id && this.getMetadata(`removed-canonical:${value.id}`) === '1')
+      throw Error('商品已从全库移除，请从备份恢复')
     return this.transaction(() => {
       const old = value.id ? this.getCanonical(value.id) : null
       this.expectRevision(old, value.expectedRevision, value.id)
@@ -229,6 +233,8 @@ export class KnowledgeRepository {
     const value = productBindingInputSchema.parse(input)
     return this.transaction(() => {
       if (!this.getCanonical(value.canonicalId)) throw Error('共享商品不存在')
+      if (this.getMetadata(`removed-canonical:${value.canonicalId}`) === '1')
+        throw Error('共享商品已从全库移除')
       const old = value.id ? this.getBinding(value.id) : null
       this.expectRevision(old, value.expectedRevision, value.id)
       if (
@@ -322,6 +328,36 @@ export class KnowledgeRepository {
         if (scope.kind === 'store' && scope.storeId === storeId)
           this.withdraw(entry.id, entry.revision)
       }
+    })
+  }
+  removeCanonical(canonicalId: string) {
+    return this.transaction(() => {
+      const bindings = this.listBindings(canonicalId),
+        ids = new Set(bindings.map((b) => b.id))
+      for (const b of bindings)
+        if (this.getBinding(b.id)?.active) this.unlinkBinding(b.id, this.getBinding(b.id)!.revision)
+      for (const e of this.rows<KnowledgeEntry>('entries')) {
+        const scopes = [e.draft.scope, ...(e.approved ? [e.approved.scope] : [])]
+        if (
+          scopes.some((s) =>
+            s.kind === 'canonical'
+              ? s.canonicalId === canonicalId
+              : s.kind === 'binding' && ids.has(s.bindingId),
+          )
+        )
+          this.withdraw(e.id, e.revision)
+      }
+      for (const job of this.rows<KnowledgeJob>('jobs'))
+        if (
+          !['succeeded', 'cancelled'].includes(job.status) &&
+          [...ids].some((id) => JSON.stringify(job.payload).includes(JSON.stringify(id)))
+        )
+          this.updateJob(job.id, {
+            expectedRevision: job.revision,
+            status: 'cancelled',
+            error: '所属同款已从全库移除',
+          })
+      this.setMetadata(`removed-canonical:${canonicalId}`, '1')
     })
   }
   saveSource(input: KnowledgeSourceInput): KnowledgeSource {
@@ -428,6 +464,11 @@ export class KnowledgeRepository {
       const scope = knowledgeScopeSchema.parse(parsed.scope)
       if (scope.kind === 'canonical' && !this.getCanonical(scope.canonicalId))
         throw Error('共享商品不存在')
+      if (
+        scope.kind === 'canonical' &&
+        this.getMetadata(`removed-canonical:${scope.canonicalId}`) === '1'
+      )
+        throw Error('共享商品已删除')
       if (scope.kind === 'binding' && !this.getBinding(scope.bindingId)?.active)
         throw Error('商品绑定不存在')
       if (parsed.field !== 'fact' && scope.kind !== 'binding' && scope.kind !== 'store')
@@ -504,6 +545,11 @@ export class KnowledgeRepository {
       if (Object.keys(value.expectedSourceRevisions).length !== entry.draft.sourceRefs.length)
         throw Error('source来源审核集合不匹配')
       const scope = entry.draft.scope
+      if (
+        scope.kind === 'canonical' &&
+        this.getMetadata(`removed-canonical:${scope.canonicalId}`) === '1'
+      )
+        throw Error('共享商品已删除')
       if (scope.kind === 'binding' && !this.getBinding(scope.bindingId)?.active)
         throw Error('绑定已解除')
       if (
@@ -612,6 +658,43 @@ export class KnowledgeRepository {
       revision: this.revision,
     }
   }
+  productSummary(binding: ProductBinding) {
+    const skuCount = (
+      this.db
+        .prepare(
+          "SELECT count(*) AS count FROM bindings WHERE store_id=? AND product_id=? AND active=1 AND sku_id<>''",
+        )
+        .get(binding.storeId, binding.productId) as { count: number }
+    ).count
+    const source = this.db
+      .prepare(
+        "SELECT json_extract(json_extract(body,'$.text'),'$.skus[0].specs') AS specs,json_extract(json_extract(body,'$.text'),'$.merchantCode') AS code FROM sources WHERE binding_id=? AND json_extract(body,'$.label')='平台静态资料' AND json_valid(json_extract(body,'$.text')) LIMIT 1",
+      )
+      .get(binding.id) as { specs: string | null; code: string | null } | undefined
+    const specifications = source?.specs
+      ? z
+          .array(z.object({ name: z.string(), value: z.string() }))
+          .parse(JSON.parse(source.specs))
+          .map((s) => `${s.name}：${s.value}`)
+          .slice(0, 4)
+      : []
+    const capture = this.db
+      .prepare(
+        "SELECT min(json_extract(json_extract(s.body,'$.text'),'$.capturedAt')) AS at FROM sources s JOIN bindings b ON b.id=s.binding_id WHERE b.store_id=? AND b.product_id=? AND b.active=1 AND json_extract(s.body,'$.label')='平台动态快照' AND json_valid(json_extract(s.body,'$.text'))",
+      )
+      .get(binding.storeId, binding.productId) as { at: number | null }
+    const capturedAt = capture.at,
+      expiresAt =
+        capturedAt === null ? null : capturedAt + this.getSettings().dynamicTtlMinutes * 60000
+    return {
+      skuCount,
+      specifications,
+      capturedAt,
+      expiresAt,
+      expired: expiresAt !== null && expiresAt <= this.now(),
+      code: source?.code ?? '',
+    }
+  }
   listProducts(input: KnowledgePageInput & { storeId: string }) {
     const page = knowledgePageSchema.parse(input)
     const search = page.search?.toLowerCase() ?? ''
@@ -633,7 +716,7 @@ export class KnowledgeRepository {
       // SQL extracts metadata for this page; source text and image bytes are loaded on demand.
       const sources = this.db
         .prepare(
-          "SELECT json_extract(body,'$.kind') AS kind,json_extract(body,'$.assetIds[0]') AS assetId FROM sources WHERE binding_id=?",
+          "SELECT json_extract(body,'$.kind') AS kind,json_extract(body,'$.assetIds[0]') AS assetId FROM sources WHERE binding_id=? AND COALESCE(json_extract(body,'$.removed'),0)=0",
         )
         .all(binding.id) as { kind: KnowledgeSource['kind']; assetId: string | null }[]
       const thumbnailAssetId =
@@ -653,6 +736,7 @@ export class KnowledgeRepository {
       return {
         canonical: this.getCanonical(binding.canonicalId)!,
         binding,
+        productSummary: this.productSummary(binding),
         sources: sources.length,
         approved: count('approved'),
         drafts: count('draft'),
@@ -669,7 +753,7 @@ export class KnowledgeRepository {
     const page = knowledgePageSchema.parse(input),
       search = page.search?.toLowerCase() ?? ''
     const where =
-      "(?='' OR instr(lower(json_extract(body,'$.title')||' '||json_extract(body,'$.code')),?)>0)"
+      "NOT EXISTS(SELECT 1 FROM metadata m WHERE m.key='removed-canonical:'||canonical.id AND m.value='1') AND (?='' OR instr(lower(json_extract(body,'$.title')||' '||json_extract(body,'$.code')),?)>0)"
     const total = (
       this.db
         .prepare(`SELECT COUNT(*) AS count FROM canonical WHERE ${where}`)
@@ -829,6 +913,15 @@ export class KnowledgeRepository {
       })
     })
   }
+  hasUnfinishedDailyCheck(storeId: string) {
+    return Boolean(
+      this.db
+        .prepare(
+          "SELECT id FROM jobs WHERE json_extract(body,'$.storeId')=? AND json_extract(body,'$.kind')='daily-check' AND json_extract(body,'$.status') NOT IN ('succeeded','cancelled') LIMIT 1",
+        )
+        .get(storeId),
+    )
+  }
   listJobs(input: KnowledgePageInput = {}) {
     return this.page(
       this.rows<KnowledgeJob>('jobs')
@@ -843,6 +936,8 @@ export class KnowledgeRepository {
     skuId?: string
     question: string
     conversationId?: string
+    reason?: KnowledgeMiss['reason']
+    context?: KnowledgeMiss['context']
   }): KnowledgeMiss {
     return this.transaction(() => {
       const parsed = z
@@ -852,6 +947,11 @@ export class KnowledgeRepository {
           skuId: z.string().max(200).default(''),
           question: z.string().trim().min(1).max(10000),
           conversationId: z.string().max(200).optional(),
+          reason: z.enum(['unknown-product', 'expired-field', 'no-eligible-knowledge']).optional(),
+          context: z
+            .array(z.object({ from: z.string().max(20), content: z.string().max(600) }).strict())
+            .max(6)
+            .optional(),
         })
         .strict()
         .parse(input)
@@ -860,7 +960,10 @@ export class KnowledgeRepository {
           parsed.storeId,
           parsed.productId,
           parsed.skuId,
-          parsed.question.toLowerCase().replace(/\s+/g, ' '),
+          parsed.question
+            .normalize('NFKC')
+            .toLowerCase()
+            .replace(/[\s\p{P}]+/gu, ''),
         ]),
       )
       const old = this.row<KnowledgeMiss>('misses', id)
@@ -870,6 +973,9 @@ export class KnowledgeRepository {
         productId: parsed.productId,
         skuId: parsed.skuId,
         question: parsed.question,
+        reason: parsed.reason ?? old?.reason,
+        source: 'reception',
+        context: parsed.context ?? old?.context ?? [],
         count: (old?.count ?? 0) + 1,
         conversationIds: [
           ...new Set([
@@ -905,19 +1011,32 @@ export class KnowledgeRepository {
       input,
     )
   }
-  createBackup(destination: string): KnowledgeBackupManifest & { directory: string } {
+  createBackup(
+    destination: string,
+    scope?: { canonicalId: string },
+  ): KnowledgeBackupManifest & { directory: string } {
     this.assertOpen()
     const directory = join(destination, `knowledge-${this.now()}-${randomUUID()}`)
     mkdirSync(directory, { recursive: true })
     const database = join(directory, 'knowledge.sqlite')
     this.db.prepare('VACUUM INTO ?').run(database)
+    const snapshot = new DatabaseSync(database)
+    let family: KnowledgeBackupManifest['scope'], snapshotAssets: KnowledgeAsset[]
+    try {
+      if (scope) family = pruneToFamily(snapshot, scope.canonicalId)
+      snapshotAssets = (
+        snapshot.prepare('SELECT body FROM assets').all() as { body: string }[]
+      ).map((row) => JSON.parse(String(row.body)) as KnowledgeAsset)
+    } finally {
+      snapshot.close()
+    }
     const files: KnowledgeBackupManifest['files'] = []
     const add = (path: string) => {
       const bytes = readFileSync(join(directory, path))
       files.push({ path, sha256: hash(bytes), size: bytes.length })
     }
     add('knowledge.sqlite')
-    for (const asset of this.rows<KnowledgeAsset>('assets')) {
+    for (const asset of snapshotAssets) {
       const bytes = this.readAsset(asset.id)
       mkdirSync(join(directory, 'assets'), { recursive: true })
       writeFileSync(join(directory, 'assets', asset.sha256), bytes, { flag: 'wx', mode: 0o600 })
@@ -927,6 +1046,7 @@ export class KnowledgeRepository {
       version: 1,
       createdAt: this.now(),
       revision: this.revision,
+      ...(family ? { scope: family } : {}),
       files,
     }
     writeFileSync(join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2))

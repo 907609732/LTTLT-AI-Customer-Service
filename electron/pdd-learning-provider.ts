@@ -773,9 +773,10 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
         await verify(input.identity, input.signal, page)
         const key = fingerprint(input.identity),
           sources = imageSources.get(key) ?? new Set<string>()
-        for (const item of items)
-          for (const url of item.platformDetail?.images ?? []) sources.add(url)
-        if (sources.size > 20000) sources.clear()
+        const currentUrls = new Set(items.flatMap((item) => item.platformDetail?.images ?? []))
+        // Evict earlier pages before registering this page; never revoke freshly verified images.
+        if (sources.size + currentUrls.size > 20000) sources.clear()
+        for (const url of currentUrls) sources.add(url)
         imageSources.set(key, sources)
         const next =
           dom.hasNext === true && dom.page !== null

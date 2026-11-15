@@ -1,6 +1,6 @@
 # knowledge 模块
 
-2026-11-15：新增独立 `#/knowledge` 管理窗口及SQLite统一审核知识接线，见 [KNOWLEDGE_LIBRARY.md](../../../docs/KNOWLEDGE_LIBRARY.md)。`KnowledgeManagerView` 组合商品卡、草稿编辑器与审核对话框，模块状态在 `manager-controller.ts`；服务经共享窄桥调用。下文旧页面的“启用并保存”不再发布：兼容保存/导入生成草稿，必须进入独立知识库审核。目录优先的拼多多只读采集已注册；专用KnowledgeCatalogDialog显示跨页数量并禁用未核对范围全选。文件导入、图片/扫描件及当前模型学习已通过同一dispatcher接入；日检仍未接入，平台采集和导入只记录原料/待审稿，不发布答案。商品内“原始资料”明确提供本商品导入/学习入口；归档聊天选择日期范围、预览实际记录后导入，详见KNOWLEDGE_LIBRARY的Task4章节。
+2026-11-15：新增独立 `#/knowledge` 管理窗口及SQLite统一审核知识接线，见 [KNOWLEDGE_LIBRARY.md](../../../docs/KNOWLEDGE_LIBRARY.md)。`KnowledgeManagerView` 组合商品卡、草稿编辑器与审核对话框，模块状态在 `manager-controller.ts`；服务经共享窄桥调用。下文旧页面的“启用并保存”不再发布：兼容保存/导入生成草稿，必须进入独立知识库审核。目录优先的拼多多只读采集已注册；专用KnowledgeCatalogDialog显示跨页数量并禁用未核对范围全选。文件导入、图片/扫描件及当前模型学习已通过同一dispatcher接入；每日09:00安静检查、待学箱、CSV/JSON兼容导出以及全库/同款备份恢复已接入；平台采集和导入只记录原料/待审稿，不发布答案。商品内“原始资料”明确提供本商品导入/学习入口；归档聊天选择日期范围、预览实际记录后导入，详见KNOWLEDGE_LIBRARY的当前功能章节。
 
 职责：意图、知识、训练、模型与禁用词界面。
 
@@ -10,7 +10,7 @@
 
 当前业务状态：ShopIntentPanel、ShopAiCustomPanel、ShopBannedWordPanel、ShopTrainingPanel 已接意图知识、规则方案、禁用词和训练。ShopIntentLearnPanel 可选择本机已有资料、平台商品和平台聊天；本机来源仍复用商品规格、当前会话快照及明确“问：/答：”文本。平台来源经过可注入端口读取实际平台资料，任务、范围、游标、候选和审核记录持久化。两类来源均需人工确认后新增停用知识包。ShopKbPanel 录入本店指定商品的尺码规格，经过相同预览确认入库。来源审计以停用条目随包持久化并随 JSON 导出，不参与检索；意图编辑器只读展示并强制保持该条目停用。审核后在意图知识页显式启用知识包。
 
-候选只整理已实际取得的文字，不运行模型，不证明事实正确。本机商品仅预览第一页最多 100 条，本机聊天最多 100 组相邻买家/客服纯文字，这些快照不能冒充平台主动采集。平台来源逐页记录实际可访问范围，达到上限、平台总数未覆盖或分页失败均明确为部分范围；读完平台声明范围也不代表平台全部资料。聊天必须显式选择北京时间起止日期，媒体和非相邻买家/客服回复不会被猜成问答。上述旧页面不具备PDF/Word/OCR；新独立知识库已接入文件解析/当前视觉模型及同款共享审核，详见Task4。无人审核自动启用仍不提供。来源容量受上游 4000 字答案限制，超限拒绝而不截断。原文与人工修改结果同时保留；来源审计是可维护的本机记录，不是防篡改日志。
+候选只整理已实际取得的文字，不运行模型，不证明事实正确。本机商品仅预览第一页最多 100 条，本机聊天最多 100 组相邻买家/客服纯文字，这些快照不能冒充平台主动采集。平台来源逐页记录实际可访问范围，达到上限、平台总数未覆盖或分页失败均明确为部分范围；读完平台声明范围也不代表平台全部资料。聊天必须显式选择北京时间起止日期，媒体和非相邻买家/客服回复不会被猜成问答。上述旧页面不具备PDF/Word/OCR；新独立知识库已接入文件解析/当前视觉模型及同款共享审核，详见KNOWLEDGE_LIBRARY。无人审核自动启用仍不提供。来源容量受上游 4000 字答案限制，超限拒绝而不截断。原文与人工修改结果同时保留；来源审计是可维护的本机记录，不是防篡改日志。
 
 本机领域逻辑见 learning.ts，现有命令适配与重复检查见 services.ts。平台契约见 `src/shared/contracts/platform-learning.ts`，主进程工厂见 `electron/platform-learning-service.ts`。传入当前账号业务目录后，服务以临时文件、flush 和 rename 保存 `platform-learning.json`，最多保留 100 个任务和 10000 个候选，不静默淘汰审核来源。任务与去重指纹绑定本地店铺、平台账号及平台店铺身份；每次采集和入库前后均检查当前工作区租约和平台身份。重启未完成任务暂停，关闭服务取消在途读取并保留暂停进度，恢复必须人工操作；取消或切换后的迟到页面不会入库。磁盘写入失败停止任务，游标留在上次成功页。
 
@@ -22,10 +22,12 @@ app 从公开 index 导入 `platformLearningTransportKey` 与 `PlatformLearningT
 
 聊天来源读取真实 `/mms-chat/search` 后台，使用原生 RPR 日历确认起止日期和“全部”客服后查询。当前实页只允许近30天有效日期，超出平台禁用范围明确拒绝，不回退待回会话或本机归档。一次采集页对应后台消费者列表的一页；消费者列表的左侧分页与每个会话消息的右侧分页分别核对和点击，消息按真实 ID 合并，不把首次20条当成全部历史。`electron/platform-learning-chat.ts` 复用 [Electron Debugger 官方接口](https://www.electronjs.org/docs/latest/api/debugger) 在自有学习窗口观察已验证的 `getMessagesUsers/getMessages` 原生响应，仅允许相同源与固定路径，限制响应为 1 MiB，投影店铺/消费者 ID、消息 ID、时间、角色方向与平台总数。正文只从实际消息 DOM 读取，不重放平台 HTTP、读取请求头或持久化原始响应。每行 DOM 消息 ID 与原生元数据逐条核对，并按平台 `total` 检查消息覆盖和末页控制；每会话最多确认50次后续消息页，仍有未覆盖消息或原页无法继续加载时保留部分范围，不冒充完整历史。每页原始范围随候选保存，较早页的限制不会被末页成功掩盖；未单独记录原始页码的旧候选不冒用任务的最后页面作为来源。系统事件和媒体只参与范围核对，不被编造为问答。
 
-本轮增量验证覆盖 platform-learning-service、platform-learning-provider、platform-learning-chat、platform-learning-chat-dom、platform-learning-ui 及既有 knowledge-learning 三个文件。夹具验证持久化、原生观察边界和交互，不能作为真实平台采集验收。实页已核对商品 DOM/分页、聊天日期/消费者分页及原生消息总数/ID 的对应结构；工厂、IPC 和 UI 的实际采集仍须在整合后的原生应用验收。原生验收需从实店平台读取新资料，暂停/退出重启、核对来源及范围，保存为停用包，再显式启用并在训练场验证召回；同店切换平台账号后旧任务应拒绝继续和入库。并行开发期间不修改公共 HANDOFF.md。
+本轮增量验证覆盖 platform-learning-service、platform-learning-provider、platform-learning-chat、platform-learning-chat-dom、platform-learning-ui 及既有 knowledge-learning 三个文件。夹具验证持久化、原生观察边界和交互，不能作为真实平台采集验收。实页已核对商品 DOM/分页、聊天日期/消费者分页及原生消息总数/ID 的对应结构；工厂、IPC 和 UI 的实际采集仍须在整合后的原生应用验收。原生验收需从实店平台读取新资料，暂停/退出重启、核对来源及范围，保存为停用包，再显式启用并在训练场验证召回；同店切换平台账号后旧任务应拒绝继续和入库。当前交接与隔离验收以Task5报告和HANDOFF为准。
 
 接入流程见根目录 docs/LOCAL_INTEGRATION.md。demo 是旧视图数据，不是 API DTO；新增能力在所属模块建立服务与类型，经过本地运行时契约，不直接访问 IPC、网络或文件系统。
 
 修改前阅读根目录 AGENTS.md 和 docs/CONSTRAINTS.md。修改后运行相关类型、构建、单元与桌面检查，并更新 docs/HANDOFF.md。
 
 Task4 review: `KnowledgeVisualEvidence.vue` renders persisted `modelEvidence` and delegates image loading through the existing client asset callback. `KnowledgeUncertainCall.vue` only offers explicit retry/skip for the nonterminal uncertain state. Removed source positions remain visible as history but main excludes them from learning/publication. Manager integration only forwards evidence and the asset loader; evidence validation and lifecycle logic remain in focused main modules.
+
+管理组件新增实际SKU/规格/动态有效期、同款建议（人工确认）、知识历史、独立全库移除范围、待学原因/上下文和恢复预览。`manager-service` 只提交不透明恢复token；重建后的新workspace由owner返回并重绑窗口，清空旧店铺弹层和异步租约。复用项目、许可与验证范围见 [KNOWLEDGE_LIBRARY.md](../../../docs/KNOWLEDGE_LIBRARY.md)。

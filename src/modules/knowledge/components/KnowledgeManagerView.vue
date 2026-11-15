@@ -101,6 +101,14 @@ const {
   bindShared,
   doTrial,
   backup,
+  recommendations,
+  entryHistory,
+  deleteReview,
+  previewDeleteFamily,
+  confirmDeleteFamily,
+  restorePreview,
+  chooseRestore,
+  restoreBackup,
   exportEntries,
   loadCatalog,
   collectCatalog,
@@ -228,8 +236,10 @@ const {
         @click="run(writeOne)"
       >
         ＋ 自己写一件</button
-      ><button @click="run(exportEntries)">导出</button
-      ><button @click="run(backup)">全库备份</button>
+      ><button @click="run(() => exportEntries('json'))">导出JSON</button
+      ><button @click="run(() => exportEntries('csv'))">导出CSV</button
+      ><button @click="run(() => backup())">全库备份</button
+      ><button @click="run(chooseRestore)">恢复备份</button>
     </div>
     <p v-if="capabilities?.reason" class="knowledge-muted capability">{{ capabilities.reason }}</p>
     <div v-if="view === 'library' || view === 'review'" class="knowledge-selection">
@@ -270,7 +280,7 @@ const {
               removing = true
             }
           "
-          @backup="run(backup)"
+          @backup="(id) => run(() => backup(id))"
         />
         <p v-if="!products.length" class="knowledge-empty">
           当前店铺尚无商品知识。可手写商品；平台采集服务接入后可先浏览在售目录，再明确选择采集范围。
@@ -415,6 +425,22 @@ const {
               {{ miss.skuId || '未识别' }} · {{ miss.conversationIds.length }} 个真实会话 ·
               {{ miss.status }}
             </p>
+            <p>
+              缺口原因：{{
+                miss.reason === 'unknown-product'
+                  ? '商品身份未知'
+                  : miss.reason === 'expired-field'
+                    ? '依据已过期'
+                    : '没有匹配的有效审核知识'
+              }}
+              · 来源：正式接待
+            </p>
+            <details v-if="miss.context?.length">
+              <summary>最近上下文（有界留存）</summary>
+              <p v-for="(message, index) in miss.context" :key="index">
+                {{ message.from === 'buyer' ? '买家' : '客服' }}：{{ message.content }}
+              </p>
+            </details>
           </div>
           <button
             @click="
@@ -539,6 +565,24 @@ const {
 {{ source.text }}</pre
             >
           </details>
+          <button
+            v-if="draft?.id"
+            @click="
+              run(async () => {
+                entryHistory = await client().entryHistory(draft!.id!)
+              })
+            "
+          >
+            查看知识历史 / 审核版本
+          </button>
+          <details v-if="entryHistory.length" open>
+            <summary>知识版本历史</summary>
+            <article v-for="row in entryHistory" :key="row.version.revision">
+              <b>v{{ row.version.revision }} · {{ row.reviewed ? '已审核版本' : '草稿版本' }}</b>
+              <p>{{ row.version.question }}</p>
+              <pre>{{ row.version.answer }}</pre>
+            </article>
+          </details>
         </div>
         <KnowledgeDraftEditor
           v-if="draft"
@@ -589,7 +633,11 @@ const {
             {{ sourceLabel(source.kind) }} · {{ new Date(source.updatedAt).toLocaleString() }} ·
             {{ sourceLocationLabel(source.locator) }}
           </p>
-          <pre>{{ source.text }}</pre>
+          <pre>{{
+            source.text === '原始文件已登记；尚未解析。'
+              ? '原始文件已保存；解析内容和处理结果请查看对应资料与任务。'
+              : source.text
+          }}</pre>
           <KnowledgeThumbnail
             v-for="assetId in source.locator.assetId
               ? source.locator.imageAssetId
@@ -686,6 +734,15 @@ v{{ source.revision }} · {{ source.hash }}
             </option>
           </select></label
         ><button @click="run(bindShared)">预览整体同款关联</button>
+        <div v-if="recommendations.length">
+          <h3>同款建议（需人工确认）</h3>
+          <p v-for="candidate in recommendations" :key="candidate.canonical.id">
+            <button @click="mappingCanonical = candidate.canonical.id">
+              选择 {{ candidate.canonical.title }}
+            </button>
+            · {{ candidate.reasons.join('、') }}
+          </p>
+        </div>
       </div>
     </section>
     <KnowledgeReviewDialog
@@ -769,6 +826,27 @@ v{{ source.revision }} · {{ source.hash }}
           >
             确认解除本店关联
           </button>
+          <button class="danger" @click="run(previewDeleteFamily)">另行预览从全库移除此同款</button>
+        </footer>
+      </section>
+    </div>
+    <div v-if="deleteReview?.canonical" class="knowledge-modal-backdrop">
+      <section class="knowledge-modal">
+        <h2>从全库移除「{{ deleteReview.canonical.title }}」</h2>
+        <p>
+          将解除下列全部店铺/商品/SKU、撤回知识并取消相关任务。其他商品保留；来源和审核历史保留用于核对，恢复请使用备份。
+        </p>
+        <ul>
+          <li v-for="binding in deleteReview.bindings" :key="binding.id">
+            {{ stores.find((s) => s.id === binding.storeId)?.storeName || binding.storeId }} ·
+            {{ binding.productId }} · {{ binding.skuId || '根商品' }}
+          </li>
+        </ul>
+        <footer>
+          <button @click="deleteReview = undefined">取消</button
+          ><button class="danger" @click="run(confirmDeleteFamily)">
+            明确移除上述全部关联与知识
+          </button>
         </footer>
       </section>
     </div>
@@ -795,6 +873,28 @@ v{{ source.revision }} · {{ source.hash }}
         <footer>
           <button @click="estimate = undefined">取消</button
           ><button class="primary" @click="run(startLearn)">明确开始模型学习</button>
+        </footer>
+      </section>
+    </div>
+    <div v-if="restorePreview" class="knowledge-modal-backdrop">
+      <section class="knowledge-modal">
+        <h2>确认恢复范围</h2>
+        <p>{{ restorePreview.scope }}</p>
+        <p v-if="restorePreview.stores.length">
+          全部受影响店铺：{{ restorePreview.stores.join('、') }}
+        </p>
+        <p>{{ restorePreview.message }}</p>
+        <details>
+          <summary>店铺 / 商品 / SKU范围（{{ restorePreview.bindings.length }}）</summary>
+          <p v-for="binding in restorePreview.bindings" :key="binding">{{ binding }}</p>
+        </details>
+        <details v-if="restorePreview.originalFiles.length">
+          <summary>原件依赖（{{ restorePreview.originalFiles.length }}份）</summary>
+          <p v-for="(name, index) in restorePreview.originalFiles" :key="index">{{ name }}</p>
+        </details>
+        <footer>
+          <button @click="restorePreview = undefined">取消</button
+          ><button class="danger" @click="run(restoreBackup)">停止服务并恢复上述范围</button>
         </footer>
       </section>
     </div>

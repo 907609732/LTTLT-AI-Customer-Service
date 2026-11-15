@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { createKnowledgeRepository } from '../electron/knowledge'
 import { createKnowledgeImporter } from '../electron/knowledge/imports'
+import { exportKnowledge } from '../electron/knowledge/export'
 const cleanup: (() => void)[] = []
 afterEach(() =>
   cleanup
@@ -27,6 +28,36 @@ function setup() {
   })
   return { repo, importer }
 }
+it.each(['csv', 'json'] as const)(
+  'roundtrips %s question text, Unicode, newlines and explicit SKU as unapproved drafts',
+  async (format) => {
+    const { repo, importer } = setup()
+    const c = repo.saveCanonical({ title: '衣服' }),
+      root = repo.bindProduct({ canonicalId: c.id, storeId: 's', productId: '1' }),
+      sku = repo.bindProduct({ canonicalId: c.id, storeId: 's', productId: '1', skuId: 'red' })
+    const v = repo.saveDraft({
+      scope: { kind: 'binding', bindingId: sku.id },
+      question: '=规格,"红色"\n尺寸?',
+      answer: '红色，L\n第二行',
+      field: 'fact',
+    })
+    repo.publish({ entryId: v.id, expectedDraftRevision: v.revision, expectedSourceRevisions: {} })
+    const output = exportKnowledge(repo, { storeId: 's', canonicalId: c.id, format })
+    if (format === 'csv') expect(output.text).toContain("'=规格")
+    const ids = importer.registerFiles('s', [
+      { name: `roundtrip.${format}`, bytes: Buffer.from(output.text) },
+    ])
+    const preview = await importer.preview('s', ids, [root.id])
+    await waitImport(repo, importer.apply(preview.previewId, 's').jobId)
+    const imported = repo
+      .listEntries({ storeId: 's' })
+      .items.find((e) => e.draft.origin === 'import')!
+    expect(imported.draft.question).toBe(v.question)
+    expect(imported.draft.answer).toBe(v.answer)
+    expect(imported.draft.scope).toEqual({ kind: 'binding', bindingId: sku.id })
+    expect(imported.approved).toBeNull()
+  },
+)
 it('previews CSV targets, duplicates and encoding then applies rows to the selected store only', async () => {
   const { repo, importer } = setup()
   const ids = importer.registerFiles('s', [

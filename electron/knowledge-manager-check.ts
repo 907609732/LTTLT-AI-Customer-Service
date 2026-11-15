@@ -1,5 +1,5 @@
 /** Hidden/offscreen native acceptance. Temporary account, synthetic knowledge, loopback model only. */
-import { app, ipcMain, type BrowserWindow } from 'electron'
+import { app, ipcMain, dialog, type BrowserWindow } from 'electron'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -11,13 +11,21 @@ import { createLocalRuntime, requireAppFrame } from './local-runtime'
 import { registerBusinessIpc } from './business-ipc'
 import { createKnowledgeWindow } from './knowledge-window'
 import { registerKnowledgeIpc } from './knowledge-ipc'
+import { createWorkspaceRuntime } from './workspace-runtime'
+import { knowledgeTypingCheck } from './knowledge-typing-check'
+import { createCollectorMaterials } from './knowledge/collector-materials'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowledge-manager-check-'))
 const output = path.resolve('artifacts/knowledge-manager-check/evidence')
 fs.mkdirSync(output, { recursive: true })
+if (fs.existsSync(path.join(output, 'failure.txt')))
+  fs.renameSync(
+    path.join(output, 'failure.txt'),
+    path.join(output, `previous-failure-${Date.now()}.txt`),
+  )
 fs.writeFileSync(path.join(output, 'cleanup.json'), JSON.stringify({ directory: root }))
 app.setPath('userData', path.join(root, 'electron'))
-let runtime: ReturnType<typeof createLocalRuntime> | undefined,
+let runtime: ReturnType<typeof createWorkspaceRuntime> | undefined,
   parent: BrowserWindow | undefined,
   win: BrowserWindow | undefined
 const calls: unknown[] = [],
@@ -73,7 +81,10 @@ app
     const address = model.address()
     assert(address && typeof address !== 'string')
     parent = createWindow({ smoke: true })
-    runtime = createLocalRuntime({ dataDir: path.join(root, 'account'), getWindow: () => parent })
+    runtime = createWorkspaceRuntime({
+      factory: () =>
+        createLocalRuntime({ dataDir: path.join(root, 'account'), getWindow: () => parent }),
+    })
     disposals.push(registerBusinessIpc(runtime))
     await runtime.start()
     const w = runtime.snapshot().workspaceId
@@ -95,7 +106,7 @@ app
       apiKey: '',
       testConnection: true,
     })
-    const repo = runtime.knowledge().repository
+    let repo = runtime.knowledge().repository
     const thumbnail = repo.addAsset(
       fs.readFileSync(path.resolve('src/assets/figma-add-img00.png')),
       { name: '现有测试图标.png', mimeType: 'image/png' },
@@ -134,6 +145,31 @@ app
         })
       }
     }
+    createCollectorMaterials(repo).write(a, {
+      productId: 'product-1',
+      title: '隔离验收商品 1 · 可核对来源及SKU',
+      merchantCode: 'CHECK-1',
+      description: '合成资料',
+      attributes: [],
+      images: [],
+      skus: [
+        {
+          skuId: 'red',
+          specs: [
+            { name: '颜色', value: '红色' },
+            { name: '尺码', value: 'L' },
+          ],
+          merchantCode: 'RED',
+          barcode: '',
+          price: '19.9',
+          stock: 3,
+        },
+      ],
+      sourceUrl: 'https://mms.pinduoduo.com/goods/goods_add/index?goods_id=product-1',
+      capturedAt: Date.now() - 7200000,
+      detailStatus: 'complete',
+      detailNote: '',
+    })
     let creations = 0
     const manager = createKnowledgeWindow({
       workspace: () => runtime!.snapshot().workspaceId,
@@ -166,10 +202,11 @@ app
         },
         authorize: (event) => requireAppFrame(event as Electron.IpcMainInvokeEvent),
         resolve: () => ({
-          workspaceId: w,
+          workspaceId: runtime!.snapshot().workspaceId,
           request: (request) => runtime!.knowledge().request(request),
         }),
         window: manager,
+        restore: (workspaceId, token) => runtime!.restoreKnowledge(workspaceId, token),
       }),
     )
     await manager.open({ workspaceId: w, storeId: a })
@@ -258,10 +295,150 @@ app
     repo.withdraw(draft.id, repo.getEntry(draft.id)!.revision)
     assert(!runtime.knowledge().citationsCurrent('exact-native-trace'))
     checks.push('compat save stays draft, exact evidence invalidates on withdrawal')
+    // Actual simulator → existing collector/worker → configured loopback AiClient → review console.
+    const live = repo.saveDraft({
+      scope: { kind: 'store', storeId: a },
+      question: '模拟验收售后',
+      answer: '模拟验收售后可七天退换',
+    })
+    repo.publish({
+      entryId: live.id,
+      expectedDraftRevision: live.revision,
+      expectedSourceRevisions: {},
+    })
+    assert((await runtime.openSimulatorPage()).ok)
+    const base = new URL(runtime.simulatorStatus().url)
+    const sim = async (route: string, body?: Record<string, string>) => {
+      const url = new URL(route, base)
+      url.searchParams.set('token', base.searchParams.get('token')!)
+      url.searchParams.set('storeId', a)
+      const response = await fetch(
+        url,
+        body
+          ? {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            }
+          : {},
+      )
+      assert(response.ok)
+      return response.json()
+    }
+    const state = (await sim('/api/state')) as { personas: { uid: string }[] },
+      uid = state.personas[0]!.uid
+    await command('set-ai', { enabled: true }, a)
+    await sim('/api/send', { storeId: a, uid, text: '模拟验收售后' })
+    for (
+      let i = 0;
+      i < 200 &&
+      !runtime.snapshot().review.replies.some((r) => r.uid === uid && r.status === 'pending');
+      i++
+    )
+      await delay(100)
+    const pending = runtime
+      .snapshot()
+      .review.replies.find((r) => r.uid === uid && r.status === 'pending')
+    assert(pending, JSON.stringify(runtime.snapshot().review))
+    assert(JSON.stringify(calls.at(-1)).includes('模拟验收售后可七天退换'))
+    repo.withdraw(live.id, repo.getEntry(live.id)!.revision)
+    await assert.rejects(
+      command('review-reply', { id: pending.id, approve: true }),
+      /知识|失效|变化|过期/,
+    )
+    const thread = (await sim(`/api/thread?uid=${encodeURIComponent(uid)}`)) as {
+      messages: { from: string }[]
+    }
+    assert.equal(thread.messages.filter((m) => m.from === 'seller').length, 0)
+    await command('set-ai', { enabled: false }, a)
+    checks.push(
+      'actual simulator worker/model/review pipeline retrieves approved knowledge; withdrawal blocks approval and produces zero simulated sends',
+    )
+    await knowledgeTypingCheck(path.join(root, 'typing'))
+    checks.push(
+      'real offline PDD DOM adapter: expiry/withdraw/source/override invalidate during typing and immediately before click; eight cases zero clicks',
+    )
+    await click('关闭')
+    // One thousand products, SQL page bounds and renderer lazy thumbnails.
+    const started = performance.now()
+    repo.transaction(() => {
+      for (let i = 8; i < 1000; i++) {
+        const c = repo.saveCanonical({ title: `容量商品${i + 1}` })
+        repo.bindProduct({ canonicalId: c.id, storeId: a, productId: `capacity-${i + 1}` })
+      }
+    })
+    const pagingStarted = performance.now(),
+      page = repo.listProducts({ storeId: a, offset: 980, limit: 20 })
+    assert.equal(page.total, 1001)
+    assert.equal(page.items.length, 20)
+    const pageMs = performance.now() - pagingStarted
+    assert(pageMs < 2000)
+    win!.webContents.setZoomFactor(1)
+    await manager.open({ workspaceId: w, storeId: a })
+    await until(`document.querySelectorAll('.knowledge-content > .knowledge-card').length===20`)
+    assert(
+      await evaluate<boolean>(
+        `document.querySelectorAll('.knowledge-content > .knowledge-card img').length<=20`,
+      ),
+    )
+    for (const [width, height, zoom, name] of [
+      [1366, 768, 1, 'final-1366'],
+      [1920, 1080, 1, 'final-1920'],
+      [1350, 1050, 1.5, 'final-900-logical'],
+      [1366, 768, 1.5, 'final-1366-150'],
+    ] as const) {
+      win!.setSize(width, height)
+      win!.webContents.setZoomFactor(zoom)
+      await screenshot(`${name}.png`)
+      assert(await evaluate<boolean>('document.documentElement.scrollWidth<=window.innerWidth+1'))
+    }
+    checks.push(
+      `1001 products (including legacy fixture), bounded20 cards/lazy images; page980=${Math.round(pageMs)}ms; seed=${Math.round(performance.now() - started)}ms; 1366/1920/900logical/150% native captures`,
+    )
+    win!.webContents.setZoomFactor(1)
+    const family = repo.listProducts({ storeId: a, limit: 1 }).items[0]!.canonical
+    const backup = repo.createBackup(path.join(root, 'restore-backup'), { canonicalId: family.id })
+    repo.saveCanonical({
+      id: family.id,
+      expectedRevision: family.revision,
+      title: '临时修改待恢复',
+    })
+    const originalPicker = dialog.showOpenDialog
+    dialog.showOpenDialog = (async () => ({
+      canceled: false,
+      filePaths: [backup.directory],
+    })) as typeof dialog.showOpenDialog
+    try {
+      await click('恢复备份')
+      await until(`document.body.innerText.includes('确认恢复范围')`)
+      await screenshot('final-restore-preview.png')
+      await click('停止服务并恢复上述范围')
+      await until(`document.body.innerText.includes('知识库已恢复')`)
+      repo = runtime.knowledge().repository
+      assert.equal(repo.getCanonical(family.id)?.title, family.title)
+      assert.notEqual(runtime.snapshot().workspaceId, w)
+      assert(runtime.snapshot().stores.every((s) => s.aiEnabled === false))
+      assert.equal(repo.listProducts({ storeId: a }).total, 1001)
+      checks.push(
+        'native picker/opaque preview/IPC owner closes writer and restores family, new manager context survives; unrelated1000 retained and AI startup defaults respected',
+      )
+    } finally {
+      dialog.showOpenDialog = originalPicker
+    }
+    await delay(250)
     manager.dispose()
     fs.writeFileSync(
       path.join(output, 'report.json'),
-      JSON.stringify({ checks, modelRequests: calls.length, visibleWindows: false }, null, 2),
+      JSON.stringify(
+        {
+          completedAt: new Date().toISOString(),
+          checks,
+          modelRequests: calls.length,
+          visibleWindows: false,
+        },
+        null,
+        2,
+      ),
     )
     console.log(JSON.stringify({ checks, output }, null, 2))
   })

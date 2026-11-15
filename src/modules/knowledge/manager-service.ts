@@ -31,6 +31,36 @@ export function createKnowledgeClient(workspaceId: string) {
     return bridge.request(input)
   }
   return {
+    recommendations(bindingId: string) {
+      return request({ workspaceId, operation: 'recommendations', bindingId }) as Promise<
+        {
+          canonical: import('@/shared/contracts/knowledge').CanonicalProduct
+          reasons: string[]
+          score: number
+        }[]
+      >
+    },
+    entryHistory(entryId: string) {
+      return request({ workspaceId, operation: 'entry-history', entryId }) as Promise<
+        { version: KnowledgeVersion; reviewed: boolean }[]
+      >
+    },
+    deleteFamily(input: {
+      canonicalId: string
+      expectedRevision: number
+      bindings: { id: string; expectedRevision: number }[]
+    }) {
+      return request({ workspaceId, operation: 'delete-family', ...input })
+    },
+    export(storeId: string, format: 'csv' | 'json', canonicalId?: string) {
+      return request({
+        workspaceId,
+        operation: 'export',
+        storeId,
+        format,
+        canonicalId,
+      }) as Promise<{ text: string; count: number; message: string }>
+    },
     reassociate(input: import('@/shared/contracts/knowledge-client').KnowledgeReassociateInput) {
       return request({ workspaceId, operation: 'reassociate-product', input }) as Promise<{
         bindings: import('@/shared/contracts/knowledge').ProductBinding[]
@@ -92,8 +122,23 @@ export function createKnowledgeClient(workspaceId: string) {
         input: knowledgePipelineInputSchema.parse(input),
       }) as Promise<KnowledgePipelineResults[T['action']]>
     },
-    backup() {
-      return request({ workspaceId, operation: 'backup' }) as Promise<{ directory: string }>
+    backup(canonicalId?: string) {
+      return request({ workspaceId, operation: 'backup', canonicalId }) as Promise<
+        import('@/shared/contracts/knowledge').KnowledgeBackupManifest & { directory: string }
+      >
+    },
+    restorePreview() {
+      return request({ workspaceId, operation: 'restore-preview' }) as Promise<
+        import('@/shared/contracts/knowledge-client').KnowledgeRestorePreview | null
+      >
+    },
+    restore(token: string) {
+      return request({ workspaceId, operation: 'restore', token }) as Promise<{
+        workspaceId: string
+        recovered: boolean
+        message: string
+        context: import('@/shared/contracts/knowledge-client').KnowledgeWindowContext
+      }>
     },
     context: () => bridge?.context(),
     onContext: bridge?.onContext,

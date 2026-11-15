@@ -301,6 +301,41 @@ describe('PDD learning provider real-page boundary', () => {
     ).rejects.toThrow('身份')
   })
 
+  it('retains current verified image URLs when the bounded registry crosses capacity', async () => {
+    const f = fixture(),
+      identity = await f.provider.identity('shop'),
+      signal = new AbortController().signal
+    const detail = {
+      productId: '12345678',
+      title: '棉衣',
+      merchantCode: '',
+      description: '',
+      attributes: [],
+      images: Array.from({ length: 20000 }, (_, i) => `https://img.pddpic.com/old-${i}.png`),
+      skus: [],
+      capturedAt: 1000,
+      sourceUrl: 'https://mms.pinduoduo.com/goods/goods_add/index?goods_id=12345678',
+      detailStatus: 'complete' as const,
+      detailNote: '',
+    }
+    f.readProductDetail.mockResolvedValue(detail)
+    await f.provider.collectProducts({ identity, range, cursor: null, signal, quiet: true })
+    f.readProductDetail.mockResolvedValue({
+      ...detail,
+      images: ['https://img.pddpic.com/current.png'],
+    })
+    await f.provider.collectProducts({ identity, range, cursor: null, signal, quiet: true })
+    expect(
+      (
+        await f.provider.readProductImage({
+          identity,
+          url: 'https://img.pddpic.com/current.png',
+          signal,
+        })
+      ).mimeType,
+    ).toBe('image/png')
+  })
+
   it('catalog mode returns list-only material without reading product detail', async () => {
     const f = fixture()
     f.readProductDetail.mockRejectedValue(Error('detail must remain unopened'))

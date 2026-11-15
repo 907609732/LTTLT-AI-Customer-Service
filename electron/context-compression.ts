@@ -48,17 +48,24 @@ export interface CompressionInput {
 }
 /** 对自定义模型仅是估算；图片尺寸不可知，每张预留 1536 token，不计 URL 字符。 */
 export function estimateContextTokens(messages: ModelMessages): number {
+  return countContextTokens(messages, (text) => encode(text).length)
+}
+/** Shared arithmetic for the main reply compressor and isolated knowledge budget worker. */
+export function countContextTokens(
+  messages: ModelMessages,
+  tokens: (text: string) => number,
+): number {
   return (
     3 +
     messages.reduce(
       (sum, message) =>
         sum +
         4 +
-        encode(message.role).length +
+        tokens(message.role) +
         (typeof message.content === 'string'
-          ? encode(message.content).length
+          ? tokens(message.content)
           : message.content.reduce(
-              (n, part) => n + (part.type === 'text' ? encode(part.text).length : 1536),
+              (n, part) => n + (part.type === 'text' ? tokens(part.text) : 1536),
               0,
             )),
       0,

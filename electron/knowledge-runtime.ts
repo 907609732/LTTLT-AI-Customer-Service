@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { inspectKnowledgeBackup, knowledgeBackupScope } from './knowledge/backup'
+import { createHash } from 'node:crypto'
+import { exportKnowledge } from './knowledge/export'
+import { tokenizeKnowledge } from './knowledge/resolver'
 import { z } from 'zod'
 import { knowledgeRequestSchema } from '../src/shared/contracts/knowledge-client'
 import type { KnowledgeCitation } from '../src/shared/contracts/knowledge'
-import { modelMessagesSchema, type ModelMessages } from './context-compression'
+import { modelMessagesSchema, CONTEXT_TRIGGER, type ModelMessages } from './context-compression'
+import { estimateKnowledgeTokens } from './knowledge/budget'
 import type { KnowledgeRepository } from './knowledge'
 import type { SendProposal } from './review-console'
 import type {
@@ -39,6 +44,7 @@ export function createKnowledgeRuntime(options: {
   assertActive(): void
   stores(): { id: string; storeName: string; platform: string }[]
   changed(): void
+  chooseRestore?(): Promise<string | undefined>
   resolveSku?(storeId: string, productId: string, question: string): string
 }) {
   const repo = options.repository
@@ -48,6 +54,14 @@ export function createKnowledgeRuntime(options: {
   const controllers = new Set<AbortController>()
   const resolutions = new Map<string, KnowledgeCitation[]>()
   const traces = new Map<string, KnowledgeCitation[]>()
+  const restorePreviews = new Map<
+    string,
+    { directory: string; revision: number; fingerprint: string; expires: number }
+  >()
+  const backupFingerprint = (directory: string) =>
+    createHash('sha256')
+      .update(JSON.stringify(inspectKnowledgeBackup(directory)))
+      .digest('hex')
   const active = () => {
     if (closed) throw Error('知识库已关闭')
     options.assertActive()
@@ -71,6 +85,8 @@ export function createKnowledgeRuntime(options: {
     active()
     if (!model) throw Error('当前模型服务尚未就绪')
     const messages = modelMessagesSchema.parse(input.messages)
+    // This low-level port has no conversation compressor. Never silently cut a protected
+    // question, evidence entry or image. Learning chunks upstream; trials ask for a narrower scope.
     const images = messages.flatMap((m) =>
       typeof m.content === 'string' ? [] : m.content.filter((p) => p.type === 'image_url'),
     )
@@ -83,6 +99,12 @@ export function createKnowledgeRuntime(options: {
     if (input.signal?.aborted) controller.abort()
     controllers.add(controller)
     try {
+      if (controller.signal.aborted || input.isCurrent?.() === false) throw Error('知识任务已取消')
+      if ((await estimateKnowledgeTokens(messages, controller.signal)) >= CONTEXT_TRIGGER)
+        throw Error(
+          '完整问题与依据超过模型输入预算，请缩小试问或资料范围后重试；未截断内容或调用模型',
+        )
+      active()
       if (controller.signal.aborted || input.isCurrent?.() === false) throw Error('知识任务已取消')
       const result = await model.complete({
         ...input,
@@ -100,6 +122,25 @@ export function createKnowledgeRuntime(options: {
   }
   const api = {
     repository: repo,
+    prepareRestore(token: string) {
+      active()
+      const preview = restorePreviews.get(token)
+      restorePreviews.delete(token)
+      if (
+        !preview ||
+        preview.expires < Date.now() ||
+        preview.revision !== repo.revision ||
+        backupFingerprint(preview.directory) !== preview.fingerprint
+      )
+        throw Error('恢复预览已过期或资料变化，请重新预览')
+      knowledgeBackupScope(preview.directory).activeStores.forEach(store)
+      const recovery = repo.createBackup(path.join(repo.directory, 'knowledge-recovery'))
+      return {
+        directory: repo.directory,
+        backupDirectory: preview.directory,
+        recoveryDirectory: recovery.directory,
+      }
+    },
     assertStore: store,
     setModel(port: KnowledgeModelPort) {
       model = port
@@ -163,13 +204,33 @@ export function createKnowledgeRuntime(options: {
         query,
         maxCharacters: 24000,
       })
-      if (!resolution.citations.length && context.purpose === 'reply' && context.uid && query)
+      const substantive =
+        query.trim() &&
+        !/^(你好|您好|在吗|谢谢|谢谢你|好的|好|嗯|哦|收到|辛苦了|再见|hello|hi|thanks)[\s！!。，,.？?~～]*$/iu.test(
+          query.trim(),
+        )
+      if (
+        !resolution.citations.length &&
+        !resolution.omitted &&
+        context.purpose === 'reply' &&
+        context.uid &&
+        substantive
+      )
         repo.recordMiss({
           storeId: context.storeId,
           productId,
-          skuId: context.skuId,
+          skuId,
           question: query,
           conversationId: context.uid,
+          reason: ['unknown', 'ambiguous'].includes(resolution.productStatus)
+            ? 'unknown-product'
+            : resolution.expiredFields.length
+              ? 'expired-field'
+              : 'no-eligible-knowledge',
+          context: thread.slice(-6).map((message) => ({
+            from: message.from.slice(0, 20),
+            content: message.content.slice(0, 600),
+          })),
         })
       const resolutionId = randomUUID()
       resolutions.set(resolutionId, resolution.citations)
@@ -219,6 +280,104 @@ export function createKnowledgeRuntime(options: {
       const request = knowledgeRequestSchema.parse(raw)
       active()
       if (request.workspaceId !== options.workspaceId) throw Error('知识库账号工作区已改变，请刷新')
+      if (request.operation === 'entry-history') return repo.entryVersions(request.entryId)
+      if (request.operation === 'recommendations') {
+        const binding = repo.getBinding(request.bindingId)
+        if (!binding?.active) throw Error('商品关联已移除')
+        store(binding.storeId)
+        const own = repo.getCanonical(binding.canonicalId)!,
+          summary = repo.productSummary(binding)
+        const title = new Set(tokenizeKnowledge(own.title)),
+          specs = new Set(summary.specifications)
+        return repo
+          .rows<import('../src/shared/contracts/knowledge').CanonicalProduct>('canonical')
+          .filter((c) => c.id !== own.id && repo.getMetadata(`removed-canonical:${c.id}`) !== '1')
+          .map((canonical) => {
+            const roots = repo.listBindings(canonical.id).filter((b) => !b.skuId)
+            const summaries = roots.map((b) => repo.productSummary(b))
+            const code = own.code || summary.code
+            const reasons: string[] = []
+            if (code && (canonical.code === code || summaries.some((s) => s.code === code)))
+              reasons.push('商品编码相同')
+            const words = tokenizeKnowledge(canonical.title),
+              overlap =
+                words.filter((word) => title.has(word)).length /
+                Math.max(words.length, title.size, 1)
+            if (overlap >= 0.5) reasons.push('标题相近')
+            if (
+              specs.size &&
+              summaries.some((s) => s.specifications.some((spec) => specs.has(spec)))
+            )
+              reasons.push('规格相符')
+            return {
+              canonical,
+              reasons,
+              score:
+                (reasons.includes('商品编码相同') ? 100 : 0) +
+                (reasons.includes('规格相符') ? 30 : 0) +
+                overlap * 20,
+            }
+          })
+          .filter((c) => c.reasons.length)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 10)
+      }
+      if (request.operation === 'delete-family') {
+        const canonical = repo.getCanonical(request.canonicalId)
+        const family = repo.listBindings(request.canonicalId)
+        family.forEach((b) => store(b.storeId))
+        if (
+          !canonical ||
+          canonical.revision !== request.expectedRevision ||
+          family.length !== request.bindings.length ||
+          family.some(
+            (b) =>
+              !request.bindings.some((v) => v.id === b.id && v.expectedRevision === b.revision),
+          )
+        )
+          throw Error('全库移除范围已变化，请重新预览')
+        repo.removeCanonical(request.canonicalId)
+        options.changed()
+        return { removed: true }
+      }
+      if (request.operation === 'export') {
+        store(request.storeId)
+        return exportKnowledge(repo, request)
+      }
+      if (request.operation === 'restore') throw Error('恢复必须由工作区所有者停止服务后执行')
+      if (request.operation === 'restore-preview') {
+        if (!options.chooseRestore) throw Error('恢复文件选择尚未接入')
+        const directory = await options.chooseRestore()
+        active()
+        if (!directory) return null
+        const manifest = inspectKnowledgeBackup(directory)
+        const scope = knowledgeBackupScope(directory)
+        scope.activeStores.forEach(store)
+        const token = randomUUID()
+        restorePreviews.clear()
+        restorePreviews.set(token, {
+          directory,
+          revision: repo.revision,
+          fingerprint: backupFingerprint(directory),
+          expires: Date.now() + 600000,
+        })
+        return {
+          token,
+          scope: manifest.scope
+            ? `共享商品 ${manifest.scope.canonicalId} 的全部店铺与SKU`
+            : '完整知识库（覆盖当前库）',
+          stores: scope.stores.map(
+            (id) => options.stores().find((s) => s.id === id)?.storeName || id,
+          ),
+          bindings: scope.bindings.map(
+            (b) =>
+              `${options.stores().find((s) => s.id === b.storeId)?.storeName || b.storeId} · ${b.productId} · ${b.skuId || '根商品'}${b.active ? '' : '（已解除，保留历史）'}`,
+          ),
+          originalFiles: scope.originalFiles,
+          message:
+            '将停止当前账号运行服务与任务，保留恢复点，再重建服务；AI按原启动规则保持关闭，店铺发送模式不变。学习中已提交或已收到响应不会自动重发。原件可能含其他商品行，按完整原件保存。',
+        }
+      }
       if (request.operation === 'reassociate-product') {
         const result = repo.transaction(() => {
           active()
@@ -416,7 +575,10 @@ export function createKnowledgeRuntime(options: {
         return `data:${mime};base64,${bytes.toString('base64')}`
       }
       if (request.operation === 'backup')
-        return repo.createBackup(path.join(repo.directory, 'knowledge-backups', randomUUID()))
+        return repo.createBackup(
+          path.join(repo.directory, 'knowledge-backups', randomUUID()),
+          request.canonicalId ? { canonicalId: request.canonicalId } : undefined,
+        )
       store(request.input.storeId)
       if (repo.readOnly) throw Error('知识迁移失败，试问已暂停，请核对迁移诊断')
       const resolution = repo.resolveKnowledge({

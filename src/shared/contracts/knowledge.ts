@@ -196,6 +196,14 @@ export interface KnowledgePage<T> {
   revision: number
 }
 export interface KnowledgeProductCard {
+  productSummary?: {
+    skuCount: number
+    specifications: string[]
+    capturedAt: number | null
+    expiresAt: number | null
+    expired: boolean
+    code: string
+  }
   canonical: CanonicalProduct
   binding: ProductBinding
   sources: number
@@ -247,6 +255,9 @@ export interface KnowledgeMiss {
   productId: string
   skuId: string
   question: string
+  reason?: 'unknown-product' | 'expired-field' | 'no-eligible-knowledge'
+  source?: 'reception'
+  context?: { from: string; content: string }[]
   count: number
   conversationIds: string[]
   status: 'open' | 'resolved' | 'ignored'
@@ -257,6 +268,14 @@ export interface KnowledgeBackupManifest {
   version: 1
   createdAt: number
   revision: number
+  scope?: {
+    kind: 'family'
+    canonicalId: string
+    storeIds: string[]
+    bindingIds: string[]
+    dependencyBindingIds: string[]
+    originalFiles: string[]
+  }
   files: { path: string; sha256: string; size: number }[]
 }
 export interface KnowledgeMigrationState {

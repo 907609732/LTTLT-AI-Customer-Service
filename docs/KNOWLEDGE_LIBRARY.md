@@ -1,73 +1,86 @@
-# 审核知识库接线（2026-11-15）
+# 审核知识库（2026-11-15）
 
-当前账号 `managed.dataDir/knowledge.sqlite` 是知识唯一写入仓储。`local-runtime` 在厂商旧服务构造前注入 `createKnowledgeCompatibilityPorts`；旧商品、意图保存/导入只生成草稿，原有明确人工纠错审核路径保留。新管理编辑、审核、整体同款关联与来源刷新后，持久兼容基线拒绝旧编辑器覆盖较新资料。迁移失败保留原文件，只读诊断可查看；正式回复/试问明确暂停，不把失败冒充空知识。
+当前隔离分支已接通统一仓储、独立管理窗口、只读采集、资料解析/模型学习、日检、待学问题、兼容导出和备份恢复。本文描述当前实现；逐次交付与验证记录在 `.superpowers/sdd/2026-11-15-knowledge-library/task-1-report.md` 至 `task-5-report.md`。尚未公开发布，实店新一轮采集和真实云模型语义质量仍未验收。
 
-`knowledge-platform-products.ts` 提供旧平台详情 get/upsert 的 SQLite 兼容口。已有采集器先建立物理商品绑定，再记录原始来源和SKU。旧平台档案不再写JSON。此兼容快照仍包含采集时间与动态值；新的采集任务另存静态、图像和SKU动态来源，避免每次动态快照变化使不相关的静态引用撤回。它不解析文件、不生成问答、更不发布原始资料。
+## 数据和使用入口
 
-## 独立管理窗口
+当前账号 `managed.dataDir/knowledge.sqlite` 是知识唯一写入仓储。`local-runtime` 在旧服务构造前注入 SQLite 兼容端口，旧商品/意图保存和导入只生成草稿；既有明确人工纠错路径可以发布。原 JSON 是迁移输入，不能被旧构造器继续写回。迁移失败保留原文件与备份，库进入只读诊断，正式回复和试问暂停。现有 `%APPDATA%/yunduo-ui-restored`、登录分区和 appId 保持兼容。
 
-`#/knowledge` 是受信独立窗口，店铺侧栏“导入知识”及配置中心“查看商品”均经 `openKnowledgeManager(storeId)` 聚焦同一实例。窗口店铺选择仅在模块状态中保存，不调用接待选择或打开平台页。窗口按工作区面积收敛，关闭先请求编辑器保存，成功后隐藏；保存失败留在当前编辑器。只有应用退出才销毁窗口。
+店铺侧栏“导入知识”和配置中心“查看商品”打开同一个独立 `#/knowledge` 窗口，携带明确店铺上下文；窗口内切店不改变接待页当前店铺。关闭管理窗口先保存草稿再隐藏；保存失败留在编辑器，提供重试、放弃或继续编辑。窗口关闭不取消后台任务，应用退出和账号切换才关闭服务。
 
-新增固定通道 `knowledge:open/context/request/hide` 及主进程发出的 `knowledge:context/close-request`。调用前复用主帧、注册窗口及受信URL校验；每次请求严格解析固定操作、工作区租约，晚到结果再次校验。没有任意仓储方法、路径、模型请求或密钥IPC；原始资料按文本插值显示，图片仅读取已登记资产并校验安全位图格式。Vue经模块服务与共享平台调用，不直接使用文件系统、网络或Electron。
+商品根卡片按 SQL 分页，每页20件；只读取轻量摘要，图片进入视口后按资产ID加载。卡片显示实际采集的SKU数、规格、动态采集时间与TTL状态，移除的来源保留历史但不计为当前来源。通用问答、待审核、任务、待学问题和设置均在同一窗口。原件登记只表示字节已保存，实际解析内容和处理结果以子资料及任务为准。
 
-商品根卡片分页20项，来源只读轻量摘要；图片进入视口后加载。问答草稿自动保存且发布独立，普通快照刷新不替换草稿；冲突保留文本并可重试、放弃或继续编辑。审核显示作用范围、来源精确版本、有效期及受影响店铺。公共模板可跨店浏览并显式选店应用，“为本店创建覆盖”生成独立条目，保留原模板。任务、待学问题、设置属于次级视图。导出带审核状态；全库备份复用SQLite一致快照API。
+草稿自动保存与人工审核发布分开。审核展示范围、精确来源版本、有效期与受影响店铺；批量结果逐条保留成功、跳过和失败。可编辑/排除模型候选，查看问答版本历史及来源历史。公共模板显式选择店铺应用；“为本店创建覆盖”保留模板并生成独立条目，动态覆盖有有效期。
 
-同款人工确认以根商品为单位，整个物理商品及全部SKU继承同一共享商品family，SKU只维护本店规格、知识和动态差异。`reassociate-product` 必须提交目标canonical版本及当前root/SKU完整ID与版本集合；主进程复核后在同一事务整体更新canonicalId，任何变化全回滚，保留物理身份、来源、本店覆盖和动态值。单SKU跨family重定向拒绝。解除根商品关联仍级联其本店SKU，其他店保留。
+一个共享商品可绑定多个店铺根商品和SKU。编码、标题和规格相似度只产生同款建议，必须人工选中并确认全部根商品/SKU版本集合后，才能事务重关联。物理店铺/商品/SKU身份、来源、本店覆盖和动态差异保留；不允许单SKU跨共享商品改向。默认“解除关联”仅解除本店根商品及其SKU，其他店铺保留。详情内“从全库移除此共享商品”另行列出全部影响范围并确认，撤回引用、取消相关任务，历史仍保留；撤回后不能通过旧草稿重新发布，恢复须用备份。
 
-## 正式回复、训练和试问
+## 只读采集、日检与动态值
 
-`knowledge.context` 先依本店显式商品ID或唯一精确标题定位，复用已有SKU选择器仅识别身份，原始平台JSON不加入模型。统一仓储只召回审核范围、有效期及完整预算内条目。厂商可选 `completeKnowledge` 保留完整证据，随后仍进入原有通用表达参考与16K触发/8K目标压缩器；未注入的上游默认路径保留。
+唯一 `knowledge/pipeline` 协调器注册 collector 与 source-pipeline。目录优先：复用既有拼多多 provider、登录分区、原生在售筛选和独立WebContents，先核对身份与实际目录，再选ID或已验证的“筛选全部”。身份、页范围、游标及30分钟范围令牌只留在主进程。未知总数、重复页、缺页或平台限制明确为部分范围，不能把首屏当全店。每任务最多1000商品，目录最多1000页/10000行，超范围拒绝而不静默截断。
 
-知识引用按同次resolutionID交给精确正式traceID，trace返回同次生成并随worker进入原批准门。知识撤回、解绑、覆盖变化、来源变化或TTL到期后，`guardProposal` 使批准失败并保留知识原因。守卫延续到适配器逐字输入及最终点击，同时保留店铺发送模式、会话网页基线、限流与回执检查。只有显式 `purpose: reply` 的真实uid未覆盖问题进入待学队列；训练、试问不写正式未命中记录。
+原料分为目录/raw/capture、稳定静态、图片及本店SKU动态来源。静态变化只使相关来源依赖的已审核问答失效，手工无依赖知识不受影响；动态更新不撤回不相关静态知识。动态值使用原采集时间，默认60分钟TTL，可设置。完整快照确认SKU不再列出时撤回旧动态依赖但保留物理身份，未经验证的缺失不猜价格/库存。
 
-`KnowledgeRuntime.complete` 只在主进程提供：复用现有本机模型配置/加密密钥或托管chat计费传输，支持AbortSignal、账号租约及当前模型图片能力，不要求开启买家识图或店铺AI，不提供发送/发布。托管模式的输出预算仍受既有托管服务策略控制，本地maxTokens不改服务器策略。
+图片仅允许当前已验证详情的HTTPS平台CDN URL，通过当前店铺Session读取，禁跳转，10MB/图、50MB/商品，核对安全位图MIME/字节。超过图片URL缓存容量时先淘汰旧页，保留刚验证的当前页。失败、平台900009及受限详情保留具体原因；验证码、登录或身份变化暂停待人工。平台采集不调用模型、不发布答案。
 
-## 后续采集/解析服务挂点
+日检默认每天09:00（Asia/Shanghai，可设置），只在应用运行且账号/店铺已可用时检查已关联根商品。每天每店独立持久化检查日：错过09:00或同日稍后登录只补一次，其他店已检查不妨碍新登录店。日检复用 `quiet:true` 采集器，只读取/比较，不抢焦点、不启用AI、不调用模型。未解决的暂停/验证码日检阻止自动重复，须手动继续或取消；应用退出后未完成任务保持暂停。应用关闭时没有系统后台定时服务。
 
-`runtime.knowledge().setPipeline(port)` 只注册一次协调器；`KnowledgePipelinePort.request` 类型来自 `src/shared/contracts/knowledge-pipeline.ts`。动作包括 capabilities、catalog、choose-sources、estimate、start、pause、resume、cancel。首次采集使用目录identityVersion/scopeToken及明确productIds或allMatching/total；已有资料刷新/学习使用bindingIds/sourceIds，学习携带estimateId。start/resume必须先持久化并返回jobId，再在独立worker中做I/O，不占工作区命令队列。协调器负责store移除和dispose取消；后台每次回写仍须检查账号、店铺与任务版本。
+## 文件、聊天与模型学习
 
-协调器已注册Task3目录/采集与Task4文件/学习；日检尚未注册，capabilities如实为false。Task4具体行为见下节，每日检查留给Task5。没有恢复备份的UI；恢复API仍为Task1的停写校验接口。
+商品详情“原始资料 / 来源版本”→“导入本商品资料”明确绑定该物理商品。顶部“商品CSV / 通用资料”无商品目标时预览本店通用范围。主进程原生选择器持有路径，渲染端只收到不透明 sourceIds。原始字节按SHA256保存一次；PDF每页文本/栅格、DOCX文字及内嵌图、XLSX所有sheet、CSV逻辑行、文本行、聊天消息ID均保留位置。
 
-旧跨店商品复制与回滚不能确认物理映射或保留动态差异，运行时拒绝其商品写入；同步页将商品项禁用并提供知识库入口，文字欢迎、识图及人工关键词配置同步保留。
+TXT/MD/CSV/JSON支持BOM、严格UTF8、可验证UTF16或GB18030；预览显示编码。CSV按显式商品编号逐项映射，商品行不会变成一个巨型资料；其他列仍保留原件。导入的启用/审核标记不受信，结果均未审核。聊天可导入JSON消息，或显式选择日期后导入本店现有归档；每会话最多现有100条，媒体只计数，不主动抓平台全部历史，不自动把店铺服务承诺提升为共享商品知识。
 
-原Task2复用既有Vue3、Electron43、Zod、MiniSearch、PapaParse与模型服务；Task4使用已锁定的PDF.js/Mammoth/read-excel-file，详见下节。针对性验证脚本：`node scripts/verify-knowledge-manager.mjs`，使用独立构建、临时账号、合成资料、loopback模型和hidden/offscreen窗口，证据位于 `artifacts/knowledge-manager-check/evidence`。它不访问实店，不显示用户窗口，不调用付费模型，不代表真实平台或模型效果验收。
+PDF/DOCX不在业务preload页面执行。图片/扫描页分块不超过1400×1400送当前视觉模型，GIF仅首帧。图片展示仅使用主进程验证的位图资产。原文件可能包含多商品行，原件始终完整保存。
 
-## 目录优先的只读采集（Task3）
+同名文件在相同目标代表更新：逻辑文件/页/图片/分块/行位置决定来源身份，内容hash只标识版本。消失的位置写 `removed: true` 历史版本、使旧审核结果stale，不删除审计。独立 `original-file` 元数据保存原文件名/扩展名/MIME；`import-item` 与 `import-document` 身份/租约保存于同一SQLite。图片文字或直接可见的位置/箭头关系候选保存 `modelEvidence`（本次实际图片资产与page/image/tile），编辑/审核可打开依据；这不等于真实模型语义正确。
 
-`local-runtime` 在现有 `createPddLearningProvider` 组装后只注册一次 `createKnowledgePipelineCoordinator()`，采集处理器经 `register(createKnowledgeCollector(...))` 接入。后续文件/学习及每日检查处理器实现 `KnowledgePipelineHandler`，按 `handles(input)` 的动作和 `kind` 分派，返回自己的能力字段；不要再次调用 `setPipeline`。移店/关闭会逐一取消所有处理器，即使另一处理器清理失败也继续清理。没有新依赖、IPC或平台写方法。
+学习先估算并固定来源/绑定/模型能力版本，再由用户明确开始。每次使用现有cl100k BPE，输入估算≤8192、每图预留1536、输出maxTokens4096；分块保持完整证据。当前本机加密Key或托管chat计费端口复用，不要求开店铺AI，不提供发送或自动发布。托管输出仍受既有服务策略约束。
 
-目录使用已有已核对的在售原生筛选、独立WebContents、相同店铺分区和统一浏览器UA；`catalogOnly` 不打开详情，明确的 `productIds` 只读取当前已验证页内对应详情。缺少已有适配器时说明先登录，不调用旧身份包装器偷偷导航接待页。`quiet:true` 保证错误不抢焦点，显式旧页面 reveal 仍由用户动作决定。
+任务先持久化并返回jobId，再异步I/O，不占工作区命令队列，也不在网络期间持有SQL事务。调用前写submitted，响应后写received，候选与完成索引事务保存。submitted不确定结果必须明确retry（可能重复计费）或skip；普通resume不会重放，received保存失败仅复用已有响应。取消、暂停、移店、退出中止在途调用，迟到结果不入库；重启不自动重放，cancelled/succeeded不可恢复。
 
-目录身份、筛选词、已验证商品集合、原生页游标和30分钟范围令牌留在主进程。跨页选项保留明确数量，搜索按标题/平台ID过滤实际已读页；筛选总数在全目录未核对时保持未知。仅全部原生分页、声明总量、去重数量与范围证据一致时启用“当前筛选全部”；总量未知、重复页、上限或未读页不能成为全店成功。每任务最多1000商品，目录最多1000页/10000行，不静默截成首屏。原生范围发生变化须重新建立目录。
+## 正式回复、试问和待学问题
 
-`start/resume` 先持久化并返回jobId，定时异步工作器逐商品提交原料与checkpoint；cancel/pause独立中止，在途平台结果晚到后复核任务、账号、店铺以及完整商品/SKU绑定集合，不能复活已取消任务。重启时running及queued collect变为paused，不自动访问平台。原生登录、验证码或未知错误暂停；900009仍按已有provider的明确限制记录partial。图片/详情限制产生needs-confirmation，明确resume只重试受限项，已成功项不重复生成来源版本。
+正式回复、训练及试问使用同一审核检索器：先按本店明确商品ID或唯一精确标题定位，既有SKU选择器只用于身份识别，原始平台JSON不灌进请求。按店铺、商品、SKU、覆盖和有效期筛选，再检索完整知识条目。完整条目超预算会被排除并报告，不裁剪证据。
 
-原料标签常量 `collectorMaterialLabels` 在 `electron/knowledge/collector-materials.ts` 导出：平台目录快照、兼容完整详情JSON和平台采集范围保留原始列表、capture时间、实际页scope、详情限制与每张图片失败原因；学习只能按需要选择稳定的“平台静态资料/平台图片资料”以及对应SKU的“平台动态快照”。静态JSON排除采集时间、价格、库存和请求参数；图片签名参数单独归一，原URL仍在raw/capture层。实际静态或图像字节变化使依赖来源的已审核知识失效，手工无依赖知识保留。动态快照按本店SKU保存原capture时间；complete快照确认不再列出的SKU记录not-listed并撤销旧动态依赖，保留物理绑定。未经验证缺失不能猜测库存或价格。
+正式回复/训练保留既有16K触发、8K目标压缩流程；知识低层 `complete` 额外按同一计数规则在worker线程计算全部输入，≥16384估算token直接拒绝，问题和条目不静默截断、不发模型。稀有字BPE仍可能耗时约21秒，但主线程保持响应，可取消，60秒超时拒绝；没有改写tokenizer。学习继续使用自己的8192分块预算。
 
-图片只允许当前已验证详情实际给出的HTTPS平台CDN URL，经当前店铺Session读取，禁跳转、限制10MB/图与50MB/商品，校验PNG/JPEG/GIF/WebP MIME和字节。SVG/未知类型/失败保留计数和来源，不冒充图片已识别；成功字节以SHA256资产登记供预览/后续模型。远端URL不是模型图片支持，没有OCR、文件解析、模型学习、自动发布或日检调度。
+引用绑定同次resolution与精确trace，批准门以及适配器逐字输入、最终点击均重新验证。撤回、来源变化、覆盖、解绑或过期会阻止旧候选发送。实际基线为 main `f2193fc`：保留用户已授权的每店审核/自动发送模式，将知识验证放入既有发送门，不回滚模式、不自动启用AI。恢复重建遵循现有启动AI关闭规则，店铺模式设置保持。
 
-本轮复用已有真实来源文档与脱敏夹具（PRODUCT_KNOWLEDGE.md、PLATFORM_PRODUCT_DETAILS.md）。新的实店多页、CDN真实下载验收尚未执行：用户桌面控制仍被Esc停止，没有操作用户窗口、重启其他worktree应用或访问真实付费模型。只运行直接相关测试及临时数据的hidden/offscreen验收。
+只有显式 `purpose: reply` 的真实买家uid及实质问题，且无完整有效知识覆盖，进入待学箱；记录未知商品/过期字段/无有效知识原因，按账号、店铺、商品/SKU、NFKC规范问题去重并累计次数。保存最多6条上下文、每条600字和有界会话ID。礼貌寒暄排除，但“价格/尺寸/多久”等短问题保留。预算排除条目、试问、训练、网络异常文本不记成新知识缺口；已独立确定的真实缺口不依赖模型网络成功。
 
-## 资料导入、学习和审核（Task4，2026-11-15）
+## 导出、备份和恢复
 
-当前已在同一 dispatcher 注册 `createKnowledgeSourcePipeline`，没有替换 Task3 collector 或二次 setPipeline。主进程 `sources.ts` 复用锁定 PDF.js6.5.438、Mammoth1.13.0、read-excel-file9.3.17 和既有 PapaParse/Zod；`imports.ts` 管导入预览与逐项任务，`learning.ts` 管估算、当前模型调用和 durable checkpoints，`source-pipeline.ts` 只做分派。Vue 新增 ingestion-controller、batch-review 及专用预览/图片/费用不确定/结果组件，组件不接触路径、密钥或网络。
+“导出JSON/CSV”是当前店铺/选定共享商品的兼容文字导出，包含当前草稿、显式商品/SKU、字段/有效期；导回支持的预览后仍是未审核草稿。PapaParse负责CSV引号、换行、UTF8BOM及公式转义，格式标记支持准确回读被转义字段。附件、历史、发布状态应使用备份，不把兼容导出称为完整备份。
 
-- 商品内路径：商品卡“编辑”→“原始资料 / 来源版本”→“导入本商品资料”；标题/编号与预览逐行目标可核对，PDF/图片只绑定该物理商品。该入口在真实离屏渲染用 elementFromPoint 证明未被编辑层遮挡。商品说明不需要借用全店通用来源。顶部导入明确标为“商品CSV / 通用资料”；无商品目标时预览写明“本店通用问答/资料”，必须再次确认。
-- 主进程原生文件选择只回传 opaque sourceIds；原始字节按 hash 保存一次。PDF每页文本和栅格块、DOCX提取行/内嵌图序号、XLSX所有sheet/行/列值、CSV逻辑行、文本行、聊天messageId均有来源。新增 locator.imageAssetId 指向主进程生成的安全图片，assetId仍指原文件。图片/扫描页经≤1400×1400分块进入当前模型；原始PDF/DOCX不加载进有业务preload的页面。图片查看只显示已校验位图，不执行HTML、脚本或外链。Mammoth关闭外部文件访问，转换HTML从不渲染。
-- TXT/MD/CSV/JSON使用BOM、严格UTF8、证据支持的UTF16或GB18030解码，预览标明编码并保留原字节。CSV productId/title创建或更新当前店铺物理商品原料，不变成一个巨型商品文档；同文件同商品内容变化更新来源revision。价格/库存/启用等其他列保留原文件，不当作永久已审核事实。旧意图JSON只产生未审核问答，忽略导入启用/审核/其他店铺标记；产品编号必须在所选本店已有绑定中完整映射，否则拒绝。重复目标/来源、目标范围、编码和解析警告在预览中显示，25行分页不删掉其他导入项。
-- 已有归档入口：“导入本机归档聊天”→日期范围→实际数量/时间预览→确认导入→“学习本店通用资料”→估算→明确开始。只使用 `read().conversations` 当前店铺已实际归档的 buyer/seller 文字，每会话有限现有记录（最多100条）；媒体只计数，范围之外和其他店铺不导入，不主动抓取平台历史。文件聊天支持JSON消息数组 `{from:'buyer'|'seller', content, msgId?, ts?}`，来源保留文件、消息ID/行。两类聊天默认store scope，不自动提升共享商品服务/发货/售后承诺。
-- main-only model port 增加 guarded vision/modelIdentity/assertStore 元数据/守卫；complete仍复用当前AiClient、加密Key或托管chat计费。学习按实际cl100k BPE每次计量≤8192输入估算token、每图预留1536、maxTokens4096，自己完整分块，不依赖只在reply执行的压缩器。估算固定来源revision、目标binding revision/完整family以及当前模型/能力；start范围变化或后台写入前租约变化均拒绝。平台raw/capture/catalog不学习为共享事实，动态项仅binding/store且expiresAt=实际capturedAt+TTL，绝不以现在续期。
-- 所有付费调用先估算再由用户明确start。任务先持久化/返回jobId，再异步执行，不占workspace命令tail或在网络期间持有SQL事务。每调用先写submitted、后写received原响应，再在同事务保存候选和完成索引。结果不确定为needs-confirmation；普通resume不重放，只有明确resolve-uncertain retry（提示可能重复计费）或skip（保留覆盖不完整提示）。已收到响应但保存失败的resume只重用落盘响应。取消/暂停/移店/账号退出中止在途工作，迟到结果不入库；关闭管理窗不拥有或销毁任务。重启running/queued learn/import/collect等待人工；submitted保持需明确决定。
-- 模型输出严格schema和allowed sourceId，纯文字答案/证据必须是本分块连续原文；图片为当前模型转写，仍需人工核对，不宣称模型语义正确。模型不能决定店铺/SKU/发布。只saveDraft；零候选、缺失平台图片及明确跳过均有完成提示，不把空解析或图片URL当识别成功。已有编辑/排除/模板店铺应用/本店有效期覆盖保留。批量审核逐商品显示approved/skipped/failed，某条stale不掩盖已成功项，失败草稿原文保留。
+“全库备份”通过 SQLite `VACUUM INTO` 获得一致快照，并依据快照登记资产生成文件hash/size清单。“同款备份”是真正的canonical family子集：全部店铺/根商品/SKU，所有保留条目的版本/审核/来源历史、removed来源、视觉依据资产、原件及导入身份依赖。跨商品历史依赖会明确作为依赖保留；完整原件可能包含其他商品行。不是单店副本，也不是伪装成单品的全库复制。
 
-新增同一窄pipeline动作：preview-import、archive-chat(from/to)、store-materials、review-targets、resolve-uncertain(decision)。start(kind:import)的estimateId是主进程预览ID；start(kind:learn)是学习估算ID。已有pause/resume/cancel按持久job.kind分派。知识服务的pipeline输入先经Zod变成普通数据再走Electron structured clone，防止Vue响应式数组无法跨IPC。
+“恢复备份”由主进程选择目录，校验清单、hash、SQLite完整性/关系、当前与历史版本一致、引用、资产和范围闭包，再给出10分钟一次性不透明预览token。预览列出受影响店铺、商品/SKU、原件和停止服务影响；提交前再核对文件指纹、当前库revision与账号租约。渲染端不能指定任意文件路径。
 
-验证：`node scripts/verify-knowledge-ingestion.mjs`复用已有hidden/offscreen测试架构，真实CJS/Electron+preload+隔离SQLite+本机HTTP模型，覆盖解析、CSV预览导入、商品内扫描PDF绑定/大图/图像模型输入、估算手动启动、不确定调用不重放、归档日期入口及部分批量审核。完整日志和限制见 `.superpowers/sdd/2026-11-15-knowledge-library/task-4-report.md`。尚未做真实云模型识别质量、真实店铺/买家、Release打包或最大规模吞吐验收；日检、恢复UI和性能属于Task5。GIF明确仅首帧，后续动画帧需要拆成静态图补充。
+真正恢复由 `WorkspaceRuntime.restoreKnowledge` 所有者串行执行：保留完整恢复点→旧租约不可用→停止模型/采集/后台服务→关闭实际唯一SQLite writer→暂存校验/替换→用同一账号factory重建全部兼容端口与服务→管理窗切到新workspace。不能只调用 `KnowledgeRuntime.dispose()`，也不通过切换模型来源或AI设置强制重建。失败回到恢复点并重建，二次失败保持不可用且保留恢复材料。
 
-### Task4 review fixes (2026-11-15)
+同款恢复合并到关闭后的当前库副本，保留其他family及已迁至其他family的当前条目/历史；不可悄悄重定向相同物理ID。共享依赖与当前其他商品不一致则拒绝覆盖。备份后新增的同款绑定保留身份审计但变为未关联。全库恢复替换知识库，不创建店铺注册信息；已有活动店铺范围须在当前账号内。资产按内容地址追加保留，恢复点与旧数据库归档不自动删除。
 
-同一文件名在同一导入目标内代表资料更新，预览会说明更新与引用失效规则。逻辑位置由目标和页/图片/分块/行等位置组成，原文件/图片的 hash 仅标识内容版本。更新复用来源 ID 并提升 revision；被移除或历史重复的位置写入 `removed: true` 来源版本，保留原文、原件和历史用于核对，停止学习/引用发布并使旧审核结果 stale。原文件注册独立保存 name/extension/mimeType，解析不再依赖共享 blob 的显示名；相同 hash 的 blob 元数据不被后续栅格/学习注册覆盖。
+## 接口与复用
 
-图片候选分为 `image-text` 和 `visual-relationship`：后者允许直接可见的空间位置、箭头方向或连接关系，不要求存在文字标签，也不允许推断功能、因果、操作或未显示规格。每条视觉依据包含本次请求实际持有的 imageAssetId 和 page/image/tile；主进程校验来源、位置、关系枚举与答案范围，写入未审核版本的 `modelEvidence`。审核编辑器展示依据并可打开对应图片；SQLite 重启保留这些证据。来源受守卫和结构校验不等于真实模型语义准确性验收。
+固定IPC为 `knowledge:open/context/request/hide`，主进程事件 `knowledge:context/close-request`；统一主frame、注册窗口、受信URL和当前账号租约校验。操作使用共享Zod联合schema，没有任意仓储方法、网络、文件系统或密钥接口。新的日检/备份服务复用既有仓储、provider、唯一pipeline、模型服务和窗口管理器，没有新增第三方依赖。
 
-不确定调用只允许 `needs-confirmation` 且 submitted 的任务作明确 retry/skip；cancelled/succeeded 不可恢复且不显示该操作。取消后若需重新学习，应重新估算并开始新任务。
+| 实际复用项目                 | 锁定版本 / 许可证                           | 当前用途与主来源                                                                                                                                                                           |
+| ---------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Vue / Pinia / Vue Router     | 3.5.11 / 2.2.8 / 4.4.5，MIT                 | 现有UI与状态/路由；[Vue](https://github.com/vuejs/core)、[Pinia](https://github.com/vuejs/pinia)、[Router](https://github.com/vuejs/router)                                                |
+| Electron                     | 43.8.9，MIT                                 | 原生窗口、主进程文件选择器、IPC；[Electron](https://github.com/electron/electron)                                                                                                          |
+| Node SQLite / worker_threads | Electron内置Node，Node MIT / SQLite公有领域 | 事务、VACUUM快照、CPU预算线程；[SQLite API](https://nodejs.org/api/sqlite.html)、[Worker API](https://nodejs.org/api/worker_threads.html)、[SQLite许可](https://sqlite.org/copyright.html) |
+| MiniSearch                   | 7.2.0，MIT                                  | 作用域筛选后的本机全文检索，中文分词配合Intl.Segmenter；[项目](https://github.com/lucaong/minisearch)                                                                                      |
+| PapaParse                    | 5.7.1，MIT                                  | CSV解析、导出、公式转义及往返；[项目](https://github.com/mholt/PapaParse)、[配置文档](https://www.papaparse.com/docs)                                                                      |
+| Zod                          | 4.6.7，MIT                                  | IPC、导入/模型候选/备份schema；[项目](https://github.com/colinhacks/zod)                                                                                                                   |
+| js-tiktoken                  | 1.0.21，MIT                                 | 复用cl100k BPE与既有上下文估算规则；[项目](https://github.com/dqbd/tiktoken)                                                                                                               |
+| PDF.js                       | 6.5.438，Apache-2.0                         | PDF文本提取及扫描页栅格；[项目](https://github.com/mozilla/pdf.js)                                                                                                                         |
+| Mammoth                      | 1.13.0，BSD-2-Clause                        | DOCX文字/内嵌图，禁止外部文件访问；[项目](https://github.com/mwilliamson/mammoth.js)                                                                                                       |
+| read-excel-file              | 9.3.17，MIT                                 | XLSX全部sheet及行列；[项目](https://github.com/catamphetamine/read-excel-file)                                                                                                             |
+
+版本与许可证来自本地锁定package与安装包声明，未升级依赖。Flashback截图仅是交互参考；此前RAG/知识库项目仅作架构比较，未整体引入它们的框架或服务。自行实现部分是电商身份/审核/版本/恢复业务规则以及薄UI，成熟解析、检索、CSV、tokenizer与窗口能力实际复用上述项目。
+
+## 验证与边界
+
+针对性测试覆盖仓储/桥/采集/导入/学习/预算/窗口/owner恢复。`node scripts/verify-knowledge-manager.mjs` 使用真实built Electron+preload、临时账号SQLite和loopback模型，覆盖两入口、编辑/审核/试问、实际模拟顾客worker、旧JSON零写、八种输入中/点击前引用失效、1001商品分页及同款恢复。`node scripts/verify-knowledge-ingestion.mjs` 覆盖真实解析/图像输入、手动估算学习、不确定调用、归档聊天和部分审核。1366、1920、900逻辑宽度及150%截图在 `artifacts/knowledge-manager-check/evidence`；完整命令和结果见Task5报告。
+
+这些是隔离源码和构建验收，不是公开Release、生产部署或实店结果。用户原生桌面控制仍处于Esc停止状态，未控制用户窗口、重启其他worktree应用、使用真实付费模型或向真实买家发送。新一轮PDD多页/CDN与当前真实模型识别质量明确未验证。

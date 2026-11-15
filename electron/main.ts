@@ -5,7 +5,7 @@ import { registerDesktopIpc } from './ipc'
 import { createWindow, loadRenderer } from './windows'
 import path from 'node:path'
 import fs from 'node:fs'
-import { createLocalRuntime, requireAppFrame, type LocalRuntime } from './local-runtime'
+import { createLocalRuntime, requireAppFrame } from './local-runtime'
 import { registerCustomPhrasesIpc } from './custom-phrases-ipc'
 import { registerStoreSyncIpc } from './store-sync-ipc'
 import { registerSchedulerIpc } from './scheduler-ipc'
@@ -27,7 +27,7 @@ fs.mkdirSync(userData, { recursive: true })
 app.setPath('userData', userData)
 
 let primaryWindow: BrowserWindow | undefined
-let runtime: LocalRuntime | undefined
+let runtime: ReturnType<typeof createWorkspaceRuntime> | undefined
 let assist: AssistWindowManager | undefined
 let shuttingDown = false
 const ownsInstance = app.requestSingleInstanceLock()
@@ -98,6 +98,7 @@ app
         }
       },
       window: knowledgeWindow,
+      restore: (workspaceId, token) => runtime!.restoreKnowledge(workspaceId, token),
     })
     app.once('will-quit', () => {
       disposeKnowledge()

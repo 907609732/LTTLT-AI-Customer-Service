@@ -41,6 +41,101 @@ function fixture() {
   }
 }
 describe('knowledge runtime boundary and exact request evidence', () => {
+  it('recommends code/title/spec matches but leaves bindings unchanged until explicit human reassociation', async () => {
+    const { repository: repo, runtime } = fixture()
+    const a = repo.saveCanonical({ title: '纯棉红衬衫', code: 'C01' }),
+      b = repo.saveCanonical({ title: '纯棉红衬衫', code: 'C01' }),
+      c = repo.saveCanonical({ title: '电池', code: 'Z99' })
+    const root = repo.bindProduct({ canonicalId: a.id, storeId: 's', productId: 'a' })
+    repo.bindProduct({ canonicalId: b.id, storeId: 's', productId: 'b' })
+    repo.bindProduct({ canonicalId: c.id, storeId: 's', productId: 'c' })
+    const result = (await runtime.request({
+      workspaceId: 'workspace',
+      operation: 'recommendations',
+      bindingId: root.id,
+    })) as { canonical: { id: string }; reasons: string[] }[]
+    expect(result[0]!.canonical.id).toBe(b.id)
+    expect(result[0]!.reasons).toContain('商品编码相同')
+    expect(repo.getBinding(root.id)?.canonicalId).toBe(a.id)
+  })
+  it('explicit global removal invalidates all family shops while preserving audit history and unrelated goods', async () => {
+    const { repository: repo, runtime } = fixture()
+    const a = repo.saveCanonical({ title: '删除同款' }),
+      b = repo.saveCanonical({ title: '保留' })
+    const one = repo.bindProduct({ canonicalId: a.id, storeId: 's', productId: 'one' })
+    repo.bindProduct({ canonicalId: b.id, storeId: 's', productId: 'two' })
+    const draft = repo.saveDraft({
+      scope: { kind: 'canonical', canonicalId: a.id },
+      question: '材质',
+      answer: '棉',
+    })
+    repo.publish({ entryId: draft.id, expectedDraftRevision: 1, expectedSourceRevisions: {} })
+    await runtime.request({
+      workspaceId: 'workspace',
+      operation: 'delete-family',
+      canonicalId: a.id,
+      expectedRevision: a.revision,
+      bindings: [{ id: one.id, expectedRevision: one.revision }],
+    })
+    expect(repo.listBindings(a.id)).toHaveLength(0)
+    expect(repo.listCanonicals().items.map((c) => c.id)).toEqual([b.id])
+    expect(repo.entryVersions(draft.id).some((v) => v.version.answer === '棉' && v.reviewed)).toBe(
+      true,
+    )
+    expect(repo.getEntry(draft.id)?.status).toBe('withdrawn')
+  })
+  it('rejects oversized protected trial input before any model call without truncating it', async () => {
+    const { runtime } = fixture()
+    let calls = 0
+    runtime.setModel({
+      vision: () => ({ supported: false, reason: '', maxImages: 0 }),
+      complete: async () => {
+        calls++
+        return 'answer'
+      },
+    })
+    let responsive = false
+    const timer = setTimeout(() => {
+      responsive = true
+    }, 0)
+    const pending = runtime.request({
+      workspaceId: 'workspace',
+      operation: 'trial',
+      input: { storeId: 's', query: '龘靐齉'.repeat(3000) },
+    })
+    await expect(pending).rejects.toThrow('预算')
+    expect(responsive).toBe(true)
+    clearTimeout(timer)
+    expect(calls).toBe(0)
+  }, 60000)
+  it('records substantive coverage gaps with bounded source context and excludes courtesy and trials', async () => {
+    const { runtime, repository } = fixture()
+    for (const question of ['你好', '谢谢！', '好的', '辛苦了'])
+      await runtime.context({
+        thread: [{ from: 'buyer', content: question }],
+        reviewContext: { storeId: 's', uid: 'buyer', purpose: 'reply' },
+      })
+    expect(repository.listMisses().total).toBe(0)
+    await runtime.context({
+      thread: [
+        { from: 'seller', content: 'x'.repeat(9000) },
+        { from: 'buyer', content: '  可以水洗吗？  ' },
+      ],
+      reviewContext: { storeId: 's', uid: 'buyer', productId: 'unknown', purpose: 'reply' },
+    })
+    await runtime.context({
+      thread: [{ from: 'buyer', content: '可以水洗吗?' }],
+      reviewContext: { storeId: 's', uid: 'buyer2', productId: 'unknown', purpose: 'reply' },
+    })
+    const misses = repository.listMisses()
+    expect(misses.total).toBe(1)
+    expect(misses.items[0]).toMatchObject({
+      count: 2,
+      reason: 'unknown-product',
+      source: 'reception',
+    })
+    expect(JSON.stringify(misses.items[0]!.context).length).toBeLessThan(5000)
+  })
   it('does not borrow a root price when a product has SKUs but no SKU identity can be verified', async () => {
     const { runtime, repository } = fixture()
     const canonical = repository.saveCanonical({ title: '有规格的商品' })

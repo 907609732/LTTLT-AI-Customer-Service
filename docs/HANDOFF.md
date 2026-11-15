@@ -1,6 +1,6 @@
 # 当前状态与源码验收
 
-2026-11-15 Task4本地资料解析/学习与审核已接入隔离分支（未发布）。新增成熟解析库实际复用、按商品文件预览、日期范围归档聊天、当前模型预算与durable不确定调用决定、逐商品批量审核结果。后续接口、验证及限制见`.superpowers/sdd/2026-11-15-knowledge-library/task-4-report.md`与`docs/KNOWLEDGE_LIBRARY.md`的Task4章节；日检/恢复UI/性能仍为Task5。
+2026-11-15 知识库五项重构已在隔离分支实现，待统筹独立审查：统一SQLite、管理窗、采集/学习、09:00日检、真实待学箱、CSV/JSON往返、全库/同款备份与owner恢复。实际隔离验证和外部限制见 `.superpowers/sdd/2026-11-15-knowledge-library/task-5-report.md`、`docs/KNOWLEDGE_LIBRARY.md`；下一项为Task5 gate与全分支审查，不是继续开发Task3/4。未推送、合并或发布。
 
 ## 2026-11-15 本轮主干合并范围
 

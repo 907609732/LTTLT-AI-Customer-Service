@@ -2,9 +2,9 @@
 
 2026-11-15审核知识接线：`local-runtime → knowledge-runtime / knowledge-compatibility / knowledge-platform-products → knowledge repository`，厂商旧JSON构造前注入兼容端口；独立管理窗口经固定knowledge IPC与当前账号租约访问。详见 [KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md)。SKU继承根商品同款family，整体重关联使用完整版本集合与单事务；单SKU跨family重定向拒绝。
 
-2026-11-15目录采集：`local-runtime → knowledge/pipeline（唯一注册）→ knowledge/collector → 既有pdd-learning-provider`；原始/静态/图片/SKU动态来源分层持久化，后续解析与日检处理器经register扩展。详见[KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md)。
+2026-11-15目录采集：`local-runtime → knowledge/pipeline（唯一注册）→ knowledge/collector → 既有pdd-learning-provider`；原始/静态/图片/SKU动态来源分层持久化，source-pipeline经register接入文件/学习，daily调度复用collector的daily-check任务。详见[KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md)。
 
-2026-11-15资料学习：同一knowledge/pipeline追加source-pipeline→sources/imports/learning，main拥有文件路径、原件、范围/版本与模型端口；Vue通过受限预览、估算和明确retry/skip维护流程。新locator与任务恢复规则见KNOWLEDGE_LIBRARY的Task4章节。
+2026-11-15资料学习：同一knowledge/pipeline追加source-pipeline→sources/imports/learning，main拥有文件路径、原件、范围/版本与模型端口；Vue通过受限预览、估算和明确retry/skip维护流程。新locator与任务恢复规则见KNOWLEDGE_LIBRARY的文件/学习章节。
 
 ## 店铺发送模式与回复监控（2026-11-15）
 
@@ -133,4 +133,6 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 
 createProductSpecContext装配于正式AiClient及训练共用prepareModelContext，在既有通用表达和token计量之前选择本店enabled商品的匹配SKU；来源仅作user数据块，静态约束保留系统优先级。旧商品全文命中被受核验规格替换，意图资料及图片仍保留；未指定/未知/歧义规格要求澄清。工作区变化或取消后不继续发模型请求，发送确认门不变。
 
-Task4 review round1: source replacement now uses stable logical positions and removed source versions; original-file metadata is independent of immutable shared blobs. Optional `KnowledgeSource.removed` is excluded from learning/publication; optional `KnowledgeVersion.modelEvidence` retains owned image/page/tile evidence for human review and OCR or directly visible relationships for the dedicated editor evidence panel. Main-only helpers are `import-identity.ts` and `learning-evidence.ts`; no new dispatcher, transport, dependency or renderer environment access. Terminal cancelled/succeeded jobs cannot use uncertain recovery. Task5 must preserve source/version and evidence JSON when handling its own recovery/backup work.
+Task4 review round1: source replacement now uses stable logical positions and removed source versions; original-file metadata is independent of immutable shared blobs. Optional `KnowledgeSource.removed` is excluded from learning/publication; optional `KnowledgeVersion.modelEvidence` retains owned image/page/tile evidence for human review and OCR or directly visible relationships for the dedicated editor evidence panel. Main-only helpers are `import-identity.ts` and `learning-evidence.ts`; no new dispatcher, transport, dependency or renderer environment access. Terminal cancelled/succeeded jobs cannot use uncertain recovery. Full/family backup and owner-level restore retain all source/version/evidence dependencies and original/import identity metadata.
+
+2026-11-15 final integration: `local-runtime → knowledge/daily → existing collector` persists per-shop Beijing day claims and quiet jobs in the same SQLite. `WorkspaceRuntime.restoreKnowledge → prepareRestore → full runtime disposal → stopped-writer restore → same-account factory` owns reopen/recovery; ordinary knowledge IPC cannot replace files. Explicit restore returns/rebinds a new lease without changing configured model source or persisted send mode, respecting startup AI-off defaults. `knowledge/budget` uses Node worker_threads with the existing js-tiktoken codec and context count function; full low-level requests are rejected at16K before model I/O. No new dependency or renderer filesystem/network access.

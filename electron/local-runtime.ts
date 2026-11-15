@@ -2,6 +2,7 @@ import { createKnowledgeSourcePipeline } from './knowledge/source-pipeline'
 import { readFile, stat } from 'node:fs/promises'
 import { createKnowledgePipelineCoordinator } from './knowledge/pipeline'
 import { createKnowledgeCollector } from './knowledge/collector'
+import { createKnowledgeDailyCheck } from './knowledge/daily'
 import { createCollectedProductWriter } from './collected-products'
 import { createKnowledgePlatformProducts } from './knowledge-platform-products'
 import { selectProductSpecContext } from './product-spec-context'
@@ -169,6 +170,13 @@ export function createLocalRuntime(options: {
         throw Error('当前账号知识库不可用，请切换工作区后重试')
     },
     stores: () => read().stores,
+    chooseRestore: async () => {
+      const selection = await dialog.showOpenDialog({
+        title: '选择知识库备份目录（含manifest.json）',
+        properties: ['openDirectory'],
+      })
+      return selection.canceled ? undefined : selection.filePaths[0]
+    },
     changed: () => {
       if (!closed) for (const listener of listeners) listener({ type: 'knowledge:changed' })
     },
@@ -645,6 +653,21 @@ export function createLocalRuntime(options: {
     }),
   )
   knowledge.setPipeline(knowledgePipeline)
+  const knowledgeDaily = createKnowledgeDailyCheck({
+    repository: knowledgeRepository,
+    available: () => runtimeStarted && !closed && managed.canAccessWorkspace(),
+    stores: () =>
+      read()
+        .stores.filter(
+          (store) =>
+            store.platform === 'pdd-web' &&
+            store.runtime.authenticated === true &&
+            store.runtime.open,
+        )
+        .map((store) => store.id),
+    start: (storeId, bindingIds) =>
+      knowledgePipeline.request({ action: 'start', kind: 'daily-check', storeId, bindingIds }),
+  })
   const productWriter = createCollectedProductWriter({
     savePlatformProduct: platformProducts.upsert,
     execute: async (command) => {
@@ -815,6 +838,7 @@ export function createLocalRuntime(options: {
   review.sync()
   scheduleReporting()
   const disposer = new RuntimeResourceDisposer([
+    () => knowledgeDaily.dispose(),
     () => storeSync.dispose(),
     () => operations.dispose(),
     () => platformWrites.dispose(),
@@ -853,6 +877,7 @@ export function createLocalRuntime(options: {
       scheduleReporting()
       await host.start()
       runtimeStarted = true
+      knowledgeDaily.start()
       syncScheduler()
     },
     snapshot: () =>

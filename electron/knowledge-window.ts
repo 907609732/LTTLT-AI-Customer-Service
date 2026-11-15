@@ -32,6 +32,15 @@ export function createKnowledgeWindow(options: {
     if (closed || workspaceId !== options.workspace()) throw Error('知识库工作区已改变')
   }
   return {
+    rebind(workspaceId: string, storeId: string) {
+      assert(workspaceId)
+      context = {
+        workspaceId,
+        storeId: options.stores().includes(storeId) ? storeId : '',
+        revision: context.revision + 1,
+      }
+      if (win && !win.isDestroyed()) win.webContents.send('knowledge:context', context)
+    },
     async open(raw: unknown) {
       const input = knowledgeOpenSchema.parse(raw)
       assert(input.workspaceId)

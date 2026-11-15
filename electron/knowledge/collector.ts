@@ -87,7 +87,7 @@ export function createKnowledgeCollector(
   function jobFor(storeId: string, id: string) {
     check(storeId)
     const job = repo.getJob(id)
-    if (!job || job.storeId !== storeId || job.kind !== 'collect')
+    if (!job || job.storeId !== storeId || !['collect', 'daily-check'].includes(job.kind))
       throw Error('采集任务不属于此店铺')
     return job
   }
@@ -486,8 +486,12 @@ export function createKnowledgeCollector(
       const scope = [...scopes.values()].find(
         (scope) => scope.identity.storeId === input.storeId && scope.expires > Date.now(),
       )
-      if (!scope) throw Error('请先读取此店铺在售目录核对身份')
-      identity = scope.identity
+      if (!scope && input.kind !== 'daily-check') throw Error('请先读取此店铺在售目录核对身份')
+      identity =
+        input.kind === 'daily-check'
+          ? await options.provider.identity(input.storeId)
+          : scope!.identity
+      check(input.storeId)
     }
     if (!productIds.length || productIds.length > 1000) throw Error('请明确选择1至1000个商品')
     const payload = payloadSchema.parse({
@@ -498,7 +502,11 @@ export function createKnowledgeCollector(
       leases: leasesFor(input.storeId, productIds),
       scope: scopeText,
     })
-    const job = repo.createJob({ storeId: input.storeId, kind: 'collect', payload })
+    const job = repo.createJob({
+      storeId: input.storeId,
+      kind: input.kind === 'daily-check' ? 'daily-check' : 'collect',
+      payload,
+    })
     options.changed?.()
     schedule(job)
     return { jobId: job.id }
@@ -517,10 +525,10 @@ export function createKnowledgeCollector(
     handles(input) {
       return (
         input.action === 'catalog' ||
-        (input.action === 'start' && input.kind === 'collect') ||
+        (input.action === 'start' && ['collect', 'daily-check'].includes(input.kind)) ||
         (['pause', 'resume', 'cancel'].includes(input.action) &&
           'jobId' in input &&
-          repo.getJob(input.jobId)?.kind === 'collect')
+          ['collect', 'daily-check'].includes(repo.getJob(input.jobId)?.kind ?? ''))
       )
     },
     async capabilities(storeId) {
@@ -531,6 +539,7 @@ export function createKnowledgeCollector(
         return {
           catalog: true,
           collect: !repo.readOnly,
+          dailyCheck: !repo.readOnly,
           reason: repo.readOnly
             ? '知识迁移失败，采集写入已暂停，请核对迁移诊断'
             : '仅采集原料；学习与审核发布独立执行',
@@ -546,13 +555,28 @@ export function createKnowledgeCollector(
     async request(raw) {
       const input = knowledgePipelineInputSchema.parse(raw)
       if (input.action === 'catalog') return catalog(input)
-      if (input.action === 'start' && input.kind === 'collect') return start(input)
+      if (input.action === 'start' && ['collect', 'daily-check'].includes(input.kind))
+        return start(input)
       if (input.action === 'pause' || input.action === 'cancel')
         return stop(input.storeId, input.jobId, input.action === 'cancel' ? 'cancelled' : 'paused')
       if (input.action === 'resume') {
         const job = jobFor(input.storeId, input.jobId)
         if (!['paused', 'needs-confirmation', 'failed'].includes(job.status))
           throw Error('只有已暂停或部分采集任务可以恢复')
+        if (job.kind === 'daily-check' && job.payload.pendingDaily === true) {
+          const result = await start({
+            action: 'start',
+            kind: 'daily-check',
+            storeId: job.storeId,
+            bindingIds: z.array(z.string()).parse(job.payload.bindingIds),
+          })
+          writeJob(job, {
+            expectedRevision: job.revision,
+            status: 'cancelled',
+            error: '已由人工重新核对并继续检查',
+          })
+          return result
+        }
         payloadSchema.parse(job.payload)
         if (controllers.has(job.id) || timers.has(job.id))
           throw Error('采集任务仍在停止，请稍后恢复')

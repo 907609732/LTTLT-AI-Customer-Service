@@ -92,7 +92,7 @@ export function createKnowledgeImporter(options: {
             bindingId,
             kind: 'document',
             label: ORIGINAL_LABEL + file.name,
-            text: '原始文件已登记；尚未解析。',
+            text: '原始文件已保存；解析内容和处理结果请查看对应资料与任务。',
             locator: { assetId: asset.id },
             assetIds: [asset.id],
           }).id
@@ -181,9 +181,10 @@ export function createKnowledgeImporter(options: {
             .filter(
               (b) =>
                 b.storeId === storeId &&
-                !b.skuId &&
+                b.skuId === (part.intent!.skuId ?? '') &&
                 part.intent!.productIds.includes(b.productId) &&
-                (!bindings.length || bindings.some((v) => v.id === b.id)),
+                (!bindings.length ||
+                  bindings.some((v) => v.id === b.id || (!v.skuId && v.productId === b.productId))),
             )
           if (targets.length !== new Set(part.intent.productIds).size)
             throw Error('意图JSON中有未映射到所选店铺/商品的编号，请先建立对应商品或修正导入文件')
@@ -411,6 +412,8 @@ export function createKnowledgeImporter(options: {
                 answer: item.intent.answer,
                 keywords: item.intent.keywords,
                 origin: 'import',
+                field: item.intent.field,
+                expiresAt: item.intent.expiresAt,
                 sourceRefs: [{ sourceId: source.id, revision: source.revision }],
               })
             repo.setMetadata(`import-item:${item.key}`, source.id)

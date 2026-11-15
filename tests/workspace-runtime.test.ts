@@ -7,12 +7,18 @@ import {
 } from '../src/shared/contracts/backend'
 import type { LocalRuntime } from '../electron/local-runtime'
 import { createWorkspaceRuntime } from '../electron/workspace-runtime'
+import { createKnowledgeRuntime } from '../electron/knowledge-runtime'
+import { createKnowledgeRepository } from '../electron/knowledge'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-function fixture() {
+function fixture(directory?: string) {
   const source = { ...emptySnapshot().managed.configured }
   const instances: LocalRuntime[] = []
   const calls: string[] = []
   let failStart = false
+  let remainingStartFailures = 0
   let pauseStart = false
   let resumeStart: (() => void) | undefined
   let release: (() => void) | undefined
@@ -39,7 +45,7 @@ function fixture() {
       },
       dataDirectory: () => {
         if (closed) throw Error('closed')
-        return state.workspaceId
+        return directory ?? state.workspaceId
       },
       storeSync: () => {
         throw Error('测试未接同步')
@@ -64,6 +70,10 @@ function fixture() {
         return { workspaceId: state.workspaceId }
       },
       async start() {
+        if (remainingStartFailures > 0) {
+          remainingStartFailures--
+          throw Error('isolated startup failure')
+        }
         if (failStart) throw new Error('start failed')
         if (pauseStart)
           await new Promise<void>((resolve) => {
@@ -126,6 +136,9 @@ function fixture() {
     fail(value: boolean) {
       failStart = value
     },
+    failNextStartup() {
+      remainingStartFailures = 1
+    },
     unblock() {
       release?.()
     },
@@ -139,6 +152,88 @@ function fixture() {
 }
 
 describe('workspace runtime activation', () => {
+  it('restores the recovery snapshot after replacement startup fails without changing model source', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'knowledge-recover-')),
+      f = fixture(dir)
+    const repo = createKnowledgeRepository({ directory: dir, workspaceId: 'w' })
+    const c = repo.saveCanonical({ title: 'old backup' })
+    const backup = repo.createBackup(join(dir, 'backup'))
+    repo.saveCanonical({ id: c.id, expectedRevision: 1, title: 'current retained' })
+    const knowledge = createKnowledgeRuntime({
+      repository: repo,
+      workspaceId: 'w',
+      stores: () => [],
+      assertActive() {},
+      changed() {},
+      chooseRestore: async () => backup.directory,
+    })
+    const preview = (await knowledge.request({
+      workspaceId: 'w',
+      operation: 'restore-preview',
+    })) as { token: string }
+    vi.spyOn(f.instances[0], 'knowledge').mockReturnValue(knowledge)
+    vi.spyOn(f.instances[0], 'dispose').mockImplementation(async () => {
+      knowledge.dispose()
+      repo.dispose()
+    })
+    f.failNextStartup()
+    try {
+      const result = await f.manager.restoreKnowledge(
+        f.manager.snapshot().workspaceId,
+        preview.token,
+      )
+      expect(result.recovered).toBe(true)
+      expect(result.message).toContain('isolated startup failure')
+      const recovered = createKnowledgeRepository({ directory: dir, workspaceId: 'verify' })
+      expect(recovered.getCanonical(c.id)?.title).toBe('current retained')
+      recovered.dispose()
+      expect(f.calls).not.toContain('save-model-source')
+    } finally {
+      await f.manager.dispose()
+      repo.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+  it('closes the actual knowledge writer and reopens the same workspace source without changing settings', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'workspace-restore-')),
+      f = fixture(dir)
+    const repository = createKnowledgeRepository({ directory: dir, workspaceId: 'w' })
+    const c = repository.saveCanonical({ title: '原内容' })
+    const backup = repository.createBackup(join(dir, 'backup'))
+    const knowledge = createKnowledgeRuntime({
+      repository,
+      workspaceId: 'w',
+      stores: () => [],
+      assertActive() {},
+      changed() {},
+      chooseRestore: async () => backup.directory,
+    })
+    const preview = (await knowledge.request({
+      workspaceId: 'w',
+      operation: 'restore-preview',
+    })) as { token: string }
+    vi.spyOn(f.instances[0], 'knowledge').mockReturnValue(knowledge)
+    vi.spyOn(f.instances[0], 'dataDirectory').mockReturnValue(dir)
+    vi.spyOn(f.instances[0], 'dispose').mockImplementation(async () => {
+      f.calls.push('dispose')
+      knowledge.dispose()
+      repository.dispose()
+    })
+    try {
+      const old = f.manager.snapshot().workspaceId
+      const result = await f.manager.restoreKnowledge(old, preview.token)
+      expect(result.workspaceId).not.toBe(old)
+      expect(f.calls).toEqual(['dispose'])
+      expect(f.source.mode).toBe('local')
+      const restored = createKnowledgeRepository({ directory: dir, workspaceId: 'verify' })
+      expect(restored.getCanonical(c.id)?.title).toBe('原内容')
+      restored.dispose()
+    } finally {
+      await f.manager.dispose()
+      repository.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
   it('stops old platform sync during activation and restores an open assist window on replacement', async () => {
     const f = fixture()
     const oldActive = vi.spyOn(f.instances[0], 'setAssistPlatformActive')

@@ -67,6 +67,46 @@ export const knowledgeRequestSchema = z.discriminatedUnion('operation', [
   z
     .object({
       workspaceId: z.string().min(1),
+      operation: z.literal('entry-history'),
+      entryId: z.string().min(1).max(200),
+    })
+    .strict(),
+  z
+    .object({
+      workspaceId: z.string().min(1),
+      operation: z.literal('recommendations'),
+      bindingId: z.string().min(1).max(200),
+    })
+    .strict(),
+  z
+    .object({
+      workspaceId: z.string().min(1),
+      operation: z.literal('delete-family'),
+      canonicalId: z.string().min(1).max(200),
+      expectedRevision: z.number().int().positive(),
+      bindings: knowledgeReassociateSchema.shape.bindings,
+    })
+    .strict(),
+  z
+    .object({
+      workspaceId: z.string().min(1),
+      operation: z.literal('export'),
+      storeId: z.string().min(1),
+      canonicalId: z.string().min(1).optional(),
+      format: z.enum(['csv', 'json']),
+    })
+    .strict(),
+  z.object({ workspaceId: z.string().min(1), operation: z.literal('restore-preview') }).strict(),
+  z
+    .object({
+      workspaceId: z.string().min(1),
+      operation: z.literal('restore'),
+      token: z.string().min(1).max(200),
+    })
+    .strict(),
+  z
+    .object({
+      workspaceId: z.string().min(1),
       operation: z.literal('reassociate-product'),
       input: knowledgeReassociateSchema,
     })
@@ -120,8 +160,22 @@ export const knowledgeRequestSchema = z.discriminatedUnion('operation', [
       assetId: z.string().min(1).max(200),
     })
     .strict(),
-  z.object({ workspaceId: z.string().min(1), operation: z.literal('backup') }).strict(),
+  z
+    .object({
+      workspaceId: z.string().min(1),
+      operation: z.literal('backup'),
+      canonicalId: z.string().min(1).max(200).optional(),
+    })
+    .strict(),
 ])
+export interface KnowledgeRestorePreview {
+  token: string
+  scope: string
+  stores: string[]
+  bindings: string[]
+  originalFiles: string[]
+  message: string
+}
 export const knowledgeOpenSchema = z
   .object({ workspaceId: z.string().min(1), storeId: z.string().max(200).default('') })
   .strict()

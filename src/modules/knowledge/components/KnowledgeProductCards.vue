@@ -14,7 +14,7 @@ const emit = defineEmits<{
   edit: [row: KnowledgeProductCard]
   learn: [row: KnowledgeProductCard]
   remove: [row: KnowledgeProductCard]
-  backup: []
+  backup: [canonicalId: string]
 }>()
 </script>
 <template>
@@ -35,7 +35,15 @@ const emit = defineEmits<{
       </div>
       <p class="knowledge-muted">
         共享商品：{{ row.canonical.title }} · 编码：{{ row.canonical.code || '未提供' }} ·
-        {{ row.sources }} 份来源 · 静态事实继承共享，价格库存按店铺/SKU及有效期核验
+        {{ row.sources }} 份来源 · {{ row.productSummary?.skuCount ?? 0 }} 个SKU ·
+        {{ row.productSummary?.specifications.join(' / ') || '规格未采集' }}
+      </p>
+      <p class="knowledge-muted">
+        动态资料：{{
+          row.productSummary?.capturedAt
+            ? `${new Date(row.productSummary.capturedAt).toLocaleString()}采集 · ${row.productSummary.expired ? '已过期，需重新核对' : '有效至' + new Date(row.productSummary.expiresAt!).toLocaleString()}`
+            : '未取得动态快照'
+        }}
       </p>
       <div class="knowledge-card-media">
         <KnowledgeThumbnail
@@ -50,7 +58,8 @@ const emit = defineEmits<{
     </div>
     <div class="knowledge-card-actions">
       <button class="primary" :disabled="!canLearn" @click="emit('learn', row)">开始学习</button
-      ><button @click="emit('backup')">备份</button><button @click="emit('edit', row)">编辑</button
+      ><button @click="emit('backup', row.canonical.id)">同款备份</button
+      ><button @click="emit('edit', row)">编辑</button
       ><button class="danger" @click="emit('remove', row)">解除关联</button>
     </div>
   </article>

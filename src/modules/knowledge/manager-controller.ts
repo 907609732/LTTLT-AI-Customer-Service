@@ -35,6 +35,13 @@ import { createKnowledgeClient } from './manager-service'
 
 /** Local manager state is independent from reception selection; async results retain account/store leases. */
 export function useKnowledgeManager() {
+  const restorePreview =
+    ref<import('@/shared/contracts/knowledge-client').KnowledgeRestorePreview>()
+  const recommendations = ref<{ canonical: CanonicalProduct; reasons: string[]; score: number }[]>(
+    [],
+  )
+  const entryHistory = ref<{ version: KnowledgeVersion; reviewed: boolean }[]>([])
+  const deleteReview = ref<KnowledgeDetail>()
   const runtime = useRuntimeStore(),
     desktop = getDesktop()
   const workspace = ref(''),
@@ -140,8 +147,13 @@ export function useKnowledgeManager() {
       trial: (input: Parameters<typeof service.trial>[0]) => guard(service.trial(input)),
       asset: (id: string) => guard(service.asset(id)),
       sourceHistory: (id: string) => guard(service.sourceHistory(id)),
+      entryHistory: (id: string) => guard(service.entryHistory(id)),
+      recommendations: (id: string) => guard(service.recommendations(id)),
+      deleteFamily: (input: Parameters<typeof service.deleteFamily>[0]) =>
+        guard(service.deleteFamily(input)),
       pipeline: <T extends KnowledgePipelineInput>(input: T) => guard(service.pipeline(input)),
-      backup: () => guard(service.backup()),
+      backup: (canonicalId?: string) => guard(service.backup(canonicalId)),
+      restorePreview: () => guard(service.restorePreview()),
       reassociate: (input: Parameters<typeof service.reassociate>[0]) =>
         guard(service.reassociate(input)),
       context: () => guard(Promise.resolve(service.context())),
@@ -382,6 +394,8 @@ export function useKnowledgeManager() {
     draft.value = undefined
     saved.value = undefined
     detail.value = undefined
+    recommendations.value = []
+    entryHistory.value = []
     detailBinding.value = undefined
     sources.value = []
     sourceVersions.value = []
@@ -456,7 +470,6 @@ export function useKnowledgeManager() {
     await saveDraft()
     const version = currentEntry(entry).draft
     draftSession++
-    draftSession++
     draft.value = {
       scope: detailBinding.value
         ? { kind: 'binding', bindingId: detailBinding.value.id }
@@ -511,6 +524,30 @@ export function useKnowledgeManager() {
       if (!result.items.length) throw Error('共享商品分页不完整')
     }
     canonicals.value = values
+    if (detailBinding.value)
+      recommendations.value = await client().recommendations(detailBinding.value.id)
+  }
+  async function previewDeleteFamily() {
+    await saveDraft()
+    if (!detailBinding.value) return
+    deleteReview.value = await client().query({
+      type: 'detail',
+      canonicalId: detailBinding.value.canonicalId,
+    })
+    removing.value = false
+  }
+  async function confirmDeleteFamily() {
+    const value = deleteReview.value
+    if (!value?.canonical) return
+    await client().deleteFamily({
+      canonicalId: value.canonical.id,
+      expectedRevision: value.canonical.revision,
+      bindings: value.bindings.map((b) => ({ id: b.id, expectedRevision: b.revision })),
+    })
+    deleteReview.value = undefined
+    await closeEditor()
+    await refresh()
+    notice.value = '已从全部店铺移除此同款；审核与来源历史保留，可从备份恢复。'
   }
   async function saveProductMetadata() {
     await saveDraft()
@@ -635,14 +672,21 @@ export function useKnowledgeManager() {
       excluded.value,
       service.publish,
       async (entry) => {
-        if (targetResult.targets?.[entry.id]) return targetResult.targets[entry.id]!
+        const shopName = (id: string) =>
+          runtime.snapshot.stores.find((shop) => shop.id === id)?.storeName || id
+        if (targetResult.targets?.[entry.id]) {
+          let label = targetResult.targets[entry.id]!
+          for (const shop of runtime.snapshot.stores)
+            label = label.replaceAll(shop.id, shop.storeName)
+          return label
+        }
         const scope = entry.draft.scope
         if (scope.kind === 'canonical') {
           const detail = await service.query({ type: 'detail', canonicalId: scope.canonicalId })
           return (
             detail.bindings
               .filter((b) => !b.skuId)
-              .map((b) => `${b.storeId}/${b.productId}`)
+              .map((b) => `${shopName(b.storeId)}/${b.productId}`)
               .join('、') ||
             detail.canonical?.title ||
             scope.canonicalId
@@ -654,8 +698,8 @@ export function useKnowledgeManager() {
             `商品关联 ${scope.bindingId}`
           )
         return scope.kind === 'store'
-          ? `店铺 ${scope.storeId}`
-          : `通用模板 ${scope.storeIds.join('、')}`
+          ? `店铺 ${shopName(scope.storeId)}`
+          : `通用模板 ${scope.storeIds.map(shopName).join('、')}`
       },
     )
     reviewEntries.value = []
@@ -817,31 +861,36 @@ export function useKnowledgeManager() {
     assertLease(w, s)
     trial.value = result
   }
-  async function backup() {
-    const result = await client().backup()
-    notice.value = `一致快照备份完成：${result.directory}`
+  async function backup(canonicalId?: string) {
+    const result = await client().backup(canonicalId)
+    notice.value = `${result.scope ? `同款全部店铺/SKU备份（${result.scope.storeIds.length}店，${result.scope.bindingIds.length}个绑定；含完整原件）` : '全库一致快照备份'}完成：${result.directory}`
   }
-  async function exportEntries() {
-    const service = client(),
-      w = workspace.value,
-      shop = storeId.value,
-      items: KnowledgeEntry[] = []
-    let revision: number | undefined
-    for (let offset = 0; ; offset += 100) {
-      const result = await service.query({
-        type: 'entries',
-        page: { storeId: shop, offset, limit: 100 },
-      })
-      assertLease(w, shop)
-      if (revision !== undefined && revision !== result.revision)
-        throw Error('导出期间知识已变化，请重试')
-      revision = result.revision
-      items.push(...result.items)
-      if (items.length >= result.total) break
-      if (!result.items.length) throw Error('知识分页不完整')
-    }
-    downloadText(`知识库-${shop}.json`, JSON.stringify(items, null, 2), 'application/json')
-    notice.value = `已导出本店${items.length}条知识及审核状态`
+  async function chooseRestore() {
+    await closeEditor()
+    restorePreview.value = (await client().restorePreview()) ?? undefined
+  }
+  async function restoreBackup() {
+    const preview = restorePreview.value
+    if (!preview) return
+    const service = createKnowledgeClient(workspace.value)
+    restorePreview.value = undefined
+    // Restore intentionally replaces the lease. The owner returns the verified NEW context.
+    const result = await service.restore(preview.token)
+    await runtime.refresh()
+    await applyContext(result.context)
+    notice.value = result.message
+  }
+  async function exportEntries(format: 'csv' | 'json' = 'json') {
+    const w = workspace.value,
+      shop = storeId.value
+    const result = await createKnowledgeClient(w).export(shop, format, detail.value?.canonical?.id)
+    assertLease(w, shop)
+    downloadText(
+      `知识库-${shop}.${format}`,
+      result.text,
+      format === 'json' ? 'application/json' : 'text/csv;charset=utf-8',
+    )
+    notice.value = `已导出${result.count}条。${result.message}`
   }
   async function loadCatalog(cursor = '') {
     const filter = cursor ? catalogSearch.value : search.value
@@ -1049,6 +1098,10 @@ export function useKnowledgeManager() {
         metadataCode.value = ''
         mappingCanonical.value = ''
         mappingReview.value = undefined
+        restorePreview.value = undefined
+        deleteReview.value = undefined
+        recommendations.value = []
+        entryHistory.value = []
         catalog.value = undefined
         catalogIds.value = []
         catalogAll.value = false
@@ -1169,6 +1222,14 @@ export function useKnowledgeManager() {
     bindShared,
     doTrial,
     backup,
+    recommendations,
+    entryHistory,
+    deleteReview,
+    previewDeleteFamily,
+    confirmDeleteFamily,
+    restorePreview,
+    chooseRestore,
+    restoreBackup,
     exportEntries,
     loadCatalog,
     collectCatalog,
