@@ -4,6 +4,17 @@
   "executableName": "LingtuAI",
   "asar": true,
   "npmRebuild": false,
+  "extraResources": [
+    { "from": "dist-electron/lingtu-mcp.cjs", "to": "ai-interface/lingtu-mcp.cjs" },
+    {
+      "from": "node_modules/@modelcontextprotocol/server/LICENSE",
+      "to": "ai-interface/licenses/mcp-server-LICENSE"
+    },
+    {
+      "from": "node_modules/@modelcontextprotocol/core/LICENSE",
+      "to": "ai-interface/licenses/mcp-core-LICENSE"
+    }
+  ],
   "directories": {
     "output": "release"
   },

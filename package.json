@@ -1,6 +1,6 @@
 {
   "name": "lingtu-ai",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "private": true,
   "description": "灵兔 AI · 本机模型 Key 与可选托管服务的电商客服桌面端",
   "main": "dist-electron/main.cjs",
@@ -29,6 +29,7 @@
     "server:start": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File server/scripts/start-local.ps1"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
     "element-plus": "2.8.8",
     "js-tiktoken": "1.0.21",
     "mammoth": "1.13.0",
@@ -43,6 +44,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.17.0",
+    "@modelcontextprotocol/client": "2.4.0",
     "@types/node": "22.10.5",
     "@vitejs/plugin-vue": "5.2.4",
     "@vue/test-utils": "2.4.6",

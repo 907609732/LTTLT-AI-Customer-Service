@@ -4,6 +4,10 @@
 
 ## 软件依赖
 
+### MCP接口
+
+1.0.9采用官方[modelcontextprotocol/typescript-sdk](https://github.com/modelcontextprotocol/typescript-sdk)的`@modelcontextprotocol/server`2.4.0及其core依赖；验证使用`@modelcontextprotocol/client`2.4.0（开发依赖）。许可证为Apache-2.0，版权与完整许可保留在各包的LICENSE；分发连接器时通过extraResources附带server/core原许可证，不以本项目许可替代。Zod沿用项目已有依赖；MCP注册和协议传输复用官方SDK。
+
 ### 托管账号与模型服务
 
 `managed-server/` 复用 [QuantumNous/New API](https://github.com/QuantumNous/new-api)，固定版本为 `v1.0.0-rc.49`、提交 `48a6c87f9e7757fdc58e5be9bcb4f8281ad0dfd0`。上游版权属于 QuantumNous 及相应贡献者，上游许可为 **AGPL-3.0-or-later**；不受本项目单独商业授权覆盖。保留上游文件版权、LICENSE 和界面归属。新增覆盖层及构建说明见 `managed-server/README.md`；构建产物附上上游完整 LICENSE，运行界面提供修改版源码入口。

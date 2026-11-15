@@ -1,5 +1,7 @@
 # 架构导航
 
+1.0.9新增受限AI接口：官方MCP stdio连接器→本机认证gateway→agent/service→当前WorkspaceRuntime/knowledge。仅开放查询、明确商品采集与本店待审核草稿，不透传通用命令；工作区/认证变更后旧请求失效。接口、连接配置及许可见[AI_INTERFACE.md](AI_INTERFACE.md)。
+
 2026-11-15审核知识接线：`local-runtime → knowledge-runtime / knowledge-compatibility / knowledge-platform-products → knowledge repository`，厂商旧JSON构造前注入兼容端口；独立管理窗口经固定knowledge IPC与当前账号租约访问。详见 [KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md)。SKU继承根商品同款family，整体重关联使用完整版本集合与单事务；单SKU跨family重定向拒绝。
 
 2026-11-15目录采集：`local-runtime → knowledge/pipeline（唯一注册）→ knowledge/collector → 既有pdd-learning-provider`；原始/静态/图片/SKU动态来源分层持久化，source-pipeline经register接入文件/学习，daily调度复用collector的daily-check任务。详见[KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md)。

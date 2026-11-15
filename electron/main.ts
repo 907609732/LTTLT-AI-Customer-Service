@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, screen, ipcMain } from 'electron'
+import { createAgentGateway } from './agent/gateway'
+import { createAgentService } from './agent/service'
 import { reportStartupFailure } from './startup-failure'
 import { createKnowledgeWindow } from './knowledge-window'
 import { registerKnowledgeIpc } from './knowledge-ipc'
@@ -130,6 +132,21 @@ app
     })
     app.once('will-quit', disposeBusiness)
     await runtime.start()
+    const agentService = createAgentService({ version: app.getVersion(), runtime: () => runtime! })
+    try {
+      const agentGateway = await createAgentGateway({
+        directory: app.getPath('userData'),
+        call: agentService.call,
+        connectorPath: app.isPackaged
+          ? path.join(process.resourcesPath, 'ai-interface', 'lingtu-mcp.cjs')
+          : path.join(__dirname, 'lingtu-mcp.cjs'),
+      })
+      app.once('will-quit', () => {
+        void agentGateway.close()
+      })
+    } catch {
+      console.error('本机AI接口未启动，请检查资料目录权限或重启；桌面业务继续可用。')
+    }
     assist = createAssistWindowManager({
       rootDir: path.join(app.getPath('userData'), 'local-runtime'),
       getPrimary: () => primaryWindow,
