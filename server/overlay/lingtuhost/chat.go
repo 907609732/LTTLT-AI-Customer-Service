@@ -92,6 +92,10 @@ func (b *relayBuffer) Pusher() http.Pusher      { return nil }
 func (b *relayBuffer) CloseNotify() <-chan bool { return make(chan bool) }
 
 type managedUsage struct {
+	CostSnapshot  bool   `gorm:"not null;default:false"`
+	CostInputCNY  string `gorm:"type:varchar(32)"`
+	CostOutputCNY string `gorm:"type:varchar(32)"`
+
 	UserID        int    `gorm:"primaryKey;autoIncrement:false"`
 	RequestID     string `gorm:"type:varchar(128);primaryKey"`
 	Model         string `gorm:"type:varchar(128)"`
@@ -172,6 +176,7 @@ type chatMessage struct {
 }
 type chatInput struct {
 	RequestID string        `json:"client_request_id"`
+	Model     string        `json:"model,omitempty"`
 	Messages  []chatMessage `json:"messages"`
 }
 
@@ -183,6 +188,9 @@ func parseChat(r io.Reader) (chatInput, string, error) {
 	}
 	if json.Unmarshal(raw, &in) != nil || len(in.RequestID) < 1 || len(in.RequestID) > 128 || len(in.Messages) < 1 || len(in.Messages) > 64 {
 		return in, "", errors.New("invalid request")
+	}
+	if in.Model != "" && !modelIdentifier(in.Model) {
+		return in, "", errors.New("invalid model")
 	}
 	images := 0
 	textBytes := len(raw)
@@ -207,29 +215,31 @@ func parseChat(r io.Reader) (chatInput, string, error) {
 	if textBytes > 128*1024 {
 		return in, "", errors.New("invalid request")
 	}
-	canonical, _ := json.Marshal(in.Messages)
-	digest := sha256.Sum256(canonical)
-	return in, hex.EncodeToString(digest[:]), nil
+	return in, chatDigest(in), nil
 }
 func selectedChannel(selected string) (model.Channel, error) {
+	channel, _, err := selectedChannelSnapshot(selected)
+	return channel, err
+}
+func selectedChannelSnapshot(selected string) (model.Channel, lingtu.ModelConnection, error) {
 	var binding lingtu.ModelConnection
 	err := model.DB.First(&binding, "model_id = ?", selected).Error
 	if err == nil {
 		var channel model.Channel
 		if err := model.DB.First(&channel, binding.ChannelID).Error; err != nil {
-			return channel, err
+			return channel, binding, err
 		}
 		provider, ok := managedProvider(binding.Provider)
 		if !ok || !binding.Enabled || channel.Status != common.ChannelStatusEnabled || binding.ConfigHash != channelHash(channel) || !credentialConfigured(provider, channel) {
-			return channel, errors.New("model not ready")
+			return channel, binding, errors.New("model not ready")
 		}
 		if err := validateModelURL(provider, channel.GetBaseURL(), true); err != nil {
-			return channel, err
+			return channel, binding, err
 		}
-		return channel, nil
+		return channel, binding, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return model.Channel{}, err
+		return model.Channel{}, binding, err
 	}
 	name := ""
 	switch selected {
@@ -240,21 +250,21 @@ func selectedChannel(selected string) (model.Channel, error) {
 	case visionModel:
 		name = "lingtu-qwen-vision"
 	default:
-		return model.Channel{}, errors.New("unknown model")
+		return model.Channel{}, binding, errors.New("unknown model")
 	}
 	var channel model.Channel
 	if err := model.DB.Where("name = ? AND type = ? AND status = ?", name, 1, common.ChannelStatusEnabled).First(&channel).Error; err != nil {
-		return channel, err
+		return channel, binding, err
 	}
 	if strings.TrimSpace(channel.Key) == "" {
-		return channel, errors.New("missing key")
+		return channel, binding, errors.New("missing key")
 	}
 	for _, m := range strings.Split(channel.Models, ",") {
 		if strings.TrimSpace(m) == selected {
-			return channel, nil
+			return channel, binding, nil
 		}
 	}
-	return channel, errors.New("model missing")
+	return channel, binding, errors.New("model missing")
 }
 
 // The persistent internal token remains restricted to its legacy allowlist.
@@ -419,11 +429,20 @@ func (h *Host) prepareChat(c *gin.Context) {
 		clientFailure(c, 403, "account_disabled")
 		return
 	}
-	selected := account.Model
-	if selected == "" {
-		selected = policy.DefaultModel
+	selection, err := resolveModelPolicy(model.DB, policy, account.Model)
+	if err != nil {
+		clientFailure(c, 503, "model_not_ready")
+		return
 	}
-	channel, err := selectedChannel(selected)
+	selected := selection.DefaultModel
+	if in.Model != "" {
+		if !selection.allows(in.Model) {
+			clientFailure(c, 403, "model_not_allowed")
+			return
+		}
+		selected = in.Model
+	}
+	channel, binding, err := selectedChannelSnapshot(selected)
 	if err != nil {
 		clientFailure(c, 503, "model_not_ready")
 		return
@@ -450,11 +469,17 @@ func (h *Host) prepareChat(c *gin.Context) {
 		return
 	}
 	channelName := channel.Name
-	var binding lingtu.ModelConnection
-	if model.DB.First(&binding, "channel_id = ?", channel.Id).Error == nil {
+	if binding.ChannelID != 0 {
 		channelName = binding.Name
 	}
 	usage := managedUsage{UserID: uid, RequestID: in.RequestID, Model: selected, ChannelID: channel.Id, ChannelName: channelName, UpstreamModel: channel.Models, Diagnostic: "pending", CreatedAt: time.Now().Unix()}
+
+	// Every new request pins even an unpriced admission: later rate edits cannot
+	// invent historical prices. Only actual reported tokens are costed.
+	usage.CostSnapshot = true
+	if binding.CostRateModel == channel.Models {
+		usage.CostInputCNY, usage.CostOutputCNY = binding.InputCNY, binding.OutputCNY
+	}
 	if err = model.DB.Create(&usage).Error; err != nil {
 		_ = h.trials.Settle(uid, in.RequestID, "failed")
 		clientFailure(c, 503, "temporarily_unavailable")

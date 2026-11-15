@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -110,7 +111,7 @@ func TestLingtuConnectionIndependentSaveRetainClearAndNoDefault(t *testing.T) {
 		t.Fatal("secret disclosure")
 	}
 	after, _ := lingtu.LoadTrialPolicy(db)
-	if before != after {
+	if !reflect.DeepEqual(before, after) {
 		t.Fatal("save switched default")
 	}
 	raw = strings.Replace(raw, `"enabled":false`, `"enabled":false,"clear_secret":true`, 1)
@@ -304,7 +305,7 @@ func TestLingtuConnectionMetadataFailureRollsBackNativeRows(t *testing.T) {
 		}
 	}
 	after, _ := lingtu.LoadTrialPolicy(db)
-	if before != after {
+	if !reflect.DeepEqual(before, after) {
 		t.Fatal("failed save changed default")
 	}
 }

@@ -19,7 +19,52 @@ import { Label } from '@/components/ui/label'
 import { api } from '@/lib/api'
 import { formatNumber, formatTimestamp } from '@/lib/format'
 
+import { formatCNY } from './admin-cost-format'
+
+export function CostSummary(props: {
+  totals: {
+    estimated_cny?: string
+    costed_requests?: number
+    unpriced_requests?: number
+    current_rate_requests?: number
+  }
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className='admin-help'>
+      <strong>
+        {t('Estimated cost (CNY)')}: {formatCNY(props.totals.estimated_cny)}
+      </strong>{' '}
+      · {t('Costed requests')}: {formatNumber(props.totals.costed_requests)} ·{' '}
+      {t('Unpriced requests')}: {formatNumber(props.totals.unpriced_requests)} ·{' '}
+      {t('Recalculated at current rates')}:{' '}
+      {formatNumber(props.totals.current_rate_requests)}
+      <p>
+        {t(
+          'Configured-rate estimate only; not a supplier bill or balance deduction. Missing usage or prices remain unpriced.'
+        )}
+      </p>
+    </div>
+  )
+}
+function CostCell(props: { totals: UsageTotals }) {
+  const { t } = useTranslation()
+  return (
+    <div>
+      <strong>{formatCNY(props.totals.estimated_cny)}</strong>
+      <small className='block'>
+        {t('Unpriced requests')}: {formatNumber(props.totals.unpriced_requests)}{' '}
+        · {t('Recalculated at current rates')}:{' '}
+        {formatNumber(props.totals.current_rate_requests)}
+      </small>
+    </div>
+  )
+}
 interface UsageTotals {
+  estimated_cny?: string
+  costed_requests?: number
+  unpriced_requests?: number
+  current_rate_requests?: number
   requests: number
   successes: number
   failed: number
@@ -67,18 +112,23 @@ function TotalsCards(props: { totals: UsageTotals; accounts?: number }) {
     cards.unshift(['Registered accounts', props.accounts])
   }
   return (
-    <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
-      {cards.map(([label, value]) => (
-        <Card key={label} className='border border-blue-100 bg-white'>
-          <CardHeader>
-            <CardTitle className='text-sm text-slate-500'>{t(label)}</CardTitle>
-          </CardHeader>
-          <CardContent className='text-2xl font-semibold'>
-            {formatNumber(value)}
-          </CardContent>
-        </Card>
-      ))}
-    </div>
+    <>
+      <CostSummary totals={props.totals} />
+      <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+        {cards.map(([label, value]) => (
+          <Card key={label} className='border border-blue-100 bg-white'>
+            <CardHeader>
+              <CardTitle className='text-sm text-slate-500'>
+                {t(label)}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className='text-2xl font-semibold'>
+              {formatNumber(value)}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </>
   )
 }
 interface DailyUsageItem extends UsageTotals {
@@ -234,6 +284,7 @@ export function AdminOverview(props: {
       )}
       {query.data && totals && (
         <>
+          <CostSummary totals={totals} />
           <div className='daily-kpis'>
             {[
               ['Client requests', totals.requests],
@@ -251,8 +302,8 @@ export function AdminOverview(props: {
             ))}
           </div>
           <p className='admin-help'>
-            {t('Today')}: {formatNumber(query.data.today.requests)}{' '}
-            {t('Client requests')} ·{' '}
+            {t('Today')}: {formatCNY(query.data.today.estimated_cny)} ·{' '}
+            {formatNumber(query.data.today.requests)} {t('Client requests')} ·{' '}
             {formatNumber(query.data.today.total_tokens)}{' '}
             {t('Known total tokens')} ·{' '}
             {formatNumber(query.data.today.unknown_usage)}{' '}
@@ -423,6 +474,11 @@ export function AdminOverview(props: {
                     cell: (row) => formatNumber(row.total_tokens),
                   },
                   {
+                    id: 'estimated_cny',
+                    header: t('Estimated cost (CNY)'),
+                    cell: (row) => <CostCell totals={row} />,
+                  },
+                  {
                     id: 'unknown',
                     header: t('Requests without usage'),
                     cell: (row) => formatNumber(row.unknown_usage),
@@ -524,6 +580,11 @@ export function AccountUsageSummary(props: {
                 id: 'total',
                 header: t('Known total tokens'),
                 cell: (row) => formatNumber(row.total_tokens),
+              },
+              {
+                id: 'estimated_cny',
+                header: t('Estimated cost (CNY)'),
+                cell: (row) => <CostCell totals={row} />,
               },
               {
                 id: 'unknown',

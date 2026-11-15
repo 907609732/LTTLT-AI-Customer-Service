@@ -34,6 +34,8 @@ import {
   formatTimestampForInput,
 } from '@/lib/format'
 
+import { AdminBilling } from './admin-billing'
+import { formatCNY } from './admin-cost-format'
 import {
   AdminModels,
   type ModelProvider,
@@ -43,7 +45,6 @@ import {
   type SaveFailure,
 } from './admin-models'
 import { AccountUsageSummary, AdminOverview } from './admin-usage'
-import { AdminBilling } from './admin-billing'
 
 import './admin-light.css'
 
@@ -52,6 +53,8 @@ interface Policy {
   calls: number
   days: number
   default_model: string
+  model_scope?: '' | 'all' | 'selected'
+  allowed_models?: string[]
   daily_calls: number
   max_tokens: number
   per_account_concurrent: number
@@ -140,11 +143,13 @@ function ModelSelect(props: {
   onChange: (value: string) => void
   allowDefault?: boolean
   disabled?: boolean
+  allowedModels?: string[]
 }) {
   const { t } = useTranslation()
   const connections = useContext(ModelConnectionsContext)
   const managed = connections.filter(
     (row) =>
+      (!props.allowedModels || props.allowedModels.includes(row.model_id)) &&
       !['deepseek-flash', 'qwen-plus', 'qwen3-vl-plus'].includes(row.model_id)
   )
   return (
@@ -160,17 +165,30 @@ function ModelSelect(props: {
         {props.allowDefault && (
           <option value=''>{t('Follow default settings')}</option>
         )}
-        <option value='deepseek-flash'>{t('DeepSeek')}</option>
-        <option value='qwen-plus'>{t('Qwen')}</option>
-        <option value='qwen3-vl-plus'>
-          {t('Qwen3-VL · Image understanding')}
-        </option>
+        {(!props.allowedModels ||
+          props.allowedModels.includes('deepseek-flash')) && (
+          <option value='deepseek-flash'>{t('DeepSeek')}</option>
+        )}
+        {(!props.allowedModels ||
+          props.allowedModels.includes('qwen-plus')) && (
+          <option value='qwen-plus'>{t('Qwen')}</option>
+        )}
+        {(!props.allowedModels ||
+          props.allowedModels.includes('qwen3-vl-plus')) && (
+          <option value='qwen3-vl-plus'>
+            {t('Qwen3-VL · Image understanding')}
+          </option>
+        )}
+        {props.allowedModels?.length === 0 && (
+          <option value=''>{t('Select at least one available model.')}</option>
+        )}
         {managed.map((row) => (
           <option key={row.connection_id} value={row.model_id}>
             {row.upstream_model} · {row.name} ({row.model_id})
           </option>
         ))}
         {props.value &&
+          (!props.allowedModels || props.allowedModels.includes(props.value)) &&
           !['deepseek-flash', 'qwen-plus', 'qwen3-vl-plus'].includes(
             props.value
           ) &&
@@ -311,6 +329,7 @@ function Credentials(props: {
 }
 function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
   const { t } = useTranslation()
+  const connections = useContext(ModelConnectionsContext)
   const [policy, setPolicy] = useState({
     ...props.policy,
     per_account_concurrent: props.policy.per_account_concurrent ?? 1,
@@ -338,9 +357,70 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
       section: 'trial',
       ...policy,
       model: policy.default_model,
+      ...(policy.model_scope === 'all' ? { allowed_models: [] } : {}),
     })
     if (ok) dirtyFields.current.clear()
   }
+  // Keep disabled historical selections visible so an administrator can remove
+  // them; new choices come only from ready connections in the existing catalog.
+  const availableModels = connections.filter((row) => row.ready)
+  const selectedModels = policy.allowed_models ?? [policy.default_model]
+  let defaultOptions: string[] | undefined
+  if (policy.model_scope === 'all') {
+    defaultOptions = availableModels.map((row) => row.model_id)
+    // An unavailable saved preference may recover. Editing caps must not force
+    // the administrator to permanently replace it just to save unrelated limits.
+    if (
+      props.policy.model_scope === 'all' &&
+      !defaultOptions.includes(props.policy.default_model)
+    ) {
+      defaultOptions.push(props.policy.default_model)
+    }
+  } else if (policy.model_scope === 'selected') {
+    defaultOptions = selectedModels
+  }
+  const modelChoices = [
+    ...new Set([
+      ...availableModels.map((row) => row.model_id),
+      ...selectedModels,
+    ]),
+  ]
+  function choiceName(id: string): string {
+    if (id === 'deepseek-flash') return t('DeepSeek')
+    if (id === 'qwen-plus') return t('Qwen')
+    if (id === 'qwen3-vl-plus') return t('Qwen3-VL · Image understanding')
+    const row = connections.find((connection) => connection.model_id === id)
+    return row ? `${row.upstream_model} · ${row.name} (${id})` : id
+  }
+  function setScope(scope: 'all' | 'selected') {
+    editPolicy('model_scope', scope)
+    if (scope === 'selected') {
+      const ids = selectedModels.filter((id) =>
+        availableModels.some((row) => row.model_id === id)
+      )
+      const next = ids.length
+        ? ids
+        : availableModels.slice(0, 1).map((row) => row.model_id)
+      editPolicy('allowed_models', next)
+      if (!next.includes(policy.default_model))
+        editPolicy('default_model', next[0] ?? '')
+    } else if (
+      !availableModels.some((row) => row.model_id === policy.default_model)
+    ) {
+      editPolicy('default_model', availableModels[0]?.model_id ?? '')
+    }
+  }
+  function toggleModel(id: string) {
+    const next = selectedModels.includes(id)
+      ? selectedModels.filter((model) => model !== id)
+      : [...selectedModels, id]
+    editPolicy('allowed_models', next)
+    if (!next.includes(policy.default_model))
+      editPolicy('default_model', next[0] ?? '')
+  }
+  const selectionInvalid =
+    Boolean(policy.model_scope) &&
+    (!policy.default_model || !defaultOptions?.includes(policy.default_model))
   return (
     <Card className='max-w-2xl border border-blue-100 bg-white'>
       <CardHeader>
@@ -388,14 +468,79 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
             type='number'
           />
         ))}
+        <div className='space-y-2'>
+          <Label htmlFor='model-scope'>{t('Available model scope')}</Label>
+          <select
+            id='model-scope'
+            className='border-input bg-background h-10 w-full rounded-lg border px-3 text-sm'
+            disabled={props.busy}
+            value={policy.model_scope || ''}
+            onChange={(event) =>
+              setScope(event.target.value as 'all' | 'selected')
+            }
+          >
+            {!policy.model_scope && (
+              <option value=''>{t('Legacy single model')}</option>
+            )}
+            <option value='all'>{t('All enabled models')}</option>
+            <option value='selected'>{t('Selected models')}</option>
+          </select>
+          <p className='text-sm text-slate-500'>
+            {t(
+              'Accounts can switch between allowed models. The account model is only a default preference.'
+            )}
+          </p>
+        </div>
+        {policy.model_scope === 'selected' && (
+          <fieldset
+            className='space-y-2 rounded-lg border border-blue-100 p-3'
+            disabled={props.busy}
+          >
+            <legend className='px-1 text-sm'>{t('Allowed models')}</legend>
+            {modelChoices.map((id) => (
+              <label key={id} className='flex items-center gap-2 text-sm'>
+                <input
+                  type='checkbox'
+                  checked={selectedModels.includes(id)}
+                  disabled={
+                    !selectedModels.includes(id) &&
+                    !availableModels.some((row) => row.model_id === id)
+                  }
+                  onChange={() => toggleModel(id)}
+                />
+                {choiceName(id)}
+              </label>
+            ))}
+            {selectedModels.length === 0 && (
+              <p role='alert' className='text-sm text-red-600'>
+                {t('Select at least one available model.')}
+              </p>
+            )}
+          </fieldset>
+        )}
         <ModelSelect
           id='default-model'
           disabled={props.busy}
           label={t('Default model')}
           value={policy.default_model}
+          allowedModels={defaultOptions}
           onChange={(value) => editPolicy('default_model', value)}
         />
-        <Button disabled={props.busy} onClick={() => void savePolicy()}>
+        {policy.model_scope &&
+          !availableModels.some(
+            (row) => row.model_id === policy.default_model
+          ) &&
+          policy.default_model && (
+            <p className='text-sm text-amber-700'>
+              {t(
+                'The saved default is unavailable. Calls use another allowed model until it recovers.'
+              )}
+            </p>
+          )}
+        <Button
+          disabled={props.busy || selectionInvalid}
+          onClick={() => void savePolicy()}
+        >
           {t('Save')}
         </Button>
       </CardContent>
@@ -650,6 +795,8 @@ interface UsageRecord {
   input_tokens: number
   output_tokens: number
   total_tokens: number
+  estimated_cny?: string
+  cost_basis?: string
   usage_known: boolean
   diagnostic: string
 }
@@ -816,6 +963,14 @@ function UsageRecords(props: { save: Save; busy: boolean; userId?: number }) {
                 row.usage_known === true
                   ? formatNumber(row.total_tokens)
                   : t('Usage not returned'),
+            },
+            {
+              id: 'estimated_cny',
+              header: t('Estimated cost (CNY)'),
+              cell: (row) =>
+                row.cost_basis === 'unpriced'
+                  ? t('Unpriced')
+                  : `${formatCNY(row.estimated_cny)} · ${t(row.cost_basis === 'current_rates' ? 'Recalculated at current rates' : 'Admission price snapshot')}`,
             },
             {
               id: 'diagnostic',

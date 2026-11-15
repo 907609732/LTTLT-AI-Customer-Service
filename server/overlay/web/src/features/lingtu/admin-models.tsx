@@ -40,6 +40,9 @@ export interface ModelConnection {
   is_default: boolean
   revision: number
   test_status: string
+  input_cny?: string
+  output_cny?: string
+  cost_rate_model?: string
   tested_at: number
 }
 export type Payload = Record<string, unknown> & { section: string }
@@ -69,6 +72,8 @@ interface Draft {
   region: string
   account_id: string
   enabled: boolean
+  input_cny: string
+  output_cny: string
   dirty: boolean
   unconfirmedCreation?: boolean
 }
@@ -95,6 +100,10 @@ function fromSaved(row: ModelConnection): Draft {
   return {
     ...row,
     key: `saved-${row.connection_id}`,
+    input_cny:
+      row.cost_rate_model === row.upstream_model ? row.input_cny || '' : '',
+    output_cny:
+      row.cost_rate_model === row.upstream_model ? row.output_cny || '' : '',
     secret: '',
     clear_secret: false,
     dirty: false,
@@ -133,6 +142,8 @@ export function AdminModels(props: {
       connection_id: 0,
       name: `API ${count + 1}`,
       secret: '',
+      input_cny: '',
+      output_cny: '',
       clear_secret: false,
       base_url: p.base_url,
       upstream_model: p.upstream_model,
@@ -245,6 +256,10 @@ export function AdminModels(props: {
     }
     if (action === 'save') {
       Object.assign(payload, {
+        cost_rates: {
+          input_cny: captured.input_cny,
+          output_cny: captured.output_cny,
+        },
         name: captured.name,
         base_url: captured.base_url,
         upstream_model: captured.upstream_model,
@@ -260,8 +275,9 @@ export function AdminModels(props: {
     try {
       const result = await props.save(payload)
       if (!result || !result.saved) {
-        if (action === 'save' && result && result.unconfirmed)
-          {markUnconfirmed(captured, owner)}
+        if (action === 'save' && result && result.unconfirmed) {
+          markUnconfirmed(captured, owner)
+        }
         setResultMessage(
           'Save could not be confirmed. Refresh configuration and review before retrying.'
         )
@@ -706,8 +722,39 @@ export function AdminModels(props: {
                     id='connection-model'
                     disabled={props.busy}
                     value={active.upstream_model}
-                    onChange={(e) => edit({ upstream_model: e.target.value })}
+                    onChange={(e) =>
+                      edit({
+                        upstream_model: e.target.value,
+                        input_cny: '',
+                        output_cny: '',
+                      })
+                    }
                   />
+                  <Label htmlFor='cost-input'>
+                    {t('Input price (CNY / million tokens)')}
+                  </Label>
+                  <Input
+                    id='cost-input'
+                    inputMode='decimal'
+                    disabled={props.busy}
+                    value={active.input_cny}
+                    onChange={(e) => edit({ input_cny: e.target.value })}
+                  />
+                  <Label htmlFor='cost-output'>
+                    {t('Output price (CNY / million tokens)')}
+                  </Label>
+                  <Input
+                    id='cost-output'
+                    inputMode='decimal'
+                    disabled={props.busy}
+                    value={active.output_cny}
+                    onChange={(e) => edit({ output_cny: e.target.value })}
+                  />
+                  <p className='admin-help'>
+                    {t(
+                      'Enter both prices or leave both blank. Zero means free. Configured-rate estimates exclude cache, time bands, tiers and discounts; balances are unchanged.'
+                    )}
+                  </p>
                   <div className='flex items-center justify-between'>
                     <Label htmlFor='connection-enabled'>
                       {t('Enable after successful test')}

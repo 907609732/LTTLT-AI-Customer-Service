@@ -118,7 +118,9 @@
     {
       "path": "overlay/lingtu/model_connection.go",
       "upstreamPath": "managed-server/overlay/lingtu/model_connection.go",
-      "sha256": "bf9471281b65e7abedee230273d04ae12340a2c8b70884503bb5c682c1579496"
+      "sha256": "02622bab2996603c053b430709e1225e9509be2c25ef18da3597d049ed4a9ea6",
+      "upstreamSha256": "bf9471281b65e7abedee230273d04ae12340a2c8b70884503bb5c682c1579496",
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/lingtu/secret_serializer.go",
@@ -143,7 +145,8 @@
     {
       "path": "overlay/lingtu/settings.go",
       "upstreamPath": "managed-server/overlay/lingtu/settings.go",
-      "sha256": "abe3a0d51749548fc1643503a89a0be8968d4ab09223dbcd2d9daac60c54d48d"
+      "sha256": "e77ae0a6bc4986df0d5ae4408f5d8897be5c5fc94598f9b95e0b96529f735783",
+      "upstreamSha256": "abe3a0d51749548fc1643503a89a0be8968d4ab09223dbcd2d9daac60c54d48d"
     },
     {
       "path": "overlay/lingtu/social.go",
@@ -178,22 +181,28 @@
     {
       "path": "overlay/lingtuhost/admin.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin.go",
-      "sha256": "2fe0a91291e4b657105d3f052f01a7f41015c240e000acb8e2a4f20966e245ab"
+      "sha256": "14247d6248c92bfd62f3e06640455ba5278f3ed79de0986d21533a9a7b26d70d",
+      "upstreamSha256": "2fe0a91291e4b657105d3f052f01a7f41015c240e000acb8e2a4f20966e245ab",
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/lingtuhost/admin_connections_review_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_connections_review_test.go",
-      "sha256": "ffeb366f2e15e1a04b7bb695c9657887768a328beaf34b74586e6b47a9b626cc"
+      "sha256": "186f68ee6b1ca503de83f759896c46c3db263fa6c9a0077ee183d4b243bf98c4",
+      "upstreamSha256": "ffeb366f2e15e1a04b7bb695c9657887768a328beaf34b74586e6b47a9b626cc"
     },
     {
       "path": "overlay/lingtuhost/admin_connections_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_connections_test.go",
-      "sha256": "9e0eb7846a20901e2eda8f98db61ff8dccaa9b6427fd705a0241b5e7dad8e88f"
+      "sha256": "3cad37acfee0a384918bc27cdc531118009efbd79bccbddd54e118f697ec8189",
+      "upstreamSha256": "9e0eb7846a20901e2eda8f98db61ff8dccaa9b6427fd705a0241b5e7dad8e88f"
     },
     {
       "path": "overlay/lingtuhost/admin_models.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_models.go",
-      "sha256": "f6508c9bc6ac755deb30b563315572f32ca5c4480b5dff33ee7f700f62d41015"
+      "sha256": "8adbd28e62fad83059474d4e241691dd1fe7308fbbd4f39c0f1a0655f0a40c8c",
+      "upstreamSha256": "f6508c9bc6ac755deb30b563315572f32ca5c4480b5dff33ee7f700f62d41015",
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/lingtuhost/admin_model_default_test.go",
@@ -203,7 +212,8 @@
     {
       "path": "overlay/lingtuhost/admin_save_test_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_save_test_test.go",
-      "sha256": "047bf18f53d253bae540bca41389655568032b35ea69ebb14fa5bc7ff8955bf7"
+      "sha256": "1e009b0c0fa782eea051578ff9dfd47fe077fb7e7bb154a3fb70f2cbb5224ffc",
+      "upstreamSha256": "047bf18f53d253bae540bca41389655568032b35ea69ebb14fa5bc7ff8955bf7"
     },
     {
       "path": "overlay/lingtuhost/admin_test.go",
@@ -213,17 +223,23 @@
     {
       "path": "overlay/lingtuhost/admin_usage.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_usage.go",
-      "sha256": "7723b158d8ec38dee28627e79e78a37f86e29b741e2ad152f49cd7bacebd1faf"
+      "sha256": "639015cea6382f8ce4784db8ed107151c3d87f83308e9c7d4e566aec2ed0bfef",
+      "upstreamSha256": "7723b158d8ec38dee28627e79e78a37f86e29b741e2ad152f49cd7bacebd1faf",
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/lingtuhost/admin_usage_daily.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_usage_daily.go",
-      "sha256": "473f177917e9a5cb6e1d6999000e1e4981cc8db1ce97163281acba04d27fcb6e"
+      "sha256": "c3e45c589f10c3d723572f0362ffd64370c81a0248e5c9d9d32c2061d040e53e",
+      "upstreamSha256": "473f177917e9a5cb6e1d6999000e1e4981cc8db1ce97163281acba04d27fcb6e",
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/lingtuhost/admin_usage_daily_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_usage_daily_test.go",
-      "sha256": "60085fc63010180a56f00ef0781e6e18a7f72bdc3aef44e5216d009c957387a0"
+      "sha256": "f16fc7f54730c677d324669b1c1ae839379ed5595a53538216d4f198a960f2cc",
+      "upstreamSha256": "60085fc63010180a56f00ef0781e6e18a7f72bdc3aef44e5216d009c957387a0",
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/lingtuhost/admin_usage_summary_test.go",
@@ -238,14 +254,16 @@
     {
       "path": "overlay/lingtuhost/chat.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat.go",
-      "sha256": "e6e80f0ab1847faf03f4ebbae04d387156ff87d2a8ad803235de05139381aea2",
+      "sha256": "8be1a6d48a15f3a6b2e359b7c78ef2784700ea45fa1233cb6c56f3dd419cbfd9",
       "upstreamSha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650",
-      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits."
+      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/lingtuhost/chat_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat_test.go",
-      "sha256": "68d971b36114e9bb06682511db70b011cac71b784037b1dd161446e2195d768f"
+      "sha256": "9d483694de9113b07402b49af101dbafae7ae3f22a01f98ecc1992a678bae4bf",
+      "upstreamSha256": "68d971b36114e9bb06682511db70b011cac71b784037b1dd161446e2195d768f",
+      "localPatch": " Add configured CNY estimates and frozen admission rates without changing balances."
     },
     {
       "path": "overlay/lingtuhost/chat_usage_rejection_test.go",
@@ -270,9 +288,9 @@
     {
       "path": "overlay/lingtuhost/routes.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/routes.go",
-      "sha256": "944495a1405b1fee1cdbacae59b755d9c2bd951156f170064f42ff04a0402a0f",
+      "sha256": "dd7240b42f7509c78c97edfa5cf548a4c7579398e49c9afb946e033411236dc9",
       "upstreamSha256": "06864f9097cc5e2c7010927b6f5ba3d3bba95e0099ff771abbaaebc73932d5c4",
-      "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors. Reuse bounded client body middleware; only exact POST /api/client/chat/completions permits 16MiB image envelopes, all other client routes retain 1MiB."
+      "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors. Reuse bounded client body middleware; only exact POST /api/client/chat/completions permits 16MiB image envelopes, all other client routes retain 1MiB. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement."
     },
     {
       "path": "overlay/lingtuhost/vision.go",
@@ -370,26 +388,30 @@
     {
       "path": "overlay/web/src/features/lingtu/admin-models.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-models.tsx",
-      "sha256": "ab82b618d1b731bfd6cd46dde8bcd4dcc25bac75ed3ca31c8dd60881cb585f72"
+      "sha256": "711aa03c7182b663e73743241d72ce58dd696f3d3be55575a20b6fa023159455",
+      "upstreamSha256": "ab82b618d1b731bfd6cd46dde8bcd4dcc25bac75ed3ca31c8dd60881cb585f72",
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-page.test.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.test.tsx",
-      "sha256": "15894ff25ce03c87637994d6a42067de0a5c0e91b05531630186c351705bc20b",
+      "sha256": "f74f297c1a47b7ee10ef46212c047cdbac66ef346538a8680c93218b59eb3d57",
       "upstreamSha256": "31faaa4b3b87915c7a18bf03df0114717110648dd169606c741b749785c0aabf",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-page.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.tsx",
-      "sha256": "0ac968b336c304992d065adf2eec660b521b7a951ef9a280a451f01289be791e",
+      "sha256": "32b3c8ad0bbc3a77fd985e92490754a29fad382c770a0bf770fe7425a96cc656",
       "upstreamSha256": "47c9d379bc0749edd50d6dd598452074525a69308d3f9702eb65b3d16837111a",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-usage.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-usage.tsx",
-      "sha256": "ca6b43a3155423553bb911ba1062077b4450a262f52a6a91ef5c303b98355364"
+      "sha256": "ad3d99b8a2a074b6f5524f5a19e01f428f50e7c0a4aa97b4149b12265da7a265",
+      "upstreamSha256": "ca6b43a3155423553bb911ba1062077b4450a262f52a6a91ef5c303b98355364",
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "overlay/web/src/features/lingtu/api-origin.test.tsx",
@@ -470,9 +492,9 @@
     {
       "path": "translations.json",
       "upstreamPath": "managed-server/translations.json",
-      "sha256": "47e922bd3b9fe770914e4099befa23ae8228b0caf10e85770ec20e81eceee817",
+      "sha256": "0690fcd53e200194c3b1a3924dd572c01f6cefc2781da218d4e109445d7706d1",
       "upstreamSha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
     },
     {
       "path": "upstream.lock.json",

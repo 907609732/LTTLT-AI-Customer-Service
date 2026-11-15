@@ -72,6 +72,10 @@ const config = {
   smtp: {},
 }
 const totals = {
+  estimated_cny: '0.006555',
+  costed_requests: 1,
+  unpriced_requests: 1,
+  current_rate_requests: 1,
   requests: 2,
   successes: 1,
   failed: 0,
@@ -387,6 +391,112 @@ it('provides default caps and translated friendly model selection in trial setti
   expect(
     await screen.findByRole('combobox', { name: 'Default model' })
   ).toBeTruthy()
+})
+
+it('saves all or selected models and limits the default to the chosen range', async () => {
+  allowProtectedSave()
+  const configuration = {
+    ...config,
+    policy: {
+      ...config.policy,
+      model_scope: 'selected',
+      allowed_models: ['deepseek-flash'],
+    },
+    model_connections: [
+      {
+        connection_id: 1,
+        model_id: 'deepseek-flash',
+        name: 'DeepSeek',
+        upstream_model: 'deepseek-flash',
+        ready: true,
+        enabled: true,
+      },
+      {
+        connection_id: 2,
+        model_id: 'qwen-plus',
+        name: 'Qwen',
+        upstream_model: 'qwen-plus',
+        ready: true,
+        enabled: true,
+      },
+    ],
+  }
+  const saved: Record<string, unknown>[] = []
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post')
+      saved.push(JSON.parse(request.data as string))
+    return {
+      data:
+        request.method === 'post'
+          ? { saved: true }
+          : fixtureData(request.url || '', request.params, configuration),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('tab', { name: '试用设置' }))
+  const scope = await screen.findByRole('combobox', { name: '可用模型范围' })
+  const defaults = screen.getByRole('combobox', { name: '默认模型' })
+  expect(
+    within(defaults).queryByRole('option', { name: '通义千问' })
+  ).toBeNull()
+  fireEvent.click(screen.getByRole('checkbox', { name: '通义千问' }))
+  fireEvent.change(defaults, { target: { value: 'qwen-plus' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  await waitFor(() =>
+    expect(saved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          model_scope: 'selected',
+          allowed_models: ['deepseek-flash', 'qwen-plus'],
+          model: 'qwen-plus',
+        }),
+      ])
+    )
+  )
+  fireEvent.change(scope, { target: { value: 'all' } })
+  expect(screen.queryByRole('checkbox', { name: '通义千问' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  await waitFor(() =>
+    expect(saved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ model_scope: 'all', allowed_models: [] }),
+      ])
+    )
+  )
+})
+
+it('allows editing limits while retaining an unavailable saved default in all scope', async () => {
+  installFixture({
+    ...config,
+    policy: { ...config.policy, model_scope: 'all' },
+    model_connections: [
+      {
+        connection_id: 1,
+        model_id: 'deepseek-flash',
+        ready: false,
+        enabled: false,
+      },
+      { connection_id: 2, model_id: 'qwen-plus', ready: true, enabled: true },
+    ],
+  })
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('tab', { name: '试用设置' }))
+  fireEvent.change(await screen.findByLabelText('全站每日试用次数上限'), {
+    target: { value: '333' },
+  })
+  expect(
+    (screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled
+  ).toBe(false)
+  expect(
+    (screen.getByRole('combobox', { name: '默认模型' }) as HTMLSelectElement)
+      .value
+  ).toBe('deepseek-flash')
 })
 
 it('preserves WeChat, DingTalk and email drafts across navigation, language changes and refresh', async () => {
@@ -1254,8 +1364,8 @@ it('allows retry after canceled verification and known rejected creation without
   api.defaults.adapter = async (request) => {
     if (request.method === 'post') {
       attempts++
-      if (attempts === 1)
-        {throw new AxiosError(
+      if (attempts === 1) {
+        throw new AxiosError(
           'validation',
           'ERR_BAD_REQUEST',
           request,
@@ -1267,7 +1377,8 @@ it('allows retry after canceled verification and known rejected creation without
             headers: {},
             config: request,
           }
-        )}
+        )
+      }
       connections = [{ ...connection, connection_id: 39, is_default: false }]
       return {
         data: {
@@ -1333,4 +1444,100 @@ it('allows retry after canceled verification and known rejected creation without
     ).toBe('saved-39')
   )
   expect(attempts).toBe(2)
+})
+
+it('shows configured RMB estimates and unpriced calls separately in Chinese and English', async () => {
+  installFixture()
+  renderAdmin()
+  expect(
+    (await screen.findAllByText(/估算成本（人民币）/)).length
+  ).toBeGreaterThan(0)
+  expect(screen.getAllByText(/¥0.006555/).length).toBeGreaterThan(0)
+  expect(screen.getAllByText(/未计价调用/).length).toBeGreaterThan(0)
+  expect(screen.getAllByText(/按当前单价回算/).length).toBeGreaterThan(0)
+  fireEvent.click(screen.getByRole('button', { name: 'English' }))
+  expect(
+    (await screen.findAllByText(/Estimated cost \(CNY\)/)).length
+  ).toBeGreaterThan(0)
+  expect(screen.getAllByText(/Unpriced requests/).length).toBeGreaterThan(0)
+})
+
+it('saves RMB rates through the existing exact proof without probing and clears them on model change', async () => {
+  allowProtectedSave()
+  const posts: Record<string, unknown>[] = []
+  api.defaults.adapter = async (request) => {
+    const data =
+      request.method === 'post'
+        ? (() => {
+            posts.push(JSON.parse(request.data))
+            return {
+              saved: true,
+              connection_id: 7,
+              model_connections: [
+                {
+                  ...connection,
+                  revision: 3,
+                  input_cny: '1',
+                  output_cny: '10',
+                  cost_rate_model: 'deepseek-chat',
+                },
+              ],
+            }
+          })()
+        : fixtureData(request.url || '', request.params, {
+            ...config,
+            model_catalog: catalog,
+            model_connections: [connection],
+          })
+    return { data, status: 200, statusText: 'OK', headers: {}, config: request }
+  }
+  renderAdmin()
+  await modelView()
+  fireEvent.click(screen.getByText('More settings (usually unchanged)'))
+  fireEvent.change(
+    screen.getByLabelText('Input price (CNY / million tokens)'),
+    {
+      target: { value: '1' },
+    }
+  )
+  fireEvent.change(
+    screen.getByLabelText('Output price (CNY / million tokens)'),
+    {
+      target: { value: '10' },
+    }
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Save without testing' }))
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts[0].cost_rates).toEqual({ input_cny: '1', output_cny: '10' })
+  expect(posts[0].test_after_save).toBeUndefined()
+  expect(posts[0].secret).toBeUndefined()
+  expect(verify).toHaveBeenCalledWith(
+    expect.objectContaining({ scope: 'admin.user.managed_config' })
+  )
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByLabelText(
+          'Input price (CNY / million tokens)'
+        ) as HTMLInputElement
+      ).value
+    ).toBe('1')
+  )
+  fireEvent.change(screen.getByLabelText('Upstream model ID'), {
+    target: { value: 'other-model' },
+  })
+  expect(
+    (
+      screen.getByLabelText(
+        'Input price (CNY / million tokens)'
+      ) as HTMLInputElement
+    ).value
+  ).toBe('')
+  expect(
+    (
+      screen.getByLabelText(
+        'Output price (CNY / million tokens)'
+      ) as HTMLInputElement
+    ).value
+  ).toBe('')
 })

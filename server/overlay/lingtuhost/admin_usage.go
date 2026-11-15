@@ -11,6 +11,7 @@ import (
 )
 
 type UsageSummaryTotals struct {
+	CostTotals   `gorm:"embedded"`
 	Requests     int64 `json:"requests"`
 	Successes    int64 `json:"successes"`
 	Failed       int64 `json:"failed"`
@@ -74,6 +75,8 @@ func (h *Host) adminUsage(c *gin.Context) {
 	}
 	var total int64
 	items := []struct {
+		Record       usageDailyRecord `json:"-" gorm:"embedded"`
+		costEstimate `gorm:"embedded"`
 		UserID       int    `json:"user_id"`
 		DisplayName  string `json:"display_name"`
 		RequestID    string `json:"request_id"`
@@ -86,11 +89,20 @@ func (h *Host) adminUsage(c *gin.Context) {
 		UsageKnown   bool   `json:"usage_known"`
 		Diagnostic   string `json:"diagnostic"`
 	}{}
-	if usageQuery(uid).Count(&total).Error != nil || usageQuery(uid).Select("r.user_id, "+usageDisplayName+" AS display_name, r.request_id, r.state, r.created_at, COALESCE(u.model, '') AS model, COALESCE(u.input_tokens, 0) AS input_tokens, COALESCE(u.output_tokens, 0) AS output_tokens, COALESCE(u.usage_known, FALSE) AS usage_known, COALESCE(u.diagnostic, '') AS diagnostic").Order("r.id DESC").Offset((page-1)*20).Limit(20).Scan(&items).Error != nil {
+	if usageQuery(uid).Count(&total).Error != nil || usageQuery(uid).Select(costRecordSelect+", r.user_id, "+usageDisplayName+" AS display_name, r.request_id, r.state, r.created_at, COALESCE(u.model, '') AS model, COALESCE(u.input_tokens, 0) AS input_tokens, COALESCE(u.output_tokens, 0) AS output_tokens, COALESCE(u.usage_known, FALSE) AS usage_known, COALESCE(u.diagnostic, '') AS diagnostic").Order("r.id DESC").Offset((page-1)*20).Limit(20).Scan(&items).Error != nil {
+		clientFailure(c, 503, "usage_unavailable")
+		return
+	}
+	rates, err := loadCostRates(c.Request.Context())
+	if err != nil {
 		clientFailure(c, 503, "usage_unavailable")
 		return
 	}
 	for i := range items {
+		items[i].Record.InputTokens = items[i].InputTokens
+		items[i].Record.OutputTokens = items[i].OutputTokens
+		items[i].Record.UsageKnown = items[i].UsageKnown
+		items[i].costEstimate = estimateCNY(items[i].Record, rates)
 		items[i].TotalTokens = items[i].InputTokens + items[i].OutputTokens
 	}
 	c.JSON(200, gin.H{"scope": "clients_only", "items": items, "total": total, "page": page})
@@ -104,6 +116,10 @@ const usageAggregate = `COUNT(*) AS requests,
  COALESCE(SUM(CASE WHEN COALESCE(u.usage_known,FALSE) THEN COALESCE(u.output_tokens,0) ELSE 0 END),0) AS output_tokens,
  COALESCE(SUM(CASE WHEN COALESCE(u.usage_known,FALSE) THEN 0 ELSE 1 END),0) AS unknown_usage`
 
+func usageAccountAggregate(uid int) *gorm.DB {
+	return usageQuery(uid).Select("r.user_id, " + usageDisplayName + " AS display_name, " + usageAggregate + ", MAX(r.created_at) AS last_used_at").Group("r.user_id, profile.display_name, profile.username")
+}
+
 func (h *Host) adminUsageSummary(c *gin.Context) {
 	page, uid, ok := usageParameters(c)
 	if !ok {
@@ -112,7 +128,38 @@ func (h *Host) adminUsageSummary(c *gin.Context) {
 	var totals usageSummaryTotals
 	var total int64
 	items := []usageAccountSummary{}
-	if usageQuery(uid).Select(usageAggregate).Scan(&totals).Error != nil || usageQuery(uid).Distinct("r.user_id").Count(&total).Error != nil || usageQuery(uid).Select("r.user_id, "+usageDisplayName+" AS display_name, "+usageAggregate+", MAX(r.created_at) AS last_used_at").Group("r.user_id, profile.display_name, profile.username").Order("last_used_at DESC, r.user_id DESC").Offset((page-1)*20).Limit(20).Scan(&items).Error != nil {
+	if usageQuery(uid).Select(usageAggregate).Scan(&totals).Error != nil || usageQuery(uid).Distinct("r.user_id").Count(&total).Error != nil || usageAccountAggregate(uid).Order("last_used_at DESC, r.user_id DESC").Offset((page-1)*20).Limit(20).Scan(&items).Error != nil {
+		clientFailure(c, 503, "usage_unavailable")
+		return
+	}
+	rates, err := loadCostRates(c.Request.Context())
+	if err != nil {
+		clientFailure(c, 503, "usage_unavailable")
+		return
+	}
+	rows, err := usageQuery(uid).WithContext(c.Request.Context()).Select(costRecordSelect).Rows()
+	if err != nil {
+		clientFailure(c, 503, "usage_unavailable")
+		return
+	}
+	defer rows.Close()
+	accountCosts := map[int]*CostTotals{}
+	for i := range items {
+		accountCosts[items[i].UserID] = &items[i].CostTotals
+	}
+	for rows.Next() {
+		var record usageDailyRecord
+		if model.DB.ScanRows(rows, &record) != nil {
+			clientFailure(c, 503, "usage_unavailable")
+			return
+		}
+		cost := estimateCNY(record, rates)
+		addCost(&totals.CostTotals, cost)
+		if account := accountCosts[record.UserID]; account != nil {
+			addCost(account, cost)
+		}
+	}
+	if rows.Err() != nil {
 		clientFailure(c, 503, "usage_unavailable")
 		return
 	}

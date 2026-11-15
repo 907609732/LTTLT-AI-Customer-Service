@@ -25,41 +25,44 @@ import (
 var adminConfigurationMu sync.Mutex
 
 type configurationRequest struct {
-	Provider             string `json:"provider"`
-	ConnectionID         int    `json:"connection_id"`
-	Name                 string `json:"name"`
-	BaseURL              string `json:"base_url"`
-	UpstreamModel        string `json:"upstream_model"`
-	Action               string `json:"action"`
-	Revision             int    `json:"revision"`
-	APIVersion           string `json:"api_version"`
-	Region               string `json:"region"`
-	AccountID            string `json:"account_id"`
-	Section              string `json:"section"`
-	AppID                string `json:"app_id"`
-	Secret               string `json:"secret"`
-	ClearSecret          bool   `json:"clear_secret"`
-	Enabled              bool   `json:"enabled"`
-	MakeDefault          bool   `json:"make_default"`
-	TestAfterSave        bool   `json:"test_after_save"`
-	Model                string `json:"model"`
-	Calls                int    `json:"calls"`
-	Days                 int    `json:"days"`
-	DailyCalls           int    `json:"daily_calls"`
-	MaxTokens            int    `json:"max_tokens"`
-	PerAccountConcurrent *int   `json:"per_account_concurrent"`
-	RequestsPerMinute    *int   `json:"requests_per_minute"`
-	GlobalConcurrent     *int   `json:"global_concurrent"`
-	UserID               int    `json:"user_id"`
-	ExpiresAt            int64  `json:"expires_at"`
-	Status               string `json:"status"`
-	Reason               string `json:"reason"`
-	Revoke               bool   `json:"revoke"`
-	RequestID            string `json:"request_id"`
-	Outcome              string `json:"outcome"`
-	SMTPServer           string `json:"smtp_server"`
-	SMTPAccount          string `json:"smtp_account"`
-	SMTPFrom             string `json:"smtp_from"`
+	CostRates            *costRatesRequest `json:"cost_rates"`
+	Provider             string            `json:"provider"`
+	ConnectionID         int               `json:"connection_id"`
+	Name                 string            `json:"name"`
+	BaseURL              string            `json:"base_url"`
+	UpstreamModel        string            `json:"upstream_model"`
+	Action               string            `json:"action"`
+	Revision             int               `json:"revision"`
+	APIVersion           string            `json:"api_version"`
+	Region               string            `json:"region"`
+	AccountID            string            `json:"account_id"`
+	Section              string            `json:"section"`
+	AppID                string            `json:"app_id"`
+	Secret               string            `json:"secret"`
+	ClearSecret          bool              `json:"clear_secret"`
+	Enabled              bool              `json:"enabled"`
+	MakeDefault          bool              `json:"make_default"`
+	TestAfterSave        bool              `json:"test_after_save"`
+	Model                string            `json:"model"`
+	ModelScope           string            `json:"model_scope"`
+	AllowedModels        []string          `json:"allowed_models"`
+	Calls                int               `json:"calls"`
+	Days                 int               `json:"days"`
+	DailyCalls           int               `json:"daily_calls"`
+	MaxTokens            int               `json:"max_tokens"`
+	PerAccountConcurrent *int              `json:"per_account_concurrent"`
+	RequestsPerMinute    *int              `json:"requests_per_minute"`
+	GlobalConcurrent     *int              `json:"global_concurrent"`
+	UserID               int               `json:"user_id"`
+	ExpiresAt            int64             `json:"expires_at"`
+	Status               string            `json:"status"`
+	Reason               string            `json:"reason"`
+	Revoke               bool              `json:"revoke"`
+	RequestID            string            `json:"request_id"`
+	Outcome              string            `json:"outcome"`
+	SMTPServer           string            `json:"smtp_server"`
+	SMTPAccount          string            `json:"smtp_account"`
+	SMTPFrom             string            `json:"smtp_from"`
 }
 
 func (h *Host) registerAdmin(router *gin.Engine) {
@@ -424,6 +427,9 @@ func persistManagedModel(channel *model.Channel, makeDefault bool) error {
 				return err
 			}
 			policy.DefaultModel = selected
+			if err := validateModelPolicy(tx, policy); err != nil {
+				return err
+			}
 			value, err := common.Marshal(policy)
 			if err != nil {
 				return err

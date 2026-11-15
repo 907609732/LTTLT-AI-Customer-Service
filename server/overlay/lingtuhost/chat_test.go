@@ -104,6 +104,23 @@ func TestLingtuChatLifecycle(t *testing.T) {
 			if err := db.Create(&channel).Error; err != nil {
 				t.Fatal(err)
 			}
+
+			if scenario == "success" {
+				binding := lingtu.ModelConnection{ChannelID: channel.Id, Provider: "deepseek", Name: "fixture", ModelID: "deepseek-flash", Enabled: true, ConfigHash: channelHash(channel), CostRateModel: channel.Models, InputCNY: "1", OutputCNY: "10"}
+				if err := db.Create(&binding).Error; err != nil {
+					t.Fatal(err)
+				}
+				// A rate edit after reservation must not replace the admitted price.
+				hook := "fixture_cost_after_reserve"
+				if err := db.Callback().Create().After("gorm:create").Register(hook, func(tx *gorm.DB) {
+					if tx.Statement.Table == "lingtu_trial_requests" {
+						tx.Session(&gorm.Session{NewDB: true}).Model(&lingtu.ModelConnection{}).Where("channel_id = ?", channel.Id).UpdateColumn("input_cny", "5")
+					}
+				}); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { db.Callback().Create().Remove(hook) })
+			}
 			invocations := 0
 			engine := gin.New()
 			engine.POST("/chat", h.clientAuth, h.prepareChat, func(c *gin.Context) {
@@ -155,7 +172,7 @@ func TestLingtuChatLifecycle(t *testing.T) {
 			})
 			call := func() *httptest.ResponseRecorder {
 				r := httptest.NewRecorder()
-				req := httptest.NewRequest("POST", "/chat?channel=999", strings.NewReader(`{"client_request_id":"one","model":"evil","messages":[{"role":"user","content":"hello"}],"tools":[{}]}`))
+				req := httptest.NewRequest("POST", "/chat?channel=999", strings.NewReader(`{"client_request_id":"one","messages":[{"role":"user","content":"hello"}],"tools":[{}]}`))
 				req.Header.Set("Authorization", "Bearer "+bundle.AccessToken)
 				req.Header.Set("Content-Type", "application/json")
 				req.Header.Set("X-Evil", "root")
@@ -179,7 +196,16 @@ func TestLingtuChatLifecycle(t *testing.T) {
 			if expected == "success" && grant.Used != 1 || expected == "failed" && grant.Reserved != 0 || expected == "uncertain" && grant.Reserved != 1 {
 				t.Fatal(grant)
 			}
+
 			if scenario == "success" {
+				var rate lingtu.ModelConnection
+				if err := db.First(&rate, channel.Id).Error; err != nil || rate.InputCNY != "5" {
+					t.Fatalf("fixture rate edit not applied: %+v %v", rate, err)
+				}
+				var usage managedUsage
+				if err := db.First(&usage, "user_id = ? AND request_id = ?", 99, "one").Error; err != nil || !usage.CostSnapshot || usage.CostInputCNY != "1" || usage.CostOutputCNY != "10" {
+					t.Fatalf("admission prices changed: %+v %v", usage, err)
+				}
 				if response.Code != 200 || !strings.Contains(response.Body.String(), "safe answer") || strings.Contains(response.Body.String(), "hidden") {
 					t.Fatal(response.Code, response.Body.String())
 				}
@@ -464,7 +490,7 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 		}
 		c.Next()
 	}, h.injectInternalToken, middleware.TokenAuth(), h.restrictManagedModelLimit, middleware.Distribute(), h.nativeChat)
-	request := httptest.NewRequest("POST", "/chat?channel=999", strings.NewReader(`{"client_request_id":"native-one","model":"evil","messages":[{"role":"user","content":"hello"}]}`))
+	request := httptest.NewRequest("POST", "/chat?channel=999", strings.NewReader(`{"client_request_id":"native-one","messages":[{"role":"user","content":"hello"}]}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+bundle.AccessToken)
 	request.Header.Set("X-Evil", "root")

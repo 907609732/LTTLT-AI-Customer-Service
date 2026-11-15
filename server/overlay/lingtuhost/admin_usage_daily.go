@@ -28,6 +28,12 @@ type usageDailyItem struct {
 }
 
 type usageDailyRecord struct {
+	CostSnapshot  bool   `gorm:"not null;default:false"`
+	CostInputCNY  string `gorm:"type:varchar(32)"`
+	CostOutputCNY string `gorm:"type:varchar(32)"`
+
+	UserID int
+
 	Model         string
 	ChannelID     int
 	ChannelName   string
@@ -102,7 +108,12 @@ func (h *Host) adminUsageDailyAt(c *gin.Context, now time.Time) {
 	query := model.DB.WithContext(c.Request.Context()).Table("lingtu_trial_requests AS r").
 		Joins("LEFT JOIN lingtu_usage AS u ON u.user_id = r.user_id AND u.request_id = r.request_id").
 		Where("r.created_at >= ? AND r.created_at < ?", start.Unix(), end.Unix()).
-		Select("r.state, r.created_at, COALESCE(u.model, '') AS model, COALESCE(u.channel_id, 0) AS channel_id, COALESCE(u.channel_name, '') AS channel_name, COALESCE(u.upstream_model, '') AS upstream_model, COALESCE(u.input_tokens, 0) AS input_tokens, COALESCE(u.output_tokens, 0) AS output_tokens, COALESCE(u.usage_known, FALSE) AS usage_known")
+		Select(costUsageSelect + ", r.state, r.created_at, COALESCE(u.model, '') AS model, COALESCE(u.channel_id, 0) AS channel_id, COALESCE(u.channel_name, '') AS channel_name, COALESCE(u.upstream_model, '') AS upstream_model, COALESCE(u.input_tokens, 0) AS input_tokens, COALESCE(u.output_tokens, 0) AS output_tokens, COALESCE(u.usage_known, FALSE) AS usage_known")
+	rates, err := loadCostRates(c.Request.Context())
+	if err != nil {
+		clientFailure(c, 503, "usage_unavailable")
+		return
+	}
 	rows, err := query.Rows()
 	if err != nil {
 		clientFailure(c, 503, "usage_unavailable")
@@ -131,9 +142,13 @@ func (h *Host) adminUsageDailyAt(c *gin.Context, now time.Time) {
 		if groups[key] == nil {
 			groups[key] = &usageDailyItem{usageDailyKey: key}
 		}
+		cost := estimateCNY(record, rates)
+		addCost(&groups[key].CostTotals, cost)
+		addCost(&totals.CostTotals, cost)
 		addDailyUsage(&groups[key].UsageSummaryTotals, record)
 		addDailyUsage(&totals, record)
 		if date == todayDate {
+			addCost(&todayTotals.CostTotals, cost)
 			addDailyUsage(&todayTotals, record)
 		}
 		activeDates[date] = true
