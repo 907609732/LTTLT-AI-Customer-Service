@@ -68,6 +68,10 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
       requireAvailable()
       return current.dataDirectory()
     },
+    knowledge() {
+      requireAvailable()
+      return current.knowledge()
+    },
     storeSync() {
       requireAvailable()
       return current.storeSync()

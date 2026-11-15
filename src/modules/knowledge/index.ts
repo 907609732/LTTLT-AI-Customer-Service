@@ -17,3 +17,6 @@ export type {
   PlatformLearningReview,
   PlatformLearningOpenSource,
 } from './platform-learning'
+
+export { default as KnowledgeManagerView } from './components/KnowledgeManagerView.vue'
+export { openKnowledgeManager, createKnowledgeClient } from './manager-service'

@@ -8,6 +8,12 @@ import { PRODUCT_NAME } from '@/shared/brand'
  */
 export const routes: RouteRecordRaw[] = [
   {
+    path: '/knowledge',
+    name: 'knowledge-manager',
+    component: () => import('@/modules/knowledge').then((m) => m.KnowledgeManagerView),
+    meta: { title: '知识库', float: true },
+  },
+  {
     path: '/reply-monitor',
     name: 'reply-monitor',
     component: () => import('@/modules/auxiliary').then((m) => m.ReplyMonitorView),

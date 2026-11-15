@@ -34,6 +34,7 @@ export function createWindow(
     auxiliary?: boolean
     startMaximized?: boolean
     compact?: boolean
+    knowledge?: boolean
     parent?: BrowserWindow
   } = {},
 ): BrowserWindow {
@@ -42,16 +43,16 @@ export function createWindow(
   const win = new BrowserWindow({
     width: compact ? 340 : auxiliary ? 300 : 1440,
     height: compact ? 300 : auxiliary ? 900 : 920,
-    minWidth: compact ? 340 : auxiliary ? 300 : 1160,
+    minWidth: options.knowledge ? 540 : compact ? 340 : auxiliary ? 300 : 1160,
     maxWidth: auxiliary ? 300 : undefined,
-    minHeight: compact ? 300 : auxiliary ? 420 : 720,
+    minHeight: options.knowledge ? 420 : compact ? 300 : auxiliary ? 420 : 720,
     maximizable: !auxiliary && !compact,
     resizable: !compact,
     parent: options.parent,
     skipTaskbar: compact,
     frame: false,
     show: false,
-    backgroundColor: '#f4f6fb',
+    backgroundColor: options.knowledge ? '#17191d' : '#f4f6fb',
     title: PRODUCT_NAME,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

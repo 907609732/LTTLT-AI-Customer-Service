@@ -1,5 +1,11 @@
 # 上游来源与维护边界
 
+## 2026-11-15：审核知识仓储兼容注入
+
+backend.cjs 只增加可选 knowledgePorts / knowledgeContext / onKnowledgeModel：在旧 JSON 构造前注入 SQLite 的完整兼容端口，统一审核检索，并将现有配置、密钥及托管计费所使用的完成器提供给本工程主进程。AiClient 的可选 completeKnowledge 在序列化审核依据时保留完整条目，继续交给现有16K/8K压缩器；未注入仍沿用上游16000字符路径。请求 trace 携带同次知识相关标识，生成返回 traceId，reply-engine 将该精确ID交到既有批准门，并把注入的当前性守卫延续至适配器输入/点击。外部 AbortSignal 可取消本机或托管请求。知识策略、SQLite、工作区校验和UI均在本工程 TypeScript，默认无注入行为保留。source-files.json 保留 upstreamGitBlob / upstreamSha256，仅更新这三个文件的实际 sha256 与补丁说明。
+
+针对性上游验证：backend-integration.test.mjs、managed-backend.test.mjs、reply-engine.test.js 共87项通过；未运行全量上游套件。
+
 ## 2026-11-13：用户授权新增可选托管装配
 
 原本机装配仍默认保留；用户明确要求合并 PR #21 服务端后，云朵的 TypeScript 控制器复用已有 managed-session 和 managed 后端注入，不替换运行时或混用上游 React 桌面。backend.cjs 的唯一新增兼容点是把 complete 的可选 traceId 转交 managedChat 的本机 options，未写入 HTTP 正文；提交诊断由自有控制器在实际 chat fetch 前发出。原始来源与最新实际摘要保留在 source-files.json。账号隔离与新服务端来源见 docs/MANAGED_SERVICE.md 和 server/PROVENANCE.md。

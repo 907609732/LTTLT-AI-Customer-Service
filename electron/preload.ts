@@ -5,6 +5,25 @@ import { createCustomPhrasesPreload } from './custom-phrases-preload'
 
 const api: DesktopApi = {
   isElectron: true,
+  knowledge: Object.freeze<import('../src/shared/contracts/knowledge-client').KnowledgeBridge>({
+    request: (input) => ipcRenderer.invoke('knowledge:request', input),
+    open: (input) => ipcRenderer.invoke('knowledge:open', input),
+    context: () => ipcRenderer.invoke('knowledge:context'),
+    hide: (workspaceId) => ipcRenderer.invoke('knowledge:hide', workspaceId),
+    onContext: (listener) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        context: import('../src/shared/contracts/knowledge-client').KnowledgeWindowContext,
+      ) => listener(context)
+      ipcRenderer.on('knowledge:context', handler)
+      return () => ipcRenderer.removeListener('knowledge:context', handler)
+    },
+    onCloseRequest: (listener) => {
+      const handler = () => listener()
+      ipcRenderer.on('knowledge:close-request', handler)
+      return () => ipcRenderer.removeListener('knowledge:close-request', handler)
+    },
+  }),
   managedBusinessRequest: (input) => ipcRenderer.invoke('managed:business-request', input),
   platformLearning: Object.freeze<PlatformLearningTransport>({
     openSource: (input) => ipcRenderer.invoke('platform-learning:open-source', input),

@@ -54,6 +54,9 @@ app
     let active = false
     const platformSnapshot = () => ({ workspaceId: snapshot.workspaceId, stores: [] })
     const runtime: LocalRuntime = {
+      knowledge: () => {
+        throw Error('测试未接知识库')
+      },
       platformLearning: () => {
         throw Error('该检查未接平台学习')
       },

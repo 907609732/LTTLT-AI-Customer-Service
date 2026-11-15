@@ -11,6 +11,7 @@ import IconMinus from '@/shared/icons/IconMinus.vue'
 import IconFullScreen from '@/shared/icons/IconFullScreen.vue'
 import IconClose from '@/shared/icons/IconClose.vue'
 import IconSetting from '@/shared/icons/IconSetting.vue'
+import { openKnowledgeManager } from '@/modules/knowledge'
 import { QuickReplyDialog, ScheduledTasksDialog } from '@/modules/workbench'
 import { LoginDialog } from '@/modules/settings'
 import { AddShopDialog, StoreSidebarCard, useShopSetupStore } from '@/modules/shops'
@@ -355,7 +356,7 @@ async function navigate(path: string) {
             @toggle-ai="setAi(shop)"
             @send-mode="setSendMode(shop, $event)"
             @setup="setup.open(shop.id)"
-            @import-knowledge="notifyUnavailable('导入知识入口已预留，功能暂未接入')"
+            @import-knowledge="task.run(() => openKnowledgeManager(shop.id))"
             @settings="notifyUnavailable('店铺设置入口已预留，功能暂未接入')"
             @backend="openBackend(shop)"
             @close="closeShop(shop)"

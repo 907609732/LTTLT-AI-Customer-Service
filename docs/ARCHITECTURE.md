@@ -1,5 +1,7 @@
 # 架构导航
 
+2026-11-15审核知识接线：`local-runtime → knowledge-runtime / knowledge-compatibility / knowledge-platform-products → knowledge repository`，厂商旧JSON构造前注入兼容端口；独立管理窗口经固定knowledge IPC与当前账号租约访问。详见 [KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md)。SKU继承根商品同款family，整体重关联使用完整版本集合与单事务；单SKU跨family重定向拒绝。
+
 ## 店铺发送模式与回复监控（2026-11-15）
 
 复用 Electron 43 的 parent/showInactive/setBounds，不新增依赖；小监控为受信独立渲染路由 `/reply-monitor`，在主窗口内左下角随动，非全局置顶。`createWindow({compact:true,parent})` 不参与主窗口默认最大化或自动聚焦。详细日志仍由手动入口打开。

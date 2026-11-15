@@ -586,9 +586,11 @@ class StoreWorker {
     if (!this.#active(generation)||this.manualSuppressed.has(String(uid))) return {ok:false,throttled:true,reason:"cancelled"};
     if(decorate)text=decorate(String(text));
     // 云朵：统一拦截最终正文（包含欢迎语）；拒绝后暂停本会话，防止队列自动重发。
+    let reviewedCurrent=()=>true;
     if(this.aiClient.beforeSend){
-      const proposal={storeId:this.store.id,uid:String(uid),text:String(text),thread:generation?.thread||[],isCurrent:()=>this.#active(generation)&&!this.manualSuppressed.has(String(uid)),getHistory:()=>this.#history(uid),pageReview:generation?.pageReview,getPageReview:this.adapter.reviewHistory?focus=>this.adapter.reviewHistory(String(uid),focus):undefined};
+      const proposal={traceId:generation?.traceId,storeId:this.store.id,uid:String(uid),text:String(text),thread:generation?.thread||[],isCurrent:()=>this.#active(generation)&&!this.manualSuppressed.has(String(uid)),getHistory:()=>this.#history(uid),pageReview:generation?.pageReview,getPageReview:this.adapter.reviewHistory?focus=>this.adapter.reviewHistory(String(uid),focus):undefined};
       const approved=await this.aiClient.beforeSend(proposal);
+      reviewedCurrent=proposal.isCurrent;
       if(!approved){if(!proposal.retryNewMessage)this.takeOver(uid,'review');return {ok:false,throttled:true,reason:'cancelled'};}
       if(!this.#active(generation)||this.manualSuppressed.has(String(uid))){this.onEvent?.({type:'reply:review-result',storeId:this.store.id,uid,ok:false,reason:'cancelled'});return {ok:false,throttled:true,reason:'cancelled'};}
       const currentGate=this.#sendGate(uid,{bypassUidInterval});if(!currentGate.ok){this.onEvent?.({type:'reply:review-result',storeId:this.store.id,uid,ok:false,reason:currentGate.reason});return {...currentGate,throttled:true};}
@@ -596,7 +598,8 @@ class StoreWorker {
       await this.#drainMerchantSent();
       if(!this.#active(generation)||this.manualSuppressed.has(String(uid))){this.onEvent?.({type:'reply:review-result',storeId:this.store.id,uid,ok:false,reason:'cancelled'});return {ok:false,throttled:true,reason:'cancelled'};}
     }
-    const result = await this.adapter.sendText(uid, String(text),{isCurrent:()=>this.#active(generation)&&!this.manualSuppressed.has(String(uid))});
+    if(!reviewedCurrent())return {ok:false,throttled:true,reason:'cancelled'};
+    const result = await this.adapter.sendText(uid, String(text),{isCurrent:()=>reviewedCurrent()&&this.#active(generation)&&!this.manualSuppressed.has(String(uid))});
     assertResult(result, 'sendText');
     if(this.aiClient.beforeSend)this.onEvent?.({type:'reply:review-result',storeId:this.store.id,uid,ok:result.ok,reason:result.reason});
     if (result.ok || result.reason === 'send_unconfirmed') {
@@ -639,11 +642,12 @@ class StoreWorker {
         systemPrompt,
         thread,
         isCurrent:()=>this.#active(generation)&&!this.manualSuppressed.has(String(row.uid)),
-        reviewContext:{storeId:this.store.id,uid:row.uid,buyerName:row.username||row.name||'',buyerMessage:latest.content,buyers:buyerTexts(row.messages)},
+        reviewContext:{purpose:'reply',storeId:this.store.id,uid:row.uid,productId:row.productId,skuId:row.skuId,buyerName:row.username||row.name||'',buyerMessage:latest.content,buyers:buyerTexts(row.messages)},
         goodsTitle: row.goodsTitle,
         orderId: row.orderId,
         timeoutMs: this.getConfig()?.ai?.timeoutMs ?? 60000,
       });
+      generation.traceId=result?.traceId;
       if (!result || !result.reply) return { ok: false, fatal: false };
       return { ok: true, result, thread, historyKnown:history.known };
     } catch (err) {
@@ -651,7 +655,7 @@ class StoreWorker {
       if(/^vision_/.test(err?.code||''))this.takeOver(row.uid,'vision');
       const message = String(err?.message || err);
       this.onEvent?.({type:'reply:decision',storeId:this.store.id,uid:String(row.uid),buyers:buyerTexts(row.messages),stage:'failed',code:String(err?.code||'generation_failed'),reason:'AI 生成未完成，请检查上下文调试中的模型/识图/压缩错误；没有正式请求记录时表示调用前已被拦截。'});
-      this.aiClient.onGenerationFailure?.(err,{storeId:this.store.id,uid:row.uid,buyerName:row.username||row.name||'',buyerMessage:latest.content});
+      this.aiClient.onGenerationFailure?.(err,{storeId:this.store.id,uid:row.uid,productId:row.productId,skuId:row.skuId,buyerName:row.username||row.name||'',buyerMessage:latest.content});
       this.logger?.warn(`AI 生成失败：${message}`);
       this.onEvent?.({ type: 'reply:error', storeId: this.store.id, uid: row.uid, error: message });
       return { ok: false, fatal: FATAL_AI_ERROR.test(message) };

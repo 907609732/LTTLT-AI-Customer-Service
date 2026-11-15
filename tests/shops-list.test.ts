@@ -6,6 +6,12 @@ import ShopsListPanel from '../src/modules/shops/components/ShopsListPanel.vue'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 import { ElMessageBox } from 'element-plus'
 
+const knowledge = vi.hoisted(() => ({ open: vi.fn(async () => {}) }))
+vi.mock('../src/modules/knowledge/manager-service', () => ({
+  openKnowledgeManager: knowledge.open,
+  createKnowledgeClient: vi.fn(),
+}))
+
 async function fixture() {
   setActivePinia(createPinia())
   const runtime = useRuntimeStore()
@@ -50,8 +56,9 @@ it('单店配置和商品导航使用点击店铺，不沿用上一家', async (
   expect(router.currentRoute.value.query.panel).toBe('welcome')
   await wrapper.get('[data-store="s0"] [data-panel="goods"]').trigger('click')
   await flushPromises()
-  expect(runtime.selectedStoreId).toBe('s0')
-  expect(router.currentRoute.value.query.panel).toBe('goods')
+  expect(knowledge.open).toHaveBeenLastCalledWith('s0')
+  expect(runtime.selectedStoreId).toBe('s1')
+  expect(router.currentRoute.value.query.panel).toBe('welcome')
   wrapper.unmount()
 })
 it('分组保存失败显示错误，不伪造保存成功', async () => {

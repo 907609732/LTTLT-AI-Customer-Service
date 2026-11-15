@@ -8,6 +8,12 @@ import StoreSidebarCard from '../src/modules/shops/components/StoreSidebarCard.v
 import { useShopSetupStore } from '../src/modules/shops/setup-store'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 
+const knowledge = vi.hoisted(() => ({ open: vi.fn(async () => {}) }))
+vi.mock('../src/modules/knowledge/manager-service', () => ({
+  openKnowledgeManager: knowledge.open,
+  createKnowledgeClient: vi.fn(),
+}))
+
 const wrappers: ReturnType<typeof mount>[] = []
 afterEach(() => {
   for (const wrapper of wrappers.splice(0)) wrapper.unmount()
@@ -137,4 +143,13 @@ it('单店模式切换只调用指定命令，主入口打开回复监控', asyn
   await wrapper.get('[aria-label="回复监控"]').trigger('click')
   await flushPromises()
   expect(run).toHaveBeenLastCalledWith({ action: 'open-reply-monitor' })
+})
+
+it('店铺导入知识携带点击店铺打开独立知识库，不切换接待', async () => {
+  const { wrapper, runtime } = await fixture()
+  const selected = runtime.selectedStoreId
+  wrapper.findComponent(StoreSidebarCard).vm.$emit('importKnowledge')
+  await flushPromises()
+  expect(knowledge.open).toHaveBeenLastCalledWith('shop-a')
+  expect(runtime.selectedStoreId).toBe(selected)
 })

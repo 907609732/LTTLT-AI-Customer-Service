@@ -34,6 +34,9 @@ function fixture() {
     const listeners = new Set<(event: BackendEvent) => void>()
     let closed = false
     const runtime: LocalRuntime = {
+      knowledge: () => {
+        throw Error('测试未接知识库')
+      },
       dataDirectory: () => {
         if (closed) throw Error('closed')
         return state.workspaceId

@@ -5,6 +5,7 @@ import { ElMessageBox } from 'element-plus'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import type { LocalStore } from '@/shared/contracts/backend'
+import { openKnowledgeManager } from '@/modules/knowledge'
 import AddShopDialog from './AddShopDialog.vue'
 import pddIcon from '@/assets/figma-add-img00.png'
 import qianniuIcon from '@/assets/figma-add-img3.png'
@@ -293,7 +294,11 @@ const reception = [
           <div class="shop-card__col knowledge-col">
             <div class="shop-card__col-hd"><b>商品知识</b><em>本机资料</em></div>
             <div class="shop-card__acts">
-              <button class="chip" data-panel="goods" @click="navigate(shop, 'goods')">
+              <button
+                class="chip"
+                data-panel="goods"
+                @click="task.run(() => openKnowledgeManager(shop.id))"
+              >
                 查看商品</button
               ><button class="chip" :disabled="task.pending.value" @click="connect(shop)">
                 {{ loginState(shop) === 'yes' ? '打开店铺' : '登录 / 检查连接' }}

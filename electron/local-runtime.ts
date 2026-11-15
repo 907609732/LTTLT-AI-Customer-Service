@@ -1,6 +1,9 @@
 import { createCollectedProductWriter } from './collected-products'
-import { createPlatformProductStore } from './platform-product-store'
-import { createProductSpecContext } from './product-spec-context'
+import { createKnowledgePlatformProducts } from './knowledge-platform-products'
+import { selectProductSpecContext } from './product-spec-context'
+import { createKnowledgeCompatibilityPorts } from './knowledge-compatibility'
+import { createKnowledgeRepository } from './knowledge'
+import { createKnowledgeRuntime, type KnowledgeModelPort } from './knowledge-runtime'
 import { createProductCatalog } from './product-catalog'
 import { applyStoreZoom } from './store-zoom'
 import { createStoreBackendOpener } from './store-backend'
@@ -21,8 +24,6 @@ import {
   snapshotSchema,
   resultSchema,
   intentsSchema,
-  productsPageSchema,
-  type Product,
   emptySnapshot,
   type BackendCommand,
   type BackendEvent,
@@ -133,6 +134,7 @@ export function createLocalRuntime(options: {
   let scheduleReporting = () => {}
   let runtimeStarted = false
   let syncScheduler = () => {}
+  let suspendKnowledge = () => {}
   // 上游工厂可能在装配期间产生回调，引用就绪前不读取其快照。
   const backendRef: { current?: UpstreamBackend } = {}
   const managed = createManagedController({
@@ -145,6 +147,7 @@ export function createLocalRuntime(options: {
     openExternal: (url) => shell.openExternal(url),
     stopAi: () => backendRef.current?.stopAi(),
     changed: () => {
+      suspendKnowledge()
       syncScheduler()
       scheduleReporting()
       if (!closed) for (const listener of listeners) listener({ type: 'managed:changed' })
@@ -153,6 +156,50 @@ export function createLocalRuntime(options: {
     transport: options.managedTransport,
   })
   const dataDir = managed.dataDir
+  const knowledgeRepository = createKnowledgeRepository({ directory: dataDir, workspaceId })
+  const knowledge = createKnowledgeRuntime({
+    repository: knowledgeRepository,
+    workspaceId,
+    assertActive: () => {
+      if (closed || !managed.canAccessWorkspace() || managed.snapshot().restartRequired)
+        throw Error('当前账号知识库不可用，请切换工作区后重试')
+    },
+    stores: () => read().stores,
+    changed: () => {
+      if (!closed) for (const listener of listeners) listener({ type: 'knowledge:changed' })
+    },
+    resolveSku: (storeId, productId, question) => {
+      const detail = platformProducts.get(storeId, productId)
+      if (!detail) return ''
+      const context = selectProductSpecContext({
+        storeId,
+        productId,
+        question,
+        products: [
+          {
+            id: productId,
+            storeId,
+            productId,
+            title: detail.title,
+            description: '',
+            specifications: '',
+            price: '',
+            enabled: true,
+            version: 1,
+            updatedAt: 0,
+          },
+        ],
+        details: [detail],
+      })
+      return context.status === 'selected'
+        ? context.products[0]?.skus[0]?.skuId || '__unresolved__'
+        : '__unresolved__'
+    },
+  })
+  suspendKnowledge = () => {
+    if (!managed.canAccessWorkspace() || managed.snapshot().restartRequired)
+      knowledge.cancelCompletions()
+  }
   const sendModes = new StoreSendModes(dataDir)
   const sendAuthorizations = new SendModeAuthorizations((id) => sendModes.read(id))
   const replyMonitor = createReplyMonitorWindow({
@@ -274,13 +321,19 @@ export function createLocalRuntime(options: {
     (id) => backendRef.current?.engine?.worker(id) ?? undefined,
     { readMode: (id) => sendModes.read(id) },
   )
+  const traceWithKnowledge = (event: unknown) => {
+    const id = review.trace(event)
+    if (id && event && typeof event === 'object' && Reflect.get(event, 'type') === 'request')
+      knowledge.captureTrace(id, Reflect.get(event, 'knowledge'))
+    return id
+  }
   const traceModel = (event: unknown) => {
     if (managed.active.mode === 'managed' && event && typeof event === 'object')
-      return review.trace({
+      return traceWithKnowledge({
         ...event,
         model: managed.snapshot().session.account?.capabilities?.model || '托管模型（待授权）',
       })
-    return review.trace(event)
+    return traceWithKnowledge(event)
   }
   async function openLogs() {
     if (logWindow && !logWindow.isDestroyed()) {
@@ -345,8 +398,8 @@ export function createLocalRuntime(options: {
   const platformAdapters = new Map<string, unknown>()
   const operationAdapters = new Map<string, unknown>()
   const platformWrites = new PlatformWriteCoordinator()
-  const platformProducts = createPlatformProductStore({
-    directory: dataDir,
+  const platformProducts = createKnowledgePlatformProducts({
+    repository: knowledgeRepository,
     assertActive: () => assertActive(),
     assertStore: (storeId) => {
       if (!providerStore(storeId)) throw Error('店铺已移除')
@@ -394,46 +447,27 @@ export function createLocalRuntime(options: {
     managedReady: () => managed.ready(),
     managedCapabilities: () => managed.capabilities(),
     localVisionSupport: localVisionCapability,
-    prepareModelContext: createProductSpecContext(
-      {
-        assertActive: () => assertActive(),
-        getDetail: platformProducts.get,
-        listProducts: async (storeId) => {
-          const rows: Product[] = []
-          let revision: number | undefined, total: number | undefined
-          for (let offset = 0; offset <= 10000; offset += 100) {
-            assertActive()
-            if (!providerStore(storeId)) throw Error('店铺已移除')
-            const page = productsPageSchema.parse(
-              resultSchema.parse(
-                await localBackend.execute({
-                  action: 'list-products',
-                  storeId,
-                  values: { offset, limit: 100 },
-                }),
-              ).data,
-            )
-            assertActive()
-            if (
-              page.total > 10000 ||
-              (total !== undefined && (total !== page.total || revision !== page.revision))
-            )
-              throw Error('商品知识读取期间已变化')
-            total = page.total
-            revision = page.revision
-            if (page.items.some((x) => x.storeId !== storeId || rows.some((y) => y.id === x.id)))
-              throw Error('商品知识分页身份或记录不一致')
-            rows.push(...page.items)
-            if (rows.length === total) return rows
-            if (!page.items.length || rows.length > total) throw Error('商品知识分页不完整')
-          }
-          throw Error('商品知识超出读取上限')
-        },
-      },
-      createAssistedContext(traceModel),
-    ),
+    knowledgePorts: createKnowledgeCompatibilityPorts(knowledgeRepository),
+    knowledgeContext: knowledge.context,
+    onKnowledgeModel: (port: KnowledgeModelPort) =>
+      knowledge.setModel({
+        complete: port.complete,
+        vision: () =>
+          managed.active.mode === 'managed'
+            ? {
+                supported: managed.snapshot().session.account?.capabilities?.vision === true,
+                maxImages: Math.max(
+                  0,
+                  Math.min(4, managed.snapshot().session.account?.capabilities?.maxImages ?? 0),
+                ),
+                reason: '当前托管账号未提供图片学习能力',
+              }
+            : port.vision(),
+      }),
+    prepareModelContext: createAssistedContext(traceModel),
     resolveConversationThread: createConversationThread(() => read().conversations),
     beforeSend: (proposal: SendProposal) => {
+      knowledge.guardProposal(proposal)
       const decision =
         read().stores.find((store) => store.id === proposal.storeId)?.platform === 'pdd-web'
           ? sendAuthorizations.authorize(proposal, () => review.propose(proposal))
@@ -540,7 +574,33 @@ export function createLocalRuntime(options: {
   const learningProvider = createPddLearningProvider(providerOptions)
   const productWriter = createCollectedProductWriter({
     savePlatformProduct: platformProducts.upsert,
-    execute: (command) => localBackend.execute(command),
+    execute: async (command) => {
+      if (command.action !== 'list-products') return localBackend.execute(command)
+      assertActive()
+      if (!providerStore(command.storeId)) throw Error('店铺已移除')
+      const offset = typeof command.values.offset === 'number' ? command.values.offset : 0,
+        limit = typeof command.values.limit === 'number' ? command.values.limit : 100
+      const result = knowledgeRepository.listProducts({ storeId: command.storeId, offset, limit })
+      return {
+        status: 'ok',
+        message: '',
+        data: {
+          ...result,
+          items: result.items.map((row) => ({
+            id: row.binding.id,
+            storeId: row.binding.storeId,
+            productId: row.binding.productId,
+            title: row.binding.title || row.canonical.title,
+            description: '',
+            specifications: '',
+            price: '',
+            enabled: false,
+            version: row.binding.revision,
+            updatedAt: row.binding.updatedAt,
+          })),
+        },
+      }
+    },
     assertActive,
     assertStore: (storeId) => {
       if (!providerStore(storeId)) throw Error('店铺已移除')
@@ -613,6 +673,8 @@ export function createLocalRuntime(options: {
       execute: async (command) => {
         assertActive()
         if (command.workspaceId !== workspaceId) throw new Error('工作区已改变，请刷新')
+        if (['save-product', 'remove-product', 'import-products'].includes(command.action))
+          throw Error('商品跨店同步请在知识库明确关联目标商品；旧复制及回滚不再改写共享知识')
         const { workspaceId: _workspaceId, ...raw } = command
         void _workspaceId
         const result = resultSchema.parse(await localBackend.execute(raw))
@@ -707,7 +769,9 @@ export function createLocalRuntime(options: {
     },
     () => listeners.clear(),
     () => simServer.dispose(),
+    () => knowledge.dispose(),
     () => localBackend.dispose(),
+    () => knowledgeRepository.dispose(),
     () => host.close(),
   ])
   return {
@@ -729,6 +793,10 @@ export function createLocalRuntime(options: {
     dataDirectory() {
       assertActive()
       return dataDir
+    },
+    knowledge() {
+      assertActive()
+      return knowledge
     },
     storeSync() {
       assertActive()
@@ -852,6 +920,7 @@ export function createLocalRuntime(options: {
       const result = resultSchema.parse(await localBackend.execute(raw))
       // 删除店铺时同步清空本机模拟数据，避免残留顾客被下一次同名店铺复用。
       if (command.action === 'remove-store' && command.storeId) {
+        knowledge.removeStore(command.storeId)
         simHub.forget(command.storeId)
         assistHost.closeStore(command.storeId)
       }

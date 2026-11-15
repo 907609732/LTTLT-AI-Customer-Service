@@ -21,7 +21,7 @@ const {createAuxiliaryState}=require('./auxiliary-state.cjs');
 const {createConversationQuality}=require('./conversation-quality.cjs');
 const platforms=[{id:'pdd-web',label:'拼多多'},{id:'doudian-client',label:'抖店'}];
 const Command=z.object({action:z.string().min(1).max(60),screenId:z.string().max(30).optional(),storeId:z.string().max(64).optional(),conversationId:z.string().max(200).optional(),values:z.record(z.string(),z.unknown()).optional()});
-function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},managedCapabilities=()=>({}),allowExternalClient=true,externalClientReady=()=>{},sourceDiagnostics=false,localVisionSupport,beforeSend,onModelTrace,onRuntimeEvent,prepareModelContext,resolveConversationThread,extraPlatforms}={}){
+function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},managedCapabilities=()=>({}),allowExternalClient=true,externalClientReady=()=>{},sourceDiagnostics=false,localVisionSupport,beforeSend,onModelTrace,onRuntimeEvent,prepareModelContext,resolveConversationThread,extraPlatforms,knowledgePorts,knowledgeContext,onKnowledgeModel}={}){
  if(!dataDir)throw Error('data_directory_required');
  // 云朵本地兼容补丁：可选的 extraPlatforms 只追加本机自有的模拟店铺平台 id，供本项目适配器使用；
  // 未注入时平台枚举、校验与上游完全一致，不会放行任意平台。
@@ -45,8 +45,8 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
  let bannedWords=[];
  if(fs.existsSync(bannedFile)){try{bannedWords=bannedFileSchema.parse(JSON.parse(fs.readFileSync(bannedFile,'utf8'))).rules}catch{throw Error('AI 禁用词配置损坏，请恢复备份后重试；原文件未改动')}}
  const workOrders=createWorkOrders(path.join(dataDir,'work-orders.json'));
- const products=createProductKnowledge(path.join(dataDir,'product-knowledge.json'));
- const intents=createIntentKnowledge(path.join(dataDir,'intent-knowledge.json'));
+ const products=knowledgePorts?.products||createProductKnowledge(path.join(dataDir,'product-knowledge.json'));
+ const intents=knowledgePorts?.intents||createIntentKnowledge(path.join(dataDir,'intent-knowledge.json'));
  const modelProfiles=createModelProfiles(path.join(dataDir,'model-profiles.json'));
  const welcome=createWelcome(path.join(dataDir,'store-welcome.json'));
  const visionFile=path.join(dataDir,'store-vision.json'),visionSetting=z.object({enabled:z.boolean(),version:z.number().int().nonnegative()}).strict(),visionSchema=z.object({version:z.literal(1),stores:z.record(z.string(),visionSetting)}).strict();
@@ -159,7 +159,8 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   changed();
  }
  manager=managerFactory?.({registry,config,adapterFor,logger,onEvent:ingest})||{stateOf:()=>({open:false,online:false}),closeAll(){}};
- const modelClient=aiClient||new AiClient({getConfig:()=>config.all(),logger,onTrace:onModelTrace,prepareContext:prepareModelContext,secretReader:n=>secrets.get(n),fetchImpl,visionProvider:context=>({...visionSupport(),enabled:!!visionSettings.stores[context?.storeId]?.enabled}),contextProvider:({thread,goodsTitle,reviewContext})=>{
+ const modelClient=aiClient||new AiClient({getConfig:()=>config.all(),logger,onTrace:onModelTrace,prepareContext:prepareModelContext,secretReader:n=>secrets.get(n),fetchImpl,visionProvider:context=>({...visionSupport(),enabled:!!visionSettings.stores[context?.storeId]?.enabled}),completeKnowledge:!!knowledgeContext,contextProvider:({thread,goodsTitle,reviewContext})=>{
+  if(knowledgeContext)return knowledgeContext({thread,goodsTitle,reviewContext});
   const storeId=reviewContext?.storeId;if(!registry.get(storeId))return [];
   const question=[...(thread||[])].reverse().find(m=>m.from==='buyer')?.content||'';
   const productId=products.getByProductId(storeId,reviewContext?.productId)?.productId||products.identifyTitle(storeId,goodsTitle);
@@ -174,22 +175,23 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   modelClient.onGenerationFailure=(error,context)=>{if(disposed)return;reportConversationIssue(new ManagedSessionError(error?.code||'generation_failed'),{...context,storeName:registry.get(context?.storeId)?.storeName||''});};
   modelClient.onDeliveryFailure=result=>{if(disposed)return;reportConversationIssue(new ManagedSessionError(result.reason==='send_unconfirmed'?'delivery_unconfirmed':result.throttled?'delivery_blocked':'delivery_failed'),{...result,storeName:registry.get(result.storeId)?.storeName||''});};
   let managedQueue=Promise.resolve();
-  modelClient.complete=({messages,timeoutMs,reviewContext,isCurrent,traceId})=>{
+  modelClient.complete=({messages,timeoutMs,reviewContext,isCurrent,traceId,signal})=>{
    const operation=managedQueue.then(async()=>{
    if(disposed)throw Error('服务已关闭');
    if(typeof isCurrent==='function'&&!isCurrent())throw Object.assign(Error('排队任务已取消'),{code:'queued_canceled'});
    if(modelIssue)throw new ManagedSessionError(modelIssue.code);
    if(reviewContext?.storeId&&reviewContext.uid&&quality.blocked(reviewContext.storeId,reviewContext.uid))throw Object.assign(Error('该会话等待人工处理'),{code:'queued_canceled'});
    if(!managedChat)throw Error('托管服务尚未连接');
-   const c=new AbortController();generations.add(c);const timer=setTimeout(()=>c.abort(),timeoutMs||60000);timer.unref?.();
+   const c=new AbortController();const abort=()=>c.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)c.abort();generations.add(c);const timer=setTimeout(()=>c.abort(),timeoutMs||60000);timer.unref?.();
    const requestId=randomUUID();
    try{managedReady();const result=await managedChat({client_request_id:requestId,messages},{signal:c.signal,traceId});if(disposed||c.signal.aborted)throw Error('生成已取消');const content=result?.choices?.[0]?.message?.content;if(typeof content!=='string'||!content.trim())throw Error('托管模型未返回可用回复');return content;}
    catch(e){if(!disposed){reportConversationIssue(e instanceof ManagedSessionError?e:new ManagedSessionError('generation_failed'),{...reviewContext,requestId,storeName:registry.get(reviewContext?.storeId)?.storeName||''});}throw e;}
-   finally{clearTimeout(timer);generations.delete(c);}
+   finally{clearTimeout(timer);generations.delete(c);signal?.removeEventListener('abort',abort);}
    });
    managedQueue=operation.catch(()=>{});return operation;
   };
  }
+ onKnowledgeModel?.({complete:input=>modelClient.complete(input),vision:visionSupport});
  engine=new ReplyEngine({registry,adapterFactory:adapterFor,aiClient:modelClient,welcomePolicy:{noteOutbound:args=>welcome.noteOutbound(args),claim:args=>{const times=(args.thread||[]).filter(m=>m.from==='buyer').map(m=>Number(m.ts));welcome.observe({storeId:args.storeId,uid:args.uid,ts:times.length?Math.min(...times):0,existing:conversations.some(c=>c.storeId===args.storeId&&c.uid===args.uid)});return welcome.claim(args);}},getConfig:(storeId)=>{const current=modelProfiles.resolve(storeId,config.all()),entry=handoff.stores[storeId];return {...current,...(modelMode==='managed'?{reply:{...current.reply,maxInflight:1}}:{}),safety:{...current.safety,bannedWords,...(entry?{handoffKeywords:entry.keywords}:{})}};},logger,onEvent:ingest});
  monitor=new MessageMonitor({registry,adapterFactory:adapterFor,getConfig:()=>config.all(),logger,onEvent:ingest});
  diagnostics=createSourceDiagnostics({enabled:sourceDiagnostics,write:text=>logger.info(text),getState:()=>{const workers=engine.status();return {mode:modelMode,issue:modelIssue?.code||'',stores:registry.list().map(s=>({name:s.storeName,online:!!manager.stateOf(s.id)?.online,ai:s.aiEnabled,inflight:workers[s.id]?.inflight,replied:workers[s.id]?.replied,failed:workers[s.id]?.failed,throttled:workers[s.id]?.throttled,suppressed:workers[s.id]?.manualSuppressed,collectionError:collectionErrors.has(s.id)}))}}});

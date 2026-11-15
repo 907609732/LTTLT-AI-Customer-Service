@@ -1,5 +1,7 @@
 # knowledge 模块
 
+2026-11-15：新增独立 `#/knowledge` 管理窗口及SQLite统一审核知识接线，见 [KNOWLEDGE_LIBRARY.md](../../../docs/KNOWLEDGE_LIBRARY.md)。`KnowledgeManagerView` 组合商品卡、草稿编辑器与审核对话框，模块状态在 `manager-controller.ts`；服务经共享窄桥调用。下文旧页面的“启用并保存”不再发布：兼容保存/导入生成草稿，必须进入独立知识库审核。新管道执行器未注册时如实禁用，现有平台采集兼容口仅记录原料与草稿。
+
 职责：意图、知识、训练、模型与禁用词界面。
 
 公开入口：index.ts。跨模块必须从该入口引用，禁止访问 components 或 demo 的内部路径。

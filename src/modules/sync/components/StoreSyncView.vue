@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { openKnowledgeManager } from '@/modules/knowledge'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { getStoreSyncClient } from '../services/client'
 import type { SyncBackup, SyncPreview, SyncResult, SyncSection } from '../contracts'
@@ -8,7 +9,7 @@ const runtime = useRuntimeStore()
 const client = getStoreSyncClient()
 const source = ref(''),
   targets = ref<string[]>([]),
-  sections = ref<SyncSection[]>(['products'])
+  sections = ref<SyncSection[]>(['welcome'])
 const productIds = ref(''),
   conflict = ref<'skip' | 'replace'>('skip'),
   confirmed = ref(false)
@@ -129,7 +130,8 @@ onMounted(() => {
   <section class="store-sync" aria-labelledby="sync-title">
     <h1 id="sync-title">跨店同步</h1>
     <p>
-      将本机商品知识和选中的接待配置复制到目标店。请先核对商品编号对应关系；保存不会开启店铺 AI。
+      将选中的接待配置复制到目标店。商品知识通过知识库明确关联同款，价格、库存和活动按店铺/SKU单独维护。保存不会开启店铺
+      AI。
     </p>
     <p v-if="!client" role="status">当前环境尚未接入跨店同步，不能保存。浏览器仅供界面预览。</p>
     <p v-if="error" role="alert">{{ error }}</p>
@@ -156,9 +158,25 @@ onMounted(() => {
       <fieldset>
         <legend>同步内容</legend>
         <label v-for="(label, key) in labels" :key="key"
-          ><input v-model="sections" type="checkbox" :value="key" />{{ label }}</label
+          ><input
+            v-model="sections"
+            type="checkbox"
+            :value="key"
+            :disabled="key === 'products'"
+          />{{ label }}{{ key === 'products' ? '（由知识库同款关联管理）' : '' }}</label
         >
       </fieldset>
+      <button
+        type="button"
+        :disabled="!source"
+        @click="
+          run(async () => {
+            await openKnowledgeManager(source)
+          })
+        "
+      >
+        打开源店知识库，确认同款关联
+      </button>
       <label v-if="sections.includes('products')"
         >源店商品编号（每行一个，最多1000个）<textarea
           v-model="productIds"
@@ -172,7 +190,7 @@ onMounted(() => {
           <option value="replace">覆盖目标已有内容</option>
         </select></label
       >
-      <button type="button" @click="createPreview">预览变更</button>
+      <button data-testid="sync-preview" type="button" @click="createPreview">预览变更</button>
     </fieldset>
     <section v-if="preview" aria-label="同步预览">
       <h2>预览变更</h2>

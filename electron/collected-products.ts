@@ -106,12 +106,14 @@ export function createCollectedProductWriter(options: Options) {
       await verify()
       for (const draft of drafts) {
         const detail = sources.find((row) => row.id === draft.productId)?.platformDetail
-        if (detail && options.savePlatformProduct) {
-          await verify()
-          options.savePlatformProduct(identity.storeId, detail)
-          await verify()
+        if (productIds.has(draft.productId)) {
+          if (detail && options.savePlatformProduct) {
+            await verify()
+            options.savePlatformProduct(identity.storeId, detail)
+            await verify()
+          }
+          continue
         }
-        if (productIds.has(draft.productId)) continue
         await verify()
         const result = z.object({ status: z.literal('ok'), data: productSchema }).parse(
           await options.execute({
@@ -128,6 +130,10 @@ export function createCollectedProductWriter(options: Options) {
           throw Error('采集商品保存结果未核对')
         productIds.add(draft.productId)
         await verify()
+        if (detail && options.savePlatformProduct) {
+          options.savePlatformProduct(identity.storeId, detail)
+          await verify()
+        }
       }
     },
   }

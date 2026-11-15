@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, screen, ipcMain } from 'electron'
+import { createKnowledgeWindow } from './knowledge-window'
+import { registerKnowledgeIpc } from './knowledge-ipc'
 import { registerDesktopIpc } from './ipc'
 import { createWindow, loadRenderer } from './windows'
 import path from 'node:path'
@@ -72,6 +74,35 @@ app
       authorize: requireAppFrame,
     })
     app.once('will-quit', disposePlatformFeatures)
+    const knowledgeWindow = createKnowledgeWindow({
+      create: () => createWindow({ knowledge: true }),
+      load: async (win) => {
+        if (!(win instanceof BrowserWindow)) throw Error('知识库窗口不受信')
+        await loadRenderer(win, '/knowledge')
+      },
+      workspace: () => runtime!.snapshot().workspaceId,
+      stores: () => runtime!.snapshot().stores.map((s) => s.id),
+      workArea: () => screen.getDisplayMatching(primaryWindow!.getBounds()).workArea,
+    })
+    const disposeKnowledge = registerKnowledgeIpc({
+      ipc: {
+        handle: (name, handler) => ipcMain.handle(name, handler),
+        removeHandler: (name) => ipcMain.removeHandler(name),
+      },
+      authorize: (event) => requireAppFrame(event as Electron.IpcMainInvokeEvent),
+      resolve: () => {
+        const current = runtime!
+        return {
+          workspaceId: current.snapshot().workspaceId,
+          request: (input) => current.knowledge().request(input),
+        }
+      },
+      window: knowledgeWindow,
+    })
+    app.once('will-quit', () => {
+      disposeKnowledge()
+      knowledgeWindow.dispose()
+    })
     const activeRuntime = runtime
     const disposePhrases = registerCustomPhrasesIpc(activeRuntime, () =>
       path.join(activeRuntime.dataDirectory(), 'custom-phrases'),

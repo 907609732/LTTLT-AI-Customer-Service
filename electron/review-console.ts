@@ -27,6 +27,8 @@ export interface SendProposal {
   uid: string
   text: string
   thread: unknown
+  traceId?: string
+  invalidReason?(): string
   isCurrent(): boolean
   getHistory(): Promise<{ known: boolean; messages: unknown }>
   pageReview?: unknown
@@ -135,7 +137,12 @@ export class ReviewConsole {
     this.messageDiagnostics.refresh(this.logs)
     for (const item of this.pending.values())
       if (!this.current(item))
-        this.finish(item, 'expired', '出现新消息、人工回复、店铺断开或 AI 状态变化，旧候选已作废。')
+        this.finish(
+          item,
+          'expired',
+          item.proposal.invalidReason?.() ||
+            '出现新消息、人工回复、店铺断开或 AI 状态变化，旧候选已作废。',
+        )
   }
   event(input: unknown) {
     if (!input || typeof input !== 'object' || this.closed) return
@@ -470,7 +477,7 @@ export class ReviewConsole {
       at: Date.now(),
       ...this.identity(proposal.storeId, proposal.uid),
       text: redact(proposal.text),
-      traceId: trace?.id || '',
+      traceId: proposal.traceId || trace?.id || '',
       status: 'pending',
       reason:
         sendMode.mode === 'auto'
@@ -581,7 +588,11 @@ export class ReviewConsole {
   private async approve(item: Pending, automatic: boolean) {
     const id = item.row.id
     if (!this.current(item)) {
-      this.finish(item, 'expired', '会话或店铺状态已变化，未发送，请重新生成。')
+      this.finish(
+        item,
+        'expired',
+        item.proposal.invalidReason?.() || '会话或店铺状态已变化，未发送，请重新生成。',
+      )
       throw new Error(item.row.reason)
     }
     let history: Awaited<ReturnType<ReviewConsole['historyCurrent']>>
@@ -597,7 +608,11 @@ export class ReviewConsole {
     if (this.pending.get(id) !== item || item.row.status !== 'pending')
       throw new Error('候选已在其他窗口处理或失效')
     if (!this.current(item)) {
-      this.finish(item, 'expired', '复核期间会话或店铺状态已变化，未发送，请重新生成。')
+      this.finish(
+        item,
+        'expired',
+        item.proposal.invalidReason?.() || '复核期间会话或店铺状态已变化，未发送，请重新生成。',
+      )
       throw new Error(item.row.reason)
     }
     if (!history.ok) {
@@ -629,7 +644,11 @@ export class ReviewConsole {
     )
     // changed 回调可能触发模式变更或停止 AI；在向原发送 worker 放行前最后核对。
     if (!this.current(item)) {
-      this.finish(item, 'expired', '放行前店铺、会话或发送模式已变化，未发送。')
+      this.finish(
+        item,
+        'expired',
+        item.proposal.invalidReason?.() || '放行前店铺、会话或发送模式已变化，未发送。',
+      )
       return
     }
     item.resolve(true)

@@ -37,6 +37,7 @@ export interface DesktopApi extends Partial<ReceptionBridge> {
   storeSyncBackups?(envelope: unknown): Promise<unknown>
   schedulerSnapshot?(workspaceId?: string): Promise<SchedulerSnapshot>
   schedulerExecute?(command: SchedulerCommand): Promise<SchedulerSnapshot>
+  knowledge?: import('./knowledge-client').KnowledgeBridge
   readonly isElectron: boolean
   minimize(): Promise<void>
   toggleMaximize(): Promise<boolean>

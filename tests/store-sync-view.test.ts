@@ -32,7 +32,7 @@ const preview: SyncPreview = {
   planId,
   expiresAt: Date.now() + 60000,
   warnings: ['核对商品编号'],
-  rows: [{ storeId: 'b', section: 'products', key: 'sku', action: 'add' }],
+  rows: [{ storeId: 'b', section: 'welcome', key: 'welcome', action: 'add' }],
 }
 function clientFixture() {
   return {
@@ -59,8 +59,7 @@ describe('store sync independent page', () => {
     await flushPromises()
     await wrapper.get('select[aria-label="源店铺"]').setValue('a')
     await wrapper.get('input[type="checkbox"][value="b"]').setValue(true)
-    await wrapper.get('textarea').setValue('sku')
-    await wrapper.get('button').trigger('click')
+    await wrapper.get('[data-testid="sync-preview"]').trigger('click')
     await flushPromises()
     expect(wrapper.find('section[aria-label="同步预览"]').exists()).toBe(true)
     runtime.snapshot = { ...runtime.snapshot, revision: runtime.snapshot.revision + 1 }
@@ -81,21 +80,20 @@ describe('store sync independent page', () => {
     await flushPromises()
     await wrapper.get('select[aria-label="源店铺"]').setValue('a')
     await wrapper.get('input[type="checkbox"][value="b"]').setValue(true)
-    await wrapper.get('textarea').setValue('sku')
-    await wrapper.get('button').trigger('click')
+    await wrapper.get('[data-testid="sync-preview"]').trigger('click')
     await flushPromises()
     expect(client.preview).toHaveBeenCalledWith({
       sourceStoreId: 'a',
       targetStoreIds: ['b'],
-      sections: ['products'],
-      productIds: ['sku'],
+      sections: ['welcome'],
+      productIds: [],
       conflict: 'skip',
     })
     const apply = wrapper.findAll('button').find((b) => b.text() === '备份并执行同步')!
     expect(apply.attributes('disabled')).toBeDefined()
     await wrapper.get('section[aria-label="同步预览"] input').setValue(true)
     expect(apply.attributes('disabled')).toBeUndefined()
-    await wrapper.get('textarea').setValue('sku2')
+    await wrapper.get('select[aria-label="冲突处理"]').setValue('replace')
     expect(wrapper.find('section[aria-label="同步预览"]').exists()).toBe(false)
     expect(client.apply).not.toHaveBeenCalled()
     wrapper.unmount()
@@ -111,14 +109,15 @@ describe('store sync independent page', () => {
     )
     const { wrapper, runtime } = setup(client)
     await flushPromises()
-    await wrapper.get('textarea').setValue('private-sku')
-    await wrapper.get('button').trigger('click')
+    await wrapper.get('select[aria-label="源店铺"]').setValue('a')
+    await wrapper.get('[data-testid="sync-preview"]').trigger('click')
     runtime.snapshot.workspaceId = '00000000-0000-4000-8000-000000000002'
     await flushPromises()
     resolve(preview)
     await flushPromises()
     expect(wrapper.find('section[aria-label="同步预览"]').exists()).toBe(false)
-    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+    expect((wrapper.get('select[aria-label="源店铺"]').element as HTMLSelectElement).value).toBe('')
+    expect(wrapper.get('input[value="products"]').attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
 })
