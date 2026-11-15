@@ -1,5 +1,4 @@
 import type { KnowledgeRepository } from './knowledge'
-import { resolveKnowledgeRows } from './knowledge/resolver'
 import { z } from 'zod'
 /** Legacy CRUD remains available, but cannot roll back newer manager edits. */
 export function createKnowledgeCompatibilityPorts(repository: KnowledgeRepository) {
@@ -58,12 +57,9 @@ export function createKnowledgeCompatibilityPorts(repository: KnowledgeRepositor
         .listBindings()
         .find((row) => row.storeId === storeId && row.productId === productId && !row.skuId)
       if (!binding) return null
-      const detail = repo.detail(binding.canonicalId, storeId)
-      const resolution = resolveKnowledgeRows(
-        [binding],
-        detail.entries,
+      const resolution = repo.resolveKnowledge(
         { storeId, productId, query: '', limit: 1, maxCharacters: 60000 },
-        Date.now(),
+        { productOnly: true },
       )
       if (
         !resolution.citations.length ||
@@ -80,7 +76,7 @@ export function createKnowledgeCompatibilityPorts(repository: KnowledgeRepositor
         id: binding.id,
         storeId,
         productId,
-        title: binding.title || detail.canonical?.title || productId,
+        title: binding.title || repo.getCanonical(binding.canonicalId)?.title || productId,
         description: '',
         specifications: '',
         price: '',

@@ -598,7 +598,7 @@ export class KnowledgeRepository {
       return this.put('entries', next)
     })
   }
-  resolveKnowledge(input: KnowledgeResolveInput) {
+  resolveKnowledge(input: KnowledgeResolveInput, options: { productOnly?: boolean } = {}) {
     if (this.getMetadata(`removed-store:${input.storeId}`) === '1')
       return {
         citations: [],
@@ -608,7 +608,14 @@ export class KnowledgeRepository {
         expiredFields: [],
       }
     const rows = this.resolutionRows(input)
-    return resolveKnowledgeRows(rows.bindings, rows.entries, input, this.now())
+    // Training identity checks use the reviewed scope, even while a differently scoped draft is edited.
+    const entries = options.productOnly
+      ? rows.entries.filter(
+          (entry) =>
+            entry.approved?.scope.kind === 'canonical' || entry.approved?.scope.kind === 'binding',
+        )
+      : rows.entries
+    return resolveKnowledgeRows(rows.bindings, entries, input, this.now())
   }
   private resolutionRows(input: KnowledgeResolveInput) {
     const context = knowledgeResolveSchema.parse(input)

@@ -11,12 +11,13 @@ import { knowledgeReassociateSchema } from '../src/shared/contracts/knowledge-cl
 import { emptySnapshot } from '../src/shared/contracts/backend'
 
 const disposals: (() => void)[] = []
-afterEach(() =>
+afterEach(() => {
+  vi.useRealTimers()
   disposals
     .splice(0)
     .reverse()
-    .forEach((dispose) => dispose()),
-)
+    .forEach((dispose) => dispose())
+})
 function fixture(
   options: Pick<Parameters<typeof createKnowledgeRuntime>[0], 'chooseRestore' | 'stores'> = {
     stores: () => [{ id: 's', storeName: 'Shop', platform: 'sim-local' }],
@@ -76,6 +77,7 @@ describe('knowledge runtime boundary and exact request evidence', () => {
   })
 
   it('identifies training products from current reviewed knowledge instead of stale legacy enabled flags', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
     const { repository: repo } = fixture()
     const legacy = repo.products.save({
       storeId: 's',
@@ -138,12 +140,10 @@ describe('knowledge runtime boundary and exact request evidence', () => {
     }
     repo.publish(review)
     expect(ports.products.getByProductId('s', 'new')?.title).toBe('新管理商品')
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 120000)
-    try {
-      expect(ports.products.getByProductId('s', 'new')).toBe(null)
-    } finally {
-      clock.mockRestore()
-    }
+    const now = Date.now()
+    vi.setSystemTime(now + 120000)
+    expect(ports.products.getByProductId('s', 'new')).toBe(null)
+    vi.setSystemTime(now)
     repo.saveSource({
       id: source.id,
       expectedRevision: source.revision,
@@ -156,6 +156,43 @@ describe('knowledge runtime boundary and exact request evidence', () => {
     expect(ports.products.getByProductId('s', 'new')).toBe(null)
     repo.unlinkBinding(root.id, root.revision)
     expect(ports.products.getByProductId('s', 'new')).toBe(null)
+  })
+
+  it('keeps reviewed shared training identities while a narrower draft remains unpublished', () => {
+    const { repository: repo } = fixture()
+    const canonical = repo.saveCanonical({ title: '共享门锁' })
+    const a = repo.bindProduct({ canonicalId: canonical.id, storeId: 's', productId: 'a' })
+    repo.bindProduct({ canonicalId: canonical.id, storeId: 't', productId: 'b' })
+    const shared = repo.saveDraft({
+      scope: { kind: 'canonical', canonicalId: canonical.id },
+      question: '材质',
+      answer: '铜',
+    })
+    repo.publish({
+      entryId: shared.id,
+      expectedDraftRevision: shared.revision,
+      expectedSourceRevisions: {},
+    })
+    const ports = createKnowledgeCompatibilityPorts(repo)
+    expect(ports.products.getByProductId('t', 'b')).not.toBe(null)
+    const narrowed = repo.saveDraft({
+      id: shared.id,
+      expectedRevision: shared.revision,
+      scope: { kind: 'binding', bindingId: a.id },
+      question: '材质',
+      answer: '不锈钢',
+    })
+    expect(
+      repo.resolveKnowledge({ storeId: 't', productId: 'b', query: '材质' }).citations[0]?.answer,
+    ).toBe('铜')
+    expect(ports.products.getByProductId('t', 'b')).not.toBe(null)
+    repo.publish({
+      entryId: narrowed.id,
+      expectedDraftRevision: narrowed.revision,
+      expectedSourceRevisions: {},
+    })
+    expect(ports.products.getByProductId('t', 'b')).toBe(null)
+    expect(ports.products.getByProductId('s', 'a')).not.toBe(null)
   })
 
   it.each(['family', 'full'] as const)(
