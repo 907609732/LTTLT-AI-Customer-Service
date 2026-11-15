@@ -201,26 +201,17 @@ export async function businessChecks(options: {
       assert.equal((await execute({ action: 'list-products', storeId: storeA })).data.total, 2)
     })
     await check('business:model-settings-and-training', '/settings', async () => {
-      await load('/settings')
-      await win.webContents.executeJavaScript(
-        `document.querySelector('details.advanced-model summary')?.click()`,
-      )
-      await wait(`Boolean(document.querySelector('input[aria-label="模型接口地址"]'))`)
-      await setInput('模型接口地址', baseUrl)
-      await setInput('模型名称', 'fixture-custom-multimodal')
-      if (safeStorage.isEncryptionAvailable())
-        await setInput('模型 API Key', 'fixture-only-not-a-provider-key')
-      await win.webContents.executeJavaScript(
-        `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='测试连接并保存').click()`,
-      )
-      await wait(`document.body.innerText.includes('连接成功，模型设置已保存')`)
+      // 自定义本机HTTP夹具直接走正式配置命令；生产登录入口仅提供厂商预设。
+      await execute({
+        action: 'save-model-settings',
+        values: {
+          baseUrl,
+          model: 'fixture-custom-multimodal',
+          apiKey: safeStorage.isEncryptionAvailable() ? 'fixture-only-not-a-provider-key' : '',
+          testConnection: true,
+        },
+      })
       assert.ok(calls.length >= 1)
-      assert.equal(
-        await win.webContents.executeJavaScript(
-          `document.querySelector('input[aria-label="模型 API Key"]').value`,
-        ),
-        '',
-      )
       const s = await snapshot()
       assert.equal(s.config.ai.baseUrl, baseUrl)
       assert.equal(s.capabilities.vision.supported, true)

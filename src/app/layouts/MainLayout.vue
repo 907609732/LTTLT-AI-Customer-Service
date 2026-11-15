@@ -277,7 +277,7 @@ async function navigate(path: string) {
           :title="runtime.snapshot.modelIssue.message"
           type="error"
           :closable="false"
-          @click="router.push('/shop/manage')"
+          @click="loginVisible = true"
         />
         <el-alert
           v-if="task.error.value || runtime.error"

@@ -137,3 +137,37 @@ it('间隔控件切工作区清空旧草稿', async () => {
   expect(input.props('modelValue')).toBe(30)
   wrapper.unmount()
 })
+
+it('模型异常核对迁入登录入口，保留请求编号且必须明确勾选', async () => {
+  setActivePinia(createPinia())
+  const runtime = useRuntimeStore()
+  runtime.snapshot.modelIssue = {
+    code: 'request_uncertain',
+    message: '请求结果待核对',
+    requiresReview: true,
+    at: 123,
+    context: { requestId: 'fixture-review-request' },
+  }
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '已核对', data: {} })
+  const wrapper = mount(LoginDialog, {
+    props: { modelValue: true },
+    global: { plugins: [ElementPlus], stubs: { ElDialog: { template: '<div><slot /></div>' } } },
+  })
+  expect(wrapper.find('.managed-issue').text()).toContain('fixture-review-request')
+  const button = wrapper.find('.managed-issue').findComponent({ name: 'ElButton' })
+  expect(button.props('disabled')).toBe(true)
+  wrapper
+    .find('.managed-issue')
+    .findComponent({ name: 'ElCheckbox' })
+    .vm.$emit('update:modelValue', true)
+  await flushPromises()
+  await button.trigger('click')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'acknowledge-model-issue',
+    values: { confirmed: true, code: 'request_uncertain', at: 123 },
+  })
+  wrapper.unmount()
+})

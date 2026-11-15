@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import { modelPresets } from '../model-presets'
+import ModelSourceSettings from './ModelSourceSettings.vue'
 const visible = defineModel<boolean>({ default: false })
 const runtime = useRuntimeStore(),
   task = useTask()
@@ -113,6 +114,7 @@ async function accountAction(
     :close-on-click-modal="false"
   >
     <el-alert v-if="task.error.value" :title="task.error.value" type="error" :closable="false" />
+    <ModelSourceSettings />
     <div class="login-options">
       <section class="login-option key-option">
         <h2>使用自己的 Key</h2>

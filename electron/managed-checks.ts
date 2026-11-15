@@ -183,12 +183,12 @@ export async function managedChecks(options: {
       assert.equal(runtime.snapshot().managed.session.account?.trial.used, 1)
       assert.equal(runtime.snapshot().managed.session.account?.trial.remaining, 19)
       options.bind(runtime)
-      await load('/settings')
+      await load('/')
       await win.webContents.executeJavaScript(`document.querySelector('.login-trigger').click()`)
       for (let attempt = 0; attempt < 50; attempt++) {
         if (
           await win.webContents.executeJavaScript(
-            `document.body.innerText.includes('托管夹具账号')`,
+            `Boolean(document.querySelector('.simple-login-dialog .service-option'))`,
           )
         )
           break
@@ -230,7 +230,8 @@ export async function managedChecks(options: {
           /核对/,
         )
         assert.equal(chatCalls.length, 2, '未知结果不应自动重发')
-        await load('/settings')
+        await load('/')
+        await win.webContents.executeJavaScript(`document.querySelector('.login-trigger').click()`)
         for (let attempt = 0; attempt < 50; attempt++) {
           if (
             await win.webContents.executeJavaScript(`document.body.innerText.includes('请求编号')`)
