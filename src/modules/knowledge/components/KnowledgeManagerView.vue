@@ -291,8 +291,42 @@ const {
           "
           @backup="(id) => run(() => backup(id))"
         />
-        <p v-if="!products.length" class="knowledge-empty">
-          当前店铺尚无商品知识。可手写商品；平台采集服务接入后可先浏览在售目录，再明确选择采集范围。
+        <section
+          v-if="!products.length && summary?.products === 0 && currentStore"
+          class="knowledge-first-import"
+          data-testid="knowledge-first-import"
+          aria-label="开始建立商品知识库"
+        >
+          <span class="knowledge-first-import-icon" aria-hidden="true">▣</span>
+          <h2>还没有商品</h2>
+          <p>从店铺后台读取商品目录，选择商品后采集资料；也可以自己写一件。</p>
+          <div class="knowledge-first-import-actions">
+            <button
+              data-testid="read-store-products"
+              class="primary"
+              :disabled="busy || summary.readOnly"
+              @click="run(() => loadCatalog('', ''))"
+            >
+              从店铺后台读取
+            </button>
+            <button :disabled="busy || summary.readOnly" @click="run(writeOne)">自己写一件</button>
+          </div>
+          <p v-if="!capabilities?.catalog" class="knowledge-muted">
+            {{
+              capabilities?.reason ||
+              '请先完成当前店铺的平台登录，再点击读取；暂不支持的平台可手动录入或导入文件。'
+            }}
+          </p>
+          <p class="knowledge-muted">
+            读取目录不会自动学习或发布知识。清除本店知识库后，将从这里重新开始。
+          </p>
+        </section>
+        <p v-else-if="!products.length" class="knowledge-empty">
+          {{
+            currentStore
+              ? '没有匹配的商品，请调整搜索条件或返回第一页。'
+              : '请先选择店铺，再建立商品知识库。'
+          }}
         </p>
       </template>
       <template v-else-if="view === 'library' || view === 'review'"

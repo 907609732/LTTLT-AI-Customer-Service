@@ -136,6 +136,88 @@ it('has two main tabs and switching knowledge shops never changes reception sele
   )
   wrapper.unmount()
 })
+it('offers the first-import actions for an empty shop and reads a fresh full backend catalog without collecting automatically', async () => {
+  const { wrapper } = await setup()
+  const start = wrapper.get('[data-testid="knowledge-first-import"]')
+  expect(start.text()).toContain('还没有商品')
+  expect(start.text()).toContain('从店铺后台读取')
+  expect(start.text()).toContain('自己写一件')
+  expect(start.text()).toContain('未接入')
+  fake.pipeline.mockImplementation(async (input: { action: string }) =>
+    input.action === 'catalog'
+      ? {
+          identityVersion: 'i',
+          scopeToken: 'scope',
+          items: [{ productId: 'p', title: '后台商品' }],
+          nextCursor: null,
+          total: 1,
+          complete: true,
+          range: '全部在售商品',
+        }
+      : {
+          catalog: false,
+          collect: false,
+          import: false,
+          learn: false,
+          dailyCheck: false,
+          reason: '未接入',
+        },
+  )
+  await wrapper.get('[aria-label="搜索商品或问答"]').setValue('旧筛选')
+  await start.get('[data-testid="read-store-products"]').trigger('click')
+  await flushPromises()
+  expect(fake.pipeline).toHaveBeenCalledWith({
+    action: 'catalog',
+    storeId: 'a',
+    cursor: '',
+    search: '',
+  })
+  expect(wrapper.text()).toContain('选择在售商品后采集')
+  expect(wrapper.text()).toContain('后台商品')
+  expect(fake.pipeline.mock.calls.some(([input]) => input.action === 'start')).toBe(false)
+  wrapper.unmount()
+})
+it('does not confuse a filtered empty result with a shop that needs first import', async () => {
+  const { wrapper } = await setup()
+  fake.query.mockImplementation(async (input: { type: string }) =>
+    input.type === 'summary'
+      ? {
+          products: 4,
+          entries: 0,
+          pending: 0,
+          jobs: 0,
+          misses: 0,
+          readOnly: false,
+          migration: { error: '' },
+        }
+      : { items: [], total: 0, revision: 1 },
+  )
+  await wrapper.get('[aria-label="搜索商品或问答"]').setValue('无匹配')
+  await wrapper
+    .findAll('button')
+    .find((b) => b.text() === '刷新')!
+    .trigger('click')
+  await flushPromises()
+  expect(wrapper.find('[data-testid="knowledge-first-import"]').exists()).toBe(false)
+  expect(wrapper.text()).toContain('没有匹配的商品')
+  wrapper.unmount()
+})
+it('clears the transient workspace-change warning after the owner supplies a verified new shop context', async () => {
+  const { wrapper, runtime, manager } = await setup(true)
+  runtime.snapshot.workspaceId = 'replacement'
+  await flushPromises()
+  expect(manager!.error.value).toContain('账号工作区已改变')
+  const receive = fake.onContext.mock.calls.at(-1)![0] as (context: {
+    workspaceId: string
+    storeId: string
+    revision: number
+  }) => void
+  receive({ workspaceId: 'replacement', storeId: 'a', revision: 3 })
+  await flushPromises()
+  expect(manager!.storeId.value).toBe('a')
+  expect(manager!.error.value).toBe('')
+  wrapper.unmount()
+})
 it('defaults clearing to the current shop, previews account scope separately, and never clears on cancel or an incomplete phrase', async () => {
   const { wrapper } = await setup()
   const settingsButton = wrapper.findAll('button').find((b) => b.text() === '设置')!

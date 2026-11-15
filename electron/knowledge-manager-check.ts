@@ -472,6 +472,24 @@ app
     repo = runtime.knowledge().repository
     assert.notEqual(runtime.snapshot().workspaceId, beforeClearWorkspace)
     assert.equal(repo.listProducts({ storeId: a }).total, 0)
+    await until(`!!document.querySelector('[data-testid="knowledge-first-import"]')`)
+    assert(
+      !(await evaluate<boolean>(
+        `document.body.innerText.includes('账号工作区已改变，请从目标店铺重新打开知识库')`,
+      )),
+    )
+    await screenshot('final-first-import-after-clear.png')
+    const jobsBeforeRead = repo.rows('jobs').length
+    await click('从店铺后台读取')
+    await until(`!!document.querySelector('[role="alert"]')`)
+    assert.equal(repo.rows('jobs').length, jobsBeforeRead)
+    assert(
+      await evaluate<boolean>(`!!document.querySelector('[data-testid="knowledge-first-import"]')`),
+    )
+    assert(await evaluate<boolean>('document.documentElement.scrollWidth<=window.innerWidth+1'))
+    checks.push(
+      'empty shop after clear returns to first-import panel; backend-read action reaches real capability checks, reports unsupported fixture honestly and creates no collection or learning job',
+    )
     assert.equal(repo.listProducts({ storeId: b }).total, bBefore)
     const recoveryPath = repo.getLastBackupDirectory()
     assert(recoveryPath && fs.existsSync(path.join(recoveryPath, 'manifest.json')))

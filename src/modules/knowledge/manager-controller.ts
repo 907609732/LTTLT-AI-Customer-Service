@@ -960,8 +960,8 @@ export function useKnowledgeManager() {
     )
     notice.value = `已导出${result.count}条。${result.message}`
   }
-  async function loadCatalog(cursor = '') {
-    const filter = cursor ? catalogSearch.value : search.value
+  async function loadCatalog(cursor = '', initialSearch = search.value) {
+    const filter = cursor ? catalogSearch.value : initialSearch
     const result = await client().pipeline({
       action: 'catalog',
       storeId: storeId.value,
@@ -1078,6 +1078,7 @@ export function useKnowledgeManager() {
     view.value = 'library'
     tab.value = 'products'
     page.value = 0
+    if (context.workspaceId === runtime.snapshot.workspaceId && currentStore.value) error.value = ''
     await refresh()
   }
   let contextRevision = -1
