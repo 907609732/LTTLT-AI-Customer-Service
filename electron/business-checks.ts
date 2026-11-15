@@ -415,7 +415,7 @@ export async function businessChecks(options: {
       await load('/shop/manage?panel=shops')
       assert.equal(
         await win.webContents.executeJavaScript(
-          `Array.from(document.querySelectorAll('.manage-sidebar button, .sidebar-item')).some(el => ['转接人工','进店欢迎'].includes(el.textContent.trim()))`,
+          `Array.from(document.querySelectorAll('.sider__nav button')).some(el => ['转接人工','进店欢迎'].includes(el.textContent.trim()))`,
         ),
         false,
       )
