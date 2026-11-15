@@ -4,7 +4,7 @@
 
 当前主项目已作为仓库根交付至907609732/LTTLT-AI-Customer-Service的main，保留历史与许可。当前基线和验收范围见HANDOFF.md，不能扩大为公开发布安装包或部署服务器的授权。
 
-产品对外名称为“灵兔 AI”，npm 名称为 lingtu-ai；品牌变更规则见 BRANDING.md。默认用户数据必须继续使用原 yunduo-ui-restored 路径，不能依据新名称重建空账户。当前允许本机品牌改名、验证及已授权的分支/main 交付，公开发布仍需后续明确指令。
+产品对外名称为“灵兔AI电商客服”，npm 名称为 lingtu-ai；品牌变更规则见 BRANDING.md。默认用户数据必须继续使用原 yunduo-ui-restored 路径，不能依据新名称重建空账户。当前允许本机品牌改名、验证及已授权的分支/main 交付，公开发布仍需后续明确指令。
 
 本工作区实际项目根为 E:\~1awucheng\Plastic SCM\AI电商客服软件\client，目录与提交范围见 PROJECT_LAYOUT.md；.github 云端配置也位于此根。兄弟目录不属于本次整理范围。用户最新已授权本轮分支提交、推送与 main 合并，公开发布和生产部署仍未授权；不得沿用旧分支名或旧外层仓库结构自动交付。
 

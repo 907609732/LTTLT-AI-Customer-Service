@@ -63,7 +63,7 @@ const src = ref(demo.src)
       @click="__stub('此操作')"
       data-v-bb61a4be=""
     >
-      <img :src="src" alt="灵兔 AI 助手" draggable="false" data-v-bb61a4be="" /><template
+      <img :src="src" alt="灵兔AI电商客服 助手" draggable="false" data-v-bb61a4be="" /><template
         v-if="isDivSummary"
         ><span class="mascot-float-badge" data-v-bb61a4be="">{{ isDivSummary }}</span></template
       ></button

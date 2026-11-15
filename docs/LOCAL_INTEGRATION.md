@@ -68,7 +68,7 @@
 
 ## 数据与凭证
 
-生产数据位于 `app.getPath('userData')/local-runtime`；默认保持 `%APPDATA%/yunduo-ui-restored/local-runtime`，由 electron/app-identity.ts 显式兼容，不根据“灵兔 AI”新名称创建空目录。显式 --user-data-dir 仍优先，用于隔离验收。与原 desk-v1、其他灵兔工程及其他软件目录隔离，不自动迁移旧数据。
+生产数据位于 `app.getPath('userData')/local-runtime`；默认保持 `%APPDATA%/yunduo-ui-restored/local-runtime`，由 electron/app-identity.ts 显式兼容，不根据“灵兔AI电商客服”新名称创建空目录。显式 --user-data-dir 仍优先，用于隔离验收。与原 desk-v1、其他灵兔工程及其他软件目录隔离，不自动迁移旧数据。
 
 Key 通过 preload 的白名单调用一次性送到主进程，经 Electron safeStorage 加密保存为 secrets.json。系统加密不可用时拒绝保存，封住上游 SecretStore 的历史 base64 降级路径。UI 只显示“是否已配置”，成功后清空输入框，不回填旧 Key。不要读取或打印开发者环境密钥，不把凭据写入 VITE\_\*、日志、截图、源码或测试报告。
 

@@ -45,7 +45,7 @@ export const routes: RouteRecordRaw[] = [
     name: 'float-mascot',
     component: /* lazy module entry */ () =>
       import('@/modules/auxiliary').then((m) => m.MascotFloatView),
-    meta: { title: '灵兔 AI 助手', float: true },
+    meta: { title: '灵兔AI电商客服 助手', float: true },
   },
   {
     path: '/sim',

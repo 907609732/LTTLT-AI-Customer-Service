@@ -1,6 +1,6 @@
 {
   "appId": "top.lttlt.yunduo.customer.service",
-  "productName": "灵兔 AI",
+  "productName": "灵兔AI电商客服",
   "executableName": "LingtuAI",
   "asar": true,
   "npmRebuild": false,

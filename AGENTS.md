@@ -8,7 +8,7 @@
 
 2026-11-14：原整合与窗口修正已合入main基线3e159e2。当前在隔离分支codex/remaining-platform-features-20261114补齐平台学习、原生接待操作、平台订单及充值/计费，再统一源码验收；设计与最新状态见docs/REMAINING_FEATURES.md、docs/HANDOFF.md。保留Git历史和许可，安装包公开发布、生产部署和真实买家发送仍按既有授权边界执行。
 
-产品名称为“灵兔 AI”，名称与数据兼容规则先读 docs/BRANDING.md。本机品牌改名已获用户授权，包含界面、图片、打包、后台和文档；主目录不移动，既有 userData、安装 appId、登录分区与 IPC 标识按兼容规则保留。本轮提交、推送与 main 合并按最新授权执行，公开发布仍未授权。
+产品名称为“灵兔AI电商客服”，名称与数据兼容规则先读 docs/BRANDING.md。本机品牌改名已获用户授权，包含界面、图片、打包、后台和文档；主目录不移动，既有 userData、安装 appId、登录分区与 IPC 标识按兼容规则保留。本轮提交、推送与 main 合并按最新授权执行，公开发布仍未授权。
 
 当前工作区的实际独立项目根为 `E:\~1awucheng\Plastic SCM\AI电商客服软件\client`；先读 `docs/PROJECT_LAYOUT.md`。`.github`、package.json、src、electron、server、vendor 属于同一个独立工程。不要再将整个 F:\Setupgod 或旧 React 仓库当作本工程，也不要把主工程嵌到旧推送工作区。本轮允许本机维护、品牌改名及已授权的独立根目录交付；后续其他仓库、生产部署和公开发布仍须另行指令。兄弟目录保持原样。
 
