@@ -107,12 +107,12 @@ export class MessageDiagnostics {
         '尚未交给 AI：平台页面/队列适配器暂时不可用。',
       )
     const wait =
-      (worker.lastSentAt.get(uid) || 0) + (worker.cfg.perUidMinIntervalMs ?? 60000) - Date.now()
+      (worker.lastSentAt.get(uid) || 0) + (worker.cfg.perUidMinIntervalMs ?? 1000) - Date.now()
     if (worker.lastSentAt.has(uid) && wait > 0)
       return aiState(
         'waiting',
         'uid_interval',
-        `尚未交给 AI：同一买家回复间隔为 ${(worker.cfg.perUidMinIntervalMs ?? 60000) / 1000} 秒，约 ${Math.ceil(wait / 1000)} 秒后重试。`,
+        `尚未交给 AI：同一买家回复间隔为 ${(worker.cfg.perUidMinIntervalMs ?? 1000) / 1000} 秒，约 ${Math.ceil(wait / 1000)} 秒后重试。`,
       )
     const limit = worker.cfg.perStorePerMinuteMax ?? 20
     if (limit > 0 && worker.sendWindow.filter((t) => Date.now() - t < 60000).length >= limit)

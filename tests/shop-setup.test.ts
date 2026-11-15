@@ -112,7 +112,7 @@ it('登录失败恢复引导，切工作区后的迟到结果不得呈现旧店�
   expect(setup.visible).toBe(false)
 })
 
-it('知识、接待和模型入口进入真实配置页并可返回引导', async () => {
+it('知识和训练入口进入真实配置页，移除旧模型设置入口', async () => {
   const { setup, runtime } = fixture()
   runtime.snapshot.stores[0]!.runtime.online = true
   const router = createRouter({

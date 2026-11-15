@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useBilling } from '../use-billing'
-defineProps<{ section?: 'plans' | 'orders' | 'usage' }>()
+const props = defineProps<{ section?: 'plans' | 'orders' | 'usage'; compact?: boolean }>()
 const billing = useBilling()
 const {
   account,
@@ -23,16 +23,23 @@ const signedOutReason = computed(() => {
   const managed = billing.runtime.snapshot.managed
   if (managed.restartRequired) return '账号或服务配置已变化，请重启客户端后重新核对充值账本。'
   if (managed.session.status === 'expired')
-    return '托管登录已过期，请返回配置中心重新登录后查询充值订单。'
+    return '托管登录已过期，请在主页登录入口重新登录后查询充值订单。'
   if (managed.session.status === 'disabled') return '托管账号已停用，请联系管理员核对权限。'
   if (managed.session.status === 'offline')
-    return '暂时无法连接托管服务，请返回配置中心检查连接并重新同步账号。'
+    return '暂时无法连接托管服务，请在主页登录入口重新同步账号。'
   return '使用托管账号后可查询额度和充值订单。本机 Key 的费用由模型服务商管理。'
 })
+async function refresh() {
+  if (!props.compact) return billing.refresh()
+  await Promise.all([
+    billing.refreshLedger(),
+    props.section === 'orders' ? billing.refreshOrders() : Promise.resolve(),
+  ])
+}
 watch(
   billing.identity,
   () => {
-    void billing.refresh()
+    void refresh()
   },
   { immediate: true },
 )
@@ -40,9 +47,9 @@ const money = (amount: number) => `¥${(amount / 100).toFixed(2)}`
 const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-CN') : '—')
 </script>
 <template>
-  <div class="billing-dashboard" data-v-a08d080e="" data-v-d2122d6b="">
+  <div class="billing-dashboard" :class="{ compact }" data-v-a08d080e="" data-v-d2122d6b="">
     <div class="page-head">
-      <div>
+      <div v-if="!compact">
         <h1>
           {{
             section === 'orders' ? '充值订单' : section === 'usage' ? '额度与计费' : '套餐与充值'
@@ -50,9 +57,7 @@ const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-
         </h1>
         <p>托管额度以服务端账本为准，支付返回页面不代表已入账。</p>
       </div>
-      <el-button :loading="pending" :disabled="!signedIn" @click="billing.refresh"
-        >刷新账本</el-button
-      >
+      <el-button :loading="pending" :disabled="!signedIn" @click="refresh">刷新账本</el-button>
     </div>
     <el-alert v-if="!signedIn" type="info" :closable="false" :title="signedOutReason" />
     <el-alert
@@ -62,7 +67,13 @@ const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-
       title="充值服务尚未接入当前客户端，不能创建支付或查询订单。下方额度来自最近一次账号同步。"
     />
     <el-alert v-if="checkoutError" type="error" :closable="false" :title="checkoutError" />
-    <section v-if="signedIn" class="card" aria-label="账本同步状态">
+    <el-alert
+      v-if="compact && ledgerError"
+      type="error"
+      :closable="false"
+      :title="ledgerError + '；额度为上次同步结果，请重试刷新。'"
+    />
+    <section v-if="signedIn && !compact" class="card" aria-label="账本同步状态">
       <el-alert v-if="ledgerError" type="error" :closable="false" :title="ledgerError" />
       <p>
         {{
@@ -75,7 +86,11 @@ const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-
       </p>
       <el-button :loading="ledgerPending" @click="billing.refreshLedger">重新核对账本</el-button>
     </section>
-    <section v-if="account" class="card billing-quota" aria-label="服务端调用额度">
+    <section
+      v-if="account && (!compact || section === 'usage')"
+      class="card billing-quota"
+      aria-label="服务端调用额度"
+    >
       <div>
         <span>总额度</span><strong>{{ account.trial.limit }} 次</strong>
       </div>
@@ -180,6 +195,14 @@ const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-
   display: grid;
   gap: 16px;
   padding: 24px;
+}
+.billing-dashboard.compact {
+  padding: 0;
+  gap: 12px;
+}
+.compact .page-head {
+  display: flex;
+  justify-content: flex-end;
 }
 .billing-quota {
   display: flex;

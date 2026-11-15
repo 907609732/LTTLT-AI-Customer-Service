@@ -25,6 +25,23 @@ function setup(initial?: SchedulerState, capability = '') {
   return { scheduler, saved: () => saved! }
 }
 describe('审批事项调度，不调用发送', () => {
+  it('移除定时任务后旧任务不再触发且不能新建，事件接待仍可独立使用', () => {
+    const original = setup()
+    original.scheduler.execute({ type: 'save', workspaceId: 'workspace', task: task() })
+    const scheduler = new ReceptionScheduler({
+      workspaceId: 'workspace',
+      timedTasksEnabled: false,
+      load: original.saved,
+      save: () => {},
+      now: () => now,
+    })
+    scheduler.tick(now + 2000)
+    expect(scheduler.snapshot().runs).toHaveLength(0)
+    expect(scheduler.snapshot().tasks[0]?.enabled).toBe(false)
+    expect(() =>
+      scheduler.execute({ type: 'save', workspaceId: 'workspace', task: task() }),
+    ).toThrow('定时任务功能已移除')
+  })
   it('到点仅建立一次待提交确认事项，重复 tick 不重复', () => {
     const { scheduler } = setup()
     scheduler.execute({ type: 'save', workspaceId: 'workspace', task: task() })

@@ -58,15 +58,10 @@ const panels = [
   'intent-doc',
   'intent-chat',
   'training',
-  'aicustom',
   'kb',
   'banned',
   'workorder',
   'qc',
-  'orders',
-  'usage',
-  'general',
-  'account',
 ]
 interface PageInfo {
   nodes: number
@@ -168,6 +163,72 @@ app
         )
         assert.ok(nodes > 0, `${panel} 面板未挂载`)
       })
+    await check('config:consolidated-style', '/shop/manage', async () => {
+      await load('/shop/manage')
+      const nav = (await win.webContents.executeJavaScript(
+        `document.querySelector('[aria-label="功能导航"]').innerText`,
+      )) as string
+      assert.ok(nav.includes('AI训练场'))
+      assert.ok(!nav.includes('模拟客服台') && !nav.includes('模型定制'))
+      for (const label of ['登录账号', '软件偏好', '团队管理', '我的订单', '算力消耗'])
+        assert.ok(!nav.includes(label))
+      assert.equal(
+        await win.webContents.executeJavaScript(`Boolean(document.querySelector('.sider-cs'))`),
+        false,
+      )
+      assert.equal(
+        await win.webContents.executeJavaScript(
+          `Boolean(document.querySelector('.sider-recharge'))`,
+        ),
+        false,
+      )
+      await load('/shop/manage?panel=sim')
+      assert.ok(
+        (await win.webContents.executeJavaScript('document.body.innerText')).includes('AI 训练场'),
+      )
+      await runtime.execute({
+        workspaceId: runtime.snapshot().workspaceId,
+        action: 'add-store',
+        values: { platform: 'sim-local', storeName: '隔离风格测试店' },
+      })
+      await load('/shop/manage')
+      for (let i = 0; i < 80; i++) {
+        if (
+          await win.webContents.executeJavaScript(
+            `Boolean(document.querySelector('[data-action="basic-settings"]'))`,
+          )
+        )
+          break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      await win.webContents.executeJavaScript(
+        `document.querySelector('[data-action="basic-settings"]').click()`,
+      )
+      for (let i = 0; i < 80; i++) {
+        if (
+          await win.webContents.executeJavaScript(
+            `Boolean(document.querySelector('textarea[aria-label="客服回复要求"]'))`,
+          )
+        )
+          break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      assert.ok(
+        await win.webContents.executeJavaScript(
+          `Boolean(document.querySelector('textarea[aria-label="客服回复要求"]'))`,
+        ),
+      )
+      assert.ok(
+        await win.webContents.executeJavaScript(
+          `Boolean(document.querySelector('[aria-label="回复字数上限"]'))`,
+        ),
+      )
+      assert.ok(runtime.snapshot().stores.every((store) => !store.aiEnabled))
+      fs.writeFileSync(
+        path.join(output, 'basic-settings-style.png'),
+        (await win.webContents.capturePage()).toPNG(),
+      )
+    })
     await check('redirect', '/float/messages', async () => {
       await load('/float/messages')
       assert.equal(await win.webContents.executeJavaScript('location.hash'), '#/float/assist')
@@ -490,6 +551,7 @@ app
       await managedChecks({
         win,
         dataDir,
+        outputDir: output,
         original: runtime,
         load,
         check,

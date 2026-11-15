@@ -35,6 +35,60 @@ function harness(read: () => unknown) {
 
 afterEach(() => vi.useRealTimers())
 
+describe('默认整段填写回复', () => {
+  function bulkHarness(change = false) {
+    let page = snapshot()
+    const clicks: unknown[] = []
+    const calls: { method: string; args: unknown[] }[] = []
+    const raw = {
+      async focusConversation() {
+        return { ok: true }
+      },
+      async sendText() {},
+      _wc() {
+        return { focus() {}, sendInputEvent: (event: unknown) => clicks.push(event) }
+      },
+      async _callHook(method: string, args: unknown[]) {
+        calls.push({ method, args })
+        if (method === 'reviewHistory') return structuredClone(page)
+        if (method === 'prepareNativeTextSend') {
+          if (change)
+            page = {
+              ...page,
+              messages: [...page.messages, { from: 'buyer', content: '新问题', media: [] }],
+            }
+          return { ok: true, token: 'bulk', point: { x: 10, y: 20 } }
+        }
+        if (method === 'confirmNativeTextSend') return { ok: true }
+        return true
+      },
+      _sendFailOrThrow(_method: string, error: unknown) {
+        throw error
+      },
+    }
+    const adapter = configureDomTextAdapter('pdd-web', raw) as {
+      sendText(uid: string, text: string): Promise<unknown>
+    }
+    return { adapter, clicks, calls }
+  }
+  it('默认整段填写而非逐字延时，填写前后核对同一网页消息', async () => {
+    const h = bulkHarness()
+    await expect(h.adapter.sendText('buyer', '完整回复😀\n第二行')).resolves.toMatchObject({
+      ok: true,
+    })
+    const prepare = h.calls.find((call) => call.method === 'prepareNativeTextSend')!
+    expect(prepare.args[3]).toEqual({ mode: 'button', typeDelayMs: 0 })
+    expect(h.calls.filter((call) => call.method === 'reviewHistory')).toHaveLength(2)
+    expect(h.clicks).toHaveLength(2)
+  })
+  it('填写期间网页出现新消息，不点击发送', async () => {
+    const h = bulkHarness(true)
+    await expect(h.adapter.sendText('buyer', '旧回复')).resolves.toMatchObject({ ok: false })
+    expect(h.clicks).toHaveLength(0)
+    expect(h.calls.some((call) => call.method === 'confirmNativeTextSend')).toBe(false)
+  })
+})
+
 describe('拼多多生成前网页基线就绪', () => {
   it('定位成功但消息尚未加载时等待真实网页快照，不把未知基线交给生成', async () => {
     vi.useFakeTimers()

@@ -165,6 +165,14 @@ watch(
 )
 function next() {
   validation.value = ''
+  if (
+    setup.step === 1 &&
+    (!Number.isInteger(setup.draft.maxReplyChars) ||
+      !setup.draft.maxReplyChars ||
+      setup.draft.maxReplyChars < 1 ||
+      setup.draft.maxReplyChars > 2000)
+  )
+    validation.value = '请填写1至2000之间的回复字数上限'
   if (setup.step === 2) {
     if (!setup.draft.origins.length) validation.value = '请至少选择一个发货地'
     else if (!setup.draft.carriers.length) validation.value = '请至少选择一家快递公司'
@@ -274,11 +282,12 @@ const afterSales = [
           v-for="(label, index) in steps"
           :key="label"
           type="button"
-          :disabled="setup.loading || setup.saving || (index === 5 && !setup.saved)"
-          @click="goToStep(index)"
           class="wizard-step"
+          :disabled="setup.loading || setup.saving || (index === 5 && !setup.saved)"
+          :title="index === 5 && !setup.saved ? '保存成功后查看完成设置' : `进入${label}`"
           :class="{ active: setup.step === index, passed: setup.step > index }"
           :aria-current="setup.step === index ? 'step' : undefined"
+          @click="goToStep(index)"
         >
           <span class="step-circle">{{ setup.step > index ? '✓' : index + 1 }}</span
           ><span>{{ label }}</span>
@@ -353,6 +362,30 @@ const afterSales = [
                   aria-label="回复长度"
                 />
                 <div class="length-labels"><span>精简</span><span>适中</span><span>自由</span></div>
+                <label class="style-rule-field"
+                  >回复字数上限
+                  <el-input-number
+                    v-model="setup.draft.maxReplyChars"
+                    aria-label="回复字数上限"
+                    :min="1"
+                    :max="2000"
+                    :precision="0"
+                  />
+                </label>
+                <label class="style-rule-field"
+                  >客服回复要求（自定义提示词）
+                  <el-input
+                    v-model="setup.draft.customPrompt"
+                    type="textarea"
+                    aria-label="客服回复要求"
+                    :rows="5"
+                    :maxlength="8000"
+                    placeholder="填写本店的称呼、语气、回答要求和需要避免的表达"
+                  />
+                </label>
+                <p class="style-rule-hint">
+                  沿用本店现有规则，仅修改当前店铺；保存后用于实际AI回复。
+                </p>
               </div>
               <aside class="conversation-preview">
                 <h3>◉ 话术示例预览</h3>
@@ -530,6 +563,10 @@ const afterSales = [
               <dl>
                 <dt>AI 客服风格</dt>
                 <dd>{{ selectedStyle.name }}（回复长度：{{ lengthNames[setup.draft.length] }}）</dd>
+                <dt>回复字数上限</dt>
+                <dd>{{ setup.draft.maxReplyChars }} 字</dd>
+                <dt>客服回复要求</dt>
+                <dd class="custom-rule-summary">{{ setup.draft.customPrompt || '未补充' }}</dd>
               </dl>
             </section>
             <section class="summary-group">
@@ -914,6 +951,23 @@ const afterSales = [
   justify-content: space-between;
   color: #75849c;
   font-size: 11px;
+}
+.style-rule-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+  font-size: 13px;
+  color: #293d59;
+}
+.style-rule-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #75849c;
+}
+.custom-rule-summary {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .conversation-preview {
   background: #f7f8fa;

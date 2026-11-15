@@ -91,6 +91,11 @@ function navigate(shop: LocalStore, panel: string) {
   runtime.selectedStoreId = shop.id
   void router.push({ path: '/shop/manage', query: { panel } })
 }
+function configureBasics(shop: LocalStore) {
+  runtime.selectedStoreId = shop.id
+  setup.open(shop.id)
+  setup.step = 1
+}
 async function refresh() {
   await task.run(async () => {
     await runtime.refresh()
@@ -280,7 +285,7 @@ const reception = [
           <div class="shop-card__col">
             <div class="shop-card__col-hd"><b>接待配置</b><em>按店设置接待</em></div>
             <div class="shop-card__acts">
-              <button class="chip" data-action="basic-settings" @click="setup.open(shop.id)">
+              <button class="chip" data-action="basic-settings" @click="configureBasics(shop)">
                 基础设置
               </button>
               <button

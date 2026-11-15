@@ -13,6 +13,54 @@ import { createBillingClient, type BillingTransport } from '../src/modules/billi
 import { getDesktop } from '../src/shared/platform/desktop'
 
 describe('billing transport boundary', () => {
+  it.each(['orders', 'usage'] as const)(
+    '登录弹窗的%s详情只读取相关账本，不拉套餐或创建支付',
+    async (section) => {
+      const pinia = createPinia()
+      setActivePinia(pinia)
+      const runtime = useRuntimeStore()
+      runtime.snapshot.managed.active.mode = 'managed'
+      runtime.snapshot.managed.session.status = 'signed_in'
+      runtime.snapshot.managed.session.account = {
+        userId: 'account',
+        displayName: '测试账号',
+        trial: { limit: 100, used: 20, reserved: 3, remaining: 77, expiresAt: 1800000000 },
+      }
+      const run = vi
+        .spyOn(runtime, 'run')
+        .mockResolvedValue({ status: 'ok', message: '', data: {} })
+      const paths: string[] = []
+      const openCheckout = vi.fn(async () => {})
+      const transport: BillingTransport = {
+        request: async (_method, path) => {
+          paths.push(path)
+          return { orders: [] }
+        },
+        openCheckout,
+      }
+      const wrapper = mount(BillingDashboard, {
+        props: { section, compact: true },
+        global: {
+          plugins: [pinia],
+          provide: { [billingTransportKey as symbol]: transport },
+          stubs: {
+            ElAlert: { props: ['title'], template: '<p>{{ title }}</p>' },
+            ElButton: true,
+            ElEmpty: true,
+            ElTable: true,
+            ElTableColumn: true,
+          },
+        },
+      })
+      await flushPromises()
+      expect(run).toHaveBeenCalledWith({ action: 'managed-refresh' })
+      expect(paths.every((path) => path.endsWith('/orders'))).toBe(true)
+      expect(paths.length).toBe(section === 'orders' ? 1 : 0)
+      expect(openCheckout).not.toHaveBeenCalled()
+      expect(wrapper.text()).not.toContain('可选套餐')
+      wrapper.unmount()
+    },
+  )
   it('uses the real native window controls on the direct recharge route', async () => {
     const close = vi.fn(async () => {}),
       minimize = vi.fn(async () => {}),
@@ -57,7 +105,7 @@ describe('billing transport boundary', () => {
       },
     })
     expect(wrapper.text()).toContain('登录已过期')
-    expect(wrapper.text()).toContain('配置中心')
+    expect(wrapper.text()).toContain('主页登录入口')
     wrapper.unmount()
   })
   it('provides fixed destinations when recharge is the first route and hides native controls in preview', async () => {
