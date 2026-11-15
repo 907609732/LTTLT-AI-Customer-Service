@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import KnowledgeCatalogDialog from './KnowledgeCatalogDialog.vue'
 import KnowledgeThumbnail from './KnowledgeThumbnail.vue'
 import KnowledgeProductCards from './KnowledgeProductCards.vue'
 import KnowledgeDraftEditor from './KnowledgeDraftEditor.vue'
@@ -64,6 +65,7 @@ const {
   catalogIds,
   catalogAll,
   catalogOpen,
+  catalogSearch,
   estimate,
   stores,
   currentStore,
@@ -680,29 +682,18 @@ v{{ source.revision }} · {{ source.hash }}
         </footer>
       </section>
     </div>
-    <div v-if="catalogOpen && catalog" class="knowledge-modal-backdrop">
-      <section class="knowledge-modal">
-        <h2>选择在售商品后采集</h2>
-        <p>
-          {{ catalog.range }} · 平台总量 {{ catalog.total ?? '未知' }} ·
-          {{ catalog.complete ? '当前目录范围已完整' : '目录仍有后续或范围未完整' }}
-        </p>
-        <label
-          ><input type="checkbox" v-model="catalogAll" />明确采集店铺
-          {{ currentStore?.storeName }} 当前筛选 {{ search || '全部' }} 全部
-          {{ catalog.total ?? '未知总量' }} 项</label
-        ><label v-for="item in catalog.items" :key="item.productId"
-          ><input type="checkbox" :value="item.productId" v-model="catalogIds" />{{ item.title }} ·
-          {{ item.productId }}</label
-        >
-        <footer>
-          <button @click="catalogOpen = false">取消</button
-          ><button v-if="catalog.nextCursor" @click="run(() => loadCatalog(catalog!.nextCursor!))">
-            下一页目录</button
-          ><button class="primary" @click="run(collectCatalog)">采集明确所选范围</button>
-        </footer>
-      </section>
-    </div>
+    <KnowledgeCatalogDialog
+      v-if="catalogOpen && catalog"
+      :catalog="catalog"
+      :store-name="currentStore?.storeName || ''"
+      :search="catalogSearch"
+      :busy="busy"
+      v-model:selected="catalogIds"
+      v-model:all="catalogAll"
+      @close="catalogOpen = false"
+      @next="(cursor) => run(() => loadCatalog(cursor))"
+      @collect="run(collectCatalog)"
+    />
     <div v-if="estimate" class="knowledge-modal-backdrop">
       <section class="knowledge-modal">
         <h2>确认开始学习</h2>

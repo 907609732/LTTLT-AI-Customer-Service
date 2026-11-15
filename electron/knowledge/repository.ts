@@ -109,7 +109,10 @@ export class KnowledgeRepository {
     if (this.migration.status !== 'failed')
       this.transaction(() => {
         for (const job of this.rows<KnowledgeJob>('jobs'))
-          if (job.status === 'running' || (job.kind === 'learn' && job.status === 'queued'))
+          if (
+            job.status === 'running' ||
+            (['learn', 'collect'].includes(job.kind) && job.status === 'queued')
+          )
             this.put('jobs', {
               ...job,
               status: 'paused',

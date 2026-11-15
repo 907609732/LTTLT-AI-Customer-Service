@@ -94,6 +94,14 @@ export interface PddLearningProviderOptions {
     signal?: AbortSignal,
   ): Promise<void>
 }
+export type PddProductCollectInput = PlatformLearningCollectInput & {
+  /** Directory inspection never opens product details. */
+  catalogOnly?: boolean
+  /** IDs must all exist on the verified page addressed by cursor. */
+  productIds?: readonly string[]
+  /** Background collection must never steal focus on failure. */
+  quiet?: boolean
+}
 interface Adapter {
   readIdentity(options: { refresh: true }): Promise<unknown>
   _wc(): Pick<LearningPage, 'getURL' | 'isDestroyed' | 'executeJavaScript'>
@@ -272,6 +280,7 @@ const productScript = (status: PlatformLearningCollectInput['range']['productSta
 export function createPddLearningProvider(options: PddLearningProviderOptions) {
   const windows = new Map<string, PddLearningWindow>()
   const historyObservers = new Map<LearningPage, NativeHistoryObserver>()
+  const imageSources = new Map<string, Set<string>>()
   const shutdown = new AbortController()
   const queries = createAssistQueryMonitor()
   const now = options.now ?? Date.now
@@ -525,11 +534,7 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
     queue = pending.catch(() => undefined)
     return pending
   }
-  async function detailFor(
-    list: LearningPage,
-    productId: string,
-    input: PlatformLearningCollectInput,
-  ) {
+  async function detailFor(list: LearningPage, productId: string, input: PddProductCollectInput) {
     if (options.readProductDetail)
       return options.readProductDetail({
         productId,
@@ -647,7 +652,7 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
       await verify(input.identity, input.signal, page)
       return mergePlatformProductDetail(detail, native, input.identity.platformStoreId)
     } catch (cause) {
-      if (!input.signal.aborted && !win.isDestroyed()) win.show()
+      if (!input.quiet && !input.signal.aborted && !win.isDestroyed()) win.show()
       throw cause
     } finally {
       input.signal.removeEventListener('abort', aborted)
@@ -655,7 +660,7 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
     }
   }
   async function collectProducts(
-    input: PlatformLearningCollectInput,
+    input: PddProductCollectInput,
   ): Promise<PlatformLearningPage<PlatformLearningProduct>> {
     return exclusive(async () => {
       const saved = cursor(input, 'products')
@@ -748,10 +753,14 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
         await verify(input.identity, input.signal, page)
         const items: PlatformLearningProduct[] = []
         const blocked: string[] = []
-        for (const item of dom.items) {
+        if (input.productIds?.some((id) => !dom.items.some((item) => item.id === id)))
+          throw Error('所选商品已不在已验证目录页，请重新核对目录')
+        for (const item of dom.items.filter(
+          (item) => !input.productIds || input.productIds.includes(item.id),
+        )) {
           let detail: PlatformProductDetail | undefined
           try {
-            detail = await detailFor(page, item.id, input)
+            if (!input.catalogOnly) detail = await detailFor(page, item.id, input)
           } catch (cause) {
             check(input.signal)
             if (!(cause instanceof PlatformProductDetailBlockedError)) throw cause
@@ -762,6 +771,12 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
           items.push({ ...item, ...(detail ? { platformDetail: detail } : {}) })
         }
         await verify(input.identity, input.signal, page)
+        const key = fingerprint(input.identity),
+          sources = imageSources.get(key) ?? new Set<string>()
+        for (const item of items)
+          for (const url of item.platformDetail?.images ?? []) sources.add(url)
+        if (sources.size > 20000) sources.clear()
+        imageSources.set(key, sources)
         const next =
           dom.hasNext === true && dom.page !== null
             ? JSON.stringify({
@@ -793,7 +808,7 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
           rangeComplete: dom.hasNext !== null && dom.page !== null && blocked.length === 0,
         }
       } catch (cause) {
-        if (!input.signal.aborted && !win.isDestroyed()) win.show()
+        if (!input.quiet && !input.signal.aborted && !win.isDestroyed()) win.show()
         throw Error(`商品采集未完成：${cause instanceof Error ? cause.message : '平台读取失败'}`, {
           cause,
         })
@@ -1051,6 +1066,96 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
       }
     })
   }
+
+  /** Main-only capability: URLs must originate in a verified native detail, never renderer input. */
+  async function readProductImage(input: {
+    identity: PlatformLearningIdentity
+    url: string
+    signal: AbortSignal
+  }) {
+    check(input.signal)
+    await verify(input.identity, input.signal)
+    const url = new URL(input.url)
+    if (
+      !imageSources.get(fingerprint(input.identity))?.has(input.url) ||
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      url.port ||
+      !['pddpic.com', 'yangkeduo.com'].some(
+        (host) => url.hostname === host || url.hostname.endsWith(`.${host}`),
+      )
+    )
+      throw Error('图片来源未由当前商品详情确认，或来源域不受支持')
+    const win = windows.get(`${input.identity.storeId}:products`)
+    const session = win?.webContents.session
+    if (!session || win?.isDestroyed()) throw Error('图片采集分区已关闭')
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    input.signal.addEventListener('abort', abort, { once: true })
+    const timer = setTimeout(abort, timeoutMs)
+    try {
+      const response = await bounded(
+        session.fetch(url.href, {
+          signal: controller.signal,
+          redirect: 'error',
+          credentials: 'include',
+        }),
+        input.signal,
+      )
+      check(input.signal)
+      const mimeType = (response.headers.get('content-type') ?? '')
+        .split(';')[0]!
+        .trim()
+        .toLowerCase()
+      const limit = 10 * 1024 * 1024
+      if (
+        !response.ok ||
+        !response.body ||
+        Number(response.headers.get('content-length') ?? 0) > limit ||
+        !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mimeType)
+      )
+        throw Error('图片响应失败、类型不受支持或超过10MB')
+      const reader = response.body.getReader(),
+        chunks: Uint8Array[] = []
+      let size = 0
+      try {
+        for (;;) {
+          const chunk = await bounded(reader.read(), input.signal)
+          check(input.signal)
+          if (chunk.done) break
+          size += chunk.value.byteLength
+          if (size > limit) throw Error('图片超过10MB')
+          chunks.push(chunk.value)
+        }
+      } finally {
+        await reader.cancel().catch(() => undefined)
+      }
+      const bytes = new Uint8Array(size)
+      let offset = 0
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+      const match =
+        mimeType === 'image/png'
+          ? [137, 80, 78, 71, 13, 10, 26, 10].every((byte, i) => bytes[i] === byte)
+          : mimeType === 'image/jpeg'
+            ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+            : mimeType === 'image/gif'
+              ? ['GIF87a', 'GIF89a'].includes(new TextDecoder().decode(bytes.subarray(0, 6)))
+              : new TextDecoder().decode(bytes.subarray(0, 4)) === 'RIFF' &&
+                new TextDecoder().decode(bytes.subarray(8, 12)) === 'WEBP'
+      if (!match) throw Error('图片字节与类型不符')
+      await verify(input.identity, input.signal)
+      check(input.signal)
+      return { bytes, mimeType }
+    } finally {
+      clearTimeout(timer)
+      controller.abort()
+      input.signal.removeEventListener('abort', abort)
+    }
+  }
   async function reveal(storeId: string, source: keyof typeof urls = 'products') {
     if (source !== 'products' && source !== 'chats') throw Error('平台学习页面类型无效')
     await identity(storeId)
@@ -1066,6 +1171,7 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
     historyObservers.clear()
     for (const win of windows.values()) if (!win.isDestroyed()) win.destroy()
     windows.clear()
+    imageSources.clear()
   }
-  return { identity, collectProducts, collectChats, reveal, dispose }
+  return { identity, collectProducts, collectChats, readProductImage, reveal, dispose }
 }

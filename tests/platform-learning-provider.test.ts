@@ -36,7 +36,8 @@ function fixture() {
   let mallId = 'mall-1',
     origin = 'https://mms.pinduoduo.com/chat-merchant/index.html'
   let active = true,
-    destroyed = false
+    destroyed = false,
+    shown = 0
   const loaded: string[] = [],
     partitions: string[] = []
   const historyObserver: NativeHistoryObserver = {
@@ -74,7 +75,14 @@ function fixture() {
       },
     ],
   }))
+  const fetchImage = vi.fn(
+    async () =>
+      new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0]), {
+        headers: { 'content-type': 'image/png' },
+      }),
+  )
   const page = {
+    session: { fetch: fetchImage } as unknown as import('electron').Session,
     getURL: () => origin,
     isDestroyed: () => destroyed,
     executeJavaScript: async (script: string) => Function(`return (${script})`)() as unknown,
@@ -92,7 +100,9 @@ function fixture() {
     destroy: () => {
       destroyed = true
     },
-    show: () => {},
+    show: () => {
+      shown++
+    },
     setTitle: () => {},
   }
   const adapter = {
@@ -132,6 +142,7 @@ function fixture() {
   return {
     provider,
     readProductDetail,
+    fetchImage,
     loaded,
     partitions,
     adapter,
@@ -148,10 +159,183 @@ function fixture() {
       active = false
     },
     destroyed: () => destroyed,
+    shown: () => shown,
   }
 }
 
 describe('PDD learning provider real-page boundary', () => {
+  it('distinguishes a verified empty catalog from unreadable rows and keeps quiet failures hidden', async () => {
+    const f = fixture(),
+      identity = await f.provider.identity('shop')
+    document.querySelector('tbody')!.innerHTML = ''
+    document
+      .querySelector('#pdd-app-skeleton-main-content')!
+      .insertAdjacentHTML('beforeend', '<p>共有 0 条 暂无商品</p>')
+    const root = document.querySelector('#pdd-app-skeleton-main-content')!
+    root.innerHTML = root.innerHTML.replace('共有 1 条', '')
+    const empty = await f.provider.collectProducts({
+      identity,
+      range,
+      cursor: null,
+      signal: new AbortController().signal,
+      catalogOnly: true,
+      quiet: true,
+    })
+    expect(empty.items).toEqual([])
+    expect(empty.total).toBe(0)
+    expect(empty.rangeComplete).toBe(true)
+    root.innerHTML = root.innerHTML.replace('共有 0 条 暂无商品', '共有 1 条')
+    await expect(
+      f.provider.collectProducts({
+        identity,
+        range,
+        cursor: null,
+        signal: new AbortController().signal,
+        catalogOnly: true,
+        quiet: true,
+      }),
+    ).rejects.toThrow('空态')
+    expect(f.shown()).toBe(0)
+  })
+  it('refuses oversized and mislabeled image response bytes', async () => {
+    const f = fixture(),
+      identity = await f.provider.identity('shop')
+    f.readProductDetail.mockResolvedValue({
+      productId: '12345678',
+      title: '棉衣',
+      merchantCode: '',
+      description: '',
+      attributes: [],
+      images: ['https://img.pddpic.com/a.png'],
+      skus: [],
+      capturedAt: 1000,
+      sourceUrl: 'https://mms.pinduoduo.com/goods/goods_add/index?goods_id=12345678',
+      detailStatus: 'complete',
+      detailNote: '',
+    })
+    await f.provider.collectProducts({
+      identity,
+      range,
+      cursor: null,
+      signal: new AbortController().signal,
+      quiet: true,
+    })
+    f.fetchImage.mockResolvedValueOnce(
+      new Response(new Uint8Array([1]), {
+        headers: { 'content-type': 'image/png', 'content-length': '10485761' },
+      }),
+    )
+    await expect(
+      f.provider.readProductImage({
+        identity,
+        url: 'https://img.pddpic.com/a.png',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('10MB')
+    f.fetchImage.mockResolvedValueOnce(
+      new Response('<html/>', { headers: { 'content-type': 'image/png' } }),
+    )
+    await expect(
+      f.provider.readProductImage({
+        identity,
+        url: 'https://img.pddpic.com/a.png',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('字节')
+  })
+
+  it('registers image bytes only for a current verified detail URL and rejects arbitrary URLs', async () => {
+    const f = fixture()
+    const identity = await f.provider.identity('shop')
+    await expect(
+      f.provider.readProductImage({
+        identity,
+        url: 'https://img.pddpic.com/private.png',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('来源')
+    f.readProductDetail.mockResolvedValue({
+      productId: '12345678',
+      title: '棉衣',
+      merchantCode: '',
+      description: '',
+      attributes: [],
+      images: ['https://img.pddpic.com/product.png'],
+      skus: [],
+      capturedAt: 1000,
+      sourceUrl: 'https://mms.pinduoduo.com/goods/goods_add/index?goods_id=12345678',
+      detailStatus: 'complete',
+      detailNote: '',
+    })
+    await f.provider.collectProducts({
+      identity,
+      range,
+      cursor: null,
+      signal: new AbortController().signal,
+      quiet: true,
+    })
+    const image = await f.provider.readProductImage({
+      identity,
+      url: 'https://img.pddpic.com/product.png',
+      signal: new AbortController().signal,
+    })
+    expect(image.mimeType).toBe('image/png')
+    expect(image.bytes[0]).toBe(137)
+    f.fetchImage.mockResolvedValueOnce(
+      new Response('<svg/>', { headers: { 'content-type': 'image/svg+xml' } }),
+    )
+    await expect(
+      f.provider.readProductImage({
+        identity,
+        url: 'https://img.pddpic.com/product.png',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('图片')
+    f.mall('another')
+    await expect(
+      f.provider.readProductImage({
+        identity,
+        url: 'https://img.pddpic.com/product.png',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('身份')
+  })
+
+  it('catalog mode returns list-only material without reading product detail', async () => {
+    const f = fixture()
+    f.readProductDetail.mockRejectedValue(Error('detail must remain unopened'))
+    const result = await f.provider.collectProducts(
+      Object.assign(
+        {
+          identity: await f.provider.identity('shop'),
+          range,
+          cursor: null,
+          signal: new AbortController().signal,
+        },
+        { catalogOnly: true, quiet: true },
+      ),
+    )
+    expect(result.items.map((item) => item.id)).toEqual(['12345678'])
+    expect(result.items[0]?.platformDetail).toBeUndefined()
+    expect(result.rangeComplete).toBe(true)
+  })
+  it('selected-detail mode rejects an item absent from the verified catalog page', async () => {
+    const f = fixture()
+    await expect(
+      f.provider.collectProducts(
+        Object.assign(
+          {
+            identity: await f.provider.identity('shop'),
+            range,
+            cursor: null,
+            signal: new AbortController().signal,
+          },
+          { productIds: ['99999999'], quiet: true },
+        ),
+      ),
+    ).rejects.toThrow('所选')
+  })
+
   it('只跳过平台明确拒绝的禁售详情，保留列表且标明范围不完整', async () => {
     const f = fixture()
     f.readProductDetail.mockRejectedValue(

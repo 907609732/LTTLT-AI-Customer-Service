@@ -1,3 +1,5 @@
+import { createKnowledgePipelineCoordinator } from './knowledge/pipeline'
+import { createKnowledgeCollector } from './knowledge/collector'
 import { createCollectedProductWriter } from './collected-products'
 import { createKnowledgePlatformProducts } from './knowledge-platform-products'
 import { selectProductSpecContext } from './product-spec-context'
@@ -572,6 +574,20 @@ export function createLocalRuntime(options: {
       ).buildIdentityScript({ timeoutMs: 5000, refresh: true }),
   }
   const learningProvider = createPddLearningProvider(providerOptions)
+  const knowledgePipeline = createKnowledgePipelineCoordinator()
+  knowledgePipeline.register(
+    createKnowledgeCollector({
+      repository: knowledgeRepository,
+      provider: learningProvider,
+      readImage: learningProvider.readProductImage,
+      assertActive,
+      getStore: providerStore,
+      changed: () => {
+        if (!closed) for (const listener of listeners) listener({ type: 'knowledge:changed' })
+      },
+    }),
+  )
+  knowledge.setPipeline(knowledgePipeline)
   const productWriter = createCollectedProductWriter({
     savePlatformProduct: platformProducts.upsert,
     execute: async (command) => {

@@ -89,6 +89,7 @@ export function useKnowledgeManager() {
     catalogIds = ref<string[]>([]),
     catalogAll = ref(false),
     catalogOpen = ref(false),
+    catalogSearch = ref(''),
     estimate = ref<KnowledgeEstimate>()
   const stores = computed(() => runtime.snapshot.stores),
     currentStore = computed(() => stores.value.find((s) => s.id === storeId.value))
@@ -353,6 +354,11 @@ export function useKnowledgeManager() {
     trial.value = undefined
     question.value = ''
     trialSku.value = ''
+    catalog.value = undefined
+    catalogIds.value = []
+    catalogAll.value = false
+    catalogOpen.value = false
+    catalogSearch.value = ''
   }
   async function changeStore(next: string) {
     await run(async () => {
@@ -770,10 +776,11 @@ export function useKnowledgeManager() {
     notice.value = `已导出本店${items.length}条知识及审核状态`
   }
   async function loadCatalog(cursor = '') {
+    const filter = cursor ? catalogSearch.value : search.value
     const result = await client().pipeline({
       action: 'catalog',
       storeId: storeId.value,
-      search: search.value,
+      search: filter,
       cursor,
     })
     if (
@@ -785,6 +792,7 @@ export function useKnowledgeManager() {
       throw Error('目录身份或筛选范围已变化，请重新读取')
     catalog.value = result
     if (!cursor) {
+      catalogSearch.value = filter
       catalogIds.value = []
       catalogAll.value = false
     }
@@ -792,6 +800,11 @@ export function useKnowledgeManager() {
   }
   async function collectCatalog() {
     if (!catalog.value) return
+    if (
+      catalogAll.value &&
+      (!catalog.value.complete || catalog.value.total === null || catalog.value.total > 1000)
+    )
+      throw Error('目录范围未完整或数量超限，请明确选择已验证商品')
     if (!catalogIds.value.length && !catalogAll.value) throw Error('请选择商品或明确当前筛选全选')
     const result = await client().pipeline({
       action: 'start',
@@ -958,6 +971,7 @@ export function useKnowledgeManager() {
         catalogIds.value = []
         catalogAll.value = false
         catalogOpen.value = false
+        catalogSearch.value = ''
         estimate.value = undefined
         workspace.value = next
         storeId.value = ''
@@ -1039,6 +1053,7 @@ export function useKnowledgeManager() {
     catalogIds,
     catalogAll,
     catalogOpen,
+    catalogSearch,
     estimate,
     stores,
     currentStore,

@@ -7,6 +7,7 @@ import { createKnowledgeRuntime } from '../electron/knowledge-runtime'
 import { createKnowledgePlatformProducts } from '../electron/knowledge-platform-products'
 import { createKnowledgeCompatibilityPorts } from '../electron/knowledge-compatibility'
 import { ReviewConsole } from '../electron/review-console'
+import { knowledgeReassociateSchema } from '../src/shared/contracts/knowledge-client'
 import { emptySnapshot } from '../src/shared/contracts/backend'
 
 const disposals: (() => void)[] = []
@@ -399,4 +400,19 @@ describe('knowledge runtime boundary and exact request evidence', () => {
       runtime.complete({ messages: [{ role: 'user', content: 'test' }] }),
     ).rejects.toThrow('account changed')
   })
+})
+
+it('accepts one root plus all 1000 verified SKU identities in a family mapping preview', () => {
+  const input = {
+    rootBindingId: 'root',
+    canonicalId: 'family',
+    expectedCanonicalRevision: 1,
+    bindings: Array.from({ length: 1001 }, (_, index) => ({
+      id: index === 0 ? 'root' : `sku-${index}`,
+      expectedRevision: 1,
+    })),
+  }
+  expect(knowledgeReassociateSchema.safeParse(input).success).toBe(true)
+  input.bindings.push({ id: 'overflow', expectedRevision: 1 })
+  expect(knowledgeReassociateSchema.safeParse(input).success).toBe(false)
 })

@@ -9,6 +9,7 @@ import type {
   KnowledgeEntry,
   KnowledgeVersion,
 } from '../src/shared/contracts/knowledge'
+import KnowledgeCatalogDialog from '../src/modules/knowledge/components/KnowledgeCatalogDialog.vue'
 import KnowledgeManagerView from '../src/modules/knowledge/components/KnowledgeManagerView.vue'
 const fake = vi.hoisted(() => ({
   asset: vi.fn(),
@@ -573,5 +574,90 @@ it('reopens product entry A after saving A then B with its newest persisted text
     answer: 'A再次修改',
     revision: 3,
   })
+  wrapper.unmount()
+})
+
+it('refuses unknown catalog all-selection and preserves its original filter across pages', async () => {
+  const { wrapper, manager: state } = await setup(true),
+    manager = state!
+  manager.search.value = '棉衣'
+  fake.pipeline.mockResolvedValue({
+    identityVersion: 'identity',
+    scopeToken: 'scope',
+    items: [{ productId: 'p', title: '棉衣' }],
+    nextCursor: 'next',
+    total: null,
+    complete: false,
+    range: '在售；范围未知',
+  })
+  await manager.loadCatalog()
+  manager.catalogAll.value = true
+  await expect(manager.collectCatalog()).rejects.toThrow('完整')
+  manager.catalogAll.value = false
+  manager.search.value = '另一商品'
+  await manager.loadCatalog('next')
+  expect(
+    fake.pipeline.mock.calls.filter(([input]) => input.action === 'catalog').at(-1)?.[0],
+  ).toMatchObject({ search: '棉衣', cursor: 'next' })
+  wrapper.unmount()
+})
+
+it('renders a disabled unknown-scope shortcut while keeping explicit cross-page selection visible', async () => {
+  const wrapper = mount(KnowledgeCatalogDialog, {
+    props: {
+      catalog: {
+        identityVersion: 'i',
+        scopeToken: 's',
+        items: [{ productId: 'p2', title: '当前页商品' }],
+        nextCursor: 'next',
+        total: null,
+        complete: false,
+        range: '第2页；已核对2项',
+      },
+      storeName: '测试店',
+      search: '棉',
+      busy: false,
+      selected: ['p1'],
+      all: false,
+    },
+  })
+  expect(wrapper.get('input[type="checkbox"]').attributes('disabled')).toBeDefined()
+  expect(wrapper.text()).toContain('已明确选择 1 项（含其他目录页的选择）')
+  expect(wrapper.text()).toContain('全部筛选采集须先核对全部页及总量')
+  await wrapper.setProps({
+    catalog: {
+      identityVersion: 'i',
+      scopeToken: 's',
+      items: [{ productId: 'p2', title: '当前页商品' }],
+      nextCursor: null,
+      total: 2,
+      complete: true,
+      range: '完整两页',
+    },
+  })
+  expect(wrapper.get('input[type="checkbox"]').attributes('disabled')).toBeUndefined()
+  wrapper.unmount()
+})
+
+it('clears the previous shop catalog and selected scope when the manager context changes', async () => {
+  const { wrapper, manager: state } = await setup(true),
+    manager = state!
+  fake.pipeline.mockResolvedValue({
+    identityVersion: 'a-identity',
+    scopeToken: 'a-scope',
+    items: [{ productId: 'a-product', title: 'A商品' }],
+    nextCursor: null,
+    total: 1,
+    complete: true,
+    range: 'A店范围',
+  })
+  await manager.loadCatalog()
+  manager.catalogIds.value = ['a-product']
+  manager.catalogAll.value = true
+  await manager.changeStore('b')
+  expect(manager.catalogOpen.value).toBe(false)
+  expect(manager.catalog.value).toBeUndefined()
+  expect(manager.catalogIds.value).toEqual([])
+  expect(manager.catalogAll.value).toBe(false)
   wrapper.unmount()
 })

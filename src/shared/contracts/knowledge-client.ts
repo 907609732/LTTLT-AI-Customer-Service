@@ -59,7 +59,7 @@ export const knowledgeReassociateSchema = z
           .strict(),
       )
       .min(1)
-      .max(1000),
+      .max(1001),
   })
   .strict()
 export type KnowledgeReassociateInput = z.input<typeof knowledgeReassociateSchema>

@@ -1,6 +1,6 @@
 # knowledge 模块
 
-2026-11-15：新增独立 `#/knowledge` 管理窗口及SQLite统一审核知识接线，见 [KNOWLEDGE_LIBRARY.md](../../../docs/KNOWLEDGE_LIBRARY.md)。`KnowledgeManagerView` 组合商品卡、草稿编辑器与审核对话框，模块状态在 `manager-controller.ts`；服务经共享窄桥调用。下文旧页面的“启用并保存”不再发布：兼容保存/导入生成草稿，必须进入独立知识库审核。新管道执行器未注册时如实禁用，现有平台采集兼容口仅记录原料与草稿。
+2026-11-15：新增独立 `#/knowledge` 管理窗口及SQLite统一审核知识接线，见 [KNOWLEDGE_LIBRARY.md](../../../docs/KNOWLEDGE_LIBRARY.md)。`KnowledgeManagerView` 组合商品卡、草稿编辑器与审核对话框，模块状态在 `manager-controller.ts`；服务经共享窄桥调用。下文旧页面的“启用并保存”不再发布：兼容保存/导入生成草稿，必须进入独立知识库审核。目录优先的拼多多只读采集已注册；专用KnowledgeCatalogDialog显示跨页数量并禁用未核对范围全选。文件导入、模型学习与日检尚未注册时如实禁用，平台采集只记录原料，不发布答案。
 
 职责：意图、知识、训练、模型与禁用词界面。
 
