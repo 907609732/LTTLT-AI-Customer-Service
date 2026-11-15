@@ -292,7 +292,7 @@ function removeMedia(index: number) {
       <div class="rules-actions">
         <button type="submit" class="primary" :disabled="busy || !snapshot || conflict">
           保存接待规则</button
-        ><button type="button" :disabled="busy" @click="load">载入最新接待规则</button
+        ><button type="button" :disabled="busy" @click="load()">载入最新接待规则</button
         ><button
           v-if="rule"
           type="button"
