@@ -143,7 +143,8 @@
     {
       "path": "overlay/lingtu/settings.go",
       "upstreamPath": "managed-server/overlay/lingtu/settings.go",
-      "sha256": "abe3a0d51749548fc1643503a89a0be8968d4ab09223dbcd2d9daac60c54d48d"
+      "sha256": "e77ae0a6bc4986df0d5ae4408f5d8897be5c5fc94598f9b95e0b96529f735783",
+      "upstreamSha256": "abe3a0d51749548fc1643503a89a0be8968d4ab09223dbcd2d9daac60c54d48d"
     },
     {
       "path": "overlay/lingtu/social.go",
@@ -178,22 +179,26 @@
     {
       "path": "overlay/lingtuhost/admin.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin.go",
-      "sha256": "2fe0a91291e4b657105d3f052f01a7f41015c240e000acb8e2a4f20966e245ab"
+      "sha256": "8c8b53d75f9898afaeaf910cc5b7690ad434b997e760eb00fe92ce96b60c9085",
+      "upstreamSha256": "2fe0a91291e4b657105d3f052f01a7f41015c240e000acb8e2a4f20966e245ab"
     },
     {
       "path": "overlay/lingtuhost/admin_connections_review_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_connections_review_test.go",
-      "sha256": "ffeb366f2e15e1a04b7bb695c9657887768a328beaf34b74586e6b47a9b626cc"
+      "sha256": "186f68ee6b1ca503de83f759896c46c3db263fa6c9a0077ee183d4b243bf98c4",
+      "upstreamSha256": "ffeb366f2e15e1a04b7bb695c9657887768a328beaf34b74586e6b47a9b626cc"
     },
     {
       "path": "overlay/lingtuhost/admin_connections_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_connections_test.go",
-      "sha256": "9e0eb7846a20901e2eda8f98db61ff8dccaa9b6427fd705a0241b5e7dad8e88f"
+      "sha256": "3cad37acfee0a384918bc27cdc531118009efbd79bccbddd54e118f697ec8189",
+      "upstreamSha256": "9e0eb7846a20901e2eda8f98db61ff8dccaa9b6427fd705a0241b5e7dad8e88f"
     },
     {
       "path": "overlay/lingtuhost/admin_models.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_models.go",
-      "sha256": "f6508c9bc6ac755deb30b563315572f32ca5c4480b5dff33ee7f700f62d41015"
+      "sha256": "a615c948cb069cd03f9533dc35f41cc1be7821f734016c7c47fd68fbd09c4785",
+      "upstreamSha256": "f6508c9bc6ac755deb30b563315572f32ca5c4480b5dff33ee7f700f62d41015"
     },
     {
       "path": "overlay/lingtuhost/admin_model_default_test.go",
@@ -203,7 +208,8 @@
     {
       "path": "overlay/lingtuhost/admin_save_test_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_save_test_test.go",
-      "sha256": "047bf18f53d253bae540bca41389655568032b35ea69ebb14fa5bc7ff8955bf7"
+      "sha256": "1e009b0c0fa782eea051578ff9dfd47fe077fb7e7bb154a3fb70f2cbb5224ffc",
+      "upstreamSha256": "047bf18f53d253bae540bca41389655568032b35ea69ebb14fa5bc7ff8955bf7"
     },
     {
       "path": "overlay/lingtuhost/admin_test.go",
@@ -238,12 +244,14 @@
     {
       "path": "overlay/lingtuhost/chat.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat.go",
-      "sha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650"
+      "sha256": "fe0702f847311b0ba392a7ef73ddd7b8b4e942f776542eff4bc41e5053298e97",
+      "upstreamSha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650"
     },
     {
       "path": "overlay/lingtuhost/chat_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat_test.go",
-      "sha256": "68d971b36114e9bb06682511db70b011cac71b784037b1dd161446e2195d768f"
+      "sha256": "39dc5183b52064cad24fc5cfd2aba8d0efc3ee0187b366540c325ff0a1461e14",
+      "upstreamSha256": "68d971b36114e9bb06682511db70b011cac71b784037b1dd161446e2195d768f"
     },
     {
       "path": "overlay/lingtuhost/chat_usage_rejection_test.go",
@@ -268,7 +276,7 @@
     {
       "path": "overlay/lingtuhost/routes.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/routes.go",
-      "sha256": "715069fabbbfaea9beadb77aaf0e7872c78a171717cca8ecc73ceb47702f4cf1",
+      "sha256": "281f281d5787a0094617d89a20ed072f2a61d5dff2298b8c9b20c2df78e0c5db",
       "upstreamSha256": "06864f9097cc5e2c7010927b6f5ba3d3bba95e0099ff771abbaaebc73932d5c4",
       "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors."
     },
@@ -369,14 +377,14 @@
     {
       "path": "overlay/web/src/features/lingtu/admin-page.test.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.test.tsx",
-      "sha256": "15894ff25ce03c87637994d6a42067de0a5c0e91b05531630186c351705bc20b",
+      "sha256": "cf926d395877472b82e9cce89353b62fd7aa56ba45f7688ec0e406ab3029e3bf",
       "upstreamSha256": "31faaa4b3b87915c7a18bf03df0114717110648dd169606c741b749785c0aabf",
       "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-page.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.tsx",
-      "sha256": "0ac968b336c304992d065adf2eec660b521b7a951ef9a280a451f01289be791e",
+      "sha256": "d1bffc35181294e9f8bea07ab69d3ddd5d5c47848ca0d081b29a7a796bd47df7",
       "upstreamSha256": "47c9d379bc0749edd50d6dd598452074525a69308d3f9702eb65b3d16837111a",
       "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },
@@ -464,7 +472,7 @@
     {
       "path": "translations.json",
       "upstreamPath": "managed-server/translations.json",
-      "sha256": "47e922bd3b9fe770914e4099befa23ae8228b0caf10e85770ec20e81eceee817",
+      "sha256": "a02d3e43a66eb130049c1c94f5905f02f8b5feb446db63556b7065e44db66286",
       "upstreamSha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149",
       "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },

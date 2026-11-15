@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -163,7 +164,7 @@ func TestLingtuReviewTrialSelectionRequiresCurrentTest(t *testing.T) {
 		t.Error("untested managed default accepted")
 	}
 	after, _ := lingtu.LoadTrialPolicy(db)
-	if before != after {
+	if !reflect.DeepEqual(before, after) {
 		t.Error("rejected selection changed policy")
 	}
 	if err := h.executeModelConnection(nil, configurationRequest{Action: "test", Provider: "vllm", ConnectionID: ch.Id}, func(context.Context, *model.Channel, int) error { return nil }); err != nil {

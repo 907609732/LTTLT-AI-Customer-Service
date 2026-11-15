@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -64,7 +65,7 @@ func TestLingtuConnectionSaveAndTest(t *testing.T) {
 				t.Fatal("successful saved configuration not tested")
 			}
 			after, _ := lingtu.LoadTrialPolicy(db)
-			if before != after {
+			if !reflect.DeepEqual(before, after) {
 				t.Fatal("save and test switched default")
 			}
 		})

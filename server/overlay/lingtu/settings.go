@@ -41,14 +41,16 @@ type ManagedAudit struct {
 func (ManagedAudit) TableName() string { return "lingtu_audits" }
 
 type TrialPolicy struct {
-	Calls                int    `json:"calls"`
-	Days                 int    `json:"days"`
-	DefaultModel         string `json:"default_model"`
-	DailyCalls           int    `json:"daily_calls"`
-	MaxTokens            int    `json:"max_tokens"`
-	PerAccountConcurrent int    `json:"per_account_concurrent"`
-	RequestsPerMinute    int    `json:"requests_per_minute"`
-	GlobalConcurrent     int    `json:"global_concurrent"`
+	Calls                int      `json:"calls"`
+	Days                 int      `json:"days"`
+	DefaultModel         string   `json:"default_model"`
+	ModelScope           string   `json:"model_scope,omitempty"`
+	AllowedModels        []string `json:"allowed_models,omitempty"`
+	DailyCalls           int      `json:"daily_calls"`
+	MaxTokens            int      `json:"max_tokens"`
+	PerAccountConcurrent int      `json:"per_account_concurrent"`
+	RequestsPerMinute    int      `json:"requests_per_minute"`
+	GlobalConcurrent     int      `json:"global_concurrent"`
 }
 
 func DefaultTrialPolicy() TrialPolicy {

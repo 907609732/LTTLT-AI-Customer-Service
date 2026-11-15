@@ -172,6 +172,7 @@ type chatMessage struct {
 }
 type chatInput struct {
 	RequestID string        `json:"client_request_id"`
+	Model     string        `json:"model,omitempty"`
 	Messages  []chatMessage `json:"messages"`
 }
 
@@ -184,15 +185,16 @@ func parseChat(r io.Reader) (chatInput, string, error) {
 	if json.Unmarshal(raw, &in) != nil || len(in.RequestID) < 1 || len(in.RequestID) > 128 || len(in.Messages) < 1 || len(in.Messages) > 64 {
 		return in, "", errors.New("invalid request")
 	}
+	if in.Model != "" && !modelIdentifier(in.Model) {
+		return in, "", errors.New("invalid model")
+	}
 	images := 0
 	for _, m := range in.Messages {
 		if (m.Role != "system" && m.Role != "user" && m.Role != "assistant") || !validChatContent(m.Role, m.Content, &images) {
 			return in, "", errors.New("invalid message")
 		}
 	}
-	canonical, _ := json.Marshal(in.Messages)
-	digest := sha256.Sum256(canonical)
-	return in, hex.EncodeToString(digest[:]), nil
+	return in, chatDigest(in), nil
 }
 func selectedChannel(selected string) (model.Channel, error) {
 	var binding lingtu.ModelConnection
@@ -402,9 +404,18 @@ func (h *Host) prepareChat(c *gin.Context) {
 		clientFailure(c, 403, "account_disabled")
 		return
 	}
-	selected := account.Model
-	if selected == "" {
-		selected = policy.DefaultModel
+	selection, err := resolveModelPolicy(model.DB, policy, account.Model)
+	if err != nil {
+		clientFailure(c, 503, "model_not_ready")
+		return
+	}
+	selected := selection.DefaultModel
+	if in.Model != "" {
+		if !selection.allows(in.Model) {
+			clientFailure(c, 403, "model_not_allowed")
+			return
+		}
+		selected = in.Model
 	}
 	channel, err := selectedChannel(selected)
 	if err != nil {

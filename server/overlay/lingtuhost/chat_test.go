@@ -155,7 +155,7 @@ func TestLingtuChatLifecycle(t *testing.T) {
 			})
 			call := func() *httptest.ResponseRecorder {
 				r := httptest.NewRecorder()
-				req := httptest.NewRequest("POST", "/chat?channel=999", strings.NewReader(`{"client_request_id":"one","model":"evil","messages":[{"role":"user","content":"hello"}],"tools":[{}]}`))
+				req := httptest.NewRequest("POST", "/chat?channel=999", strings.NewReader(`{"client_request_id":"one","messages":[{"role":"user","content":"hello"}],"tools":[{}]}`))
 				req.Header.Set("Authorization", "Bearer "+bundle.AccessToken)
 				req.Header.Set("Content-Type", "application/json")
 				req.Header.Set("X-Evil", "root")
@@ -464,7 +464,7 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 		}
 		c.Next()
 	}, h.injectInternalToken, middleware.TokenAuth(), h.restrictManagedModelLimit, middleware.Distribute(), h.nativeChat)
-	request := httptest.NewRequest("POST", "/chat?channel=999", strings.NewReader(`{"client_request_id":"native-one","model":"evil","messages":[{"role":"user","content":"hello"}]}`))
+	request := httptest.NewRequest("POST", "/chat?channel=999", strings.NewReader(`{"client_request_id":"native-one","messages":[{"role":"user","content":"hello"}]}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+bundle.AccessToken)
 	request.Header.Set("X-Evil", "root")

@@ -389,6 +389,54 @@ it('provides default caps and translated friendly model selection in trial setti
   ).toBeTruthy()
 })
 
+it('saves all or selected models and limits the default to the chosen range', async () => {
+  allowProtectedSave()
+  const configuration = {
+    ...config,
+    policy: { ...config.policy, model_scope: 'selected', allowed_models: ['deepseek-flash'] },
+    model_connections: [
+      { connection_id: 1, model_id: 'deepseek-flash', name: 'DeepSeek', upstream_model: 'deepseek-flash', ready: true, enabled: true },
+      { connection_id: 2, model_id: 'qwen-plus', name: 'Qwen', upstream_model: 'qwen-plus', ready: true, enabled: true },
+    ],
+  }
+  const saved: Record<string, unknown>[] = []
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') saved.push(JSON.parse(request.data as string))
+    return { data: request.method === 'post' ? { saved: true } : fixtureData(request.url || '', request.params, configuration), status: 200, statusText: 'OK', headers: {}, config: request }
+  }
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('tab', { name: '试用设置' }))
+  const scope = await screen.findByRole('combobox', { name: '可用模型范围' })
+  const defaults = screen.getByRole('combobox', { name: '默认模型' })
+  expect(within(defaults).queryByRole('option', { name: '通义千问' })).toBeNull()
+  fireEvent.click(screen.getByRole('checkbox', { name: '通义千问' }))
+  fireEvent.change(defaults, { target: { value: 'qwen-plus' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  await waitFor(() => expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({ model_scope: 'selected', allowed_models: ['deepseek-flash', 'qwen-plus'], model: 'qwen-plus' })])))
+  fireEvent.change(scope, { target: { value: 'all' } })
+  expect(screen.queryByRole('checkbox', { name: '通义千问' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  await waitFor(() => expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({ model_scope: 'all', allowed_models: [] })])))
+})
+
+it('allows editing limits while retaining an unavailable saved default in all scope', async () => {
+  installFixture({
+    ...config,
+    policy: { ...config.policy, model_scope: 'all' },
+    model_connections: [
+      { connection_id: 1, model_id: 'deepseek-flash', ready: false, enabled: false },
+      { connection_id: 2, model_id: 'qwen-plus', ready: true, enabled: true },
+    ],
+  })
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('tab', { name: '试用设置' }))
+  fireEvent.change(await screen.findByLabelText('全站每日试用次数上限'), { target: { value: '333' } })
+  expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(false)
+  expect((screen.getByRole('combobox', { name: '默认模型' }) as HTMLSelectElement).value).toBe('deepseek-flash')
+})
+
 it('preserves WeChat, DingTalk and email drafts across navigation, language changes and refresh', async () => {
   installFixture({
     ...config,

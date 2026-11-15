@@ -369,6 +369,9 @@ func saveModelPolicy(tx *gorm.DB, selected string) error {
 // Legacy aliases retain their migration allowance; unchanged defaults can be
 // retained while editing limits even when their channel is currently unavailable.
 func persistTrialPolicy(tx *gorm.DB, policy lingtu.TrialPolicy) error {
+	if err := validateModelPolicy(tx, policy); err != nil {
+		return err
+	}
 	previous, err := lingtu.LoadTrialPolicy(tx)
 	if err != nil {
 		return err
@@ -405,6 +408,13 @@ func (h *Host) saveTrialConfiguration(r configurationRequest) error {
 		policy.DailyCalls = r.DailyCalls
 		policy.MaxTokens = r.MaxTokens
 		policy.DefaultModel = r.Model
+		// An older admin client has no scope fields; preserve the saved scope.
+		if r.ModelScope != "" {
+			policy.ModelScope = r.ModelScope
+			policy.AllowedModels = r.AllowedModels
+		} else if r.AllowedModels != nil {
+			return lingtu.ErrInvalidTrialInput
+		}
 		if r.PerAccountConcurrent != nil {
 			policy.PerAccountConcurrent = *r.PerAccountConcurrent
 		}
@@ -465,7 +475,7 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 			if err != nil {
 				return err
 			}
-			if policy.DefaultModel == row.ModelID {
+			if policy.DefaultModel == row.ModelID || policy.ModelScope == "selected" && hasModel(policy.AllowedModels, row.ModelID) {
 				return errors.New("selected connection cannot be deleted")
 			}
 			var count int64

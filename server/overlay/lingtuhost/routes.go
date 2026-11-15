@@ -211,10 +211,12 @@ func (h *Host) accountResponse(c *gin.Context, uid int) {
 		clientFailure(c, 503, "configuration_unavailable")
 		return
 	}
-	selected := account.Model
-	if selected == "" {
-		selected = policy.DefaultModel
+	selection, err := resolveModelPolicy(model.DB, policy, account.Model)
+	if err != nil {
+		clientFailure(c, 503, "model_not_ready")
+		return
 	}
+	selected := selection.DefaultModel
 	c.JSON(200, gin.H{"capabilities": visionCapability(selected), "user_id": uid, "display_name": user.DisplayName, "status": account.Status, "trial": gin.H{"limit": grant.Limit, "used": grant.Used, "reserved": grant.Reserved, "remaining": max(0, grant.Limit-grant.Used-grant.Reserved), "expires_at": grant.ExpiresAt}})
 }
 func (h *Host) config(c *gin.Context) {
@@ -228,12 +230,13 @@ func (h *Host) config(c *gin.Context) {
 		clientFailure(c, 403, "account_disabled")
 		return
 	}
-	selected := account.Model
-	if selected == "" {
-		selected = policy.DefaultModel
+	selection, err := resolveModelPolicy(model.DB, policy, account.Model)
+	if err != nil {
+		clientFailure(c, 503, "model_not_ready")
+		return
 	}
 	// Only display/selection policy; no upstream URL, channel or credential is serialized.
-	c.JSON(200, gin.H{"default_model": selected, "models": []gin.H{{"id": selected, "name": selected}}, "max_tokens": policy.MaxTokens})
+	c.JSON(200, gin.H{"default_model": selection.DefaultModel, "models": selection.Models, "max_tokens": policy.MaxTokens})
 }
 func (h *Host) approve(c *gin.Context) {
 	identity, ok := middleware.GetSessionAuthIdentity(c)
