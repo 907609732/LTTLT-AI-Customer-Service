@@ -4,8 +4,8 @@
 
 | 项目                             | 当前名称                                                    |
 | -------------------------------- | ----------------------------------------------------------- |
-| 界面、窗口、网页标题、模拟顾客页 | 灵兔AI电商客服                                                     |
-| npm package / productName        | lingtu-ai / 灵兔AI电商客服                                         |
+| 界面、窗口、网页标题、模拟顾客页 | 灵兔AI电商客服                                              |
+| npm package / productName        | lingtu-ai / 灵兔AI电商客服                                  |
 | Windows 程序                     | LingtuAI.exe                                                |
 | 安装包                           | LingtuAI-Setup-<版本>-win-x64.exe                           |
 | ZIP                              | LingtuAI-<版本>-win-x64.zip                                 |

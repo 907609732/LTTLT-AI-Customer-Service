@@ -470,7 +470,9 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
       }
       check(signal)
       windows.set(key, win)
-      win.setTitle(source === 'products' ? '灵兔AI电商客服 · 平台商品采集' : '灵兔AI电商客服 · 平台聊天记录')
+      win.setTitle(
+        source === 'products' ? '灵兔AI电商客服 · 平台商品采集' : '灵兔AI电商客服 · 平台聊天记录',
+      )
       win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
       const guard = (event: { preventDefault(): void }, url: string) => {
         if (!isAllowedAssistUrl('pdd-web', url)) event.preventDefault()

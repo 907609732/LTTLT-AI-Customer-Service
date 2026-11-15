@@ -245,7 +245,6 @@ Task4 round1 fixes: same-name material at the selected target revises stable sou
 
 云端c0857b5的源码、完整桌面85项、知识库及打包通过；产物验收仍使用旧settings页面断言失败。package-smoke改为核对旧地址真实跳转、侧栏仅快捷回复及顶部登录入口，保留全部ASAR、隔离IPC、凭证、文档解析和真实应用启动断言。
 
-
 ## 2026-11-16 桌面软件改名
 
 软件显示名统一为“灵兔AI电商客服”，覆盖统一品牌入口、桌面界面、窗口/模拟页标题及安装显示名。内部标识和用户数据路径保持兼容。独立服务端名称、生产部署及安装包发布不在本次范围。验证：app-identity 与 dialog 专项共 3 项通过，安装配置名称及 appId 校验通过。

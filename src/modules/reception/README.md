@@ -34,5 +34,4 @@
 
 公开 UI `OperationApprovalPanel` 每次显示一项目标与最终内容，支持取消和只读核对；ShopOpsPanel 内嵌规则、能力及证据状态，媒体最多四项可预览。定时任务弹窗只从真实平台事实中选店铺/买家/订单/客服，不接受手填事实ID。复用 Vue/Element Plus、RuntimePanel、现有样式、系统加密和 Node 标准库，未新增第三方依赖或修改 vendor。验证仅覆盖 reception/operation 直接相关测试、类型及文件静态检查，真实平台写入必须由用户逐项批准。
 
-
 2026-11-16：转接人工与进店欢迎迁入店铺信息助手的接待设置步骤，复用 ShopOpsPanel，embedded 模式隐藏 StoreSelect 并通过 storeId 固定目标店铺；保留独立保存及全部既有规则/审批。配置中心只保留自动操作与图片识别子项，旧深链接兼容。
