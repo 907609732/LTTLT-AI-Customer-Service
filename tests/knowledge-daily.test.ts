@@ -4,10 +4,39 @@ import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { createKnowledgeRepository } from '../electron/knowledge'
 import { createKnowledgeDailyCheck } from '../electron/knowledge/daily'
+import { createKnowledgeRuntime } from '../electron/knowledge-runtime'
+
+it('defaults daily checks off and requires explicit opt-in again in a new runtime session', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'knowledge-daily-off-'))
+  const repo = createKnowledgeRepository({ directory, workspaceId: 'w' })
+  try {
+    expect(repo.getSettings().dailyCheckEnabled).toBe(false)
+    repo.saveSettings({ dailyCheckEnabled: true })
+    const runtime = createKnowledgeRuntime({
+      repository: repo,
+      workspaceId: 'w',
+      assertActive: () => {},
+      stores: () => [],
+      changed: () => {},
+    })
+    expect(repo.getSettings().dailyCheckEnabled).toBe(false)
+    await runtime.request({
+      workspaceId: 'w',
+      operation: 'command',
+      command: { type: 'save-settings', settings: { dailyCheckEnabled: true } },
+    })
+    expect(repo.getSettings().dailyCheckEnabled).toBe(true)
+    runtime.dispose()
+  } finally {
+    repo.dispose()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
 
 it('checks once per eligible shop Beijing day, catches a later login, persists day and pauses captcha without automatic retries', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'knowledge-daily-'))
   const repo = createKnowledgeRepository({ directory, workspaceId: 'w' })
+  repo.saveSettings({ dailyCheckEnabled: true })
   let now = Date.parse('2026-11-15T00:59:00Z'),
     second = false,
     calls = 0

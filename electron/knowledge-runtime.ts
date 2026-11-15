@@ -52,6 +52,9 @@ export function createKnowledgeRuntime(options: {
   resolveSku?(storeId: string, productId: string, question: string): string
 }) {
   const repo = options.repository
+  // Daily collection is an explicit opt-in for each runtime session, including existing accounts.
+  if (!repo.readOnly && repo.getSettings().dailyCheckEnabled)
+    repo.saveSettings({ dailyCheckEnabled: false })
   let model: KnowledgeModelPort | undefined
   let pipeline: KnowledgePipelinePort | undefined
   let closed = false

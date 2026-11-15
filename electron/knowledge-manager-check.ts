@@ -212,6 +212,27 @@ app
     await manager.open({ workspaceId: w, storeId: a })
     await until(`document.querySelectorAll('.knowledge-card').length===8`)
     checks.push('real route/preload/trusted IPC/SQLite cards loaded')
+    await click('设置')
+    await until(`Boolean(document.querySelector('.knowledge-settings input[type="checkbox"]'))`)
+    assert.equal(
+      await evaluate<boolean>(
+        `document.querySelector('.knowledge-settings input[type="checkbox"]').checked`,
+      ),
+      false,
+    )
+    await input('.knowledge-settings input[type="number"]', '90')
+    await evaluate(`document.querySelector('.knowledge-settings').requestSubmit()`)
+    await until(`document.body.innerText.includes('知识库设置已保存')`)
+    assert.equal(repo.getSettings().dynamicTtlMinutes, 90)
+    assert.equal(repo.getSettings().dailyCheckEnabled, false)
+    await input('.knowledge-settings input[type="number"]', '60')
+    await evaluate(`document.querySelector('.knowledge-settings').requestSubmit()`)
+    for (let i = 0; i < 100 && repo.getSettings().dynamicTtlMinutes !== 60; i++) await delay(20)
+    assert.equal(repo.getSettings().dynamicTtlMinutes, 60)
+    checks.push(
+      'native reactive settings save crosses preload IPC and persists with daily checking default off',
+    )
+    await click('商品 8')
     await screenshot('manager-1280.png')
     await manager.open({ workspaceId: w, storeId: b })
     await until(

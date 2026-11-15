@@ -223,7 +223,7 @@ export const knowledgeSettingsSchema = z
       .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
       .default('09:00'),
     timezone: z.literal('Asia/Shanghai').default('Asia/Shanghai'),
-    dailyCheckEnabled: z.boolean().default(true),
+    dailyCheckEnabled: z.boolean().default(false),
     lastDailyCheckAt: z.number().int().min(0).default(0),
   })
   .strict()

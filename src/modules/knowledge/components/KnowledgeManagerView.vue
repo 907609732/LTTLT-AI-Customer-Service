@@ -502,7 +502,7 @@ const {
             type="time" /></label
         ><label
           ><input v-model="settings.dailyCheckEnabled" type="checkbox" />
-          应用运行时每日检查；只采集比较，学习需另行确认</label
+          应用运行时每日检查（默认关闭，每次启动需手动开启）；只采集比较，学习需另行确认</label
         >
         <p v-if="!capabilities?.dailyCheck" class="knowledge-muted">
           当前每日检查执行器尚未接入，保存时间不会声称后台已运行。

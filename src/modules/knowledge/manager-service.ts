@@ -1,4 +1,5 @@
 import { knowledgePipelineInputSchema } from '@/shared/contracts/knowledge-pipeline'
+import { knowledgeRequestSchema } from '@/shared/contracts/knowledge-client'
 import { getKnowledgeBridge } from '@/shared/platform/knowledge'
 import { getBackendBridge } from '@/shared/platform/backend'
 import type {
@@ -28,7 +29,8 @@ export function createKnowledgeClient(workspaceId: string) {
   const bridge = getKnowledgeBridge()
   const request = (input: Parameters<NonNullable<typeof bridge>['request']>[0]) => {
     if (!bridge) return Promise.reject(Error('知识库需要桌面版；浏览器仅供预览'))
-    return bridge.request(input)
+    // Vue proxies cannot cross Electron structured clone; schema parsing yields plain typed DTOs.
+    return bridge.request(knowledgeRequestSchema.parse(input))
   }
   return {
     recommendations(bindingId: string) {
