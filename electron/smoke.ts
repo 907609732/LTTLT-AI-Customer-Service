@@ -473,6 +473,7 @@ app
       dataDir,
       check,
       load,
+      knowledge: (input) => runtime.knowledge().request(input),
       restart: async () => {
         disposeBusiness()
         disposeFeatures()

@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createKnowledgeRepository, restoreKnowledgeBackup } from '../electron/knowledge'
-import { createKnowledgeRuntime } from '../electron/knowledge-runtime'
+import { createKnowledgeRuntime, type KnowledgePipelinePort } from '../electron/knowledge-runtime'
 import { createKnowledgePlatformProducts } from '../electron/knowledge-platform-products'
 import { createKnowledgeCompatibilityPorts } from '../electron/knowledge-compatibility'
 import { ReviewConsole } from '../electron/review-console'
@@ -45,6 +45,119 @@ function fixture(
   }
 }
 describe('knowledge runtime boundary and exact request evidence', () => {
+  it('registers the main-only pipeline before account initialization without allowing inactive requests', async () => {
+    const { runtime, deactivate } = fixture()
+    let disposed = false
+    const pipeline: KnowledgePipelinePort = {
+      request: async () => {
+        throw Error('inactive pipeline must not run')
+      },
+      removeStore: () => {},
+      dispose: () => {
+        disposed = true
+      },
+    }
+    deactivate()
+    expect(() => runtime.setPipeline(pipeline)).not.toThrow()
+    expect(() => runtime.setPipeline(pipeline)).toThrow('已注册')
+    await expect(
+      runtime.request({ workspaceId: 'workspace', operation: 'query', query: { type: 'summary' } }),
+    ).rejects.toThrow('account changed')
+    await expect(
+      runtime.request({
+        workspaceId: 'workspace',
+        operation: 'pipeline',
+        input: { action: 'capabilities', storeId: 's' },
+      }),
+    ).rejects.toThrow('account changed')
+    runtime.dispose()
+    expect(disposed).toBe(true)
+    expect(() => runtime.setPipeline(pipeline)).toThrow('已关闭')
+  })
+
+  it('identifies training products from current reviewed knowledge instead of stale legacy enabled flags', () => {
+    const { repository: repo } = fixture()
+    const legacy = repo.products.save({
+      storeId: 's',
+      productId: 'p',
+      title: '门锁',
+      description: '仅审核后可用',
+    })
+    const ports = createKnowledgeCompatibilityPorts(repo)
+    const general = repo.saveDraft({
+      scope: { kind: 'store', storeId: 's' },
+      question: '通用问题',
+      answer: '通用资料',
+    })
+    repo.publish({
+      entryId: general.id,
+      expectedDraftRevision: general.revision,
+      expectedSourceRevisions: {},
+    })
+    expect(ports.products.getByProductId('s', 'p')).toBe(null)
+    const binding = repo.listBindings()[0]!
+    const draft = repo.detail(binding.canonicalId).entries[0]!.draft
+    repo.publish({
+      entryId: draft.id,
+      expectedDraftRevision: draft.revision,
+      expectedSourceRevisions: {},
+    })
+    expect(ports.products.getByProductId('s', 'p')).toMatchObject({
+      productId: 'p',
+      title: '门锁',
+      enabled: true,
+      description: '',
+      price: '',
+    })
+    expect(repo.products.list('s').items[0]!.enabled).toBe(false)
+    expect(ports.products.getByProductId('other', 'p')).toBe(null)
+    repo.withdraw(draft.id, draft.revision)
+    // A stale old enabled flag must not bypass the current reviewed projection.
+    repo.put('legacy_products', { ...legacy, enabled: true })
+    expect(ports.products.getByProductId('s', 'p')).toBe(null)
+    const canonical = repo.saveCanonical({ title: '新管理商品' })
+    const root = repo.bindProduct({ canonicalId: canonical.id, storeId: 's', productId: 'new' })
+    const source = repo.saveSource({
+      kind: 'manual',
+      storeId: 's',
+      bindingId: root.id,
+      label: '合成来源',
+      text: '铜',
+    })
+    const shared = repo.saveDraft({
+      scope: { kind: 'canonical', canonicalId: canonical.id },
+      question: '材质',
+      answer: '铜',
+      expiresAt: Date.now() + 60000,
+      sourceRefs: [{ sourceId: source.id, revision: source.revision }],
+    })
+    const review = {
+      entryId: shared.id,
+      expectedDraftRevision: shared.revision,
+      expectedSourceRevisions: { [source.id]: source.revision },
+    }
+    repo.publish(review)
+    expect(ports.products.getByProductId('s', 'new')?.title).toBe('新管理商品')
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 120000)
+    try {
+      expect(ports.products.getByProductId('s', 'new')).toBe(null)
+    } finally {
+      clock.mockRestore()
+    }
+    repo.saveSource({
+      id: source.id,
+      expectedRevision: source.revision,
+      kind: 'manual',
+      storeId: 's',
+      bindingId: root.id,
+      label: '合成来源',
+      text: '来源变化',
+    })
+    expect(ports.products.getByProductId('s', 'new')).toBe(null)
+    repo.unlinkBinding(root.id, root.revision)
+    expect(ports.products.getByProductId('s', 'new')).toBe(null)
+  })
+
   it.each(['family', 'full'] as const)(
     'previews incoming and current-only restore effects for %s and rejects a changed plan',
     async (kind) => {

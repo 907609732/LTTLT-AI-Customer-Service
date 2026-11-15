@@ -1,4 +1,5 @@
 import type { KnowledgeRepository } from './knowledge'
+import { resolveKnowledgeRows } from './knowledge/resolver'
 import { z } from 'zod'
 /** Legacy CRUD remains available, but cannot roll back newer manager edits. */
 export function createKnowledgeCompatibilityPorts(repository: KnowledgeRepository) {
@@ -51,6 +52,43 @@ export function createKnowledgeCompatibilityPorts(repository: KnowledgeRepositor
   }
   const productPort: typeof products = {
     ...products,
+    getByProductId(storeId, productId) {
+      if (repo.readOnly) return null
+      const binding = repo
+        .listBindings()
+        .find((row) => row.storeId === storeId && row.productId === productId && !row.skuId)
+      if (!binding) return null
+      const detail = repo.detail(binding.canonicalId, storeId)
+      const resolution = resolveKnowledgeRows(
+        [binding],
+        detail.entries,
+        { storeId, productId, query: '', limit: 1, maxCharacters: 60000 },
+        Date.now(),
+      )
+      if (
+        !resolution.citations.length ||
+        resolution.citations.some((citation) =>
+          citation.sourceRefs.some((ref) => {
+            const source = repo.getSource(ref.sourceId)
+            return !source || source.removed || source.revision !== ref.revision
+          }),
+        )
+      )
+        return null
+      // Training needs a reviewed identity; actual facts still come only from knowledge.context.
+      return {
+        id: binding.id,
+        storeId,
+        productId,
+        title: binding.title || detail.canonical?.title || productId,
+        description: '',
+        specifications: '',
+        price: '',
+        enabled: true,
+        version: binding.revision,
+        updatedAt: binding.updatedAt,
+      }
+    },
     save(input: unknown) {
       const value = z
         .object({ id: z.string().optional(), storeId: z.string(), productId: z.string() })

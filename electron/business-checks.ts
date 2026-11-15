@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { estimateContextTokens, modelMessagesSchema } from './context-compression'
 import type { BackendSnapshot, BackendResult, CommandInput } from '../src/shared/contracts/backend'
+import type { KnowledgeBridge, KnowledgeDetail } from '../src/shared/contracts/knowledge-client'
+import type { KnowledgePage, KnowledgeProductCard } from '../src/shared/contracts/knowledge'
 
 type Check = (name: string, route: string, run: () => Promise<void>) => Promise<void>
 /** 全部使用临时工作区、合成文字和本机 HTTP，不打开真实店铺或调用真实模型。 */
@@ -15,6 +17,7 @@ export async function businessChecks(options: {
   check: Check
   load: (route: string) => Promise<void>
   restart: () => Promise<void>
+  knowledge: KnowledgeBridge['request']
 }) {
   const { win, dataDir, check, load } = options
   const snapshot = () =>
@@ -230,6 +233,45 @@ export async function businessChecks(options: {
             .readFileSync(path.join(dataDir, 'secrets.json'), 'utf8')
             .includes('fixture-only-not-a-provider-key'),
         )
+      // A legacy save is a draft. Exercise explicit review before expecting it in real model context.
+      const products = (await options.knowledge({
+        workspaceId: s.workspaceId,
+        operation: 'query',
+        query: { type: 'products', page: { storeId: storeA } },
+      })) as KnowledgePage<KnowledgeProductCard>
+      const product = products.items.find((item) => item.binding.productId === 'fixture-sku')
+      assert.ok(product)
+      const detail = (await options.knowledge({
+        workspaceId: s.workspaceId,
+        operation: 'query',
+        query: { type: 'detail', canonicalId: product.canonical.id, storeId: storeA },
+      })) as KnowledgeDetail
+      const draft = detail.entries.find((entry) => entry.draft.answer.includes('仅甲店知识'))?.draft
+      assert.ok(draft)
+      const beforeReview = calls.length
+      await assert.rejects(
+        execute({
+          action: 'start-training',
+          storeId: storeA,
+          values: { question: '门锁支持 NFC 吗', productId: 'fixture-sku', history: [] },
+        }),
+        /已启用的有效商品/,
+      )
+      assert.equal(calls.length, beforeReview, '未审核商品不能发起模型调用')
+      await options.knowledge({
+        workspaceId: s.workspaceId,
+        operation: 'command',
+        command: {
+          type: 'publish',
+          review: {
+            entryId: draft.id,
+            expectedDraftRevision: draft.revision,
+            expectedSourceRevisions: Object.fromEntries(
+              draft.sourceRefs.map((ref) => [ref.sourceId, ref.revision]),
+            ),
+          },
+        },
+      })
       const training = await execute({
         action: 'start-training',
         storeId: storeA,

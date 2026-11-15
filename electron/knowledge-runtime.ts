@@ -156,7 +156,8 @@ export function createKnowledgeRuntime(options: {
       model = port
     },
     setPipeline(port: KnowledgePipelinePort) {
-      active()
+      // Private main-process assembly precedes managed login; requests still require the account lease.
+      if (closed) throw Error('知识库已关闭')
       if (pipeline) throw Error('知识任务服务已注册')
       pipeline = port
     },
