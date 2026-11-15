@@ -255,15 +255,23 @@ try {
   for (let attempt = 0; attempt < 80; attempt++) {
     settingsReady =
       (await evaluate(
-        `location.hash.includes('/shop/manage') &&
-          document.querySelector('.sidebar-footer')?.innerText.trim() === '快捷回复' &&
-          !document.querySelector('.advanced-model') && Boolean(document.querySelector('.login-trigger'))`,
+        `location.hash.includes('/shop/manage') && document.body.innerText.includes('店铺与商品')`,
       )) === true
     if (settingsReady) break
     await delay(250)
   }
-  if (!settingsReady)
-    throw new Error('Packaged legacy settings redirect or simplified sidebar unavailable')
+  if (!settingsReady) throw new Error('Packaged legacy settings redirect unavailable')
+  await evaluate(`location.hash = '/'`)
+  let workbenchReady = false
+  for (let attempt = 0; attempt < 80; attempt++) {
+    workbenchReady =
+      (await evaluate(
+        `document.querySelector('.sidebar-footer')?.innerText.trim() === '快捷回复' && !document.querySelector('.advanced-model') && Boolean(document.querySelector('.login-trigger'))`,
+      )) === true
+    if (workbenchReady) break
+    await delay(250)
+  }
+  if (!workbenchReady) throw new Error('Packaged simplified sidebar or login entry unavailable')
   const captureHidden = () =>
     mainEvaluate(`(async () => {
       const win = globalThis.__lingtuPackageWindows.getAllWindows().find(window =>
