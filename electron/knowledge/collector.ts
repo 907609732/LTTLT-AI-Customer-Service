@@ -70,6 +70,11 @@ export function createKnowledgeCollector(
     timers = new Map<string, ReturnType<typeof setTimeout>>()
   const removed = new Set<string>()
   let closed = false
+  const thumbnailAssets = new Map<string, string>()
+  const thumbnailLoads = new Map<
+    string,
+    { storeId: string; controller: AbortController; promise: Promise<{ assetId: string }> }
+  >()
   function check(storeId: string, signal?: AbortSignal) {
     if (closed || removed.has(storeId)) throw Error('采集任务或店铺已关闭')
     options.assertActive()
@@ -178,6 +183,8 @@ export function createKnowledgeCollector(
     } else {
       const identity = await options.provider.identity(input.storeId)
       check(input.storeId)
+      for (const load of thumbnailLoads.values())
+        if (load.storeId === input.storeId) load.controller.abort()
       scope = {
         token: randomUUID(),
         identity,
@@ -233,7 +240,12 @@ export function createKnowledgeCollector(
       return {
         identityVersion: digest(scope.identity),
         scopeToken: scope.token,
-        items: items.map((item) => ({ productId: item.id, title: item.title })),
+        items: items.map((item) => ({
+          productId: item.id,
+          title: item.title,
+          ...(item.merchantCode !== undefined ? { merchantCode: item.merchantCode } : {}),
+          hasThumbnail: Boolean(item.thumbnailUrl),
+        })),
         nextCursor,
         total: scope.search ? (scope.complete ? matching.length : null) : scope.total,
         complete: scope.complete,
@@ -255,6 +267,64 @@ export function createKnowledgeCollector(
       throw Error('采集任务已暂停或取消')
     assertLeases(job.storeId, z.array(leaseSchema).parse(job.checkpoint.bindingLeases ?? []))
     return job
+  }
+  async function catalogThumbnail(
+    input: Extract<KnowledgePipelineInput, { action: 'catalog-thumbnail' }>,
+  ) {
+    check(input.storeId)
+    const scope = scopes.get(input.scopeToken)
+    const valid = () => {
+      check(input.storeId)
+      if (
+        !scope ||
+        scopes.get(input.scopeToken) !== scope ||
+        scope.expires < Date.now() ||
+        scope.identity.storeId !== input.storeId ||
+        digest(scope.identity) !== input.identityVersion
+      )
+        throw Error('目录已改变，请重新读取缩略图')
+    }
+    valid()
+    const item = scope!.records.get(input.productId)?.item
+    if (!item?.thumbnailUrl || !options.readImage) throw Error('此商品暂无已核对的缩略图')
+    const key = `${input.scopeToken}:${input.productId}`
+    await verify(scope!.identity)
+    valid()
+    const cached = thumbnailAssets.get(key)
+    if (cached) return { assetId: cached }
+    const loading = thumbnailLoads.get(key)
+    if (loading) return loading.promise
+    const controller = new AbortController()
+    const promise = (async () => {
+      const image = await options.readImage!({
+        identity: scope!.identity,
+        url: item.thumbnailUrl!,
+        signal: controller.signal,
+      })
+      controller.signal.throwIfAborted()
+      valid()
+      await verify(scope!.identity, controller.signal)
+      valid()
+      if (!image.bytes.byteLength || image.bytes.byteLength > 2 * 1024 * 1024)
+        throw Error('目录缩略图超过2MB或为空')
+      const asset = repo.transaction(() => {
+        valid()
+        controller.signal.throwIfAborted()
+        return repo.addAsset(image.bytes, {
+          name: `目录缩略图-${input.productId}`,
+          mimeType: image.mimeType,
+        })
+      })
+      thumbnailAssets.set(key, asset.id)
+      if (thumbnailAssets.size > 512) thumbnailAssets.delete(thumbnailAssets.keys().next().value!)
+      return { assetId: asset.id }
+    })()
+    thumbnailLoads.set(key, { storeId: input.storeId, controller, promise })
+    try {
+      return await promise
+    } finally {
+      thumbnailLoads.delete(key)
+    }
   }
   function schedule(job: KnowledgeJob) {
     if (timers.has(job.id) || controllers.has(job.id)) throw Error('采集任务仍在停止，请稍后恢复')
@@ -525,6 +595,7 @@ export function createKnowledgeCollector(
     handles(input) {
       return (
         input.action === 'catalog' ||
+        input.action === 'catalog-thumbnail' ||
         (input.action === 'start' && ['collect', 'daily-check'].includes(input.kind)) ||
         (['pause', 'resume', 'cancel'].includes(input.action) &&
           'jobId' in input &&
@@ -555,6 +626,7 @@ export function createKnowledgeCollector(
     async request(raw) {
       const input = knowledgePipelineInputSchema.parse(raw)
       if (input.action === 'catalog') return catalog(input)
+      if (input.action === 'catalog-thumbnail') return catalogThumbnail(input)
       if (input.action === 'start' && ['collect', 'daily-check'].includes(input.kind))
         return start(input)
       if (input.action === 'pause' || input.action === 'cancel')
@@ -591,6 +663,8 @@ export function createKnowledgeCollector(
       throw Error('此采集操作未接入')
     },
     removeStore(storeId) {
+      for (const load of thumbnailLoads.values())
+        if (load.storeId === storeId) load.controller.abort()
       for (const [id, controller] of controllers)
         if (repo.getJob(id)?.storeId === storeId) controller.abort()
       for (const [id, timer] of timers)
@@ -604,6 +678,9 @@ export function createKnowledgeCollector(
     },
     dispose() {
       if (closed) return
+      for (const load of thumbnailLoads.values()) load.controller.abort()
+      thumbnailLoads.clear()
+      thumbnailAssets.clear()
       for (const [id, controller] of controllers) {
         controller.abort()
         const job = repo.getJob(id)

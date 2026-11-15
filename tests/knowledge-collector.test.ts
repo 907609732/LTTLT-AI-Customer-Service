@@ -145,7 +145,9 @@ describe('collector material revisions', () => {
   })
 })
 
-function pipelineFixture() {
+function pipelineFixture(
+  readImage?: import('../electron/knowledge/collector').KnowledgeCollectorOptions['readImage'],
+) {
   const f = fixture()
   let active = true
   let readGate: Promise<void> | undefined
@@ -194,6 +196,7 @@ function pipelineFixture() {
   const collector = createKnowledgeCollector({
     repository: f.repository,
     provider,
+    readImage,
     assertActive() {
       if (!active) throw Error('工作区变化')
     },
@@ -240,6 +243,82 @@ async function selection(f: ReturnType<typeof pipelineFixture>) {
   }
 }
 describe('catalog-first durable collection', () => {
+  it('provides lazy cached thumbnails and merchant codes only for the verified catalog without creating collection jobs', async () => {
+    let reads = 0
+    const f = pipelineFixture(async () => {
+      reads++
+      return { bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0]), mimeType: 'image/png' }
+    })
+    const page = await f.provider.collectProducts({
+      identity: await f.provider.identity(),
+      range: { maxPages: 1, maxRecords: 100, productStatus: 'on-sale' },
+      cursor: null,
+      signal: new AbortController().signal,
+      catalogOnly: true,
+    })
+    f.setPages([
+      {
+        ...page,
+        items: [
+          {
+            ...page.items[0]!,
+            merchantCode: 'XM-YSP',
+            thumbnailUrl: 'https://img.pddpic.com/thumb.png',
+          },
+        ],
+      },
+    ])
+    const catalog = await f.coordinator.request({ action: 'catalog', storeId: 's' })
+    expect(catalog.items[0]).toMatchObject({ merchantCode: 'XM-YSP', hasThumbnail: true })
+    const input = {
+      action: 'catalog-thumbnail' as const,
+      storeId: 's',
+      scopeToken: catalog.scopeToken,
+      identityVersion: catalog.identityVersion,
+      productId: '12345678',
+    }
+    const thumb = await f.coordinator.request(input)
+    expect(f.repository.readAsset(thumb.assetId)).toHaveLength(9)
+    expect(await f.coordinator.request(input)).toEqual(thumb)
+    expect(reads).toBe(1)
+    expect(f.repository.rows('jobs')).toHaveLength(0)
+    await expect(f.coordinator.request({ ...input, productId: 'unknown' })).rejects.toThrow()
+    await expect(f.coordinator.request({ ...input, storeId: 'other' })).rejects.toThrow()
+    await f.coordinator.request({ action: 'catalog', storeId: 's' })
+    await expect(f.coordinator.request(input)).rejects.toThrow('目录')
+  })
+  it('rejects a thumbnail completing after its catalog has been replaced and does not register its bytes', async () => {
+    let finish!: (value: { bytes: Uint8Array; mimeType: string }) => void
+    const f = pipelineFixture(
+      () =>
+        new Promise((done) => {
+          finish = done
+        }),
+    )
+    const page = await f.provider.collectProducts({
+      identity: await f.provider.identity(),
+      range: { maxPages: 1, maxRecords: 100, productStatus: 'on-sale' },
+      cursor: null,
+      signal: new AbortController().signal,
+      catalogOnly: true,
+    })
+    f.setPages([
+      { ...page, items: [{ ...page.items[0]!, thumbnailUrl: 'https://img.pddpic.com/thumb.png' }] },
+    ])
+    const c = await f.coordinator.request({ action: 'catalog', storeId: 's' })
+    const pending = f.coordinator.request({
+      action: 'catalog-thumbnail',
+      storeId: 's',
+      scopeToken: c.scopeToken,
+      identityVersion: c.identityVersion,
+      productId: '12345678',
+    })
+    for (let i = 0; i < 10 && !finish; i++) await Promise.resolve()
+    await f.coordinator.request({ action: 'catalog', storeId: 's' })
+    finish({ bytes: new Uint8Array([1]), mimeType: 'image/png' })
+    await expect(pending).rejects.toThrow()
+    expect(f.repository.rows('assets')).toHaveLength(0)
+  })
   it('runs a quiet daily comparison for existing bindings without prior UI catalog or AI learning', async () => {
     const f = pipelineFixture()
     const started = await f.coordinator.request({

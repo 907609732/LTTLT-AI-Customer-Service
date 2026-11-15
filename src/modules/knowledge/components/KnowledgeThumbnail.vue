@@ -15,6 +15,10 @@ async function read() {
     if (current === ticket) error.value = true
   }
 }
+function failed() {
+  image.value = ''
+  error.value = true
+}
 onMounted(() => {
   if (typeof IntersectionObserver === 'undefined') return void read()
   observer = new IntersectionObserver((entries) => {
@@ -40,7 +44,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <span ref="element" class="knowledge-thumbnail"
-    ><img v-if="image" :src="image" alt="来源图片" loading="lazy" /><span v-else>{{
+    ><img v-if="image" :src="image" alt="来源图片" loading="lazy" @error="failed" /><span v-else>{{
       error ? '不可用' : '图片'
     }}</span></span
   >

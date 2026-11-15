@@ -6,6 +6,15 @@ const sourceIds = z.array(identity).max(50000)
 export const knowledgePipelineInputSchema = z.discriminatedUnion('action', [
   z
     .object({
+      action: z.literal('catalog-thumbnail'),
+      storeId: identity,
+      scopeToken: identity,
+      identityVersion: identity,
+      productId: identity,
+    })
+    .strict(),
+  z
+    .object({
       action: z.literal('preview-import'),
       storeId: identity,
       sourceIds,
@@ -85,7 +94,13 @@ export interface KnowledgePipelineCapabilities {
 export interface KnowledgeCatalogPage {
   identityVersion: string
   scopeToken: string
-  items: { productId: string; title: string; thumbnailAssetId?: string }[]
+  items: {
+    productId: string
+    title: string
+    merchantCode?: string
+    hasThumbnail?: boolean
+    thumbnailAssetId?: string
+  }[]
   nextCursor: string | null
   total: number | null
   complete: boolean
@@ -100,6 +115,7 @@ export interface KnowledgeEstimate {
   message: string
 }
 export interface KnowledgePipelineResults {
+  'catalog-thumbnail': { assetId: string }
   'review-targets': { targets: Record<string, string> }
   'store-materials': { sourceIds: string[] }
   'preview-import': KnowledgeImportPreview

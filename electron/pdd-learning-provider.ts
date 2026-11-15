@@ -134,6 +134,8 @@ const productDomSchema = z.object({
       description: z.string(),
       specifications: z.string(),
       sourceUrl: z.string(),
+      merchantCode: z.string().max(200).optional(),
+      thumbnailUrl: z.string().url().max(4000).optional(),
     }),
   ),
   total: z.number().int().nonnegative().nullable(),
@@ -237,7 +239,55 @@ export function readPddLearningProductDom(
     if (nativeStatus && !headers.some((header) => /商品状态/.test(header)))
       facts.push(`商品状态：${nativeStatus}`)
     const description = facts.join('\n')
-    items.push({ id: productId, title, description, specifications: '', sourceUrl: location.href })
+    // Only an explicit list field is a merchant code. An empty value must not consume
+    // the next ID/SKU line, and a title containing the same words is not a code field.
+    const codeMatch = text(cell)
+      .replace(title, '')
+      .match(
+        /(?:^|[\r\n])[ \t\u00a0\u3000]*商品编码[ \t\u00a0\u3000]*[：:][ \t\u00a0\u3000]*([^\r\n]*)/,
+      )
+    const codeLine = codeMatch?.[1]?.trim() ?? ''
+    const merchantCode =
+      codeMatch && codeLine.length <= 200
+        ? /^(?:暂无编码|未设置|未填写|--|-)$/.test(codeLine)
+          ? ''
+          : codeLine
+        : undefined
+    const image = cell.querySelector('img')
+    let thumbnailUrl: string | undefined
+    for (const raw of [
+      image?.currentSrc,
+      image?.getAttribute('src'),
+      image?.getAttribute('data-src'),
+    ]) {
+      if (!raw) continue
+      try {
+        const url = new URL(raw, location.href)
+        if (
+          url.protocol === 'https:' &&
+          !url.username &&
+          !url.password &&
+          !url.port &&
+          ['pddpic.com', 'yangkeduo.com'].some(
+            (host) => url.hostname === host || url.hostname.endsWith('.' + host),
+          )
+        ) {
+          thumbnailUrl = url.href
+          break
+        }
+      } catch {
+        /* Missing or unsupported thumbnails remain explicit empty state. */
+      }
+    }
+    items.push({
+      id: productId,
+      title,
+      description,
+      specifications: '',
+      sourceUrl: location.href,
+      ...(merchantCode !== undefined ? { merchantCode } : {}),
+      ...(thumbnailUrl ? { thumbnailUrl } : {}),
+    })
   }
   const summary = text(root).match(/共(?:有|计)?\s*(\d+)\s*(?:条|件|个商品)/)
   const total = summary ? Number(summary[1]) : null
@@ -773,7 +823,12 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
         await verify(input.identity, input.signal, page)
         const key = fingerprint(input.identity),
           sources = imageSources.get(key) ?? new Set<string>()
-        const currentUrls = new Set(items.flatMap((item) => item.platformDetail?.images ?? []))
+        const currentUrls = new Set(
+          items.flatMap((item) => [
+            ...(item.platformDetail?.images ?? []),
+            ...(item.thumbnailUrl ? [item.thumbnailUrl] : []),
+          ]),
+        )
         // Evict earlier pages before registering this page; never revoke freshly verified images.
         if (sources.size + currentUrls.size > 20000) sources.clear()
         for (const url of currentUrls) sources.add(url)
@@ -1068,7 +1123,7 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
     })
   }
 
-  /** Main-only capability: URLs must originate in a verified native detail, never renderer input. */
+  /** Main-only capability: URLs must originate in a verified native list/detail, never renderer input. */
   async function readProductImage(input: {
     identity: PlatformLearningIdentity
     url: string
@@ -1087,7 +1142,7 @@ export function createPddLearningProvider(options: PddLearningProviderOptions) {
         (host) => url.hostname === host || url.hostname.endsWith(`.${host}`),
       )
     )
-      throw Error('图片来源未由当前商品详情确认，或来源域不受支持')
+      throw Error('图片来源未由当前商品列表或详情确认，或来源域不受支持')
     const win = windows.get(`${input.identity.storeId}:products`)
     const session = win?.webContents.session
     if (!session || win?.isDestroyed()) throw Error('图片采集分区已关闭')

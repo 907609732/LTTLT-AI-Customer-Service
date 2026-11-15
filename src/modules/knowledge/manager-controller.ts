@@ -1009,6 +1009,22 @@ export function useKnowledgeManager() {
     catalogOpen.value = false
     await setView('jobs')
   }
+  async function loadCatalogThumbnail(productId: string): Promise<string> {
+    const selected = catalog.value,
+      service = client()
+    if (!selected) throw Error('商品目录已关闭')
+    const result = await service.pipeline({
+      action: 'catalog-thumbnail',
+      storeId: storeId.value,
+      scopeToken: selected.scopeToken,
+      identityVersion: selected.identityVersion,
+      productId,
+    })
+    if (catalog.value?.scopeToken !== selected.scopeToken) throw Error('商品目录已改变')
+    const image = await service.asset(result.assetId)
+    if (catalog.value?.scopeToken !== selected.scopeToken) throw Error('商品目录已改变')
+    return image
+  }
   async function learnProduct(binding: ProductBinding) {
     const d = await client().query({
       type: 'detail',
@@ -1313,6 +1329,7 @@ export function useKnowledgeManager() {
     restoreBackup,
     exportEntries,
     loadCatalog,
+    loadCatalogThumbnail,
     collectCatalog,
     learnProduct,
     startLearn,

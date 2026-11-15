@@ -45,6 +45,8 @@ export const platformLearningProductSchema = z
     description: z.string().max(20000),
     specifications: z.string().max(20000),
     sourceUrl: z.string().url().max(2000).optional(),
+    merchantCode: z.string().max(200).optional(),
+    thumbnailUrl: z.string().url().max(4000).optional(),
     updatedAt: timestamp.optional(),
     platformDetail: platformProductDetailSchema.optional(),
   })

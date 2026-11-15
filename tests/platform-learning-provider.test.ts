@@ -164,6 +164,68 @@ function fixture() {
 }
 
 describe('PDD learning provider real-page boundary', () => {
+  it.each(['规格编码：SKU-ONLY', '商品ID：12345678'])(
+    'does not use the next %s field as an empty merchant code',
+    async (next) => {
+      const f = fixture(),
+        identity = await f.provider.identity('shop')
+      document
+        .querySelector('tbody td')!
+        .insertAdjacentHTML('beforeend', `\n<div>商品编码：\n${next}</div>`)
+      const page = await f.provider.collectProducts({
+        identity,
+        range,
+        cursor: null,
+        signal: new AbortController().signal,
+        catalogOnly: true,
+        quiet: true,
+      })
+      expect(page.items[0]?.merchantCode).toBe('')
+    },
+  )
+  it('does not mistake a product title mentioning 商品编码 for a platform code field', async () => {
+    const f = fixture(),
+      identity = await f.provider.identity('shop')
+    document.querySelector('tbody a')!.textContent = '商品编码：编码机示例'
+    const page = await f.provider.collectProducts({
+      identity,
+      range,
+      cursor: null,
+      signal: new AbortController().signal,
+      catalogOnly: true,
+      quiet: true,
+    })
+    expect(page.items[0]?.merchantCode).toBeUndefined()
+  })
+  it('reads the verified list thumbnail and root merchant code without using a SKU code or visiting details', async () => {
+    const f = fixture(),
+      identity = await f.provider.identity('shop')
+    document
+      .querySelector('tbody td')!
+      .insertAdjacentHTML(
+        'beforeend',
+        '\n<img src="https://img.pddpic.com/list-thumb.png" />\n<div>商品编码：XM-YSP</div>\n<div>规格编码：SKU-ONLY</div>',
+      )
+    const page = await f.provider.collectProducts({
+      identity,
+      range,
+      cursor: null,
+      signal: new AbortController().signal,
+      catalogOnly: true,
+      quiet: true,
+    })
+    expect(page.items[0]).toMatchObject({
+      merchantCode: 'XM-YSP',
+      thumbnailUrl: 'https://img.pddpic.com/list-thumb.png',
+    })
+    expect(f.readProductDetail).not.toHaveBeenCalled()
+    const image = await f.provider.readProductImage({
+      identity,
+      url: 'https://img.pddpic.com/list-thumb.png',
+      signal: new AbortController().signal,
+    })
+    expect(image.mimeType).toBe('image/png')
+  })
   it('distinguishes a verified empty catalog from unreadable rows and keeps quiet failures hidden', async () => {
     const f = fixture(),
       identity = await f.provider.identity('shop')

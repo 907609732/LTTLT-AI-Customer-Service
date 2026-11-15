@@ -35,6 +35,44 @@ const fake = vi.hoisted(() => ({
   clearPreview: vi.fn(),
   clear: vi.fn(),
 }))
+it('renders a catalog table with thumbnail, explicit product ID, actual merchant code and missing-code state', async () => {
+  const load = vi.fn(async () => 'data:image/png;base64,cG5n')
+  const wrapper = mount(KnowledgeCatalogDialog, {
+    props: {
+      catalog: {
+        identityVersion: 'i',
+        scopeToken: 's',
+        items: [
+          { productId: '123', title: '商品一', merchantCode: 'XM-YSP', hasThumbnail: true },
+          { productId: '456', title: '商品二', merchantCode: '' },
+        ],
+        nextCursor: null,
+        total: 2,
+        complete: true,
+        range: '在售',
+      },
+      storeName: '米配匠',
+      search: '',
+      busy: false,
+      selected: [],
+      all: false,
+      loadThumbnail: load,
+    },
+  })
+  await flushPromises()
+  expect(wrapper.get('thead').text()).toContain('商品 ID')
+  expect(wrapper.get('thead').text()).toContain('商品编码')
+  expect(wrapper.get('tbody').text()).toContain('XM-YSP')
+  expect(wrapper.get('tbody').text()).toContain('暂无编码')
+  expect(wrapper.get('tbody').text()).toContain('123')
+  expect(wrapper.find('img').exists()).toBe(true)
+  expect(load).toHaveBeenCalledWith('123')
+  await wrapper.get('img').trigger('error')
+  expect(wrapper.get('tbody').text()).toContain('不可用')
+  await wrapper.get('tbody input[type="checkbox"]').setValue(true)
+  expect(wrapper.emitted('update:selected')?.at(-1)).toEqual([['123']])
+  wrapper.unmount()
+})
 vi.mock('../src/modules/knowledge/manager-service', () => ({ createKnowledgeClient: () => fake }))
 afterEach(() => vi.clearAllMocks())
 function deferred<T>() {

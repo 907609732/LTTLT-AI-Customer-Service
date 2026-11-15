@@ -70,6 +70,7 @@ const {
   loadCanonicals,
   mappingCanonical,
   catalog,
+  loadCatalogThumbnail,
   catalogIds,
   catalogAll,
   catalogOpen,
@@ -916,6 +917,7 @@ v{{ source.revision }} · {{ source.hash }}
       :store-name="currentStore?.storeName || ''"
       :search="catalogSearch"
       :busy="busy"
+      :load-thumbnail="loadCatalogThumbnail"
       v-model:selected="catalogIds"
       v-model:all="catalogAll"
       @close="catalogOpen = false"
