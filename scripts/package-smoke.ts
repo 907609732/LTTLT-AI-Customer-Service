@@ -255,12 +255,15 @@ try {
   for (let attempt = 0; attempt < 80; attempt++) {
     settingsReady =
       (await evaluate(
-        `Boolean(document.querySelector('.reply-pacing input') && document.querySelector('.advanced-model:not([open])')) && document.body.innerText.includes('AI 回复间隔')`,
+        `location.hash.includes('/shop/manage') &&
+          document.querySelector('.sidebar-footer')?.innerText.trim() === '快捷回复' &&
+          !document.querySelector('.advanced-model') && Boolean(document.querySelector('.login-trigger'))`,
       )) === true
     if (settingsReady) break
     await delay(250)
   }
-  if (!settingsReady) throw new Error('Packaged settings route unavailable')
+  if (!settingsReady)
+    throw new Error('Packaged legacy settings redirect or simplified sidebar unavailable')
   const captureHidden = () =>
     mainEvaluate(`(async () => {
       const win = globalThis.__lingtuPackageWindows.getAllWindows().find(window =>
@@ -356,7 +359,7 @@ try {
       'ASAR private/development exclusion',
       'real packaged window/preload',
       'real business IPC, empty isolated stores and no Key',
-      'settings reply pacing with advanced configuration collapsed',
+      'legacy settings redirects to configuration center; sidebar keeps only quick replies',
       'simple own-Key/server login without server address fields',
       'packaged main parses scan PDF, DOCX embedded image, all XLSX sheets and PNG from ASAR dependencies',
     ],
