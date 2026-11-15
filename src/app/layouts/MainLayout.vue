@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/shared/ui/BrandMark.vue'
+import AppVersion from '@/shared/ui/AppVersion.vue'
 import IconHomeFilled from '@/shared/icons/IconHomeFilled.vue'
 import IconShop from '@/shared/icons/IconShop.vue'
 import IconMonitor from '@/shared/icons/IconMonitor.vue'
@@ -365,6 +366,7 @@ async function navigate(path: string) {
         </button>
         <footer class="sidebar-footer">
           <button @click="quickReplyVisible = true">快捷回复</button>
+          <AppVersion />
         </footer>
       </aside>
       <main class="workbench-main" :inert="setup.visible"><router-view /></main>
@@ -374,6 +376,12 @@ async function navigate(path: string) {
   </div>
 </template>
 <style scoped>
+.sidebar-footer {
+  flex-wrap: wrap;
+}
+.sidebar-footer :deep(.app-version) {
+  flex-basis: 100%;
+}
 .workbench-main {
   flex: 1;
   min-width: 0;

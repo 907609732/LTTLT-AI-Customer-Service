@@ -7,6 +7,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/shared/ui/BrandMark.vue'
+import AppVersion from '@/shared/ui/AppVersion.vue'
 import { notifyUnavailable } from '@/shared/ui/feedback'
 import { navGroups, panelRegistry, isPanelKey, type PanelKey, type NavItem } from '../navigation'
 const router = useRouter(),
@@ -165,6 +166,7 @@ function goHome() {
               </span>
             </button>
           </div>
+          <AppVersion />
         </aside>
 
         <main class="main" data-v-105c9fec="">
