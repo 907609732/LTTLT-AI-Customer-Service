@@ -3,3 +3,8 @@
 vendor/lingtu-runtime/** -text whitespace=cr-at-eol
 # Imported server manifests hash original bytes; preserve them on Windows and CI.
 server/** -text whitespace=cr-at-eol
+# Parser fixture formats contain byte offsets / ZIP contents; preserve bytes on every platform.
+tests/fixtures/knowledge-ingestion/*.pdf binary
+tests/fixtures/knowledge-ingestion/*.docx binary
+tests/fixtures/knowledge-ingestion/*.xlsx binary
+tests/fixtures/knowledge-ingestion/*.png binary
