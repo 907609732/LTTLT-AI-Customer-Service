@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import RuntimePanel from '@/shared/ui/RuntimePanel.vue'
 import StoreSelect from '@/shared/ui/StoreSelect.vue'
@@ -8,10 +8,22 @@ import { useTask } from '@/shared/ui/use-task'
 import { useReceptionOperations } from '../services/operations'
 import OperationApprovalPanel from './OperationApprovalPanel.vue'
 import ReceptionRulesPanel from './ReceptionRulesPanel.vue'
-const props = withDefaults(defineProps<{ viewKey?: string }>(), { viewKey: 'transfer' })
+import { useReceptionDraftCache, type ReceptionSettingsDraft } from '../draft-cache'
+const props = withDefaults(
+  defineProps<{ viewKey?: string; storeId?: string; embedded?: boolean }>(),
+  { viewKey: 'transfer', storeId: '', embedded: false },
+)
+const emit = defineEmits<{ busy: [value: boolean] }>()
 const runtime = useRuntimeStore(),
   task = useTask(),
   router = useRouter()
+const drafts = props.embedded ? useReceptionDraftCache() : undefined
+let draftLease = {
+  workspaceId: runtime.snapshot.workspaceId,
+  storeId: props.storeId,
+  view: props.viewKey,
+}
+const selectedStoreId = computed(() => props.storeId || runtime.selectedStoreId)
 const titles: Record<string, string> = {
   transfer: '转接人工',
   welcome: '进店欢迎',
@@ -20,6 +32,11 @@ const titles: Record<string, string> = {
 }
 const title = computed(() => titles[props.viewKey] || '接待配置')
 const operations = useReceptionOperations(() => runtime.snapshot.workspaceId)
+watch(
+  () => task.pending.value || operations.busy.value,
+  (value) => emit('busy', value),
+  { immediate: true },
+)
 const ruleTrigger = computed(() =>
   props.viewKey === 'welcome'
     ? ('visitor' as const)
@@ -39,12 +56,13 @@ const cached = new Map<string, { text: string; enabled: boolean; version: number
 watch(
   welcome,
   (value) => {
-    if (runtime.selectedStoreId) cached.set(runtime.selectedStoreId, { ...value })
+    if (selectedStoreId.value) cached.set(selectedStoreId.value, { ...value })
   },
   { deep: true },
 )
-function load() {
-  const id = runtime.selectedStoreId,
+let baseline: ReceptionSettingsDraft = {}
+function load(restoreDraft = false) {
+  const id = selectedStoreId.value,
     snap = runtime.snapshot
   welcome.value = {
     ...(cached.get(id) || snap.welcomeByStore[id] || { text: '', enabled: false, version: 0 }),
@@ -56,21 +74,48 @@ function load() {
   fallbackEnabled.value = snap.config.reply.fallbackAfterMs > 0
   fallbackSeconds.value = Math.max(1, snap.config.reply.fallbackAfterMs / 1000 || 15)
   fallbackText.value = snap.config.reply.fallbackText
+  draftLease = { workspaceId: snap.workspaceId, storeId: id, view: props.viewKey }
+  baseline = {
+    welcome: { ...welcome.value },
+    inherited: inherited.value,
+    keywords: keywords.value,
+    globalKeywords: globalKeywords.value,
+  }
+  const previous = restoreDraft
+    ? drafts?.getSettings(snap.workspaceId, id, props.viewKey)
+    : undefined
+  if (previous) {
+    if (previous.welcome) welcome.value = { ...previous.welcome }
+    if (previous.inherited !== undefined) inherited.value = previous.inherited
+    if (previous.keywords !== undefined) keywords.value = previous.keywords
+    if (previous.globalKeywords !== undefined) globalKeywords.value = previous.globalKeywords
+  }
 }
+onBeforeUnmount(() => {
+  drafts?.putSettings(draftLease.workspaceId, draftLease.storeId, draftLease.view, {
+    ...(JSON.stringify(welcome.value) !== JSON.stringify(baseline.welcome)
+      ? { welcome: { ...welcome.value } }
+      : {}),
+    ...(inherited.value !== baseline.inherited ? { inherited: inherited.value } : {}),
+    ...(keywords.value !== baseline.keywords ? { keywords: keywords.value } : {}),
+    ...(globalKeywords.value !== baseline.globalKeywords
+      ? { globalKeywords: globalKeywords.value }
+      : {}),
+  })
+})
 watch(
-  [() => runtime.selectedStoreId, () => props.viewKey, () => runtime.snapshot.workspaceId],
-  load,
+  [() => selectedStoreId.value, () => props.viewKey, () => runtime.snapshot.workspaceId],
+  () => load(true),
   { immediate: true },
 )
 const welcomeConflict = computed(
   () =>
     welcome.value.version !==
-    (runtime.snapshot.welcomeByStore[runtime.selectedStoreId]?.version || 0),
+    (runtime.snapshot.welcomeByStore[selectedStoreId.value]?.version || 0),
 )
 const visionConflict = computed(
   () =>
-    vision.value.version !==
-    (runtime.snapshot.visionByStore[runtime.selectedStoreId]?.version || 0),
+    vision.value.version !== (runtime.snapshot.visionByStore[selectedStoreId.value]?.version || 0),
 )
 const lines = (text: string) => [
   ...new Set(
@@ -81,7 +126,7 @@ const lines = (text: string) => [
   ),
 ]
 async function save() {
-  const storeId = runtime.selectedStoreId,
+  const storeId = selectedStoreId.value,
     key = props.viewKey
   await task.run(async () => {
     let result
@@ -110,7 +155,7 @@ async function save() {
           ? { mode: 'inherit' }
           : { mode: 'custom', keywords: lines(keywords.value) },
       })
-    if (storeId === runtime.selectedStoreId && key === props.viewKey) {
+    if (storeId === selectedStoreId.value && key === props.viewKey) {
       cached.delete(storeId)
       load()
       task.message.value = result.message
@@ -124,6 +169,7 @@ async function saveGlobal() {
       screenId: 'UX08',
       values: { handoffKeywords: lines(globalKeywords.value) },
     })
+    baseline.globalKeywords = globalKeywords.value
     task.message.value = result.message
   })
 }
@@ -135,13 +181,9 @@ async function saveGlobal() {
     :error="task.error.value"
     :message="task.message.value"
   >
-    <StoreSelect :disabled="task.pending.value" />
-    <p v-if="viewKey !== 'auto' && !runtime.selectedStoreId">请先在店铺与商品中添加店铺。</p>
-    <form
-      v-if="runtime.selectedStoreId || viewKey === 'auto'"
-      class="runtime-form"
-      @submit.prevent="save"
-    >
+    <StoreSelect v-if="!embedded" :disabled="task.pending.value" />
+    <p v-if="viewKey !== 'auto' && !selectedStoreId">请先在店铺与商品中添加店铺。</p>
+    <form v-if="selectedStoreId || viewKey === 'auto'" class="runtime-form" @submit.prevent="save">
       <template v-if="viewKey === 'welcome'"
         ><p>
           此配置在新会话首次 AI
@@ -232,7 +274,7 @@ async function saveGlobal() {
           :disabled="task.pending.value"
           @click="
             () => {
-              cached.delete(runtime.selectedStoreId)
+              cached.delete(selectedStoreId)
               load()
             }
           "
@@ -252,10 +294,11 @@ async function saveGlobal() {
       >
     </form>
     <ReceptionRulesPanel
-      v-if="viewKey !== 'image' && runtime.selectedStoreId"
+      v-if="viewKey !== 'image' && selectedStoreId"
       :workspace-id="runtime.snapshot.workspaceId"
-      :store-id="runtime.selectedStoreId"
+      :store-id="selectedStoreId"
       :trigger="ruleTrigger"
+      :preserve-draft="embedded"
       :snapshot="operations.snapshot.value"
       :busy="operations.busy.value"
       @command="operations.execute"
@@ -265,7 +308,7 @@ async function saveGlobal() {
     <OperationApprovalPanel
       v-if="viewKey !== 'image' && operations.snapshot.value"
       :workspace-id="runtime.snapshot.workspaceId"
-      :store-id="runtime.selectedStoreId"
+      :store-id="selectedStoreId"
       :runs="operations.snapshot.value.runs"
       :busy="operations.busy.value"
       @command="operations.execute"

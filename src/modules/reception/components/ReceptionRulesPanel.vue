@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { useReceptionDraftCache } from '../draft-cache'
 import {
   receptionRuleSchema,
   type ReceptionCommand,
@@ -12,7 +13,10 @@ const props = defineProps<{
   trigger: ReceptionRule['trigger']
   snapshot?: ReceptionSnapshot
   busy?: boolean
+  preserveDraft?: boolean
 }>()
+const drafts = props.preserveDraft ? useReceptionDraftCache() : undefined
+let draftLease = { workspaceId: props.workspaceId, storeId: props.storeId, trigger: props.trigger }
 const emit = defineEmits<{ command: [command: ReceptionCommand]; refresh: [] }>()
 type Media = { kind: 'welcome-image' | 'welcome-video'; url: string }
 const form = reactive({
@@ -55,7 +59,7 @@ const capabilities = computed(
         : row.kind === (props.trigger === 'unpaid-order' ? 'payment-reminder' : 'transfer'),
     ) ?? [],
 )
-function load() {
+function load(restoreDraft = false) {
   const value = rule.value
   Object.assign(form, {
     id: value?.id ?? '',
@@ -77,10 +81,24 @@ function load() {
   dirty.value = false
   saving.value = false
   error.value = ''
+  draftLease = { workspaceId: props.workspaceId, storeId: props.storeId, trigger: props.trigger }
+  const previous = restoreDraft
+    ? drafts?.getRule(props.workspaceId, props.storeId, props.trigger)
+    : undefined
+  if (previous) {
+    Object.assign(form, previous.form, { media: previous.form.media.map((item) => ({ ...item })) })
+    dirty.value = previous.dirty
+  }
 }
+onBeforeUnmount(() => {
+  drafts?.putRule(draftLease.workspaceId, draftLease.storeId, draftLease.trigger, {
+    form: { ...form, media: form.media.map((item) => ({ ...item })) },
+    dirty: dirty.value,
+  })
+})
 watch(
   () => [props.workspaceId, props.storeId, props.trigger],
-  () => load(),
+  () => load(true),
   { immediate: true },
 )
 watch(rule, (next, previous) => {

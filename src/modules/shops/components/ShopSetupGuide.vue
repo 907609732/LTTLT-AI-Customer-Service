@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { ShopOpsPanel } from '@/modules/reception'
 import { ReplyPacingSettings } from '@/modules/settings'
 import { useRoute, useRouter } from 'vue-router'
 import { useRuntimeStore } from '@/shared/state/runtime'
@@ -8,6 +9,15 @@ const setup = useShopSetupStore(),
   runtime = useRuntimeStore(),
   router = useRouter(),
   route = useRoute()
+const receptionPending = reactive({ transfer: false, welcome: false })
+const receptionBusy = computed(() => receptionPending.transfer || receptionPending.welcome)
+const navigationBusy = computed(() => setup.saving || receptionBusy.value)
+watch(receptionBusy, async (busy) => {
+  if (!busy && route.path !== '/' && setup.visible) {
+    await nextTick()
+    if (!receptionBusy.value && route.path !== '/') setup.pauseForConfiguration()
+  }
+})
 watch(
   () => setup.visible,
   (visible) => {
@@ -17,7 +27,8 @@ watch(
 watch(
   () => route.path,
   (path) => {
-    if (path !== '/' && (setup.visible || setup.awaitingLogin)) setup.pauseForConfiguration()
+    if (path !== '/' && !receptionBusy.value && (setup.visible || setup.awaitingLogin))
+      setup.pauseForConfiguration()
   },
 )
 watch(
@@ -35,7 +46,7 @@ watch(
   },
   { immediate: true },
 )
-const steps = ['引导页面', '客服风格', '物流设置', '发货政策', '售后政策', '完成设置']
+const steps = ['引导页面', '客服风格', '物流与发货政策', '接待设置', '售后政策', '完成设置']
 const styles = [
   {
     id: 'soft',
@@ -177,9 +188,7 @@ function next() {
     if (!setup.draft.origins.length) validation.value = '请至少选择一个发货地'
     else if (!setup.draft.carriers.length) validation.value = '请至少选择一家快递公司'
     else if (setup.draft.designatedCourier === null) validation.value = '请选择是否支持客户指定快递'
-  }
-  if (setup.step === 3) {
-    if (!setup.draft.dispatchTime.trim()) validation.value = '请选择或填写通常的发货时间'
+    else if (!setup.draft.dispatchTime.trim()) validation.value = '请选择或填写通常的发货时间'
     else if (setup.draft.freightInsurance === null) validation.value = '请选择是否提供运费险'
     else if (setup.draft.freightInsurance && !setup.draft.insuranceExcessPayer)
       validation.value = '请选择运费险超额部分承担方'
@@ -191,7 +200,7 @@ async function save() {
   if (await setup.saveRules()) setup.step = 5
 }
 function goToStep(index: number) {
-  if (setup.loading || setup.saving || (index === 5 && !setup.saved)) return
+  if (setup.loading || navigationBusy.value || (index === 5 && !setup.saved)) return
   if (index > 0 && index < 5) setup.saved = false
   setup.step = index
 }
@@ -249,11 +258,11 @@ const afterSales = [
     >继续基础设置</el-button
   >
   <main
-    v-if="setup.visible && route.path === '/'"
+    v-if="setup.visible && (route.path === '/' || receptionBusy)"
     class="shop-setup-page"
     role="region"
     aria-label="店铺信息助手"
-    @keydown.esc="!setup.saving && setup.dismiss()"
+    @keydown.esc="!navigationBusy && setup.dismiss()"
   >
     <header class="wizard-header" data-window-drag>
       <div class="wizard-header-content">
@@ -263,12 +272,12 @@ const afterSales = [
         </div>
         <div class="wizard-header-actions" data-no-drag>
           <span
-            >填写进度 {{ setup.step * 20 }}% ·
-            {{ setup.step === 5 ? '设置已保存' : '最后一步统一保存' }}</span
+            >填写进度 {{ Math.round((setup.step / (steps.length - 1)) * 100) }}% ·
+            {{ setup.step === 5 ? '设置已保存' : '接待配置独立保存 · 政策最后统一保存' }}</span
           ><button
             data-dismiss
             aria-label="关闭引导"
-            :disabled="setup.saving"
+            :disabled="navigationBusy"
             @click="setup.dismiss()"
           >
             ×
@@ -283,7 +292,7 @@ const afterSales = [
           :key="label"
           type="button"
           class="wizard-step"
-          :disabled="setup.loading || setup.saving || (index === 5 && !setup.saved)"
+          :disabled="setup.loading || navigationBusy || (index === 5 && !setup.saved)"
           :title="index === 5 && !setup.saved ? '保存成功后查看完成设置' : `进入${label}`"
           :class="{ active: setup.step === index, passed: setup.step > index }"
           :aria-current="setup.step === index ? 'step' : undefined"
@@ -296,15 +305,15 @@ const afterSales = [
       <section
         class="wizard-card"
         :class="{ 'intro-card': setup.step === 0, 'finish-card': setup.step === 5 }"
-        :aria-busy="setup.loading || setup.saving"
+        :aria-busy="setup.loading || navigationBusy"
       >
         <div v-if="setup.loading" class="loading-banner" role="status">
           正在读取本店设置，请稍候…
         </div>
         <fieldset
           class="wizard-fields"
-          :disabled="setup.loading || setup.saving"
-          :inert="setup.loading || setup.saving"
+          :disabled="setup.loading || navigationBusy"
+          :inert="setup.loading || navigationBusy"
         >
           <template v-if="setup.step === 0">
             <div class="intro-count">
@@ -441,8 +450,6 @@ const afterSales = [
                 ><el-radio :value="false" border>否</el-radio></el-radio-group
               >
             </div>
-          </template>
-          <template v-else-if="setup.step === 3">
             <div class="field-section">
               <h2>一般多久发货呢？</h2>
               <p>请选择通常的发货时间</p>
@@ -506,6 +513,26 @@ const afterSales = [
                 maxlength="2000"
                 placeholder="如特殊地区、预售商品或节假日安排"
                 aria-label="其他发货说明"
+              />
+            </div>
+          </template>
+          <template v-else-if="setup.step === 3">
+            <h2>接待设置</h2>
+            <p class="quiet-note">
+              转接人工和进店欢迎分别保存，保存后立即应用于当前店铺；其他政策在最后一步统一保存。
+            </p>
+            <div class="reception-settings">
+              <ShopOpsPanel
+                view-key="transfer"
+                :store-id="setup.storeId"
+                embedded
+                @busy="receptionPending.transfer = $event"
+              />
+              <ShopOpsPanel
+                view-key="welcome"
+                :store-id="setup.storeId"
+                embedded
+                @busy="receptionPending.welcome = $event"
               />
             </div>
           </template>
@@ -644,25 +671,25 @@ const afterSales = [
           v-if="setup.error"
           class="conditional-field"
           :loading="setup.loading"
-          :disabled="setup.saving"
+          :disabled="navigationBusy"
           @click="setup.loadRules()"
           >重新载入</el-button
         >
         <footer v-if="setup.step > 0 && setup.step < 5" class="wizard-footer">
-          <el-button data-back :disabled="setup.saving" @click="setup.step--">上一步</el-button
-          ><span>尚未保存</span
+          <el-button data-back :disabled="navigationBusy" @click="setup.step--">上一步</el-button
+          ><span>{{ setup.step === 3 ? '请分别保存接待配置' : '政策尚未保存' }}</span
           ><el-button
             v-if="setup.step < 4"
             type="primary"
             data-next
-            :disabled="setup.loading"
+            :disabled="setup.loading || navigationBusy"
             @click="next"
             >下一步</el-button
           ><el-button
             v-else
             type="primary"
             data-save
-            :loading="setup.saving"
+            :loading="navigationBusy"
             :disabled="setup.loading"
             @click="save"
             >保存并完成</el-button
@@ -1227,5 +1254,27 @@ const afterSales = [
     grid-template-columns: 100px 1fr;
     gap: 12px;
   }
+}
+</style>
+
+<style scoped>
+.reception-settings {
+  display: grid;
+  gap: 24px;
+  margin-top: 20px;
+}
+.reception-settings :deep(.runtime-page) {
+  padding: 16px;
+  min-height: 0;
+  height: auto;
+  overflow: visible;
+  border: 1px solid #e5e9f0;
+  border-radius: 8px;
+}
+.reception-settings :deep(.runtime-page__head) {
+  margin-bottom: 16px;
+}
+.reception-settings :deep(.runtime-form) {
+  max-width: 100%;
 }
 </style>

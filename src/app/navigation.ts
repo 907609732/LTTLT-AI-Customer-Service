@@ -58,7 +58,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   { label: '数据中心', items: [item('home')] },
   {
     label: '开店准备',
-    items: [item('shops', ['transfer', 'welcome', 'auto', 'image']), item('sync')],
+    items: [item('shops', ['auto', 'image']), item('sync')],
   },
   {
     label: '教AI回答',

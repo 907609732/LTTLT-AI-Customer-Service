@@ -64,8 +64,8 @@ it('点击步骤直接修改并保留草稿，保存和载入期间禁止跳转'
   setup.saved = true
   setup.step = 5
   await flushPromises()
-  await steps[3]!.trigger('click')
-  expect(setup.step).toBe(3)
+  await steps[4]!.trigger('click')
+  expect(setup.step).toBe(4)
   expect(setup.saved).toBe(false)
   expect(run).not.toHaveBeenCalled()
 })
@@ -124,6 +124,15 @@ it('物流至少填发货地、快递和指定快递选择；前后步骤保留�
   setup.draft.origins = ['浙江']
   setup.draft.carriers = ['圆通快递', '申通快递']
   setup.draft.designatedCourier = false
+  await wrapper.find('[data-next]').trigger('click')
+  expect(setup.step).toBe(2)
+  expect(wrapper.text()).toContain('请选择或填写通常的发货时间')
+  setup.draft.dispatchTime = '48小时内'
+  setup.draft.freightInsurance = true
+  await wrapper.find('[data-next]').trigger('click')
+  expect(setup.step).toBe(2)
+  expect(wrapper.text()).toContain('请选择运费险超额部分承担方')
+  setup.draft.insuranceExcessPayer = 'merchant'
   await wrapper.find('[data-next]').trigger('click')
   expect(setup.step).toBe(3)
   await wrapper.find('[data-back]').trigger('click')
@@ -291,4 +300,146 @@ it('恢复步骤点击和最少1秒间隔控件，保存时锁定跳转', async 
   await flushPromises()
   await steps[4]!.trigger('click')
   expect(setup.step).toBe(1)
+})
+
+it('物流与发货政策同页填写，下一步进入接待设置', async () => {
+  const { wrapper, setup } = await fixture()
+  await wrapper.findAll('.wizard-step')[2]!.trigger('click')
+  expect(wrapper.findAll('.wizard-step')[2]!.text()).toContain('物流与发货政策')
+  for (const label of [
+    '发货地',
+    '常用快递',
+    '支持指定快递',
+    '发货时效',
+    '提供运费险',
+    '其他发货说明',
+  ])
+    expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true)
+  expect(wrapper.text()).toContain('填写进度 40%')
+  Object.assign(setup.draft, {
+    origins: ['浙江'],
+    carriers: ['圆通快递'],
+    designatedCourier: false,
+    dispatchTime: '24小时内',
+    freightInsurance: false,
+  })
+  await wrapper.find('[data-next]').trigger('click')
+  expect(wrapper.text()).toContain('接待设置')
+  expect(wrapper.findAllComponents({ name: 'ShopOpsPanel' })).toHaveLength(2)
+  expect(
+    wrapper.findAllComponents({ name: 'ShopOpsPanel' }).map((p) => p.props('storeId')),
+  ).toEqual(['shop-a', 'shop-a'])
+  await wrapper.find('[data-next]').trigger('click')
+  expect(wrapper.text()).toContain('售后政策设置')
+  expect(wrapper.find('[data-save]').exists()).toBe(true)
+  await wrapper.find('[data-back]').trigger('click')
+  await wrapper.find('[data-back]').trigger('click')
+  expect(setup.draft.dispatchTime).toBe('24小时内')
+})
+
+it('接待设置始终保存向导店铺，移除配置中心两个菜单入口', async () => {
+  const { wrapper, runtime } = await fixture()
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  runtime.selectedStoreId = 'another-shop'
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '已保存', data: {} })
+  const panels = wrapper.findAllComponents({ name: 'ShopOpsPanel' })
+  expect(wrapper.find('.runtime-store-select').exists()).toBe(false)
+  await panels[0]!.find('form').trigger('submit')
+  await panels[1]!.get('textarea[aria-label="文字欢迎语"]').setValue('欢迎光临')
+  await panels[1]!.find('form').trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith(
+    expect.objectContaining({ action: 'save-store-handoff', storeId: 'shop-a' }),
+  )
+  expect(run).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'save-welcome',
+      storeId: 'shop-a',
+      values: expect.objectContaining({ text: '欢迎光临' }),
+    }),
+  )
+  const { navGroups } = await import('../src/app/navigation')
+  const children = navGroups.flatMap((g) => g.items).find((i) => i.key === 'shops')!.children!
+  expect(children.map((i) => i.key)).toEqual(['auto', 'image'])
+})
+
+it('接待草稿在前后步骤及关闭重开后保留，换工作区后清除', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  await wrapper.get('textarea[aria-label="文字欢迎语"]').setValue('未保存的欢迎语')
+  await wrapper.get('.reception-rules textarea').setValue('访客规则草稿')
+  await wrapper.get('textarea[aria-label="全局人工处理关键词"]').setValue('未保存的关键词')
+  await wrapper.find('[data-next]').trigger('click')
+  await wrapper.find('[data-back]').trigger('click')
+  expect(
+    (wrapper.get('textarea[aria-label="文字欢迎语"]').element as HTMLTextAreaElement).value,
+  ).toBe('未保存的欢迎语')
+  expect((wrapper.get('.reception-rules textarea').element as HTMLTextAreaElement).value).toBe(
+    '访客规则草稿',
+  )
+  setup.dismiss()
+  await flushPromises()
+  setup.open('shop-a')
+  await flushPromises()
+  expect(
+    (wrapper.get('textarea[aria-label="全局人工处理关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('未保存的关键词')
+  expect(
+    (wrapper.get('textarea[aria-label="文字欢迎语"]').element as HTMLTextAreaElement).value,
+  ).toBe('未保存的欢迎语')
+  setup.dismiss()
+  await flushPromises()
+  runtime.snapshot.workspaceId = 'another-workspace'
+  setup.open('shop-a')
+  await flushPromises()
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  expect(
+    (wrapper.get('textarea[aria-label="文字欢迎语"]').element as HTMLTextAreaElement).value,
+  ).toBe('')
+})
+
+it('接待保存期间禁止离开步骤，完成后恢复最新版本', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  runtime.available = true
+  let complete!: () => void
+  vi.spyOn(runtime, 'run').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        complete = () => {
+          runtime.snapshot.welcomeByStore['shop-a'] = {
+            text: '保存中的欢迎语',
+            enabled: false,
+            version: 1,
+          }
+          resolve({ status: 'ok', message: '已保存', data: {} })
+        }
+      }),
+  )
+  await wrapper.get('textarea[aria-label="文字欢迎语"]').setValue('保存中的欢迎语')
+  await wrapper.findAllComponents({ name: 'ShopOpsPanel' })[1]!.find('form').trigger('submit')
+  expect(wrapper.get('[data-next]').attributes('disabled')).toBeDefined()
+  expect(wrapper.get('[data-dismiss]').attributes('disabled')).toBeDefined()
+  await wrapper.get('[data-next]').trigger('click')
+  expect(setup.step).toBe(3)
+  complete()
+  await flushPromises()
+  await wrapper.get('[data-next]').trigger('click')
+  await wrapper.get('[data-back]').trigger('click')
+  expect(wrapper.text()).not.toContain('配置已更新，当前草稿仍保留')
+  expect(
+    (wrapper.get('textarea[aria-label="文字欢迎语"]').element as HTMLTextAreaElement).value,
+  ).toBe('保存中的欢迎语')
+})
+it('未编辑的全局关键词不作为旧草稿恢复', async () => {
+  const { wrapper, runtime } = await fixture()
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  await wrapper.get('[data-next]').trigger('click')
+  runtime.snapshot.config.safety.handoffKeywords = ['最新关键词']
+  await wrapper.get('[data-back]').trigger('click')
+  expect(
+    (wrapper.get('textarea[aria-label="全局人工处理关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('最新关键词')
 })
