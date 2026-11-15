@@ -63,7 +63,38 @@ export const knowledgeReassociateSchema = z
   })
   .strict()
 export type KnowledgeReassociateInput = z.input<typeof knowledgeReassociateSchema>
+export const knowledgeClearScopeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('store'), storeId: z.string().min(1).max(200) }).strict(),
+  z.object({ kind: z.literal('account') }).strict(),
+])
+export type KnowledgeClearScope = z.infer<typeof knowledgeClearScopeSchema>
+export interface KnowledgeClearPreview {
+  token: string
+  scope: KnowledgeClearScope
+  label: string
+  confirmation: string
+  products: number
+  entries: number
+  jobs: number
+  misses: number
+  message: string
+}
 export const knowledgeRequestSchema = z.discriminatedUnion('operation', [
+  z
+    .object({
+      workspaceId: z.string().min(1),
+      operation: z.literal('clear-preview'),
+      scope: knowledgeClearScopeSchema,
+    })
+    .strict(),
+  z
+    .object({
+      workspaceId: z.string().min(1),
+      operation: z.literal('clear'),
+      token: z.string().min(1).max(200),
+      confirmation: z.string().max(30),
+    })
+    .strict(),
   z
     .object({
       workspaceId: z.string().min(1),

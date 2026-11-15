@@ -152,48 +152,56 @@ function fixture(directory?: string) {
 }
 
 describe('workspace runtime activation', () => {
-  it('restores the recovery snapshot after replacement startup fails without changing model source', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'knowledge-recover-')),
-      f = fixture(dir)
-    const repo = createKnowledgeRepository({ directory: dir, workspaceId: 'w' })
-    const c = repo.saveCanonical({ title: 'old backup' })
-    const backup = repo.createBackup(join(dir, 'backup'))
-    repo.saveCanonical({ id: c.id, expectedRevision: 1, title: 'current retained' })
-    const knowledge = createKnowledgeRuntime({
-      repository: repo,
-      workspaceId: 'w',
-      stores: () => [],
-      assertActive() {},
-      changed() {},
-      chooseRestore: async () => backup.directory,
-    })
-    const preview = (await knowledge.request({
-      workspaceId: 'w',
-      operation: 'restore-preview',
-    })) as { token: string }
-    vi.spyOn(f.instances[0], 'knowledge').mockReturnValue(knowledge)
-    vi.spyOn(f.instances[0], 'dispose').mockImplementation(async () => {
-      knowledge.dispose()
-      repo.dispose()
-    })
-    f.failNextStartup()
-    try {
-      const result = await f.manager.restoreKnowledge(
-        f.manager.snapshot().workspaceId,
-        preview.token,
-      )
-      expect(result.recovered).toBe(true)
-      expect(result.message).toContain('isolated startup failure')
-      const recovered = createKnowledgeRepository({ directory: dir, workspaceId: 'verify' })
-      expect(recovered.getCanonical(c.id)?.title).toBe('current retained')
-      recovered.dispose()
-      expect(f.calls).not.toContain('save-model-source')
-    } finally {
-      await f.manager.dispose()
-      repo.dispose()
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
+  it.each(['restore', 'clear'] as const)(
+    'restores the recovery snapshot after %s replacement startup fails without changing model source',
+    async (operation) => {
+      const dir = mkdtempSync(join(tmpdir(), 'knowledge-recover-')),
+        f = fixture(dir)
+      const repo = createKnowledgeRepository({ directory: dir, workspaceId: 'w' })
+      const c = repo.saveCanonical({ title: 'old backup' })
+      const backup = repo.createBackup(join(dir, 'backup'))
+      repo.saveCanonical({ id: c.id, expectedRevision: 1, title: 'current retained' })
+      const knowledge = createKnowledgeRuntime({
+        repository: repo,
+        workspaceId: 'w',
+        stores: () => [],
+        assertActive() {},
+        changed() {},
+        chooseRestore: async () => backup.directory,
+      })
+      const preview = (await knowledge.request({
+        workspaceId: 'w',
+        operation: operation === 'restore' ? 'restore-preview' : 'clear-preview',
+        ...(operation === 'clear' ? { scope: { kind: 'account' } } : {}),
+      })) as { token: string }
+      vi.spyOn(f.instances[0], 'knowledge').mockReturnValue(knowledge)
+      vi.spyOn(f.instances[0], 'dispose').mockImplementation(async () => {
+        knowledge.dispose()
+        repo.dispose()
+      })
+      f.failNextStartup()
+      try {
+        const result =
+          operation === 'restore'
+            ? await f.manager.restoreKnowledge(f.manager.snapshot().workspaceId, preview.token)
+            : await f.manager.clearKnowledge(
+                f.manager.snapshot().workspaceId,
+                preview.token,
+                '清空当前账号',
+              )
+        expect(result.recovered).toBe(true)
+        expect(result.message).toContain('isolated startup failure')
+        const recovered = createKnowledgeRepository({ directory: dir, workspaceId: 'verify' })
+        expect(recovered.getCanonical(c.id)?.title).toBe('current retained')
+        recovered.dispose()
+        expect(f.calls).not.toContain('save-model-source')
+      } finally {
+        await f.manager.dispose()
+        repo.dispose()
+        rmSync(dir, { recursive: true, force: true })
+      }
+    },
+  )
   it('closes the actual knowledge writer and reopens the same workspace source without changing settings', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'workspace-restore-')),
       f = fixture(dir)

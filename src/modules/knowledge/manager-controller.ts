@@ -35,6 +35,9 @@ import { createKnowledgeClient } from './manager-service'
 
 /** Local manager state is independent from reception selection; async results retain account/store leases. */
 export function useKnowledgeManager() {
+  const clearScope = ref<'store' | 'account'>('store')
+  const clearPreview = ref<import('@/shared/contracts/knowledge-client').KnowledgeClearPreview>()
+  const clearConfirmation = ref('')
   const restorePreview =
     ref<import('@/shared/contracts/knowledge-client').KnowledgeRestorePreview>()
   const recommendations = ref<{ canonical: CanonicalProduct; reasons: string[]; score: number }[]>(
@@ -143,6 +146,9 @@ export function useKnowledgeManager() {
   })
   const importPreview = ingestion.preview
   watch(storeId, () => {
+    clearPreview.value = undefined
+    clearConfirmation.value = ''
+    clearScope.value = 'store'
     ingestion.reset()
     estimate.value = undefined
     learningSelection.value = undefined
@@ -186,6 +192,8 @@ export function useKnowledgeManager() {
       pipeline: <T extends KnowledgePipelineInput>(input: T) => guard(service.pipeline(input)),
       backup: (canonicalId?: string) => guard(service.backup(canonicalId)),
       restorePreview: () => guard(service.restorePreview()),
+      clearPreview: (scope: Parameters<typeof service.clearPreview>[0]) =>
+        guard(service.clearPreview(scope)),
       reassociate: (input: Parameters<typeof service.reassociate>[0]) =>
         guard(service.reassociate(input)),
       context: () => guard(Promise.resolve(service.context())),
@@ -917,6 +925,29 @@ export function useKnowledgeManager() {
     await applyContext(result.context)
     notice.value = result.message
   }
+  async function previewClear() {
+    await closeEditor()
+    clearConfirmation.value = ''
+    clearPreview.value = await client().clearPreview(
+      clearScope.value === 'store'
+        ? { kind: 'store', storeId: storeId.value }
+        : { kind: 'account' },
+    )
+  }
+  async function clearKnowledge() {
+    const preview = clearPreview.value
+    if (!preview || clearConfirmation.value !== preview.confirmation)
+      throw Error('请输入完整确认文字')
+    const service = createKnowledgeClient(workspace.value)
+    const confirmation = clearConfirmation.value
+    notice.value = ''
+    clearPreview.value = undefined
+    clearConfirmation.value = ''
+    const result = await service.clear(preview.token, confirmation)
+    await runtime.refresh()
+    await applyContext(result.context)
+    notice.value = result.message
+  }
   async function exportEntries(format: 'csv' | 'json' = 'json') {
     const w = workspace.value,
       shop = storeId.value
@@ -1136,6 +1167,9 @@ export function useKnowledgeManager() {
         mappingCanonical.value = ''
         mappingReview.value = undefined
         restorePreview.value = undefined
+        clearPreview.value = undefined
+        clearConfirmation.value = ''
+        clearScope.value = 'store'
         deleteReview.value = undefined
         recommendations.value = []
         entryHistory.value = []
@@ -1269,6 +1303,11 @@ export function useKnowledgeManager() {
     previewDeleteFamily,
     confirmDeleteFamily,
     restorePreview,
+    clearScope,
+    clearPreview,
+    clearConfirmation,
+    previewClear,
+    clearKnowledge,
     chooseRestore,
     restoreBackup,
     exportEntries,

@@ -40,7 +40,12 @@ export function createCollectorMaterials(repository: KnowledgeRepository) {
   ) {
     const old = repository
       .listSources({ storeId: binding.storeId, bindingId: binding.id })
-      .find((source) => source.kind === 'platform' && source.label === label)
+      .find(
+        (source) =>
+          source.kind === 'platform' &&
+          source.label === label &&
+          repository.getMetadata(`cleared-source:${source.id}`) !== '1',
+      )
     return repository.saveSource({
       id: old?.id,
       expectedRevision: old?.revision,
@@ -153,7 +158,11 @@ export function createCollectorMaterials(repository: KnowledgeRepository) {
         }
         const existing = repository
           .listSources({ bindingId: binding.id })
-          .find((source) => source.label === collectorMaterialLabels.images)
+          .find(
+            (source) =>
+              source.label === collectorMaterialLabels.images &&
+              repository.getMetadata(`cleared-source:${source.id}`) !== '1',
+          )
         // A failed refresh is recorded separately and cannot erase previously captured bytes.
         const previous = existing
           ? (JSON.parse(existing.text) as { images: CollectedImage[] })

@@ -566,3 +566,16 @@
   color: #909399;
   opacity: 1;
 }
+.knowledge-clear-settings {
+  margin-top: 24px;
+  padding: 18px;
+  border: 1px solid #ffccc7;
+  border-radius: 8px;
+  background: #fffafa;
+}
+.knowledge-clear-settings h3 {
+  margin: 0 0 10px;
+}
+.knowledge-clear-settings p {
+  line-height: 1.6;
+}

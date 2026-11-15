@@ -207,6 +207,8 @@ app
         }),
         window: manager,
         restore: (workspaceId, token) => runtime!.restoreKnowledge(workspaceId, token),
+        clear: (workspaceId, token, confirmation) =>
+          runtime!.clearKnowledge(workspaceId, token, confirmation),
       }),
     )
     await manager.open({ workspaceId: w, storeId: a })
@@ -446,6 +448,61 @@ app
     } finally {
       dialog.showOpenDialog = originalPicker
     }
+    const bBefore = repo.listProducts({ storeId: b }).total
+    const beforeClearWorkspace = runtime.snapshot().workspaceId
+    await click('设置')
+    await until(`!!document.querySelector('.knowledge-clear-settings select')`)
+    assert.equal(
+      await evaluate<string>(`document.querySelector('.knowledge-clear-settings select').value`),
+      'store',
+    )
+    await screenshot('final-clear-settings.png')
+    await click('预览清除范围')
+    await until(`!!document.querySelector('[aria-label="确认清除知识库"]')`)
+    assert(
+      await evaluate<boolean>(
+        `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='备份并清除').disabled`,
+      ),
+    )
+    await input('[aria-label="清除确认文字"]', '清除当前店铺')
+    await screenshot('final-clear-preview.png')
+    await click('备份并清除')
+    await until(`document.body.innerText.includes('知识库已清除')`)
+    repo = runtime.knowledge().repository
+    assert.notEqual(runtime.snapshot().workspaceId, beforeClearWorkspace)
+    assert.equal(repo.listProducts({ storeId: a }).total, 0)
+    assert.equal(repo.listProducts({ storeId: b }).total, bBefore)
+    const recoveryPath = repo.getLastBackupDirectory()
+    assert(recoveryPath && fs.existsSync(path.join(recoveryPath, 'manifest.json')))
+    assert(
+      runtime.snapshot().stores.length === 2 &&
+        runtime.snapshot().stores.every((s) => !s.aiEnabled),
+    )
+    checks.push(
+      'native Settings defaults to current shop; typed confirmation/full auto backup/owner IPC rebuild clears A and preserves B, store registry and AI startup off',
+    )
+    await click('设置')
+    await until(`!!document.querySelector('.knowledge-clear-settings select')`)
+    await evaluate(
+      `(()=>{const n=document.querySelector('.knowledge-clear-settings select');n.value='account';n.dispatchEvent(new Event('change',{bubbles:true}))})()`,
+    )
+    await click('预览清除范围')
+    await until(
+      `document.body.innerText.includes('当前账号的全部店铺知识库') && !!document.querySelector('[aria-label="清除确认文字"]')`,
+    )
+    await input('[aria-label="清除确认文字"]', '清空当前账号')
+    await click('备份并清除')
+    await until(
+      `document.body.innerText.includes('知识库已清除') && !document.querySelector('[aria-label="确认清除知识库"]')`,
+    )
+    repo = runtime.knowledge().repository
+    assert.equal(repo.rows('entries').length, 0)
+    assert.equal(repo.rows('bindings').length, 0)
+    assert.equal(runtime.snapshot().stores.length, 2)
+    assert.equal(repo.getSettings().dynamicTtlMinutes, 60)
+    checks.push(
+      'native account-wide clear passes real preload/IPC and empties knowledge while preserving settings and both shops',
+    )
     await delay(250)
     manager.dispose()
     fs.writeFileSync(

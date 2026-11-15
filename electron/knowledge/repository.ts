@@ -47,6 +47,8 @@ import { knowledgeRequire } from './node-loader'
 import { pruneToFamily } from './backup-scope'
 import { questionConflictKey, repairAutomaticConflictKeys } from './conflict-keys'
 import { assertNoInterruptedKnowledgeRestore } from './restore-intent'
+import { clearKnowledgeCopy } from './clear'
+import type { KnowledgeClearScope } from '../../src/shared/contracts/knowledge-client'
 const { DatabaseSync } = knowledgeRequire('node:sqlite') as typeof import('node:sqlite')
 type Table =
   | 'canonical'
@@ -240,8 +242,18 @@ export class KnowledgeRepository {
       if (!this.getCanonical(value.canonicalId)) throw Error('共享商品不存在')
       if (this.getMetadata(`removed-canonical:${value.canonicalId}`) === '1')
         throw Error('共享商品已从全库移除')
-      const old = value.id ? this.getBinding(value.id) : null
-      this.expectRevision(old, value.expectedRevision, value.id)
+      const cleared = !value.id
+        ? this.rows<ProductBinding>('bindings').find(
+            (b) =>
+              !b.active &&
+              b.storeId === value.storeId &&
+              b.productId === value.productId &&
+              b.skuId === value.skuId &&
+              this.getMetadata(`cleared-binding:${b.id}`) === '1',
+          )
+        : undefined
+      const old = value.id ? this.getBinding(value.id) : (cleared ?? null)
+      if (!cleared) this.expectRevision(old, value.expectedRevision, value.id)
       if (
         old &&
         (old.storeId !== value.storeId ||
@@ -273,6 +285,7 @@ export class KnowledgeRepository {
           1,
           JSON.stringify(next),
         )
+      this.db.prepare('DELETE FROM metadata WHERE key=?').run(`cleared-binding:${next.id}`)
       return next
     })
   }
@@ -1075,6 +1088,10 @@ export class KnowledgeRepository {
   }
   getLastBackupDirectory() {
     return this.getMetadata('lastBackupDirectory')
+  }
+  /** Internal main-process staging operation; deliberately absent from the public command schema. */
+  clearBackupCopy(scope: KnowledgeClearScope) {
+    this.transaction(() => clearKnowledgeCopy(this.db, scope, this.now()))
   }
   query(query: KnowledgeQuery) {
     query = knowledgeQuerySchema.parse(query)

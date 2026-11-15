@@ -11,6 +11,11 @@ export function registerKnowledgeIpc(options: {
   authorize(event: unknown): void
   resolve(): { workspaceId: string; request(input: unknown): Promise<unknown> }
   window: KnowledgeWindowManager
+  clear?(
+    workspaceId: string,
+    token: string,
+    confirmation: string,
+  ): Promise<{ workspaceId: string; recovered: boolean; message: string }>
   restore?(
     workspaceId: string,
     token: string,
@@ -24,6 +29,18 @@ export function registerKnowledgeIpc(options: {
       const request = knowledgeRequestSchema.parse(input),
         current = options.resolve()
       if (current.workspaceId !== request.workspaceId) throw Error('知识库工作区已改变')
+      if (request.operation === 'clear') {
+        if (!options.clear) throw Error('清除服务尚未接入')
+        const storeId = options.window.context().storeId
+        return options
+          .clear(request.workspaceId, request.token, request.confirmation)
+          .then((result) => {
+            if (options.resolve().workspaceId !== result.workspaceId)
+              throw Error('清除后账号已再次改变')
+            options.window.rebind(result.workspaceId, storeId)
+            return { ...result, context: options.window.context() }
+          })
+      }
       if (request.operation === 'restore') {
         if (!options.restore) throw Error('恢复服务尚未接入')
         const storeId = options.window.context().storeId

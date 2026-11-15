@@ -23,7 +23,12 @@ export function createKnowledgePlatformProducts(options: {
       for (const source of options.repository
         .listSources({ storeId, bindingId: binding.id })
         .reverse()) {
-        if (source.kind !== 'platform') continue
+        if (
+          source.kind !== 'platform' ||
+          source.removed ||
+          options.repository.getMetadata(`cleared-source:${source.id}`) === '1'
+        )
+          continue
         try {
           const parsed = platformProductDetailSchema.safeParse(JSON.parse(source.text))
           if (parsed.success && parsed.data.productId === productId) return parsed.data
@@ -46,6 +51,7 @@ export function createKnowledgePlatformProducts(options: {
         const source = repo.listSources({ storeId, bindingId: binding.id }).find(
           (s) =>
             s.kind === 'platform' &&
+            repo.getMetadata(`cleared-source:${s.id}`) !== '1' &&
             (() => {
               try {
                 return platformProductDetailSchema.safeParse(JSON.parse(s.text)).success

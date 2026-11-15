@@ -14,6 +14,11 @@ const activationSchema = z.object({ mode: z.enum(['local', 'managed']) }).strict
 
 /** Owns one workspace at a time. The renderer can select only a mode, never a path or origin. */
 export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): LocalRuntime & {
+  clearKnowledge(
+    workspaceId: string,
+    token: string,
+    confirmation: string,
+  ): Promise<{ workspaceId: string; recovered: boolean; message: string }>
   restoreKnowledge(
     workspaceId: string,
     token: string,
@@ -63,77 +68,82 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
     await pendingDisposal.dispose()
     pendingDisposal = undefined
   }
-  return {
-    restoreKnowledge(workspaceId, token) {
-      return enqueue(async () => {
-        assertWorkspace(workspaceId)
-        requireAvailable()
-        const plan = current.knowledge().prepareRestore(token)
-        const configured = JSON.stringify(current.snapshot().managed.configured)
-        unavailable = emptySnapshot()
-        unavailable.workspaceId = randomUUID()
-        current.setAssistPlatformActive(false)
-        off()
-        pendingDisposal = current
-        emit({ type: 'workspace:changed' })
-        let recovered = false,
-          failure: unknown
-        const rebuild = async () => {
-          if (closed) throw Error('应用已退出，恢复文件已保存；下次启动核对')
-          const next = options.factory()
-          pendingDisposal = next
-          if (
-            next.dataDirectory() !== plan.directory ||
-            JSON.stringify(next.snapshot().managed.configured) !== configured
-          )
-            throw Error('恢复时账号配置已改变，请重新登录核对')
-          await next.start()
-          current = next
-          pendingDisposal = undefined
-          unavailable = undefined
-          bind()
-          if (!closed) current.setAssistPlatformActive(assistActive)
-        }
+  function replaceKnowledge(workspaceId: string, token: string, confirmation?: string) {
+    return enqueue(async () => {
+      assertWorkspace(workspaceId)
+      requireAvailable()
+      const plan =
+        confirmation === undefined
+          ? current.knowledge().prepareRestore(token)
+          : current.knowledge().prepareClear(token, confirmation)
+      const configured = JSON.stringify(current.snapshot().managed.configured)
+      unavailable = emptySnapshot()
+      unavailable.workspaceId = randomUUID()
+      current.setAssistPlatformActive(false)
+      off()
+      pendingDisposal = current
+      emit({ type: 'workspace:changed' })
+      let recovered = false,
+        failure: unknown
+      const rebuild = async () => {
+        if (closed) throw Error('应用已退出，恢复文件已保存；下次启动核对')
+        const next = options.factory()
+        pendingDisposal = next
+        if (
+          next.dataDirectory() !== plan.directory ||
+          JSON.stringify(next.snapshot().managed.configured) !== configured
+        )
+          throw Error('恢复时账号配置已改变，请重新登录核对')
+        await next.start()
+        current = next
+        pendingDisposal = undefined
+        unavailable = undefined
+        bind()
+        if (!closed) current.setAssistPlatformActive(assistActive)
+      }
+      try {
+        await disposePending()
+        restoreKnowledgeBackup({
+          directory: plan.directory,
+          backupDirectory: plan.backupDirectory,
+        })
+        await rebuild()
+      } catch (cause) {
+        failure = cause
         try {
           await disposePending()
           restoreKnowledgeBackup({
             directory: plan.directory,
-            backupDirectory: plan.backupDirectory,
+            backupDirectory: plan.recoveryDirectory,
           })
           await rebuild()
-        } catch (cause) {
-          failure = cause
+          recovered = true
+        } catch (recoveryCause) {
           try {
             await disposePending()
-            restoreKnowledgeBackup({
-              directory: plan.directory,
-              backupDirectory: plan.recoveryDirectory,
-            })
-            await rebuild()
-            recovered = true
-          } catch (recoveryCause) {
-            try {
-              await disposePending()
-            } catch {
-              /* retain unavailable state and recovery point */
-            }
-            emit({ type: 'workspace:changed' })
-            throw new AggregateError(
-              [cause, recoveryCause],
-              '恢复未完成；已保留恢复点，请重启后核对',
-            )
+          } catch {
+            /* retain unavailable state and recovery point */
           }
+          emit({ type: 'workspace:changed' })
+          throw new AggregateError([cause, recoveryCause], '恢复未完成；已保留恢复点，请重启后核对')
         }
-        emit({ type: 'workspace:changed' })
-        return {
-          workspaceId: snapshot().workspaceId,
-          recovered,
-          message: recovered
-            ? `恢复失败，已恢复操作前资料：${failure instanceof Error ? failure.message : '请核对备份'}`
-            : '知识库已恢复；服务已重新装配，AI保持启动默认状态。',
-        }
-      })
-    },
+      }
+      emit({ type: 'workspace:changed' })
+      return {
+        workspaceId: snapshot().workspaceId,
+        recovered,
+        message: recovered
+          ? `${confirmation === undefined ? '恢复' : '清除'}失败，已恢复操作前资料：${failure instanceof Error ? failure.message : '请核对备份'}`
+          : confirmation === undefined
+            ? '知识库已恢复；服务已重新装配，AI保持启动默认状态。'
+            : `知识库已清除；自动备份：${plan.recoveryDirectory}。服务已重新装配，AI保持关闭。`,
+      }
+    })
+  }
+  return {
+    restoreKnowledge: (workspaceId, token) => replaceKnowledge(workspaceId, token),
+    clearKnowledge: (workspaceId, token, confirmation) =>
+      replaceKnowledge(workspaceId, token, confirmation),
     start: () =>
       enqueue(async () => {
         requireAvailable()

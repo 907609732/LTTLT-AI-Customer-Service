@@ -59,6 +59,7 @@ export function documentSources(
     .filter(
       (source) =>
         source.label === document.label &&
+        repo.getMetadata(`cleared-source:${source.id}`) !== '1' &&
         source.locator.assetId &&
         (document.productRows || document.targets.includes(source.bindingId ?? '')),
     )

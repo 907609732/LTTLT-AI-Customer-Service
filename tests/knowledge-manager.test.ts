@@ -32,6 +32,8 @@ const fake = vi.hoisted(() => ({
   sourceHistory: vi.fn(),
   entryHistory: vi.fn(),
   backup: vi.fn(),
+  clearPreview: vi.fn(),
+  clear: vi.fn(),
 }))
 vi.mock('../src/modules/knowledge/manager-service', () => ({ createKnowledgeClient: () => fake }))
 afterEach(() => vi.clearAllMocks())
@@ -132,6 +134,50 @@ it('has two main tabs and switching knowledge shops never changes reception sele
   expect(fake.query).toHaveBeenCalledWith(
     expect.objectContaining({ type: 'products', page: expect.objectContaining({ storeId: 'b' }) }),
   )
+  wrapper.unmount()
+})
+it('defaults clearing to the current shop, previews account scope separately, and never clears on cancel or an incomplete phrase', async () => {
+  const { wrapper } = await setup()
+  const settingsButton = wrapper.findAll('button').find((b) => b.text() === '设置')!
+  await settingsButton.trigger('click')
+  await flushPromises()
+  const scope = wrapper.get('.knowledge-clear-settings select')
+  expect((scope.element as HTMLSelectElement).value).toBe('store')
+  fake.clearPreview.mockResolvedValue({
+    token: 't',
+    scope: { kind: 'store', storeId: 'a' },
+    label: '当前店铺：a',
+    confirmation: '清除当前店铺',
+    products: 1,
+    entries: 2,
+    jobs: 0,
+    misses: 0,
+    message: '自动备份',
+  })
+  const previewButton = wrapper.findAll('button').find((b) => b.text() === '预览清除范围')!
+  await previewButton.trigger('click')
+  await flushPromises()
+  expect(fake.clearPreview).toHaveBeenLastCalledWith({ kind: 'store', storeId: 'a' })
+  const dialog = wrapper.get('[aria-label="确认清除知识库"]')
+  const confirm = dialog.findAll('button').find((b) => b.text() === '备份并清除')!
+  expect(confirm.attributes('disabled')).toBeDefined()
+  await dialog.get('input').setValue('清除')
+  expect(confirm.attributes('disabled')).toBeDefined()
+  await dialog.get('input').setValue('清除当前店铺')
+  expect(confirm.attributes('disabled')).toBeUndefined()
+  await dialog
+    .findAll('button')
+    .find((b) => b.text() === '取消')!
+    .trigger('click')
+  expect(fake.clear).not.toHaveBeenCalled()
+  await scope.setValue('account')
+  await previewButton.trigger('click')
+  await flushPromises()
+  expect(fake.clearPreview).toHaveBeenLastCalledWith({ kind: 'account' })
+  await wrapper.get('[data-testid="knowledge-store"]').setValue('b')
+  await flushPromises()
+  expect(wrapper.find('[aria-label="确认清除知识库"]').exists()).toBe(false)
+  expect(fake.clear).not.toHaveBeenCalled()
   wrapper.unmount()
 })
 it('autosaves a manual general answer as draft only and retains it on a stale conflict', async () => {

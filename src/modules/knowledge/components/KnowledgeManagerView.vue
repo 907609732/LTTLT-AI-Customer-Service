@@ -111,6 +111,11 @@ const {
   previewDeleteFamily,
   confirmDeleteFamily,
   restorePreview,
+  clearScope,
+  clearPreview,
+  clearConfirmation,
+  previewClear,
+  clearKnowledge,
   chooseRestore,
   restoreBackup,
   exportEntries,
@@ -508,6 +513,27 @@ const {
           当前每日检查执行器尚未接入，保存时间不会声称后台已运行。
         </p>
         <button class="primary">保存设置</button>
+        <section class="knowledge-clear-settings">
+          <h3>清除知识库</h3>
+          <p>执行前自动完整备份，保留店铺登录与模型配置；清除后可通过“恢复备份”恢复。</p>
+          <label
+            >清除范围
+            <select v-model="clearScope" :disabled="busy">
+              <option value="store">
+                当前店铺{{ currentStore ? `：${currentStore.storeName}` : '（请先选择店铺）' }}
+              </option>
+              <option value="account">当前账号的全部店铺知识库</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            class="danger"
+            :disabled="busy || (clearScope === 'store' && !currentStore)"
+            @click="run(previewClear)"
+          >
+            预览清除范围
+          </button>
+        </section>
       </form>
     </section>
     <footer v-if="view === 'library' || view === 'review'" class="knowledge-pagination">
@@ -895,6 +921,49 @@ v{{ source.revision }} · {{ source.hash }}
         <footer>
           <button @click="restorePreview = undefined">取消</button
           ><button class="danger" @click="run(restoreBackup)">停止服务并恢复上述范围</button>
+        </footer>
+      </section>
+    </div>
+    <div v-if="clearPreview" class="knowledge-modal-backdrop">
+      <section class="knowledge-modal" role="dialog" aria-modal="true" aria-label="确认清除知识库">
+        <h2>确认清除知识库</h2>
+        <p>
+          <strong>{{ clearPreview.label }}</strong>
+        </p>
+        <p>
+          范围内现有商品/SKU关联 {{ clearPreview.products }} 项、知识
+          {{ clearPreview.entries }} 条（含将保留的共享知识）；清除任务
+          {{ clearPreview.jobs }} 项、待学问题 {{ clearPreview.misses }} 项。
+        </p>
+        <p>{{ clearPreview.message }}</p>
+        <label
+          >请输入“{{ clearPreview.confirmation }}”确认
+          <input
+            v-model="clearConfirmation"
+            autocomplete="off"
+            :disabled="busy"
+            aria-label="清除确认文字"
+          />
+        </label>
+        <footer>
+          <button
+            :disabled="busy"
+            @click="
+              () => {
+                clearPreview = undefined
+                clearConfirmation = ''
+              }
+            "
+          >
+            取消
+          </button>
+          <button
+            class="danger"
+            :disabled="busy || clearConfirmation !== clearPreview.confirmation"
+            @click="run(clearKnowledge)"
+          >
+            备份并清除
+          </button>
         </footer>
       </section>
     </div>

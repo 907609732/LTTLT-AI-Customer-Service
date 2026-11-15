@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { cpSync, mkdirSync } from 'node:fs'
+import { createKnowledgeRepository } from './knowledge/repository'
 import {
   inspectKnowledgeBackup,
   knowledgeBackupScope,
@@ -10,6 +12,10 @@ import { exportKnowledge } from './knowledge/export'
 import { tokenizeKnowledge } from './knowledge/resolver'
 import { z } from 'zod'
 import { knowledgeRequestSchema } from '../src/shared/contracts/knowledge-client'
+import type {
+  KnowledgeClearScope,
+  KnowledgeClearPreview,
+} from '../src/shared/contracts/knowledge-client'
 import type { KnowledgeCitation } from '../src/shared/contracts/knowledge'
 import { modelMessagesSchema, CONTEXT_TRIGGER, type ModelMessages } from './context-compression'
 import { estimateKnowledgeTokens } from './knowledge/budget'
@@ -69,6 +75,16 @@ export function createKnowledgeRuntime(options: {
       fingerprint: string
       expires: number
       impact: ReturnType<typeof knowledgeRestoreImpact>
+    }
+  >()
+  const clearPreviews = new Map<
+    string,
+    {
+      scope: KnowledgeClearScope
+      revision: number
+      expires: number
+      confirmation: string
+      stores: string
     }
   >()
   const backupFingerprint = (directory: string) =>
@@ -135,6 +151,43 @@ export function createKnowledgeRuntime(options: {
   }
   const api = {
     repository: repo,
+    prepareClear(token: string, confirmation: string) {
+      active()
+      const preview = clearPreviews.get(token)
+      clearPreviews.delete(token)
+      if (
+        !preview ||
+        preview.expires < Date.now() ||
+        preview.revision !== repo.revision ||
+        preview.stores !== JSON.stringify(options.stores())
+      )
+        throw Error('清除预览已过期或资料变化，请重新预览')
+      if (confirmation !== preview.confirmation) throw Error('请输入完整确认文字后重新预览')
+      if (preview.scope.kind === 'store') store(preview.scope.storeId)
+      repo.assertWritable()
+      // No live business records are changed until a verified candidate and a full recovery point exist.
+      const recovery = repo.createBackup(path.join(repo.directory, 'knowledge-recovery'))
+      inspectKnowledgeBackup(recovery.directory)
+      const staging = path.join(repo.directory, 'knowledge-clear-staging', randomUUID())
+      mkdirSync(staging, { recursive: true })
+      const work = path.join(staging, 'work')
+      cpSync(recovery.directory, work, { recursive: true })
+      const copy = createKnowledgeRepository({ directory: work, workspaceId: randomUUID() })
+      let candidate: string
+      try {
+        copy.clearBackupCopy(preview.scope)
+        copy.setMetadata('lastBackupDirectory', recovery.directory)
+        candidate = copy.createBackup(path.join(staging, 'result')).directory
+      } finally {
+        copy.dispose()
+      }
+      inspectKnowledgeBackup(candidate)
+      return {
+        directory: repo.directory,
+        backupDirectory: candidate,
+        recoveryDirectory: recovery.directory,
+      }
+    },
     prepareRestore(token: string) {
       active()
       const preview = restorePreviews.get(token)
@@ -358,6 +411,45 @@ export function createKnowledgeRuntime(options: {
         store(request.storeId)
         return exportKnowledge(repo, request)
       }
+      if (request.operation === 'clear') throw Error('清除必须由工作区所有者停止服务后执行')
+      if (request.operation === 'clear-preview') {
+        repo.assertWritable()
+        const scope = request.scope
+        if (scope.kind === 'store') store(scope.storeId)
+        const token = randomUUID(),
+          confirmation = scope.kind === 'store' ? '清除当前店铺' : '清空当前账号'
+        const summary = repo.summary(scope.kind === 'store' ? scope.storeId : undefined)
+        clearPreviews.clear()
+        clearPreviews.set(token, {
+          scope,
+          confirmation,
+          revision: repo.revision,
+          expires: Date.now() + 600000,
+          stores: JSON.stringify(options.stores()),
+        })
+        return {
+          token,
+          scope,
+          confirmation,
+          label:
+            scope.kind === 'store'
+              ? `当前店铺：${options.stores().find((s) => s.id === scope.storeId)!.storeName}`
+              : '当前账号的全部店铺知识库',
+          products: summary.products,
+          entries: summary.entries,
+          jobs: repo
+            .rows<{ storeId: string }>('jobs')
+            .filter((j) => scope.kind === 'account' || j.storeId === scope.storeId).length,
+          misses: repo
+            .rows<{ storeId: string }>('misses')
+            .filter((m) => scope.kind === 'account' || m.storeId === scope.storeId).length,
+          message:
+            '执行前自动完整备份；备份或校验失败不会清除。将停止当前账号运行服务和任务并重建，AI保持启动默认关闭。店铺登录、模型配置和备份保留。' +
+            (scope.kind === 'store'
+              ? '解除本店商品/SKU、撤回本店私有知识、移除本店任务和待学问题；共享知识仅撤销本店应用，其他店铺及其来源依赖保留。审核历史和原件保留用于恢复核对。'
+              : '移除当前账号商品、问答、来源索引、任务和待学问题；备份与原始文件保留。'),
+        } satisfies KnowledgeClearPreview
+      }
       if (request.operation === 'restore') throw Error('恢复必须由工作区所有者停止服务后执行')
       if (request.operation === 'restore-preview') {
         if (!options.chooseRestore) throw Error('恢复文件选择尚未接入')
@@ -490,6 +582,7 @@ export function createKnowledgeRuntime(options: {
           .rows<import('../src/shared/contracts/knowledge').KnowledgeEntry>('entries')
           .filter(
             (e) =>
+              e.status !== 'withdrawn' &&
               (e.draft.scope.kind === 'template' ||
                 (e.draft.scope.kind === 'store' &&
                   (!request.page.storeId || e.draft.scope.storeId === request.page.storeId))) &&

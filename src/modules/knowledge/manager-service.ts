@@ -134,6 +134,19 @@ export function createKnowledgeClient(workspaceId: string) {
         import('@/shared/contracts/knowledge-client').KnowledgeRestorePreview | null
       >
     },
+    clearPreview(scope: import('@/shared/contracts/knowledge-client').KnowledgeClearScope) {
+      return request({ workspaceId, operation: 'clear-preview', scope }) as Promise<
+        import('@/shared/contracts/knowledge-client').KnowledgeClearPreview
+      >
+    },
+    clear(token: string, confirmation: string) {
+      return request({ workspaceId, operation: 'clear', token, confirmation }) as Promise<{
+        workspaceId: string
+        recovered: boolean
+        message: string
+        context: import('@/shared/contracts/knowledge-client').KnowledgeWindowContext
+      }>
+    },
     restore(token: string) {
       return request({ workspaceId, operation: 'restore', token }) as Promise<{
         workspaceId: string

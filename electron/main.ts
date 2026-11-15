@@ -100,6 +100,8 @@ app
       },
       window: knowledgeWindow,
       restore: (workspaceId, token) => runtime!.restoreKnowledge(workspaceId, token),
+      clear: (workspaceId, token, confirmation) =>
+        runtime!.clearKnowledge(workspaceId, token, confirmation),
     })
     app.once('will-quit', () => {
       disposeKnowledge()

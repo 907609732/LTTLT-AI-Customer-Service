@@ -82,6 +82,7 @@ export function createKnowledgeImporter(options: {
           .find(
             (s) =>
               s.label === ORIGINAL_LABEL + file.name &&
+              repo.getMetadata(`cleared-source:${s.id}`) !== '1' &&
               s.locator.assetId === asset.id &&
               s.bindingId === bindingId,
           )
@@ -212,6 +213,7 @@ export function createKnowledgeImporter(options: {
             .find(
               (source) =>
                 source.locator.assetId &&
+                repo.getMetadata(`cleared-source:${source.id}`) !== '1' &&
                 sourcePartIdentity(repo, source, Boolean(part.product)) === partKey,
             )
           const duplicate =
@@ -383,6 +385,7 @@ export function createKnowledgeImporter(options: {
               .find(
                 (source) =>
                   source.locator.assetId &&
+                  repo.getMetadata(`cleared-source:${source.id}`) !== '1' &&
                   sourcePartIdentity(repo, source, Boolean(item.product)) ===
                     (item.partKey ??
                       partIdentity(
