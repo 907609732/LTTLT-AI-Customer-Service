@@ -17,6 +17,7 @@ async function fixture() {
   setActivePinia(createPinia())
   const runtime = useRuntimeStore()
   runtime.available = true
+  runtime.snapshot.workspaceId = 'navigation-workspace'
   runtime.snapshot.stores = Array.from({ length: 12 }, (_, n) => ({
     id: `s${n}`,
     storeName: `店铺${n}`,
@@ -49,19 +50,26 @@ it('真实店铺分页、筛选交集及空态；翻页后筛选回第一页', a
   expect(wrapper.text()).toContain('没有符合筛选条件的店铺')
   wrapper.unmount()
 })
-it('单店配置和商品导航使用点击店铺，不沿用上一家', async () => {
-  const { wrapper, router, runtime } = await fixture()
-  await wrapper.get('[data-store="s1"] [data-panel="welcome"]').trigger('click')
-  await flushPromises()
-  expect(runtime.selectedStoreId).toBe('s1')
-  expect(router.currentRoute.value.query.panel).toBe('welcome')
-  await wrapper.get('[data-store="s0"] [data-panel="goods"]').trigger('click')
-  await flushPromises()
-  expect(knowledge.open).toHaveBeenLastCalledWith('s0')
-  expect(runtime.selectedStoreId).toBe('s1')
-  expect(router.currentRoute.value.query.panel).toBe('welcome')
-  wrapper.unmount()
-})
+it.each(['transfer', 'welcome'])(
+  '单店 %s 配置和商品导航使用点击店铺，不沿用上一家',
+  async (panel) => {
+    const { wrapper, runtime } = await fixture()
+    await wrapper.get(`[data-store="s1"] [data-panel="${panel}"]`).trigger('click')
+    await flushPromises()
+    expect(runtime.selectedStoreId).toBe('s1')
+    expect(useShopSetupStore().visible).toBe(true)
+    expect(useShopSetupStore().step).toBe(3)
+    expect(useShopSetupStore().storeId).toBe('s1')
+    await wrapper.get('[data-store="s0"] [data-panel="goods"]').trigger('click')
+    await flushPromises()
+    expect(knowledge.open).toHaveBeenLastCalledWith('s0')
+    expect(runtime.selectedStoreId).toBe('s1')
+    expect(useShopSetupStore().visible).toBe(true)
+    expect(useShopSetupStore().step).toBe(3)
+    expect(useShopSetupStore().storeId).toBe('s1')
+    wrapper.unmount()
+  },
+)
 it('店铺基础设置直接进入该店客服风格，不触发保存或开启AI', async () => {
   const { wrapper, runtime } = await fixture()
   runtime.snapshot.workspaceId = 'config-workspace'

@@ -16,3 +16,10 @@ it('旧模拟客服台地址进入训练场，旧模型定制地址回店铺基�
   expect(resolvePanelKey('aicustom')).toBe('shops')
   for (const key of ['team', 'general', 'account']) expect(resolvePanelKey(key)).toBe('shops')
 })
+
+it('旧接待页面不再注册，旧地址回到店铺入口', () => {
+  for (const key of ['transfer', 'welcome']) {
+    expect(Object.keys(panelRegistry)).not.toContain(key)
+    expect(resolvePanelKey(key)).toBe('shops')
+  }
+})
