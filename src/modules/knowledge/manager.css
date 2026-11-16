@@ -678,3 +678,44 @@
   color: #64748b;
   border-radius: 6px;
 }
+
+.knowledge-toolbar {
+  align-items: center;
+}
+.knowledge-toolbar-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.knowledge-toolbar-actions button {
+  box-sizing: border-box;
+  height: 34px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.knowledge-toolbar-actions .el-dropdown {
+  color: inherit;
+  font: inherit;
+}
+.knowledge-toolbar-menu .el-dropdown-menu {
+  padding: 6px;
+}
+.knowledge-toolbar-menu .el-dropdown-menu__item {
+  min-height: 34px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+@media (max-width: 760px) {
+  .knowledge-toolbar > input {
+    flex-basis: 100%;
+    width: 100%;
+    min-width: 0;
+  }
+  .knowledge-toolbar-actions {
+    width: 100%;
+  }
+}
