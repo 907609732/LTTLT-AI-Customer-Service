@@ -391,7 +391,7 @@ export async function businessChecks(options: {
           `(()=>{const input=document.querySelector('.reply-pacing input');input.value=${seconds};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('.reply-pacing button[type="submit"]').click()})()`,
         )
         await wait(
-          `document.querySelector('.reply-pacing p').textContent.includes('当前：${seconds} 秒')`,
+          `document.querySelector('.reply-pacing .pacing-current').textContent.includes('当前 ${seconds} 秒')`,
         )
       }
       await change(15)
