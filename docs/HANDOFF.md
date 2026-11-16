@@ -396,3 +396,7 @@ Task4 round1 fixes: same-name material at the selected target revises stable sou
 用户再次报告没反应，真实日志发现新消息停在 max_inflight；托管 maxInflight=1 被另一买家待审核 beforeSend 长期占用。修复既有回复引擎，仅等待批准期间释放模型名额，finally 恢复计数，保留 processing 同买家独占、发送确认与退出等待，总保留任务上限 maxInflight+32。来源和双哈希见 vendor PROVENANCE。回复监控已手动重新打开，没有批准或发送真实消息。
 
 修复前新增跨买家单并发用例失败；修复后真实引擎/确认门/消息诊断 31 项通过。首次实店验证仅证明一条消息能生成，未覆盖前条待审核时第二位买家，因此不能作为连续接待完整验收。
+
+## 2026-11-17 v1.0.37 已合入主干并公开发布
+
+PR #30 合入 main，源码与 tag 为 925dc2ed4c425aff616cd62bda93056337254ec3。Release 提供 Windows x64 NSIS、ZIP、源码清单与 SHA256；主干云端完整检查和 88/88 桌面验收、知识专项、打包启动通过，本机下载校验与隔离成品复验通过。完整范围、一次本机置顶断言差异及专项复验结果、实店验收边界见 [RELEASE_V1.0.37.md](RELEASE_V1.0.37.md)。保留旧附件与 latest 通道，不包含服务端部署或真实买家发送。
