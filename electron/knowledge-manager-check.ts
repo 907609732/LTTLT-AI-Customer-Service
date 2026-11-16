@@ -56,7 +56,7 @@ async function until(script: string) {
 }
 async function click(text: string) {
   await evaluate(
-    `(()=>{const node=[...document.querySelectorAll('button')].find(n=>n.textContent.trim()===${JSON.stringify(text)});if(!node)throw Error('missing button');node.click()})()`,
+    `(()=>{const node=[...document.querySelectorAll('button,[role="menuitem"]')].find(n=>n.textContent.trim()===${JSON.stringify(text)});if(!node)throw Error('missing button');node.click()})()`,
   )
   await delay(90)
 }
@@ -532,7 +532,13 @@ app
       filePaths: [backup.directory],
     })) as typeof dialog.showOpenDialog
     try {
-      await click('恢复备份')
+      await evaluate(
+        `(()=>{const button=[...document.querySelectorAll('.knowledge-toolbar-actions button')].find(node=>node.textContent.trim().startsWith('备份'));if(!button)throw Error('missing backup menu');button.click()})()`,
+      )
+      await until(
+        `document.querySelector('.knowledge-toolbar-menu[aria-hidden="false"] [role="menuitem"]')`,
+      )
+      await click('恢复全库备份')
       await until(`document.body.innerText.includes('确认恢复范围')`)
       await screenshot('final-restore-preview.png')
       await click('停止服务并恢复上述范围')
