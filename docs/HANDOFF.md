@@ -1,3 +1,46 @@
+## 2026-11-17 闲鱼切换买家、上下文时间与店名识别（1.0.27）
+
+针对用户反馈的闲鱼切换人、无法识别上下文、识别不了店铺名字：`xianyuTimestamp` 现解析“昨天/前天 + 时间”“MM-DD HH:MM”“YYYY-MM-DD HH:MM”和“N分钟/小时前”，配合 bridge 的 `isTimeLabel` 补丁，跨天消息不再全部落到当前时间；`sendText` 在切换前、写入后各核对一次当前买家，商家切走后不抢回旧会话也不点击发送；打开店铺后从登录 cookie `tracknick`/`unb` 回填店名和卖家 id，仅在占位名、空名或登录账号变化时更新，换账号会停 AI。桥接补丁和来源记录见 `vendor/xianyu-bridge/PROVENANCE.md`。
+
+用户明确要求“不要查什么实现了，直接提交”，因此本次只提交代码，未执行测试、类型检查或构建验收；下一项必须先跑 `tests/xianyu-adapter.test.ts`、`tests/simulator.test.ts` 和类型检查，再用真实买家新消息验证切换买家与上下文。
+
+## 2026-11-16 闲鱼 AI 接待读取当前打开会话（1.0.26）
+
+用户反馈闲鱼店铺在线、AI 已开启，但页面里的买家消息没有进入 AI 回复。只读核对确认：引擎在运行，`popPending` 只读取有未读红点的会话；当前打开的会话被商家点开后不再保留红点，因此新买家消息永远不会交给 AI。已修改 `electron/xianyu/adapter.ts`：`popPending` 先读取当前打开会话，若最后一条是买家消息且未确认，就和未读会话一起交给引擎；最后一条是我方消息时不重复生成。抽出的 `#activeConversation` 与消息采样共用同一读取口径，通知/系统消息仍按黑名单跳过。自动发送前还读取现有输入框，发现人工未发送草稿时拒绝覆盖。
+
+验证：`tests/xianyu-adapter.test.ts` 14/14 通过，新增“当前打开会话无未读也交给 AI、防止重复认领”“最后一条是我方消息不交给 AI”“输入框已有草稿不覆盖”三项；`npm run typecheck`、`npm run build`、定向 ESLint/Prettier 通过。已重启源码版并确认运行版本 v1.0.26；闲鱼店铺重新打开后 `open/online/authenticated=true`，AI 引擎 `running=true`，发送模式恢复为自动发送。实际运行日志在 23:45:39 出现“会话 x\*\*\*4 消息已过期，跳过”，证明当前打开会话已进入引擎待回复队列；因消息早于引擎 3 分钟时效只归档未回复。没有向真实买家发送测试消息，真实自动回复仍需由新买家消息验收。
+
+边界：超过引擎默认 3 分钟处理时效的旧消息只归档不自动回复；现有 `tbNick_2rqeq`、`浩佳俱乐部` 等旧待回复会话不会被追认，需人工处理或等新消息。未执行安装包发布或生产部署。
+
+## 2026-11-16 取消本机/托管账号工作区隔离（1.0.25）
+
+用户登录托管账号后发现原有本机店铺全部不可见，明确要求“去掉，不要隔离”。已改为本机模式与所有托管账号共用 `local-runtime` 根目录和 `yunduo-local` 平台分区：登录、切换账号、退出和待重启提示都不再切换或遮蔽业务数据；登录只决定托管 AI、团队和计费资格。未登录时启动 AI 会明确提示先登录，店铺数据仍可查看和编辑。旧 `managed-workspaces/<来源>/<账号>/` 目录保留在磁盘但不读取、不自动合并。
+
+验证：
+
+- `npx vitest run tests/managed-controller.test.ts tests/dashboard-panel.test.ts tests/dashboard.test.ts tests/simple-login.test.ts tests/add-shop.test.ts` 5 文件 40 项通过。
+- `npm run typecheck` 通过；`npm run build` 通过；改动文件定向 ESLint/Prettier 通过。
+- 隐藏 Electron 定向托管检查 3/3 通过：登录前创建店铺、登录和激活后仍保留同一 id；托管训练/设置界面；请求结果不确定不自动重发。
+- `node scripts/reporting-isolated-check.mjs` 三阶段通过：账号 B 和进程重启读取同一本机报表，不覆盖账号 A 事件账本；退出后报表保持可见。
+- 本机真实资料只读核对：`local-runtime/stores.json` 仍有 4 家店铺（拼多多、2 个本机模拟、闲鱼），数据未删除。已重启源码版并实际查询运行进程：界面版本 v1.0.25，`mode=managed`、`signed_in`、`userId=1`、`restartRequired=false`，店铺列表显示 4 家本机店铺。
+
+未解决问题：旧托管工作区里 1 条空名称拼多多记录没有自动合并到共用目录；如需保留请先只读核对后明确授权迁移，不自动覆盖本机文件。已知取舍：同一台机器上的不同托管账号会看到同一份本机店铺、会话、知识、工单和平台登录态。未执行安装包发布、生产部署或真实买家发送。下一步由用户在日常界面确认登录/切换账号后 4 家店铺持续可见；验收条件是重启、登录、切换账号和退出后店铺及平台登录态不消失，未登录启动 AI 明确提示登录。
+
+## 2026-11-16 闲鱼网页版店铺接入（1.0.24 本机验证）
+
+用户提供本机 `F:\shanhui-app\kb-port` 参考实现并要求接入其中的闲鱼店铺。已新增闲鱼平台支持：`xianyu` 经 `extraPlatforms` 注入固定 vendor 运行时，页面仍由厂商 `ShopWindowManager` 打开 `https://www.goofish.com/im`；本工程新增 `electron/xianyu/bridge-client.ts`（Electron 传输/注入）、`electron/xianyu/adapter.ts`（适配器契约 v2）、`electron/xianyu/index.ts`，原版桥接脚本复制到 `vendor/xianyu-bridge/` 并记录 PROVENANCE。未修改 `vendor/lingtu-runtime` 的哈希清单。
+
+验证：
+
+- 参考工程 `kb-port` 自身 `npm test` 39/39 通过，`node examples/xianyu-mock.mjs` 输出 scan/detail/chat 三段字段齐全。
+- 新增 `tests/xianyu-adapter.test.ts` 11 项通过：时间标签换算、待回复判定、认领/确认、同名会话 ambiguous、发送回显与改写保护、登录后自动复查、事件采样去重；Electron 类型检查与定向 ESLint/Prettier 通过。
+- `npm run test:desktop` 87/87 通过；添加店铺弹窗断言新增“闲鱼店铺已开通”。
+- 添加店铺弹窗补齐闲鱼店名输入：上游只允许拼多多不带 `storeName`，闲鱼必须填写；`tests/add-shop.test.ts` 新增用例，7/7 通过（与适配器合计 18 项）。
+- 本机实机：通过业务命令创建 `闲鱼店铺`（id `584251a7-9032-436c-8970-767dc0f98a5d`），内嵌 `goofish.com/im` 加载成功，桥接 v59 注入成功；未登录时健康检查返回“请先在店铺页面登录闲鱼”，用户扫码登录后店铺转为 `online/authenticated=true`。消息监控已记录当前会话消息（日志“收消息”）；直接核对页面 `pendingChats` 返回 `itemCount=9, pending=[]`，3 个未读均属于“通知消息/闲小蜜”黑名单，因此当前没有真实买家待回复。未发送任何买家消息。
+- 全量 `npm test` 一次运行 950/951，失败为 `shop-setup-wizard` 默认 5s 超时；单独运行该文件 17/17、该用例 4.36s 通过，已把该用例上限调整为 15s。检查期间工作区还有并发外部改动（版本 1.0.25、托管/看板相关文件），不属于本项范围；并发安装还造成过一次 `ws` 模块瞬时缺文件，复跑后消失。
+
+当前未接入：闲鱼商品清单采集与学习、视频发送、未打开会话的全局消息监听（`drainEvents` 只采样当前打开会话，AI 轮询 `popPending` 时会激活待回复会话）、真实买家发送验收。桥接脚本来源工程标注 `UNLICENSED`，公开发布/对外分发前必须核实授权，见 THIRD_PARTY_NOTICES。自动登录复查与店名输入已写入源码和构建产物；运行中的窗口需重启后加载最新界面。下一步：等真实买家消息到达后核对待回复发现、AI 候选与逐条确认发送；随后再评估闲鱼商品采集/学习。验收条件：店铺保持在线、待回复买家能被发现、候选只经人工批准发送、页面改版/未登录/验证时明确报错。
+
 ## 2026-11-16 商品学习、审核与试问实测（去标识记录）
 
 经用户授权，使用一个真实商品及当前配置模型完成单商品学习：6份资料、12张图，17/17步骤成功；观察进度自动更新、loading停止且不跳页。生成15条候选，排除已过期动态内容及未逐条核对项，只审核发布3条可核对的静态知识，重新读取审核版本确认成功。随后真实试问3个已审核事实，均正确回答并显示相应审核知识引用。未发送买家消息。
@@ -400,3 +443,11 @@ Task4 round1 fixes: same-name material at the selected target revises stable sou
 ## 2026-11-17 v1.0.37 已合入主干并公开发布
 
 PR #30 合入 main，源码与 tag 为 925dc2ed4c425aff616cd62bda93056337254ec3。Release 提供 Windows x64 NSIS、ZIP、源码清单与 SHA256；主干云端完整检查和 88/88 桌面验收、知识专项、打包启动通过，本机下载校验与隔离成品复验通过。完整范围、一次本机置顶断言差异及专项复验结果、实店验收边界见 [RELEASE_V1.0.37.md](RELEASE_V1.0.37.md)。保留旧附件与 latest 通道，不包含服务端部署或真实买家发送。
+
+## 2026-11-17 闲鱼与共用本机工作区分支整合（1.0.39）
+
+用户明确要求将 codex/remove-isolation-xianyu-fixes-20261117 合入主干。以 main 的 1.0.37 发布基线整合旧分支两项提交，保留 AI 状态记忆、日志清除/置顶/原生拖动和审核等待不阻塞其他买家。运行时冲突同时保留托管 AI 登录校验与清除日志命令，版本不回退到分支的 1.0.27。
+
+复用分支既有闲鱼适配器、用户提供的 kb-port 桥、Vue/Electron 和原确认门，不引入新生产依赖。用户于2026-11-17确认桥接代码为其拥有并允许公开分发，来源与副本边界见 vendor/xianyu-bridge/PROVENANCE.md。审查发现的取消回调、错误补点、历史未知与旧回显误判已补回归；后续页面保护由本机 DeepSeek 实现，Codex 独立复核和验证。只整合主干，不额外发布 Release 或执行真实买家发送。
+
+本机 DeepSeek 同一官方 headless 会话三轮均返回退出码0及 final.reason.kind=completed。Codex 独立复跑15文件173项通过，复审另独立复跑闲鱼3文件53项通过；Electron/Vue类型、变更范围ESLint、模块边界检查通过。桥脚本当前SHA256与字节数已独立匹配来源说明。未执行真实闲鱼发送；新主干工具栏合入后的最终验证继续由整合检查执行。

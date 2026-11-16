@@ -12,8 +12,6 @@ const {
   runtime,
   period,
   ready,
-  workspaceAccessible,
-  accessMessage,
   summary,
   busy,
   errors,
@@ -37,7 +35,7 @@ const coverageNote = computed(() => {
 })
 const status = computed(() => {
   if (!runtime.available) return '界面预览'
-  if (!workspaceAccessible.value) return '工作区不可用'
+  if (!ready.value && !errors.value) return '正在连接本机工作区'
   if (errors.value) return '部分数据读取失败'
   if (!ready.value || busy.value) return '正在读取'
   const s = summary.value
@@ -199,9 +197,6 @@ function navigateMetric(key: string, panel: string) {
     </header>
     <div v-if="!runtime.available" class="shop-dashboard__notice" role="status">
       界面预览 · 未连接本机数据，请在桌面版查看真实记录。
-    </div>
-    <div v-else-if="!workspaceAccessible" class="shop-dashboard__notice" role="status">
-      {{ accessMessage }}
     </div>
     <div v-else-if="!ready && !errors" class="shop-dashboard__notice" role="status">
       正在连接本机工作区，尚无可用数据。

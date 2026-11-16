@@ -23,7 +23,15 @@ import { existsSync } from 'node:fs'
 import { normalizeReplyInterval, validateReplyInterval } from './reply-pacing'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { app, BrowserWindow, safeStorage, shell, dialog, type IpcMainInvokeEvent } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  safeStorage,
+  shell,
+  dialog,
+  type IpcMainInvokeEvent,
+  type WebContents,
+} from 'electron'
 import {
   createManagedController,
   type ManagedSessionFactory,
@@ -56,6 +64,12 @@ import { SimHub } from './sim-hub'
 import { emptyReview } from '../src/shared/contracts/review'
 import { createSimAdapter } from './sim-adapter'
 import { createSimManagerFactory } from './sim-manager'
+import {
+  createXianyuPlatformAdapter,
+  XIANYU_PLATFORM_ID,
+  XIANYU_PLATFORM_NAME,
+  type XianyuAdapter,
+} from './xianyu'
 import { createSimServer } from './sim-server'
 import {
   assistCollectionUrl,
@@ -101,6 +115,15 @@ interface PlatformHost {
   start(): Promise<void>
   close(): Promise<void>
   setPresentation(value: { storeId: string; visible: boolean }): void
+}
+/** 厂商店铺窗口管理器的只读用法：闲鱼适配器需要拿同一店铺的 WebContents。 */
+interface VendorShopManager {
+  webContentsOf?(storeId: string): WebContents | null
+  stateOf?(storeId: string): Record<string, unknown> | undefined
+  open?(storeId: string): Promise<unknown> | unknown
+  close?(storeId: string): void
+  closeAll?(): void
+  restartClient?(storeId: string): Promise<unknown> | unknown
 }
 type BackendFactory = { createBackend(options: Record<string, unknown>): UpstreamBackend }
 type PlatformFactory = { createPlatformHost(options: Record<string, unknown>): PlatformHost }
@@ -277,11 +300,9 @@ export function createLocalRuntime(options: {
   const read = () => {
     const masked = emptySnapshot()
     masked.capabilities.modelMode = managed.active.mode
-    // A newly signed-in account must not see or mutate the previous account's records before restart.
+    // 本机与托管账号共用同一工作区；仅在本地后端尚未装配时使用空快照。
     const snapshot = snapshotSchema.parse({
-      ...(managed.canAccessWorkspace()
-        ? (backendRef.current?.snapshot() as Record<string, unknown>)
-        : masked),
+      ...(backendRef.current ? (backendRef.current.snapshot() as Record<string, unknown>) : masked),
       workspaceId,
       managed: managed.snapshot(),
     })
@@ -295,7 +316,7 @@ export function createLocalRuntime(options: {
     }
   }
   const assistStores = () => {
-    if (closed || !managed.canAccessWorkspace()) return []
+    if (closed) return []
     const raw = backendRef.current?.snapshot() as
       | { stores?: { id: string; storeName: string; platform: string; mallId?: string }[] }
       | undefined
@@ -434,6 +455,11 @@ export function createLocalRuntime(options: {
     getWindow: options.getWindow,
   })
   const platformAdapters = new Map<string, unknown>()
+  const xianyuAdapters = new Map<string, XianyuAdapter>()
+  let vendorManager: VendorShopManager | undefined
+  const createVendorManager = host.managerFactory as (
+    deps: Record<string, unknown>,
+  ) => VendorShopManager
   const operationAdapters = new Map<string, unknown>()
   const platformWrites = new PlatformWriteCoordinator()
   const platformProducts = createKnowledgePlatformProducts({
@@ -449,21 +475,42 @@ export function createLocalRuntime(options: {
   ).createBackend({
     dataDir,
     // 项目自有平台 id 由这里注入，拼多多/抖店等真实平台的默认清单不受影响。
-    extraPlatforms: [{ id: SIM_PLATFORM_ID, label: SIM_PLATFORM_LABEL }],
+    extraPlatforms: [
+      { id: SIM_PLATFORM_ID, label: SIM_PLATFORM_LABEL },
+      { id: XIANYU_PLATFORM_ID, label: XIANYU_PLATFORM_NAME },
+    ],
     adapterFactory: (
       store: { id: string; storeName?: string; platform: string },
       deps: unknown,
     ) => {
-      const adapter =
-        store.platform === SIM_PLATFORM_ID
-          ? createSimAdapter(store, simHub)
-          : // 必须先做文案改写再交给厂商工厂：厂商适配器表里没有 sim-local，未知平台会直接抛错。
-            configureDomTextAdapter(
-              store.platform,
-              host.adapterFactory(store, deps),
-              undefined,
-              (uid, text) => sendAuthorizations.consume(store.id, uid, text),
-            )
+      let adapter: unknown
+      if (store.platform === SIM_PLATFORM_ID) {
+        adapter = createSimAdapter(store, simHub)
+      } else if (store.platform === XIANYU_PLATFORM_ID) {
+        // 闲鱼页面由厂商 ShopWindowManager 按 desk-v1 的 entryUrl 建好；
+        // 适配器只拿同一店铺的 WebContents 注入桥，不另开窗口。
+        const xianyu = createXianyuPlatformAdapter({
+          store,
+          getWebContents: () => vendorManager?.webContentsOf?.(store.id) ?? null,
+          logger: (deps as { logger?: unknown } | undefined)?.logger,
+          // 商家在内嵌页扫码后，重跑一次厂商健康检查，把在线/登录状态写回快照。
+          onAuthenticated: () => {
+            const manager = vendorManager
+            if (!manager?.open) return
+            Promise.resolve(manager.open(store.id)).catch(() => undefined)
+          },
+        })
+        xianyuAdapters.set(store.id, xianyu)
+        adapter = xianyu
+      } else {
+        // 必须先做文案改写再交给厂商工厂：厂商适配器表里没有 sim-local，未知平台会直接抛错。
+        adapter = configureDomTextAdapter(
+          store.platform,
+          host.adapterFactory(store, deps),
+          undefined,
+          (uid, text) => sendAuthorizations.consume(store.id, uid, text),
+        )
+      }
       platformAdapters.set(store.id, adapter)
       if (store.platform === 'pdd-web') {
         const coordinated = platformWrites.bind(store.id, adapter)
@@ -473,8 +520,17 @@ export function createLocalRuntime(options: {
       return adapter
     },
     managerFactory: createSimManagerFactory(
-      host.managerFactory as (deps: Record<string, unknown>) => never,
+      (deps) => {
+        vendorManager = createVendorManager(deps)
+        return vendorManager
+      },
       simHub,
+      {
+        // 闲鱼适配器的 readiness 结果是登录态的唯一来源；未检查过时保持 null。
+        authenticatedFor: (storeId) => xianyuAdapters.get(storeId)?.authenticated() ?? null,
+        // 打开店铺后从 cookie 读登录名回填店名；页面聊天区昵称可能被打码。
+        identityFor: async (storeId) => (await xianyuAdapters.get(storeId)?.identity()) ?? null,
+      },
     ),
     safeStorage,
     modelMode: managed.active.mode,
@@ -630,8 +686,7 @@ export function createLocalRuntime(options: {
     })
   }
   const assertActive = () => {
-    if (closed || !managed.canAccessWorkspace())
-      throw new Error('当前账号工作区不可用，请重新登录或刷新')
+    if (closed) throw new Error('本地服务已关闭，请重启软件')
   }
   const providerStore = (id: string) => {
     assertActive()
@@ -646,10 +701,8 @@ export function createLocalRuntime(options: {
     }
     return raw.stores?.find((store) => store.id === id)
   }
-  const accountId = () =>
-    managed.active.mode === 'local'
-      ? 'local'
-      : String(managed.snapshot().session.account?.userId ?? 'signed-out')
+  // 平台事实归属于店铺本身；软件账号不再参与来源键，避免登录前后同一店铺被拆成两套数据。
+  const accountId = () => 'local'
   const openStoreBackend = createStoreBackendOpener({
     assertActive,
     getStore: providerStore,
@@ -1043,15 +1096,6 @@ export function createLocalRuntime(options: {
         ].includes(command.action)
       )
         return managed.execute(command.action, command.values)
-      if (
-        !managed.canAccessWorkspace() &&
-        !(command.action === 'review-reply' && command.values.approve === false)
-      )
-        throw new Error(
-          managed.snapshot().restartRequired
-            ? '账号工作区已改变，请重启软件后操作'
-            : '请先登录并恢复托管账号，再操作该账号的店铺数据',
-        )
       const startsAi =
         ['resume-ai', 'resume-conversation', 'start-training'].includes(command.action) ||
         (command.action === 'set-ai' && command.values.enabled !== false) ||
@@ -1059,6 +1103,11 @@ export function createLocalRuntime(options: {
         (command.action === 'review-reply' && command.values.approve === true)
       if (managed.snapshot().restartRequired && startsAi)
         throw new Error('模型来源或账号已改变，请重启软件；旧候选不能继续发送')
+      if (startsAi && managed.snapshot().active.mode === 'managed') {
+        const session = managed.snapshot().session
+        if (!session.account || !['signed_in', 'offline'].includes(session.status))
+          throw new Error('请先登录托管账号再使用 AI；本机店铺数据仍可查看和编辑')
+      }
       if (command.action === 'clear-runtime-logs') {
         const cleared = review.clearLogs()
         return {

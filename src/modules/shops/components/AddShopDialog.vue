@@ -43,7 +43,7 @@ const platforms = computed(() =>
   catalog.map((item) => ({
     ...item,
     available:
-      ['pdd-web', 'doudian-client'].includes(item.id) &&
+      ['pdd-web', 'doudian-client', 'xianyu'].includes(item.id) &&
       runtime.snapshot.capabilities.platforms.some((p) => p.id === item.id),
   })),
 )
@@ -52,10 +52,13 @@ const simulatorAvailable = computed(() =>
 )
 const isSim = computed(() => simulation.value && platform.value === SIM_PLATFORM_ID)
 const selected = computed(() => platforms.value.find((item) => item.id === platform.value))
+// 上游只允许拼多多不带店名；闲鱼必须由用户给一个可区分的名称。
+const needsStoreName = computed(() => !simulation.value && platform.value === 'xianyu')
 const canSubmit = computed(
   () =>
     runtime.available &&
     Boolean(runtime.snapshot.workspaceId) &&
+    (!needsStoreName.value || Boolean(name.value.trim())) &&
     ((isSim.value && simulatorAvailable.value) || Boolean(selected.value?.available)),
 )
 const simNote = `${SIM_PLATFORM_LABEL}只在本机运行：没有真实平台登录、没有真实买家，消息只写在本机记录里，适合先演练回复流程。`
@@ -99,17 +102,20 @@ async function save() {
   if (!canSubmit.value || task.pending.value) return
   const version = draftVersion,
     workspace = runtime.snapshot.workspaceId,
-    simulated = isSim.value
+    simulated = isSim.value,
+    requiresName = simulated || needsStoreName.value
   const current = () => version === draftVersion && workspace === runtime.snapshot.workspaceId
   const ok = await task.run(async () => {
     if (simulated && !name.value.trim())
       throw new Error('本机模拟店铺需要一个名字，方便在会话列表里区分')
+    if (needsStoreName.value && !name.value.trim())
+      throw new Error('请填写闲鱼店铺名称，方便在店铺列表里区分')
     if (!createdId.value) {
       const result = await runtime.run({
         action: 'add-store',
         values: {
           platform: platform.value,
-          ...(simulated ? { storeName: name.value.trim() } : {}),
+          ...(requiresName ? { storeName: name.value.trim() } : {}),
         },
       })
       if (!current()) throw new Error('工作区已切换，请重新选择平台')
@@ -193,6 +199,19 @@ async function save() {
         <p v-if="platform === 'doudian-client'" class="add-platform-hint">
           将在抖店客户端完成登录；需已安装客户端并连接本机桥接，打开不代表已登录。
         </p>
+        <p v-else-if="platform === 'xianyu'" class="add-platform-hint">
+          将在主窗口内嵌闲鱼网页版（goofish.com/im）；请在该页面扫码登录，打开不代表已登录。
+        </p>
+        <div v-if="needsStoreName" class="runtime-form add-platform-nameform">
+          <label
+            >店铺名称<el-input
+              v-model="name"
+              aria-label="店铺名称"
+              maxlength="60"
+              placeholder="必填，例如：我的闲鱼店"
+              :disabled="task.pending.value || Boolean(createdId)"
+          /></label>
+        </div>
         <button
           v-if="simulatorAvailable"
           type="button"
