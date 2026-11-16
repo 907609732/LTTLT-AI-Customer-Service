@@ -459,3 +459,5 @@ PR #30 合入 main，源码与 tag 为 925dc2ed4c425aff616cd62bda93056337254ec3�
 复用分支既有闲鱼适配器、用户提供的 kb-port 桥、Vue/Electron 和原确认门，不引入新生产依赖。用户于2026-11-17确认桥接代码为其拥有并允许公开分发，来源与副本边界见 vendor/xianyu-bridge/PROVENANCE.md。审查发现的取消回调、错误补点、历史未知与旧回显误判已补回归；后续页面保护由本机 DeepSeek 实现，Codex 独立复核和验证。只整合主干，不额外发布 Release 或执行真实买家发送。
 
 本机 DeepSeek 同一官方 headless 会话三轮均返回退出码0及 final.reason.kind=completed。Codex 独立复跑15文件173项通过，复审另独立复跑闲鱼3文件53项通过；Electron/Vue类型、变更范围ESLint、模块边界检查通过。桥脚本当前SHA256与字节数已独立匹配来源说明。未执行真实闲鱼发送；新主干工具栏合入后的最终验证继续由整合检查执行。
+
+最终整合补充：主干新工具栏把两个导入入口移入菜单，首次云端源码/桌面检查通过，但资料学习专项仍查找旧常驻按钮而失败。DeepSeek原会话第4轮仅调整 knowledge-ingestion-check 的实际菜单点击步骤，退出码0/final completed；Codex独立重跑 verify-knowledge-ingestion.mjs，7项真实Electron隔离场景通过，保留原导入、学习、模型调用和批量审核断言。未修改产品界面、降低断言或执行真实模型/买家请求。
