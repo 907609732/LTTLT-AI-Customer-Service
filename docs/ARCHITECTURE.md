@@ -121,6 +121,17 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 
 诚实边界：模拟店铺的消息只写在本机记录里，不连接真实平台、不产生真实买家，也不代表平台已送达；界面与页面都必须写明这一点。
 
+## 闲鱼网页版店铺
+
+闲鱼通过同一个 `extraPlatforms` 注入点进入平台白名单（`xianyu`），页面仍由厂商 `ShopWindowManager` 按 desk-v1 的入口 `https://www.goofish.com/im` 建 `WebContentsView`，不另开独立窗口；`electron/local-runtime.ts` 用 `vendorManager.webContentsOf(storeId)` 把同一页面交给本工程适配器。
+
+- `vendor/xianyu-bridge/bridge.js` 是从用户提供的 kb-port 原样复制的桥接脚本（版本 v59，来源与哈希见同目录 PROVENANCE），只向 goofish 页面注入；不修改 `vendor/lingtu-runtime` 的哈希清单。
+- `electron/xianyu/bridge-client.ts` 提供 Electron 传输层：给页面补 `window.ipc.postMessage` 最小 shim，请求与回包按 id 配对，事件（如商品清单捕获）经有界收件箱交给宿主；页面导航后重新注入，非 goofish 页面拒绝注入。
+- `electron/xianyu/adapter.ts` 实现适配器契约 v2：readiness 登录/验证判断、待回复会话发现、会话切换、历史读取、文字/图片发送与重读核对、当前会话事件采样。闲鱼没有平台 msgId 与绝对时间，消息身份用「时间标签 + 组内序号」合成，按 HH:MM 换算当天时间仅用于排序；不碰 WebSocket，也不自行实现 MTop 签名。
+- “待回复”以会话里最后一条是我方消息之后的新买家消息为准；`discard` 按 msgId 记住已处理批次，避免同一批消息重复生成。同名「买家 × 商品」多会话由页面 `activateChat` 按未读/当前项挑选，判不定就报 ambiguous，不猜。
+- 登录态只来自页面 readiness：未登录、验证滑块、连接断开分别返回 `hook_not_ready` 并保留内嵌页面；未检查时为 `null`，不显示为已登录。登录完成后需要重新点开店铺触发一次健康检查。
+- 诚实边界：商品采集/学习、视频发送、未打开会话的全局消息监听尚未接入；`drainEvents` 只采样当前打开的会话，AI 轮询 `popPending` 时会顺带激活待回复会话。
+
 ## 导航与兼容
 
 路由仍用 hash，兼容 Electron 的 file 加载。既有路由和重定向保留；配置中心的 `?panel=` 参数选择注册面板，非法值回到店铺页。
@@ -135,9 +146,9 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 
 ## 商品目录查询与本地商家编码
 
-主进程createProductCatalog复用原商品知识分页，公共execute对list-products及set-product-codes作受限装配；编码独立JSON按账号/店铺隔离，写锁+revision CAS+商品版本检查后原子提交。前端商品服务解析严格目录契约，组件只用领域服务。原产品结构、模型检索及CSV格式不变，无新依赖或vendor补丁。
+主进程createProductCatalog复用原商品知识分页，公共execute对list-products及set-product-codes作受限装配；编码独立JSON按店铺隔离（共用本机工作区，不再按软件账号拆分），写锁+revision CAS+商品版本检查后原子提交。前端商品服务解析严格目录契约，组件只用领域服务。原产品结构、模型检索及CSV格式不变，无新依赖或vendor补丁。
 
-后续平台编码修正：目录merchantCode和platformDetail来自platform-product-store账号/店铺隔离侧档，旧本机编码不再显示为平台编码，旧set-product-codes明确拒绝且保留旧文件。pdd-learning-provider通过原生商品编辑入口只读导航，platform-product-dom及platform-product-observer分别读取表单与固定原生详情响应，platform-product-merge按规格组合核验后保存。没有新IPC或vendor修改；平台页面仍无应用preload，未知字段不补造。
+后续平台编码修正：目录merchantCode和platformDetail来自platform-product-store店铺隔离侧档，旧本机编码不再显示为平台编码，旧set-product-codes明确拒绝且保留旧文件。pdd-learning-provider通过原生商品编辑入口只读导航，platform-product-dom及platform-product-observer分别读取表单与固定原生详情响应，platform-product-merge按规格组合核验后保存。没有新IPC或vendor修改；平台页面仍无应用preload，未知字段不补造。
 
 createProductSpecContext装配于正式AiClient及训练共用prepareModelContext，在既有通用表达和token计量之前选择本店enabled商品的匹配SKU；来源仅作user数据块，静态约束保留系统优先级。旧商品全文命中被受核验规格替换，意图资料及图片仍保留；未指定/未知/歧义规格要求澄清。工作区变化或取消后不继续发模型请求，发送确认门不变。
 

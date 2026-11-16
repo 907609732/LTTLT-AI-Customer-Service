@@ -17,23 +17,8 @@ export function useDashboard() {
   const refreshing = ref(false)
   let request = 0,
     disposed = false
-  const workspaceAccessible = computed(() => {
-    const managed = runtime.snapshot.managed
-    return (
-      managed.active.mode === 'local' ||
-      (!managed.restartRequired &&
-        managed.session.account !== null &&
-        ['signed_in', 'offline'].includes(managed.session.status))
-    )
-  })
-  const ready = computed(
-    () => runtime.available && Boolean(runtime.snapshot.workspaceId) && workspaceAccessible.value,
-  )
-  const accessMessage = computed(() =>
-    runtime.snapshot.managed.restartRequired
-      ? '账号或模型来源已切换，请重启客户端后读取当前工作区。'
-      : '托管工作区尚不可用，请登录并验证账号后读取数据。',
-  )
+  // 本机与托管账号共用同一工作区，登录状态和重启提示只影响 AI/额度，不再阻断数据读取。
+  const ready = computed(() => runtime.available && Boolean(runtime.snapshot.workspaceId))
   const summary = computed(() =>
     buildDashboard(runtime.snapshot, packs.value, period.value, now.value),
   )
@@ -125,8 +110,6 @@ export function useDashboard() {
     period,
     now,
     ready,
-    workspaceAccessible,
-    accessMessage,
     summary,
     busy,
     errors,

@@ -106,15 +106,9 @@ export function createManagedController(options: {
   const identityFile = path.join(authDir, 'last-account.json')
   const identity = identitySchema.optional().parse(readOptional(identityFile))
   const workspaceUser = identity?.userId ?? null
-  const dataDir =
-    active.mode === 'local'
-      ? options.rootDir
-      : path.join(
-          options.rootDir,
-          'managed-workspaces',
-          hash(active.apiOrigin),
-          workspaceUser === null ? 'pending-login' : hash(JSON.stringify(workspaceUser)),
-        )
+  // 用户明确要求取消本机/托管账号的工作区隔离：所有模式和账号共用同一本机业务目录。
+  // 旧 managed-workspaces/<来源>/<账号>/ 保留在磁盘上但不再读取或自动合并。
+  const dataDir = options.rootDir
   let state = emptyManagedSession()
   let identityError = ''
   let closed = false
@@ -187,19 +181,13 @@ export function createManagedController(options: {
   return {
     active,
     dataDir,
-    partitionNamespace:
-      active.mode === 'local' ? 'yunduo-local' : 'yunduo-managed-' + hash(dataDir).slice(0, 16),
+    // 单一分区命名保留已有本机店铺的登录态；托管登录不再创建另一套平台会话。
+    partitionNamespace: 'yunduo-local',
     snapshot,
     ready,
     canAccessWorkspace() {
-      return (
-        active.mode === 'local' ||
-        (!requiresRestart() &&
-          !identityError &&
-          state.account !== null &&
-          state.account.userId === workspaceUser &&
-          ['signed_in', 'offline'].includes(state.status))
-      )
+      // 业务数据属于本机工作区，登录只决定托管 AI、团队与计费资格，不再隐藏店铺。
+      return !closed
     },
     async init() {
       if (active.mode === 'managed') await session.init()

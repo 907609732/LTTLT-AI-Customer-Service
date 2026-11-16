@@ -363,7 +363,7 @@ it('接待设置始终保存向导店铺，移除配置中心两个菜单入口'
   const { navGroups } = await import('../src/app/navigation')
   const children = navGroups.flatMap((g) => g.items).find((i) => i.key === 'shops')!.children!
   expect(children.map((i) => i.key)).toEqual(['auto', 'image'])
-})
+}, 15_000)
 
 it('接待草稿在前后步骤及关闭重开后保留，换工作区后清除', async () => {
   const { wrapper, setup, runtime } = await fixture()

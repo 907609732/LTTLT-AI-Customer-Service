@@ -29,15 +29,30 @@ export interface SimManagerState {
   lastError: string
 }
 
+export interface SimManagerOptions {
+  /**
+   * 厂商管理器只给拼多多返回 authenticated；闲鱼等平台由适配器自己检查登录态。
+   * 返回 null 表示尚未检查，不能当成未登录。
+   */
+  authenticatedFor?: (storeId: string) => boolean | null
+}
+
 export class SimStoreManager {
   readonly #delegate: VendorManager
   readonly #hub: SimHub
   readonly #registry: RegistryLike
+  readonly #authenticatedFor: ((storeId: string) => boolean | null) | undefined
 
-  constructor(delegate: VendorManager, hub: SimHub, registry: RegistryLike) {
+  constructor(
+    delegate: VendorManager,
+    hub: SimHub,
+    registry: RegistryLike,
+    options: SimManagerOptions = {},
+  ) {
     this.#delegate = delegate
     this.#hub = hub
     this.#registry = registry
+    this.#authenticatedFor = options.authenticatedFor
   }
 
   #isSim(storeId: string): boolean {
@@ -49,8 +64,13 @@ export class SimStoreManager {
    * 因此不返回 authenticated 字段，界面据此显示“本机模拟”而不是“已登录”。
    */
   stateOf(storeId: string): Record<string, unknown> {
-    if (!this.#isSim(storeId))
-      return this.#delegate.stateOf?.(storeId) ?? { open: false, online: false }
+    if (!this.#isSim(storeId)) {
+      const state = this.#delegate.stateOf?.(storeId) ?? { open: false, online: false }
+      const authenticated = this.#authenticatedFor?.(storeId)
+      // 拼多多已有自己的认证结果时保持原样；只补厂商管理器未提供的平台。
+      if (typeof authenticated !== 'boolean' || state.authenticated !== undefined) return state
+      return { ...state, authenticated }
+    }
     const open = this.#hub.isOpen(storeId)
     const state: SimManagerState & Record<string, unknown> = {
       open,
@@ -97,11 +117,13 @@ export class SimStoreManager {
 export function createSimManagerFactory(
   factory: (deps: Record<string, unknown>) => VendorManager,
   hub: SimHub,
+  options: SimManagerOptions = {},
 ): (deps: Record<string, unknown>) => SimStoreManager {
   return (deps) =>
     new SimStoreManager(
       factory(deps),
       hub,
       (deps.registry as RegistryLike | undefined) ?? { get: () => null },
+      options,
     )
 }

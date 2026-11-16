@@ -58,3 +58,9 @@ Copyright (c) 2020-2026 by Jos de Jong
 Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
 
 THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL ISC BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+## 闲鱼页面桥接脚本（vendor/xianyu-bridge）
+
+`vendor/xianyu-bridge/bridge.js` 原样复制自用户提供的本地参考工程 `F:\shanhui-app\kb-port\bridge\bridge.js`（桥版本 v59，SHA-256 `97ddde7ba171f75b5d3953f5aea281f8aa3be0150f995cde5e4d9a68a796335b`）。来源与用途见 `vendor/xianyu-bridge/PROVENANCE.md`。
+
+该参考工程的 `package.json` 标注 `"license": "UNLICENSED"`，未随附独立许可证。本副本仅用于用户已授权的本机闲鱼店铺对接；在公开发布安装包、对外分发或商业交付前，必须先核实并取得该脚本的再分发授权。本项目的软件许可不覆盖该文件。
