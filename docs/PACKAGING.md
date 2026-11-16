@@ -35,3 +35,7 @@ ZIP 解压后运行 LingtuAI.exe；NSIS 为当前用户安装，可选择目录�
 当前基线的云端构建与本机成品复验已通过，结果见HANDOFF.md；旧版过程从Git历史查阅。
 
 本机 HTTP 后台是另外启动的服务，地址 http://127.0.0.1:3000/lingtu/admin，只有当前电脑启动它后才可访问；安装版默认仍为本机 Key。托管地址可以由用户在设置中保存，来源/账号切换继续要求重启。不能把开发电脑的账号密码或模型 Key 预置给其他安装用户。
+
+## 手动云端上传已验证产物
+
+`lingtu-release-assets.yml` 仅手动触发：输入已有草稿tag、成功桌面构建run ID和确切源码SHA，复用官方 actions/download-artifact 与 GitHub CLI。校验run成功、tag/manifest源码一致及全部SHA256后，只上传到仍为draft的指定Release，不自动公开。使用Actions短期token的actions:read/contents:write权限，不新增长期密钥。最终仍须核对远程附件digest并明确执行公开发布；不得用它覆盖已公开版本。
