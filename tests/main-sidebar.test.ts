@@ -153,3 +153,20 @@ it('店铺导入知识携带点击店铺打开独立知识库，不切换接待'
   expect(knowledge.open).toHaveBeenLastCalledWith('shop-a')
   expect(runtime.selectedStoreId).toBe(selected)
 })
+
+it('待恢复店铺点击实际关闭的 AI 开关会取消恢复而非另发开启', async () => {
+  const { wrapper, runtime, run } = await fixture()
+  runtime.snapshot.stores[0]!.aiRestore = {
+    desiredEnabled: true,
+    status: 'waiting',
+    message: '等待登录',
+  }
+  await flushPromises()
+  wrapper.findComponent(StoreSidebarCard).vm.$emit('toggleAi')
+  await flushPromises()
+  expect(run).toHaveBeenLastCalledWith({
+    action: 'set-ai',
+    storeId: 'shop-a',
+    values: { enabled: false },
+  })
+})

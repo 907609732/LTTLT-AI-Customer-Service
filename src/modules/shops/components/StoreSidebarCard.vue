@@ -44,13 +44,26 @@ const platforms: Record<string, { label: string; icon?: string }> = {
 const platform = computed(() => platforms[props.shop.platform] ?? { label: props.shop.platform })
 const online = computed(() => props.shop.runtime.online)
 const status = computed(() =>
-  online.value ? '在线' : props.shop.runtime.open ? '等待登录' : '未打开',
+  !props.shop.aiEnabled && props.shop.aiRestore?.desiredEnabled
+    ? props.shop.aiRestore.status === 'failed'
+      ? 'AI 待核对'
+      : props.shop.aiRestore.status === 'restoring'
+        ? '正在恢复 AI'
+        : '等待恢复 AI'
+    : online.value
+      ? '在线'
+      : props.shop.runtime.open
+        ? '等待登录'
+        : '未打开',
 )
 const error = computed(
   () =>
     props.shop.runtime.identityError ||
     props.shop.runtime.lastError ||
     props.shop.runtime.collectionError ||
+    (!props.shop.aiEnabled && props.shop.aiRestore?.status === 'failed'
+      ? props.shop.aiRestore.message
+      : '') ||
     '',
 )
 type MenuCommand =
@@ -159,7 +172,8 @@ onBeforeUnmount(closeMenu)
               :class="{ enabled: shop.aiEnabled }"
               role="switch"
               :aria-checked="shop.aiEnabled"
-              :aria-label="`${shop.aiEnabled ? '关闭' : '开启'}${shop.storeName} AI`"
+              :title="shop.aiRestore?.message"
+              :aria-label="`${shop.aiEnabled ? '关闭' : shop.aiRestore?.desiredEnabled && ['waiting', 'restoring'].includes(shop.aiRestore.status) ? '取消恢复' : '开启'}${shop.storeName} AI`"
               :disabled="busy"
               @click.stop="!busy && emit('toggleAi')"
               @keydown.stop

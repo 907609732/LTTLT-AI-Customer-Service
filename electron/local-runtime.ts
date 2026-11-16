@@ -14,6 +14,8 @@ import { createProductCatalog } from './product-catalog'
 import { applyStoreZoom } from './store-zoom'
 import { createStoreBackendOpener } from './store-backend'
 import { createReplyMonitorWindow } from './reply-monitor-window'
+import { AiStateRestore, type AiRestoreStore } from './ai-state-restore'
+import { StoreAiPreferences } from './store-ai-preferences'
 import { StoreSendModes } from './store-send-modes'
 import { SendModeAuthorizations } from './send-mode-authorizations'
 import { createRequire } from 'node:module'
@@ -143,6 +145,7 @@ export function createLocalRuntime(options: {
   let closed = false
   let scheduleReporting = () => {}
   let runtimeStarted = false
+  const aiRestoreRef: { current?: AiStateRestore } = {}
   let syncScheduler = () => {}
   let suspendKnowledge = () => {}
   // 上游工厂可能在装配期间产生回调，引用就绪前不读取其快照。
@@ -155,8 +158,13 @@ export function createLocalRuntime(options: {
     ),
     safeStorage,
     openExternal: (url) => shell.openExternal(url),
-    stopAi: () => backendRef.current?.stopAi(),
+    stopAi: () => {
+      aiRestoreRef.current?.suspend()
+      backendRef.current?.stopAi()
+    },
     changed: () => {
+      aiRestoreRef.current?.accessChanged()
+      if (runtimeStarted) void aiRestoreRef.current?.start()
       suspendKnowledge()
       syncScheduler()
       scheduleReporting()
@@ -282,6 +290,7 @@ export function createLocalRuntime(options: {
       stores: snapshot.stores.map((store) => ({
         ...store,
         sendMode: sendModes.read(store.id).mode,
+        aiRestore: aiRestoreRef.current?.state(store.id),
       })),
     }
   }
@@ -520,6 +529,7 @@ export function createLocalRuntime(options: {
     onModelTrace: traceModel,
     onRuntimeEvent: (event: unknown) => {
       review.event(event)
+      void aiRestoreRef.current?.event(event)
       if (event && typeof event === 'object') {
         const type = Reflect.get(event, 'type')
         if (type === 'reply:review-result') {
@@ -548,6 +558,52 @@ export function createLocalRuntime(options: {
   })
   backendRef.current = backend
   const localBackend = backend
+  const aiRestore = new AiStateRestore({
+    preferences: new StoreAiPreferences(dataDir),
+    stores: () => {
+      const raw = localBackend.snapshot() as { stores?: AiRestoreStore[] }
+      return raw.stores ?? []
+    },
+    allowed: () =>
+      !closed &&
+      managed.canAccessWorkspace() &&
+      !managed.snapshot().restartRequired &&
+      (managed.active.mode === 'local' || managed.snapshot().session.status === 'signed_in'),
+    verifyIdentity: async (id) => {
+      const adapter = platformAdapters.get(id)
+      if (!adapter || typeof adapter !== 'object') return undefined
+      const reader: unknown = Reflect.get(adapter, 'readIdentity')
+      if (typeof reader !== 'function') return undefined
+      const fresh: unknown = await Reflect.apply(reader, adapter, [{ refresh: true }])
+      if (
+        !fresh ||
+        typeof fresh !== 'object' ||
+        Reflect.get(fresh, 'authenticated') !== true ||
+        Reflect.get(fresh, 'identityError')
+      )
+        return undefined
+      const mallId: unknown = Reflect.get(fresh, 'mallId'),
+        customerServiceId: unknown = Reflect.get(fresh, 'customerServiceId')
+      const store = (localBackend.snapshot() as { stores?: AiRestoreStore[] }).stores?.find(
+        (row) => row.id === id,
+      )
+      if (
+        !store ||
+        typeof mallId !== 'string' ||
+        !mallId.trim() ||
+        typeof customerServiceId !== 'string' ||
+        !customerServiceId.trim()
+      )
+        return undefined
+      return { platform: store.platform, mallId, customerServiceId }
+    },
+    modelBlocked: () => Boolean((localBackend.snapshot() as { modelIssue?: unknown }).modelIssue),
+    execute: (command) => localBackend.execute(command),
+    changed: () => {
+      if (!closed) for (const listener of listeners) listener({ type: 'backend:changed' })
+    },
+  })
+  aiRestoreRef.current = aiRestore
   const productCatalog = createProductCatalog({
     directory: dataDir,
     getPlatformProduct: platformProducts.get,
@@ -907,11 +963,15 @@ export function createLocalRuntime(options: {
     () => host.close(),
   ])
   return {
-    start: async () => {
+    start: async (startOptions: { restoreAi?: boolean } = {}) => {
       await managed.init()
+      if (closed) return
       scheduleReporting()
       await host.start()
+      if (closed) return
       runtimeStarted = true
+      // 不阻塞主窗口加载；每个记住的店铺独立打开，只在平台确认登录后恢复。
+      void aiRestoreRef.current?.start(startOptions)
       knowledgeDaily.start()
       syncScheduler()
     },
@@ -1052,7 +1112,7 @@ export function createLocalRuntime(options: {
       }
       const { workspaceId: _workspaceId, ...raw } = command
       void _workspaceId
-      const result = resultSchema.parse(await localBackend.execute(raw))
+      const result = resultSchema.parse(await aiRestore.userExecute(raw))
       // 删除店铺时同步清空本机模拟数据，避免残留顾客被下一次同名店铺复用。
       if (command.action === 'remove-store' && command.storeId) {
         knowledge.removeStore(command.storeId)
@@ -1199,6 +1259,7 @@ export function createLocalRuntime(options: {
     },
     async dispose() {
       closed = true
+      aiRestoreRef.current?.dispose()
       await disposer.dispose()
     },
   }

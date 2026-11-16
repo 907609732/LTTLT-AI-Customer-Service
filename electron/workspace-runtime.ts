@@ -97,7 +97,7 @@ export function createWorkspaceRuntime(options: {
         // source first, then verify the authenticated directory after initialization.
         if (JSON.stringify(next.snapshot().managed.configured) !== configured)
           throw Error('恢复时账号配置已改变，请重新登录核对')
-        await next.start()
+        await next.start({ restoreAi: false })
         if (
           next.dataDirectory() !== plan.directory ||
           JSON.stringify(next.snapshot().managed.configured) !== configured
@@ -158,7 +158,7 @@ export function createWorkspaceRuntime(options: {
         message: recovered
           ? `${confirmation === undefined ? '恢复' : '清除'}失败，已恢复操作前资料：${failure instanceof Error ? failure.message : '请核对备份'}`
           : confirmation === undefined
-            ? '知识库已恢复；服务已重新装配，AI保持启动默认状态。'
+            ? '知识库已恢复；服务已重新装配，AI保持关闭。'
             : `知识库已清除；自动备份：${plan.recoveryDirectory}。服务已重新装配，AI保持关闭。`,
       }
     })
@@ -267,7 +267,7 @@ export function createWorkspaceRuntime(options: {
           bind()
           if (!closed) current.setAssistPlatformActive(assistActive)
           emit({ type: 'workspace:changed' })
-          return { status: 'ok', message: '登录已生效；AI 保持关闭。', data: {} }
+          return { status: 'ok', message: '登录已生效，将按上次店铺 AI 设置恢复。', data: {} }
         } catch (error) {
           // A partially started host must be closed before retry creates another host.
           try {

@@ -18,6 +18,7 @@ function fixture(directory?: string, requiresInitializedSession = false) {
   const source = { ...emptySnapshot().managed.configured }
   const instances: LocalRuntime[] = []
   const calls: string[] = []
+  const starts: unknown[] = []
   let failStart = false
   let remainingStartFailures = 0
   let pauseStart = false
@@ -73,7 +74,8 @@ function fixture(directory?: string, requiresInitializedSession = false) {
         if (closed) throw Error('closed')
         return { workspaceId: state.workspaceId }
       },
-      async start() {
+      async start(options) {
+        starts.push(options)
         if (remainingStartFailures > 0) {
           remainingStartFailures--
           throw Error('isolated startup failure')
@@ -138,6 +140,7 @@ function fixture(directory?: string, requiresInitializedSession = false) {
     command,
     calls,
     instances,
+    starts,
     source,
     fail(value: boolean) {
       failStart = value
@@ -202,6 +205,7 @@ describe('workspace runtime activation', () => {
         expect(recovered.getCanonical(c.id)?.title).toBe('current retained')
         recovered.dispose()
         expect(f.calls).not.toContain('save-model-source')
+        expect(f.starts).toEqual([{ restoreAi: false }, { restoreAi: false }])
       } finally {
         await f.manager.dispose()
         repo.dispose()
