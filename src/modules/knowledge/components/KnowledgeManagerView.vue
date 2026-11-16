@@ -1004,6 +1004,7 @@ v{{ source.revision }} · {{ source.hash }}
           {{ clearPreview.jobs }} 项、待学问题 {{ clearPreview.misses }} 项。
         </p>
         <p>{{ clearPreview.message }}</p>
+        <p>清除后会刷新知识服务；如确需重启，将自动重启软件，保留账号和登录资料。</p>
         <label
           >请输入“{{ clearPreview.confirmation }}”确认
           <input
