@@ -521,10 +521,7 @@ const afterSales = [
             </div>
           </template>
           <template v-else-if="setup.step === 3">
-            <h2>接待设置</h2>
-            <p class="quiet-note">
-              转接人工和进店欢迎分别保存，保存后立即应用于当前店铺；其他政策在最后一步统一保存。
-            </p>
+            <h2 class="reception-step-title">接待设置</h2>
             <div class="reception-settings">
               <ShopOpsPanel
                 view-key="transfer"
@@ -1262,23 +1259,19 @@ const afterSales = [
 </style>
 
 <style scoped>
+.reception-step-title {
+  font-size: 18px !important;
+  margin-bottom: 6px !important;
+}
+.reception-step-hint {
+  margin: 0;
+  color: #8592a5;
+  font-size: 12px;
+  line-height: 1.6;
+}
 .reception-settings {
   display: grid;
-  gap: 24px;
-  margin-top: 20px;
-}
-.reception-settings :deep(.runtime-page) {
-  padding: 16px;
-  min-height: 0;
-  height: auto;
-  overflow: visible;
-  border: 1px solid #e5e9f0;
-  border-radius: 8px;
-}
-.reception-settings :deep(.runtime-page__head) {
-  margin-bottom: 16px;
-}
-.reception-settings :deep(.runtime-form) {
-  max-width: 100%;
+  gap: 14px;
+  margin-top: 14px;
 }
 </style>

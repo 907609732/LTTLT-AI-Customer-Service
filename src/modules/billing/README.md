@@ -19,3 +19,5 @@
 接入流程见根目录 docs/LOCAL_INTEGRATION.md。demo 是旧视图数据，不是 API DTO；新增能力在所属模块建立服务与类型，经过本地运行时契约，不直接访问 IPC、网络或文件系统。
 
 修改前阅读根目录 AGENTS.md 和 docs/CONSTRAINTS.md。并行开发的领域结果写入 docs/parallel/billing-handoff.md，公共HANDOFF由统筹更新；仅运行本次修改及直接影响的增量检查。
+
+2026-11-16 充值页卡片布局（1.0.25）：复用现有 Element Plus 按钮、提示和订单表格，仅调整 BillingDashboard 与 ShopRechargeView 的模板/局部样式。居中展示额度、响应式等高套餐卡片及订单区，剩余额度突出，compact 订单/用量保持窄容器布局。金额、调用数、有效期、支付事件、错误和到账核对逻辑保持原样；不新增依赖或支付请求。

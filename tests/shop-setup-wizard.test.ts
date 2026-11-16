@@ -369,16 +369,22 @@ it('接待草稿在前后步骤及关闭重开后保留，换工作区后清除'
   const { wrapper, setup, runtime } = await fixture()
   await wrapper.findAll('.wizard-step')[3]!.trigger('click')
   await wrapper.get('textarea[aria-label="文字欢迎语"]').setValue('未保存的欢迎语')
-  await wrapper.get('.reception-rules textarea').setValue('访客规则草稿')
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '添加媒体')!
+    .trigger('click')
+  await wrapper
+    .get('.reception-rules input[type="url"]')
+    .setValue('https://example.com/welcome.png')
   await wrapper.get('textarea[aria-label="全局人工处理关键词"]').setValue('未保存的关键词')
   await wrapper.find('[data-next]').trigger('click')
   await wrapper.find('[data-back]').trigger('click')
   expect(
     (wrapper.get('textarea[aria-label="文字欢迎语"]').element as HTMLTextAreaElement).value,
   ).toBe('未保存的欢迎语')
-  expect((wrapper.get('.reception-rules textarea').element as HTMLTextAreaElement).value).toBe(
-    '访客规则草稿',
-  )
+  expect(
+    (wrapper.get('.reception-rules input[type="url"]').element as HTMLInputElement).value,
+  ).toBe('https://example.com/welcome.png')
   setup.dismiss()
   await flushPromises()
   setup.open('shop-a')
@@ -457,4 +463,22 @@ it('保存期间工作区失效后，新向导不会保留旧的忙碌锁', asyn
   await flushPromises()
   await wrapper.get('[data-start]').trigger('click')
   expect(wrapper.get('[data-next]').attributes('disabled')).toBeUndefined()
+})
+
+it('接待高级设置默认收起，展开折叠保留草稿且不会触发保存', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  const run = vi.spyOn(runtime, 'run')
+  setup.step = 3
+  await flushPromises()
+  const input = wrapper.get('textarea[aria-label="全局人工处理关键词"]')
+  const details = input.element.closest('details')
+  expect(details).not.toBeNull()
+  expect(details!.open).toBe(false)
+  details!.open = true
+  await input.setValue('退款争议\n需要人工')
+  details!.open = false
+  details!.open = true
+  expect(wrapper.get('textarea[aria-label="全局人工处理关键词"]').element).toBe(input.element)
+  expect((input.element as HTMLTextAreaElement).value).toBe('退款争议\n需要人工')
+  expect(run).not.toHaveBeenCalled()
 })

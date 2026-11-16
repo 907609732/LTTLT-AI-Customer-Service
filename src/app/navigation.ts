@@ -9,13 +9,11 @@ import {
   ShopTrainingPanel,
 } from '@/modules/knowledge'
 import { QcReplyPanel, ShopWorkOrderPanel, ShopWipPanel } from '@/modules/quality'
-import { StoreSyncView } from '@/modules/sync'
 
 /** 标题、面板和菜单共用此注册表；不再维护三份相互漂移的映射。 */
 export const panelRegistry = {
   home: { title: '数据看板', component: ShopHomePanel },
   shops: { title: '店铺与商品', component: ShopsListPanel },
-  sync: { title: '跨店同步', component: StoreSyncView },
   goods: { title: '店铺商品', component: ShopGoodsPanel },
   desk: { title: '店铺工作台', component: ShopGoodsPanel },
   auto: { title: '自动操作', component: ShopOpsPanel },
@@ -56,7 +54,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   { label: '数据中心', items: [item('home')] },
   {
     label: '开店准备',
-    items: [item('shops', ['auto', 'image']), item('sync')],
+    items: [item('shops', ['auto', 'image'])],
   },
   {
     label: '教AI回答',

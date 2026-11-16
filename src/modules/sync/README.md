@@ -1,15 +1,9 @@
 # sync 模块
 
-2026-11-15：当前桌面知识已改用SQLite共享family与独立审核。同步页商品项禁用，改为带源店铺打开知识库、明确预览后整体关联root/SKU；旧商品复制/回滚由运行时拒绝。文字欢迎、识图及本店人工关键词同步仍保留。下文商品复制说明只描述原协调器兼容协议，不表示新桌面继续提供此商品写入入口。
+2026-11-16：按用户要求删除跨店同步页面、配置中心菜单及店铺卡同步入口。旧 `#/store-sync` 与 `panel=sync` 回到店铺列表。StoreSyncView及对应页面测试已删除。
 
-职责：本机同一账号工作区内跨店复制商品知识与接待配置，提供源/目标选择、显式范围、冲突预览、确认、备份和回滚。
+保留同步契约、installStoreSyncClient、服务端IPC及本机历史备份/回滚服务，不删除任何已有店铺资料或备份。商品知识继续由知识库明确关联同款，价格库存按店铺/SKU单独维护。
 
-公开入口 `index.ts`：`StoreSyncView`、`installStoreSyncClient`、同步契约。共享 IPC/DTO 契约位于 `src/shared/contracts/store-sync.ts`，模块 contracts.ts 仅重新导出。组件仅调用模块服务和公共运行时状态，不直接使用 Electron、网络或文件。
+当前公开入口 index.ts 仅导出契约和客户端安装方法；没有可见同步页面。跨模块仍通过公开入口引用。
 
-app 先用共享平台工厂 `createStoreSyncClient(invoke, getWorkspaceId)` 创建窄客户端，然后 `installStoreSyncClient(client)`，最后装载 `StoreSyncView`。未安装客户端时页面明确不可保存。独立建议路由 `#/store-sync`；本模块不修改原商品/店铺/接待组件。
-
-商品必须明确选择编号，按目标同 productId 冲突；不会推测跨平台 SKU 映射。配置范围为文字欢迎、识图开关、本店人工关键词。默认冲突跳过，覆盖需要重新预览及勾选确认。全局规则、意图包、模型、凭据、买家资料、AI 开关和平台业务动作不在同步范围。
-
-主进程 `electron/store-sync-service.ts` 只经原 backend 命令读写业务，单独保存 recovery journal；`store-sync-ipc.ts` 每次解析工作区 envelope 并检查当前服务。公共接线、互斥和生命周期要求详见 `docs/parallel/store-sync-handoff.md`。未完成公共接线不能声称桌面功能已可用。
-
-针对性测试：`tests/store-sync.test.ts`、`store-sync-integration.test.ts`、`store-sync-ipc.test.ts`、`store-sync-view.test.ts`。上游集成只使用临时目录、合成店铺和资料，不连接平台或付费模型。
+服务维护见 electron/store-sync-service.ts、store-sync-ipc.ts 和 docs/parallel/store-sync-handoff.md。保留测试：store-sync.test.ts、store-sync-integration.test.ts、store-sync-ipc.test.ts。原生整合检查验证旧路由跳转及隔离服务备份，不再操作已删除页面。
