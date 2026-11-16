@@ -35,9 +35,9 @@
     {
       "path": "desk-v1/src/injections/pdd-web-hook.js",
       "upstreamGitBlob": "225f299fcb9651b460fd717d4649a8c4d468abb8",
-      "sha256": "a7bdf29110fb6e0e40ea3d340fb4b3441a8e8d8ad2cc9698dfaef3ed9d2ac4f4",
+      "sha256": "94b5bd286f51f8910a0c7957b9d389f2af45998742c96560650d1128cc5483c6",
       "upstreamSha256": "3ee592e6a0d07daca778ad2083b22a4d8d039fc1d7b916e6db7224570a3f6baf",
-      "localPatch": "v6 guarded browser button mode: DOM locator + Chromium internal click, exact 2000-char text, single attempt, echo check; native keyboard default retained; v7 DOM approval snapshot with page/uid binding independent of private history endpoint; v8 optional grapheme-by-grapheme input with draft, buyer and page-message guards"
+      "localPatch": "v6 guarded browser button mode: DOM locator + Chromium internal click, exact 2000-char text, single attempt, echo check; native keyboard default retained; v7 DOM approval snapshot with page/uid binding independent of private history endpoint; v8 optional grapheme-by-grapheme input with draft, buyer and page-message guards; v9 conversation selection dispatches mousedown/up before click, matches exact UID and verifies actual active buyer before success"
     },
     {
       "path": "desk-v1/src/main/ai-client.js",

@@ -67,3 +67,9 @@ managed-session.cjs 新增主进程专用 serviceRequest，仅允许 /billing、
 managed-session.cjs 与 backend.cjs 的托管视觉能力保留鉴权服务端给出的授权，不再要求连接别名必须等于上游模型 ID；服务端仍验证实际获准通道的上游模型。客户端不能自行授予视觉能力，店铺图片接待仍需原显式开关。双哈希及别名授权/拒绝回归同步更新。
 
 shared/multimodal.cjs 仅为已验证知识图片允许规范 base64 PNG 分块，单图最多 8 MiB、1400×1400，总正文 16 MiB，非图片正文仍最多 128 KiB；买家 imageInputs 和公开图片 URL 继续仅 HTTPS。managed-session.cjs 仅提高 chat 正文上限，其他团队/计费请求边界不变。来源和原始哈希保留在 source-files.json，并记录本地实际哈希；完整上游 232 测试已通过。Windows OCR 及学习策略均在自有 TypeScript 中实现。
+
+## 2026-11-16：会话定位最小兼容修订（hook v9）
+
+真实拼多多页面复现 focusConversation 返回 ok 但当前买家未变：列表选择处理绑定在 mousedown，原实现只发 click。仅该定位方法补充 mousedown/up，沿用原 click，不修改全局发送点击工具；按 data-random 的完整买家 ID 匹配，DOM/旧 mutation 分支均核对实际 activeUid 后才报告成功。修复复用既有平台 hook，不引入新依赖。保留 upstreamGitBlob/upstreamSha256，更新本文件实际摘要与 localPatch。
+
+tests/pdd-conversation-focus.test.ts 使用合成页面验证选择事件、忽略点击时不报成功及相似 ID 隔离。真实页面用修复后的原方法在两个已有买家间切换并核对 UID；没有发送消息，新收到消息的完整链路需另行观察，不用已有聊天重放伪造新消息。

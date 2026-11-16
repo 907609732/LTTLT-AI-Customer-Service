@@ -384,3 +384,9 @@ Task4 round1 fixes: same-name material at the selected target revises stable sou
 新增清除日志、置顶/取消置顶，并将详细日志标题栏改成 Electron 原生拖动。复用项目既有 ReviewConsole、Desktop/IPC、Element Plus 与 Electron，不增加生产依赖。保留待确认/发送中候选、关联请求、活动请求与消息去重，清除不批准或取消发送。
 
 专项单元测试 28/28，通过可信窗口/布尔参数、界面失败状态和清除后不重放旧消息等检查；隔离 Electron 桌面专项 1/1，实际切换窗口置顶、点击清除并用 Windows 鼠标拖动核对坐标。真实发送未执行。本批在当前 recharge-redesign 工作树保留既有 AI 开关记忆改动并集成，未公开发布。后续验收：最新版中打开高级日志，核对右上角按钮及标题栏拖动。
+
+## 2026-11-16 拼多多会话切换修复（1.0.36）
+
+实店只读复现：旧 focusConversation 返回成功而 activeUid 未变。当前平台列表依赖 mousedown，原 hook 只调用 click。仅原定位方法补齐按下/抬起、严格买家 ID 匹配，并在 DOM 和旧 store mutation 路径检查实际 activeUid，未切换时返回失败；发送工具及批准门不变。复用现有 hook，来源、双哈希与最小补丁说明见 vendor/lingtu-runtime/PROVENANCE.md。未新增生产依赖。
+
+修复前两项回归失败；修复后定位、输入与互斥专项通过。真实页面用 v9 原定位接口在两个已有买家间切换，返回 UID 与实际一致，未调用模型或发送消息。尚未等待到新的真实买家消息，不能将既有对话切换当作完整新消息链路验收。下一项：观察 AI 开启后真实新消息是否触发该定位并进入审核。
