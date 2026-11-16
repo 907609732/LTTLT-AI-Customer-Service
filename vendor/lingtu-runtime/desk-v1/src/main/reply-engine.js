@@ -106,6 +106,7 @@ class StoreWorker {
     this.paused = false;
     this.ticking = false;
     this.inflight = 0;
+    this.awaitingReview = new Set();
     this.timer = null;
     this.tasks = new Set();
     this.processing = new Set();
@@ -197,7 +198,9 @@ class StoreWorker {
     try {
       await this.#drainMerchantSent();
       const max = this.cfg.maxInflight ?? 6;
-      while (this.inflight < max && this.#active(generation)) {
+      // Pending human decisions retain per-buyer ownership, not model concurrency.
+      // Bound retained tasks so an unattended review queue cannot grow indefinitely.
+      while (this.inflight < max && this.tasks.size < max + 32 && this.#active(generation)) {
         let row;
         try {
           row = await this.adapter.popPending();
@@ -589,7 +592,11 @@ class StoreWorker {
     let reviewedCurrent=()=>true;
     if(this.aiClient.beforeSend){
       const proposal={traceId:generation?.traceId,storeId:this.store.id,uid:String(uid),text:String(text),thread:generation?.thread||[],isCurrent:()=>this.#active(generation)&&!this.manualSuppressed.has(String(uid)),getHistory:()=>this.#history(uid),pageReview:generation?.pageReview,getPageReview:this.adapter.reviewHistory?focus=>this.adapter.reviewHistory(String(uid),focus):undefined};
-      const approved=await this.aiClient.beforeSend(proposal);
+      this.awaitingReview.add(String(uid));
+      this.inflight -= 1;
+      let approved;
+      try { approved=await this.aiClient.beforeSend(proposal); }
+      finally { this.awaitingReview.delete(String(uid)); this.inflight += 1; }
       reviewedCurrent=proposal.isCurrent;
       if(!approved){if(!proposal.retryNewMessage)this.takeOver(uid,'review');return {ok:false,throttled:true,reason:'cancelled'};}
       if(!this.#active(generation)||this.manualSuppressed.has(String(uid))){this.onEvent?.({type:'reply:review-result',storeId:this.store.id,uid,ok:false,reason:'cancelled'});return {ok:false,throttled:true,reason:'cancelled'};}

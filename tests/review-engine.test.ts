@@ -104,6 +104,38 @@ function harness(question = '你好') {
 }
 
 describe('真实回复引擎的确认门', () => {
+  it('第一位买家等待审核时，单并发仍可为另一位买家生成候选且不发送', async () => {
+    const { worker, review, sent, queue, snap, adapter, aiClient } = harness()
+    adapter.conversationHistory = async () => ({ ok: true, messages: [] })
+    worker.start()
+    await worker.tick()
+    await vi.waitFor(() => expect(review.snapshot().replies).toHaveLength(1))
+    const messages = [
+      {
+        from: 'buyer' as const,
+        content: '另一位买家的问题',
+        ts: Date.now(),
+        msgId: 'other-1',
+        type: 'text' as const,
+      },
+    ]
+    snap.conversations.push({
+      storeId: 'shop',
+      uid: 'other',
+      name: '买家乙',
+      status: 'pending',
+      messages,
+    })
+    queue.push({ uid: 'other', messages })
+    await worker.tick()
+    await vi.waitFor(() => expect(review.snapshot().replies).toHaveLength(2))
+    expect(aiClient.reply).toHaveBeenCalledTimes(2)
+    expect(review.snapshot().replies.every((row) => row.status === 'pending')).toBe(true)
+    expect(sent).toEqual([])
+    for (const row of review.snapshot().replies) await review.decide({ id: row.id, approve: false })
+    await worker.settle()
+    expect(sent).toEqual([])
+  })
   it('历史接口失败仍把本机归档的买家和客服历史交给模型，确认前不发送', async () => {
     const { worker, review, sent, adapter, snap, aiClient } = harness('我刚才询问的商品')
     const at = snap.conversations[0].messages[0].ts

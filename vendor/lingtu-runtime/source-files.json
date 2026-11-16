@@ -104,9 +104,9 @@
     {
       "path": "desk-v1/src/main/reply-engine.js",
       "upstreamGitBlob": "1bcf9b117d9d4ed0743b38819799fad508b0e633",
-      "sha256": "8510f3ff2694beaa59710554d77d64e676dfdeb8c6946802d19033abc382a2e4",
+      "sha256": "a23cb79a8062ad306780f5460dc8a31f62922ca847b850a0062761a3328bb903",
       "upstreamSha256": "b73b29daca7d13c8681b0d0dfdc33eff8a145b76bc02df284de290a1ec0eb523",
-      "localPatch": "optional human approval at the final shared send entry; thread supplied and activity rechecked after approval; capture DOM approval baseline before generation; provide fresh page reader to review gate; propagate active-generation cancellation through progressive typing; per-message decision evidence and no permanent review suppression when superseded by new buyer input; optional resolveConversationThread injection to merge retained per-shop/buyer archive before model generation; optional extraPlatforms injection to register project-owned simulator platform keys (validation and capabilities read the merged list, upstream defaults unchanged); propagate exact generation traceId into final proposal, explicit reply purpose, and the injected proposal guard through adapter send cancellation"
+      "localPatch": "optional human approval at the final shared send entry; thread supplied and activity rechecked after approval; capture DOM approval baseline before generation; provide fresh page reader to review gate; propagate active-generation cancellation through progressive typing; per-message decision evidence and no permanent review suppression when superseded by new buyer input; optional resolveConversationThread injection to merge retained per-shop/buyer archive before model generation; optional extraPlatforms injection to register project-owned simulator platform keys (validation and capabilities read the merged list, upstream defaults unchanged); propagate exact generation traceId into final proposal, explicit reply purpose, and the injected proposal guard through adapter send cancellation; release model concurrency while awaiting beforeSend approval, retain per-uid processing and bounded tasks (maxInflight + 32), restore accounting in finally"
     },
     {
       "path": "desk-v1/src/main/secrets.js",

@@ -73,3 +73,9 @@ shared/multimodal.cjs 仅为已验证知识图片允许规范 base64 PNG 分块�
 真实拼多多页面复现 focusConversation 返回 ok 但当前买家未变：列表选择处理绑定在 mousedown，原实现只发 click。仅该定位方法补充 mousedown/up，沿用原 click，不修改全局发送点击工具；按 data-random 的完整买家 ID 匹配，DOM/旧 mutation 分支均核对实际 activeUid 后才报告成功。修复复用既有平台 hook，不引入新依赖。保留 upstreamGitBlob/upstreamSha256，更新本文件实际摘要与 localPatch。
 
 tests/pdd-conversation-focus.test.ts 使用合成页面验证选择事件、忽略点击时不报成功及相似 ID 隔离。真实页面用修复后的原方法在两个已有买家间切换并核对 UID；没有发送消息，新收到消息的完整链路需另行观察，不用已有聊天重放伪造新消息。
+
+## 2026-11-16：待审核与模型并发分离
+
+实店日志确认托管 maxInflight=1 时，beforeSend 的审核承诺一直占用 inflight，新买家停在 max_inflight。reply-engine 仅在等待原 beforeSend 门期间释放模型处理名额，finally 恢复计数，保留 processing 对同一买家的独占、tasks/settle 退出等待和原发送复核。总保留任务上限为 maxInflight+32，避免无人审核时无限增长。未增加模型并发、批准或自动发送权限。只改既有兼容点，保留上游摘要与许可，更新实际摘要和 localPatch。
+
+真实引擎与 ReviewConsole 联测新增：一位买家等待审核，另一位在 maxInflight=1 下生成候选，确认前始终零发送。

@@ -390,3 +390,9 @@ Task4 round1 fixes: same-name material at the selected target revises stable sou
 实店只读复现：旧 focusConversation 返回成功而 activeUid 未变。当前平台列表依赖 mousedown，原 hook 只调用 click。仅原定位方法补齐按下/抬起、严格买家 ID 匹配，并在 DOM 和旧 store mutation 路径检查实际 activeUid，未切换时返回失败；发送工具及批准门不变。复用现有 hook，来源、双哈希与最小补丁说明见 vendor/lingtu-runtime/PROVENANCE.md。未新增生产依赖。
 
 修复前两项回归失败；修复后定位、输入与互斥专项通过。真实页面用 v9 原定位接口在两个已有买家间切换，返回 UID 与实际一致，未调用模型或发送消息。尚未等待到新的真实买家消息，不能将既有对话切换当作完整新消息链路验收。下一项：观察 AI 开启后真实新消息是否触发该定位并进入审核。
+
+## 2026-11-16 待审核阻塞新买家修复（1.0.37）
+
+用户再次报告没反应，真实日志发现新消息停在 max_inflight；托管 maxInflight=1 被另一买家待审核 beforeSend 长期占用。修复既有回复引擎，仅等待批准期间释放模型名额，finally 恢复计数，保留 processing 同买家独占、发送确认与退出等待，总保留任务上限 maxInflight+32。来源和双哈希见 vendor PROVENANCE。回复监控已手动重新打开，没有批准或发送真实消息。
+
+修复前新增跨买家单并发用例失败；修复后真实引擎/确认门/消息诊断 31 项通过。首次实店验证仅证明一条消息能生成，未覆盖前条待审核时第二位买家，因此不能作为连续接待完整验收。
