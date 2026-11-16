@@ -53,7 +53,7 @@ export function useKnowledgeManager() {
     search = ref(''),
     page = ref(0),
     tab = ref<'products' | 'general'>('products')
-  const view = ref<'library' | 'review' | 'jobs' | 'misses' | 'settings'>('library'),
+  const view = ref<'library' | 'review' | 'misses' | 'settings'>('library'),
     error = ref(''),
     notice = ref(''),
     loading = ref(false),
@@ -147,6 +147,8 @@ export function useKnowledgeManager() {
   })
   const importPreview = ingestion.preview
   watch(storeId, () => {
+    clearTimeout(progressTimer)
+    jobs.value = []
     ocrPreview.value = undefined
     clearPreview.value = undefined
     clearConfirmation.value = ''
@@ -240,28 +242,59 @@ export function useKnowledgeManager() {
     )
       throw Error('店铺或账号已改变，已丢弃旧结果')
   }
+  let progressTimer: ReturnType<typeof setTimeout> | undefined
+  const backgroundJobs = computed(() =>
+    jobs.value.filter(
+      (job) =>
+        job.storeId === storeId.value &&
+        !['succeeded', 'cancelled'].includes(job.status) &&
+        (job.kind !== 'learn' ||
+          !Array.isArray(job.payload?.bindingIds) ||
+          !job.payload.bindingIds.length),
+    ),
+  )
+  async function jobAction(input: KnowledgePipelineInput) {
+    await client().pipeline(input)
+    await refresh()
+  }
   async function refresh() {
     if (!storeId.value || !workspace.value) return
     const id = ++ticket,
       w = workspace.value,
       s = storeId.value,
       service = client()
-    loading.value = true
+    clearTimeout(progressTimer)
+    loading.value = !(
+      view.value === 'library' &&
+      tab.value === 'products' &&
+      products.value.length &&
+      products.value.every((p) => p.binding.storeId === s)
+    )
     try {
-      const [nextSummary, nextCapabilities] = await Promise.all([
+      const [nextSummary, nextCapabilities, nextJobs] = await Promise.all([
         service.query({ type: 'summary', storeId: s }),
         service.pipeline({ action: 'capabilities', storeId: s }),
+        service.query({ type: 'jobs', page: { storeId: s, limit: 100 } }),
       ])
       assertLease(w, s)
       if (id !== ticket) return
       summary.value = nextSummary
       capabilities.value = nextCapabilities
-      if (view.value === 'jobs') {
-        const result = await service.query({ type: 'jobs', page: { storeId: s, limit: 100 } })
-        assertLease(w, s)
-        if (id !== ticket) return
-        jobs.value = result.items
-      } else if (view.value === 'misses') {
+      const completed = nextJobs.items.find(
+        (job) =>
+          job.status === 'succeeded' &&
+          jobs.value.some((old) => old.id === job.id && old.status !== 'succeeded'),
+      )
+      if (completed?.kind === 'collect')
+        notice.value =
+          '采集完成，商品已显示在列表。下一步：点击对应商品的“开始学习”，完成后到“待审核”核对草稿。'
+      else if (
+        completed?.kind === 'learn' &&
+        (!Array.isArray(completed.payload.bindingIds) || !completed.payload.bindingIds.length)
+      )
+        notice.value = '通用资料学习已结束，请到“待审核”核对草稿。'
+      jobs.value = nextJobs.items
+      if (view.value === 'misses') {
         const result = await service.query({ type: 'misses', page: { storeId: s, limit: 100 } })
         assertLease(w, s)
         if (id !== ticket) return
@@ -309,7 +342,13 @@ export function useKnowledgeManager() {
     } catch (cause) {
       if (id === ticket && !disposed) error.value = reason(cause)
     } finally {
-      if (id === ticket) loading.value = false
+      if (id === ticket) {
+        loading.value = false
+        if (!disposed && jobs.value.some((job) => ['queued', 'running'].includes(job.status)))
+          progressTimer = setTimeout(() => {
+            void refresh()
+          }, 1500)
+      }
     }
   }
   function editable(version: KnowledgeVersion): KnowledgeDraftInput {
@@ -993,7 +1032,7 @@ export function useKnowledgeManager() {
     )
       throw Error('目录范围未完整或数量超限，请明确选择已验证商品')
     if (!catalogIds.value.length && !catalogAll.value) throw Error('请选择商品或明确当前筛选全选')
-    const result = await client().pipeline({
+    await client().pipeline({
       action: 'start',
       storeId: storeId.value,
       kind: 'collect',
@@ -1007,9 +1046,13 @@ export function useKnowledgeManager() {
         total: catalog.value.total,
       },
     })
-    notice.value = `已建立采集任务 ${result.jobId}`
+    notice.value = '正在采集商品资料，完成后可在商品条目开始学习。'
     catalogOpen.value = false
-    await setView('jobs')
+    tab.value = 'products'
+    view.value = 'library'
+    search.value = ''
+    page.value = 0
+    await refresh()
   }
   async function loadCatalogThumbnail(productId: string): Promise<string> {
     const selected = catalog.value,
@@ -1075,7 +1118,7 @@ export function useKnowledgeManager() {
   }
   async function startLearn() {
     if (!estimate.value || !learningSelection.value) return
-    const result = await client().pipeline({
+    await client().pipeline({
       action: 'start',
       storeId: storeId.value,
       kind: 'learn',
@@ -1083,8 +1126,10 @@ export function useKnowledgeManager() {
       estimateId: estimate.value.estimateId,
     })
     estimate.value = undefined
-    notice.value = `已建立学习任务 ${result.jobId}`
-    await setView('jobs')
+    notice.value = learningSelection.value.bindingIds.length
+      ? '已开始学习，请在对应商品条目查看资料处理进度；完成后请审核草稿。'
+      : '已开始学习本店通用资料'
+    await refresh()
   }
   const chooseSources = () => ingestion.choose()
   const archiveChats = async () => {
@@ -1298,6 +1343,7 @@ export function useKnowledgeManager() {
     for (const cancel of replacementWaiters) cancel()
     ticket++
     clearTimeout(timer)
+    clearTimeout(progressTimer)
     offContext?.()
     offClose?.()
   })
@@ -1317,6 +1363,8 @@ export function useKnowledgeManager() {
     total,
     summary,
     jobs,
+    backgroundJobs,
+    jobAction,
     misses,
     settings,
     capabilities,

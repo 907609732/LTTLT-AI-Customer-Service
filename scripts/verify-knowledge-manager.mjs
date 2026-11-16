@@ -63,7 +63,10 @@ const executable =
   fs.existsSync(installed) && hash(installed) === hash(electron) ? installed : electron
 let failure
 try {
-  await run(executable, [path.join(output, 'dist-electron/knowledge-manager-check.cjs')])
+  await run(executable, [
+    path.join(output, 'dist-electron/knowledge-manager-check.cjs'),
+    ...(process.argv.includes('--inline-progress-only') ? ['--inline-progress-only'] : []),
+  ])
 } catch (error) {
   failure = error
 }
