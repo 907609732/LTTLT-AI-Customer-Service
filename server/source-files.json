@@ -118,9 +118,9 @@
     {
       "path": "overlay/lingtu/model_connection.go",
       "upstreamPath": "managed-server/overlay/lingtu/model_connection.go",
-      "sha256": "02622bab2996603c053b430709e1225e9509be2c25ef18da3597d049ed4a9ea6",
+      "sha256": "add620515dafa3629891211344c31aa52e66fa2cf5a866ccd3d363dfc53349d6",
       "upstreamSha256": "bf9471281b65e7abedee230273d04ae12340a2c8b70884503bb5c682c1579496",
-      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/lingtu/secret_serializer.go",
@@ -161,7 +161,9 @@
     {
       "path": "overlay/lingtu/token_usage.go",
       "upstreamPath": "managed-server/overlay/lingtu/token_usage.go",
-      "sha256": "2192e4992dd8697c90695b1f1c48bf0514c40f2fad200f930e6fb18ad49413a2"
+      "sha256": "49f9e3ac22503135444fd50e30417fda3df0a2f022b1e5f3aed73a64fa662490",
+      "upstreamSha256": "2192e4992dd8697c90695b1f1c48bf0514c40f2fad200f930e6fb18ad49413a2",
+      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/lingtu/token_usage_test.go",
@@ -176,7 +178,9 @@
     {
       "path": "overlay/lingtu/trial_test.go",
       "upstreamPath": "managed-server/overlay/lingtu/trial_test.go",
-      "sha256": "601d8f4b40ee0c81b7838e86acee5a539fd62e17065e39db84dd84bbb6f24736"
+      "sha256": "fec3db86069b8b64301d36238ec1bb2fe7f0b5ba50f1d14780b49bb38615a40f",
+      "upstreamSha256": "601d8f4b40ee0c81b7838e86acee5a539fd62e17065e39db84dd84bbb6f24736",
+      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/lingtuhost/admin.go",
@@ -200,9 +204,9 @@
     {
       "path": "overlay/lingtuhost/admin_models.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_models.go",
-      "sha256": "8adbd28e62fad83059474d4e241691dd1fe7308fbbd4f39c0f1a0655f0a40c8c",
+      "sha256": "ccf1b0cd538fefa8ddde9a703bfe75ce2ebaf1b97d79606a3ddbece358b76188",
       "upstreamSha256": "f6508c9bc6ac755deb30b563315572f32ca5c4480b5dff33ee7f700f62d41015",
-      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/lingtuhost/admin_model_default_test.go",
@@ -218,7 +222,9 @@
     {
       "path": "overlay/lingtuhost/admin_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_test.go",
-      "sha256": "449bcdc0686398980572603b969a6365ece81412578ab79e6131dd9fbf375bf4"
+      "sha256": "f73c855c41534a35b8a9b540dbfae7fce04cb17f6834a8b4826c18d2c4e4b44f",
+      "upstreamSha256": "449bcdc0686398980572603b969a6365ece81412578ab79e6131dd9fbf375bf4",
+      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/lingtuhost/admin_usage.go",
@@ -230,16 +236,16 @@
     {
       "path": "overlay/lingtuhost/admin_usage_daily.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_usage_daily.go",
-      "sha256": "c3e45c589f10c3d723572f0362ffd64370c81a0248e5c9d9d32c2061d040e53e",
+      "sha256": "9e430e578a635d2e40771be0a62439b9e4e1492cb7279ed0b23fb15819720d89",
       "upstreamSha256": "473f177917e9a5cb6e1d6999000e1e4981cc8db1ce97163281acba04d27fcb6e",
-      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/lingtuhost/admin_usage_daily_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_usage_daily_test.go",
-      "sha256": "f16fc7f54730c677d324669b1c1ae839379ed5595a53538216d4f198a960f2cc",
+      "sha256": "c9127482ffc43f46a1c8188f73910d2ad0c2da98a6fb8c63d8f2c8804998e9b5",
       "upstreamSha256": "60085fc63010180a56f00ef0781e6e18a7f72bdc3aef44e5216d009c957387a0",
-      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/lingtuhost/admin_usage_summary_test.go",
@@ -254,16 +260,16 @@
     {
       "path": "overlay/lingtuhost/chat.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat.go",
-      "sha256": "8be1a6d48a15f3a6b2e359b7c78ef2784700ea45fa1233cb6c56f3dd419cbfd9",
+      "sha256": "c9338a87e77e733e4feea8e7e0ac8e4f344f700d039be0b7b0ef1409e1629d0c",
       "upstreamSha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650",
-      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/lingtuhost/chat_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat_test.go",
-      "sha256": "9d483694de9113b07402b49af101dbafae7ae3f22a01f98ecc1992a678bae4bf",
+      "sha256": "74a145a83c70ffc5f7e97f391d5d6466d08b060d55a640d6940803e863deaf17",
       "upstreamSha256": "68d971b36114e9bb06682511db70b011cac71b784037b1dd161446e2195d768f",
-      "localPatch": " Add configured CNY estimates and frozen admission rates without changing balances."
+      "localPatch": " Add configured CNY estimates and frozen admission rates without changing balances.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/lingtuhost/chat_usage_rejection_test.go",
@@ -388,30 +394,30 @@
     {
       "path": "overlay/web/src/features/lingtu/admin-models.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-models.tsx",
-      "sha256": "711aa03c7182b663e73743241d72ce58dd696f3d3be55575a20b6fa023159455",
+      "sha256": "d93672a3b76a1e02d0b7eb1688eed206a1fdf93485f9353606b7671be1d5c8c5",
       "upstreamSha256": "ab82b618d1b731bfd6cd46dde8bcd4dcc25bac75ed3ca31c8dd60881cb585f72",
-      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-page.test.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.test.tsx",
-      "sha256": "f74f297c1a47b7ee10ef46212c047cdbac66ef346538a8680c93218b59eb3d57",
+      "sha256": "4b296ac3bcd4777afdc966f71b6781b83e7bdad5ecba57d54f81171a9708497e",
       "upstreamSha256": "31faaa4b3b87915c7a18bf03df0114717110648dd169606c741b749785c0aabf",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-page.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.tsx",
-      "sha256": "32b3c8ad0bbc3a77fd985e92490754a29fad382c770a0bf770fe7425a96cc656",
+      "sha256": "19017805b526c86c6162b0228d4d9c72f222c38f90abb8cdcb70fdf064089d09",
       "upstreamSha256": "47c9d379bc0749edd50d6dd598452074525a69308d3f9702eb65b3d16837111a",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-usage.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-usage.tsx",
-      "sha256": "ad3d99b8a2a074b6f5524f5a19e01f428f50e7c0a4aa97b4149b12265da7a265",
+      "sha256": "8abff217a38ccb510c430012eb76578a9050a6bbaa26a1f5640e417a2cb88aec",
       "upstreamSha256": "ca6b43a3155423553bb911ba1062077b4450a262f52a6a91ef5c303b98355364",
-      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/web/src/features/lingtu/api-origin.test.tsx",
@@ -463,9 +469,9 @@
     {
       "path": "patches.json",
       "upstreamPath": "managed-server/patches.json",
-      "sha256": "db136a6721b9f637a86b38cfaf4091ba17b177ab6cb745cfede5be00311e9bb8",
+      "sha256": "12e2256172490a76910c05f7ed6e71236ee540d305fa4cfac17a48be2f8b68dd",
       "upstreamSha256": "edbf75acd4311588cf91b84e0377f76cd879d8c5c7a84a35ef88117d3b8120e8",
-      "localPatch": "Explicit local HTTP uses same-origin loopback guard; remote HTTPS CORS unchanged.; Rename native page title and default display system name to 灵兔 AI, retaining source license and protocol."
+      "localPatch": "Explicit local HTTP uses same-origin loopback guard; remote HTTPS CORS unchanged.; Rename native page title and default display system name to 灵兔 AI, retaining source license and protocol.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "portal-site/.openai/hosting.json",
@@ -492,9 +498,9 @@
     {
       "path": "translations.json",
       "upstreamPath": "managed-server/translations.json",
-      "sha256": "0690fcd53e200194c3b1a3924dd572c01f6cefc2781da218d4e109445d7706d1",
+      "sha256": "3c614addc05f027610ca787e3c5f3a3344e8a2bfd94c7aa73b2a1f0f81f9bcb4",
       "upstreamSha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "upstream.lock.json",

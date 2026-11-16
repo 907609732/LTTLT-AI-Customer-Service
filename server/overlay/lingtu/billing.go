@@ -100,7 +100,16 @@ func (s *BillingStore) AttachCheckout(orderID, session string) error {
 		return result.Error
 	}
 	if result.RowsAffected != 1 {
-		return ErrBillingConflict
+		// MySQL reports changed rows by default. An identical retry may match
+		// the pending order but change zero rows; confirm its exact stored binding.
+		var current BillingOrder
+		err := s.db.Where("id = ? AND state = ?", orderID, "pending").First(&current).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err != nil || current.SessionID == nil || *current.SessionID != session {
+			return ErrBillingConflict
+		}
 	}
 	return nil
 }

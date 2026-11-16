@@ -1539,6 +1539,13 @@ it('shows loading and progress only on the owning product and preserves recovery
     })
     expect(wrapper.find('.progress-spinner').exists()).toBe(false)
     expect(wrapper.text()).toContain('待审核')
+    await wrapper.setProps({
+      jobs: [
+        { ...job, id: 'newer-completed', status: 'succeeded', createdAt: 2 },
+        { ...job, status: 'failed', checkpoint: { state: 'received' } },
+      ],
+    })
+    expect(wrapper.findAll('button').some((button) => button.text().includes('计费'))).toBe(true)
     await wrapper.setProps({ jobs: [{ ...job, storeId: 'other' }] })
     expect(wrapper.find('progress').exists()).toBe(false)
     wrapper.unmount()
@@ -1584,4 +1591,30 @@ it('refreshes inline running progress and stops polling after unmount', async ()
   } finally {
     vi.useRealTimers()
   }
+})
+it('loads every page of unfinished progress rather than losing older recovery controls', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  const original = fake.query.getMockImplementation()!
+  const jobs = Array.from({ length: 101 }, (_, i) => ({
+    id: `paused-${i}`,
+    storeId: 'a',
+    kind: 'learn',
+    status: 'paused',
+    payload: { bindingIds: ['one'] },
+    checkpoint: {},
+    progress: { completed: 0, total: 2 },
+  }))
+  fake.query.mockImplementation(async (input) =>
+    input.type === 'jobs'
+      ? {
+          items: jobs.slice(input.page.offset || 0, (input.page.offset || 0) + 100),
+          total: 101,
+          revision: 1,
+        }
+      : original(input),
+  )
+  await manager.refresh()
+  expect(manager.jobs.value).toHaveLength(101)
+  wrapper.unmount()
 })

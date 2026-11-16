@@ -92,6 +92,13 @@ func (b *relayBuffer) Pusher() http.Pusher      { return nil }
 func (b *relayBuffer) CloseNotify() <-chan bool { return make(chan bool) }
 
 type managedUsage struct {
+	CostCacheReadCNY string `json:"cost_cache_read_cny" gorm:"type:varchar(32)"`
+	CacheReadTokens  int    `json:"cache_read_tokens"`
+	CacheUsageKnown  bool   `json:"cache_usage_known" gorm:"not null;default:false"`
+	CostMicros       int64  `json:"cost_micros" gorm:"not null;default:0"`
+	CostKnown        bool   `json:"cost_known" gorm:"not null;default:false"`
+	CostStatus       string `json:"cost_status" gorm:"type:varchar(32)"`
+
 	CostSnapshot  bool   `gorm:"not null;default:false"`
 	CostInputCNY  string `gorm:"type:varchar(32)"`
 	CostOutputCNY string `gorm:"type:varchar(32)"`
@@ -477,8 +484,9 @@ func (h *Host) prepareChat(c *gin.Context) {
 	// Every new request pins even an unpriced admission: later rate edits cannot
 	// invent historical prices. Only actual reported tokens are costed.
 	usage.CostSnapshot = true
+	usage.CostStatus = "pending"
 	if binding.CostRateModel == channel.Models {
-		usage.CostInputCNY, usage.CostOutputCNY = binding.InputCNY, binding.OutputCNY
+		usage.CostInputCNY, usage.CostOutputCNY, usage.CostCacheReadCNY = binding.InputCNY, binding.OutputCNY, binding.CacheReadCNY
 	}
 	if err = model.DB.Create(&usage).Error; err != nil {
 		_ = h.trials.Settle(uid, in.RequestID, "failed")
@@ -539,6 +547,9 @@ func (h *Host) prepareChat(c *gin.Context) {
 				diagnostic = "success"
 			}
 		}
+		usage.CacheReadTokens, usage.CacheUsageKnown = c.GetInt("lingtu_provider_cache_read_tokens"), c.GetBool("lingtu_provider_cache_usage_known")
+		usage.CostMicros, usage.CostStatus = lingtu.EstimateTokenCost(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens, usage.UsageKnown, usage.CacheUsageKnown, optionalCostPrice(usage.CostInputCNY), optionalCostPrice(usage.CostOutputCNY), optionalCostPrice(usage.CostCacheReadCNY))
+		usage.CostKnown = usage.CostStatus == "estimated"
 		usage.Diagnostic = diagnostic
 		err := model.DB.Transaction(func(tx *gorm.DB) error {
 			if outcome == "success" {

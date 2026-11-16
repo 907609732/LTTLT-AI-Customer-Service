@@ -423,8 +423,9 @@ it('saves all or selected models and limits the default to the chosen range', as
   }
   const saved: Record<string, unknown>[] = []
   api.defaults.adapter = async (request) => {
-    if (request.method === 'post')
+    if (request.method === 'post') {
       saved.push(JSON.parse(request.data as string))
+    }
     return {
       data:
         request.method === 'post'
@@ -1508,7 +1509,11 @@ it('saves RMB rates through the existing exact proof without probing and clears 
   )
   fireEvent.click(screen.getByRole('button', { name: 'Save without testing' }))
   await waitFor(() => expect(posts).toHaveLength(1))
-  expect(posts[0].cost_rates).toEqual({ input_cny: '1', output_cny: '10' })
+  expect(posts[0].cost_rates).toEqual({
+    input_cny: '1',
+    output_cny: '10',
+    cache_read_cny: null,
+  })
   expect(posts[0].test_after_save).toBeUndefined()
   expect(posts[0].secret).toBeUndefined()
   expect(verify).toHaveBeenCalledWith(

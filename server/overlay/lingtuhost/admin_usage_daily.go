@@ -28,6 +28,13 @@ type usageDailyItem struct {
 }
 
 type usageDailyRecord struct {
+	CostCacheReadCNY string `json:"cost_cache_read_cny" gorm:"type:varchar(32)"`
+	CacheReadTokens  int    `json:"cache_read_tokens"`
+	CacheUsageKnown  bool   `json:"cache_usage_known" gorm:"not null;default:false"`
+	CostMicros       int64  `json:"cost_micros" gorm:"not null;default:0"`
+	CostKnown        bool   `json:"cost_known" gorm:"not null;default:false"`
+	CostStatus       string `json:"cost_status" gorm:"type:varchar(32)"`
+
 	CostSnapshot  bool   `gorm:"not null;default:false"`
 	CostInputCNY  string `gorm:"type:varchar(32)"`
 	CostOutputCNY string `gorm:"type:varchar(32)"`

@@ -350,5 +350,22 @@
   "Recalculated at current rates": "按当前单价回算",
   "Configured-rate estimate only; not a supplier bill or balance deduction. Missing usage or prices remain unpriced.": "按配置单价估算，不代表供应商账单，不扣余额。缺少用量或价格的调用保持未计价。",
   "Unpriced": "未计价",
-  "Admission price snapshot": "调用时单价快照"
+  "Admission price snapshot": "调用时单价快照",
+  "Cache read price (CNY / million tokens, optional)": "缓存命中单价（元／百万 token，可选）",
+  "Prices must be between 0 and 1000000 CNY with at most 6 decimal places.": "单价须为 0 至 1000000 元，最多六位小数。",
+  "Blank means unconfigured; zero means free. Prices apply to future calls; historical price snapshots remain unchanged. Without a cache price, all input uses the input price. A configured cache price requires reported cache usage.": "留空表示未配置，0 表示免费。单价用于之后的调用，历史单价快照保持不变。未配置缓存价时全部输入按输入价估算；配置缓存价后需服务商返回缓存用量。",
+  "Known cost subtotal (CNY)": "已知成本小计（人民币）",
+  "Only saved historical price snapshots are included; unknown costs are excluded from the subtotal.": "仅汇总已保存的历史单价快照，无法估算的费用不计入小计。",
+  "Historical prices (CNY / million tokens)": "历史单价（元／百万 token）",
+  "Cache read": "缓存命中",
+  "Cache read tokens": "缓存命中 token",
+  "Cost estimate pending": "费用估算待结算",
+  "Cost unavailable: usage not returned": "无法估算：未返回用量",
+  "Cost unavailable: model prices not configured": "无法估算：未配置模型单价",
+  "Cost unavailable: cache usage not returned": "无法估算：未返回缓存用量",
+  "Cost unavailable: invalid price snapshot": "无法估算：单价快照无效",
+  "Cost unavailable: amount exceeds supported range": "无法估算：金额超出支持范围",
+  "Cost unavailable: no historical price snapshot": "无法估算：缺少历史单价快照",
+  "Input": "输入",
+  "Output": "输出"
 }

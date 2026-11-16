@@ -14,6 +14,7 @@ type ModelConnection struct {
 	TestStatus    string `gorm:"type:varchar(16);not null"`
 	CostRateModel string `gorm:"type:varchar(128)"`
 	InputCNY      string `gorm:"type:varchar(32)"`
+	CacheReadCNY  string `gorm:"type:varchar(32)"`
 	OutputCNY     string `gorm:"type:varchar(32)"`
 	TestedAt      int64
 }

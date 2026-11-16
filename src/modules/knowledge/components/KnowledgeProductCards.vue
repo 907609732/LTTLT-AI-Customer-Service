@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { KnowledgeProductCard, KnowledgeJob } from '@/shared/contracts/knowledge'
+import { isRecoverableKnowledgeJob } from '@/shared/knowledge-progress'
 import { sourceLabel } from '../manager-labels'
 import type { KnowledgePipelineInput } from '@/shared/contracts/knowledge-pipeline'
 import KnowledgeJobProgress from './KnowledgeJobProgress.vue'
@@ -25,7 +26,11 @@ function learningJob(row: KnowledgeProductCard) {
         Array.isArray(job.payload?.bindingIds) &&
         job.payload.bindingIds.includes(row.binding.id),
     )
-    .sort((a, b) => b.createdAt - a.createdAt)[0]
+    .sort(
+      (a, b) =>
+        Number(isRecoverableKnowledgeJob(b)) - Number(isRecoverableKnowledgeJob(a)) ||
+        b.createdAt - a.createdAt,
+    )[0]
 }
 function learningActive(row: KnowledgeProductCard) {
   const job = learningJob(row)

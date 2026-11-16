@@ -20,9 +20,21 @@ import { api } from '@/lib/api'
 import { formatNumber, formatTimestamp } from '@/lib/format'
 
 import { formatCNY } from './admin-cost-format'
+import { formatCostMicros } from './cost-display'
+
+function costSubtotal(totals: {
+  cost_micros?: number
+  estimated_cny?: string
+}) {
+  return totals.cost_micros === undefined
+    ? formatCNY(totals.estimated_cny)
+    : formatCostMicros(totals.cost_micros)
+}
 
 export function CostSummary(props: {
   totals: {
+    cost_micros?: number
+    unknown_cost_requests?: number
     estimated_cny?: string
     costed_requests?: number
     unpriced_requests?: number
@@ -33,15 +45,22 @@ export function CostSummary(props: {
   return (
     <div className='admin-help'>
       <strong>
-        {t('Estimated cost (CNY)')}: {formatCNY(props.totals.estimated_cny)}
+        {t('Estimated cost (CNY)')}: {costSubtotal(props.totals)}
       </strong>{' '}
       · {t('Costed requests')}: {formatNumber(props.totals.costed_requests)} ·{' '}
-      {t('Unpriced requests')}: {formatNumber(props.totals.unpriced_requests)} ·{' '}
-      {t('Recalculated at current rates')}:{' '}
+      {t('Unpriced requests')}:{' '}
+      {formatNumber(
+        props.totals.unknown_cost_requests ?? props.totals.unpriced_requests
+      )}{' '}
+      · {t('Recalculated at current rates')}:{' '}
       {formatNumber(props.totals.current_rate_requests)}
       <p>
+        {t('Known cost subtotal (CNY)')} ·{' '}
         {t(
           'Configured-rate estimate only; not a supplier bill or balance deduction. Missing usage or prices remain unpriced.'
+        )}{' '}
+        {t(
+          'Only saved historical price snapshots are included; unknown costs are excluded from the subtotal.'
         )}
       </p>
     </div>
@@ -51,9 +70,12 @@ function CostCell(props: { totals: UsageTotals }) {
   const { t } = useTranslation()
   return (
     <div>
-      <strong>{formatCNY(props.totals.estimated_cny)}</strong>
+      <strong>{costSubtotal(props.totals)}</strong>
       <small className='block'>
-        {t('Unpriced requests')}: {formatNumber(props.totals.unpriced_requests)}{' '}
+        {t('Unpriced requests')}:{' '}
+        {formatNumber(
+          props.totals.unknown_cost_requests ?? props.totals.unpriced_requests
+        )}{' '}
         · {t('Recalculated at current rates')}:{' '}
         {formatNumber(props.totals.current_rate_requests)}
       </small>
@@ -61,6 +83,8 @@ function CostCell(props: { totals: UsageTotals }) {
   )
 }
 interface UsageTotals {
+  cost_micros?: number
+  unknown_cost_requests?: number
   estimated_cny?: string
   costed_requests?: number
   unpriced_requests?: number
@@ -302,12 +326,17 @@ export function AdminOverview(props: {
             ))}
           </div>
           <p className='admin-help'>
-            {t('Today')}: {formatCNY(query.data.today.estimated_cny)} ·{' '}
+            {t('Today')}: {costSubtotal(query.data.today)} ·{' '}
             {formatNumber(query.data.today.requests)} {t('Client requests')} ·{' '}
             {formatNumber(query.data.today.total_tokens)}{' '}
             {t('Known total tokens')} ·{' '}
             {formatNumber(query.data.today.unknown_usage)}{' '}
-            {t('Requests without usage')}
+            {t('Requests without usage')} ·{' '}
+            {formatNumber(
+              query.data.today.unknown_cost_requests ??
+                query.data.today.unpriced_requests
+            )}{' '}
+            {t('Unpriced requests')}
           </p>
           {totals.requests === 0 && (
             <p role='status' className='clear-empty'>

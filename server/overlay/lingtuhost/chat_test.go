@@ -380,7 +380,7 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 			t.Error("wrong upstream headers")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		body := `{"id":"fixture","object":"chat.completion","created":1,"model":"deepseek-flash","choices":[{"index":0,"message":{"role":"assistant","content":"native answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`
+		body := `{"id":"fixture","object":"chat.completion","created":1,"model":"deepseek-flash","choices":[{"index":0,"message":{"role":"assistant","content":"native answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5,"prompt_tokens_details":{"cached_tokens":1}}}`
 		if echoCredential.Load() {
 			body = strings.Replace(body, "native answer", "fixture-provider-secret", 1)
 		}
@@ -422,7 +422,7 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 			upstream = "SparkDesk-v3.5"
 			secret = "fixture-app|fixture-secret|fixture-key"
 		}
-		if err := h.saveModelConnection(nil, configurationRequest{Section: "model_connection", Action: "save", Provider: providerName, Name: "secondary fixture", Secret: secret, BaseURL: base, UpstreamModel: upstream, Enabled: true}); err != nil {
+		if err := h.saveModelConnection(nil, configurationRequest{Section: "model_connection", Action: "save", Provider: providerName, Name: "secondary fixture", CostRates: &costRatesRequest{InputCNY: "2", OutputCNY: "8", CacheReadCNY: "0.5"}, Secret: secret, BaseURL: base, UpstreamModel: upstream, Enabled: true}); err != nil {
 			t.Fatal(err)
 		}
 		var meta lingtu.ModelConnection
@@ -538,6 +538,9 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 		var usage managedUsage
 		if err := db.First(&usage, "user_id = ? AND request_id = ?", 99, "native-one").Error; err != nil || usage.ChannelID != channel.Id || usage.ChannelName != "secondary fixture" || usage.UpstreamModel != channel.Models || !strings.HasPrefix(usage.Model, "managed-") {
 			t.Fatal("missing exact channel usage snapshot", usage.ChannelID, usage.ChannelName, err)
+		}
+		if !spark && (!usage.CostKnown || usage.CostMicros != 27 || usage.CostStatus != "estimated" || usage.CacheReadTokens != 1 || !usage.CacheUsageKnown || usage.CostCacheReadCNY != "0.5") {
+			t.Fatalf("native cost snapshot: %+v", usage)
 		}
 	}
 }

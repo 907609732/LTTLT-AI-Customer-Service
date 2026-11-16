@@ -1,3 +1,4 @@
+import { isRecoverableKnowledgeJob } from '../../src/shared/knowledge-progress'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, dirname, toNamespacedPath } from 'node:path'
@@ -998,7 +999,10 @@ export class KnowledgeRepository {
     return this.page(
       this.rows<KnowledgeJob>('jobs')
         .filter((job) => !input.storeId || job.storeId === input.storeId)
-        .reverse(),
+        .reverse()
+        .sort(
+          (a, b) => Number(isRecoverableKnowledgeJob(b)) - Number(isRecoverableKnowledgeJob(a)),
+        ),
       input,
     )
   }

@@ -43,3 +43,7 @@ Windows 可执行文件构建：在 `.upstream` 内设置 GOOS=windows、GOARCH=
 Linux 部署参考 deploy/，其中路径、服务名和域名保留上游值，不能不检查就覆盖现有服务。运行前必须独立配置数据库、32 字节主密钥、至少 32 字符的会话密钥、HTTPS API/账号网站来源和受限反向代理。数据库和主密钥一起备份。首次管理员初始化仅在私有入口进行。
 
 这里没有生产数据库、SMTP 密码、模型 Key 或可用管理员密码。构建通过不代表已发布。客户端在设置中选择本机 Key 或托管服务；默认仍为本机，托管登录使用浏览器设备授权，不向桌面下发服务商 Key。详细使用、切换和回退说明见根 docs/MANAGED_SERVICE.md。
+
+## 成本与跨数据库验证
+
+费用规则与兼容接口见 TOKEN_COST.md，service 测试初始化见 SERVICE_TESTS.md，本机隔离 MySQL/PostgreSQL 入口见 DATABASE_MATRIX.md。npm run server:verify:databases 运行标准检查与完整数据库矩阵。GitHub 工作流 lingtu-server.yml 使用独立服务容器做相同原生回归，并产出带提交 SHA 与校验和的 Windows 回环预览程序；不会部署生产服务。
