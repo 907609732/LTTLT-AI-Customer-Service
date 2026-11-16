@@ -18,8 +18,6 @@ export const panelRegistry = {
   sync: { title: '跨店同步', component: StoreSyncView },
   goods: { title: '店铺商品', component: ShopGoodsPanel },
   desk: { title: '店铺工作台', component: ShopGoodsPanel },
-  transfer: { title: '转接人工', component: ShopOpsPanel },
-  welcome: { title: '进店欢迎', component: ShopOpsPanel },
   auto: { title: '自动操作', component: ShopOpsPanel },
   image: { title: '图片识别', component: ShopOpsPanel },
   intent: { title: '意图问法', component: ShopIntentPanel },

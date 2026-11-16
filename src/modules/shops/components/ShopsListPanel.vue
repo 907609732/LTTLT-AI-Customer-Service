@@ -89,6 +89,12 @@ watch(
 )
 function navigate(shop: LocalStore, panel: string) {
   runtime.selectedStoreId = shop.id
+  if (panel === 'transfer' || panel === 'welcome') {
+    setup.open(shop.id)
+    setup.step = 3
+    void router.push('/')
+    return
+  }
   void router.push({ path: '/shop/manage', query: { panel } })
 }
 function configureBasics(shop: LocalStore) {

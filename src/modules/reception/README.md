@@ -4,9 +4,9 @@
 
 公开入口：index.ts。跨模块必须从该入口引用，禁止访问 components 或 demo 的内部路径。
 
-界面入口：ShopOpsPanel、TransferSettings、WelcomeSettings、AutoSettings、ImageRecognizeSettings。
+界面入口：ShopOpsPanel、AutoSettings、ImageRecognizeSettings。
 
-当前业务状态：ShopOpsPanel 保留分店/全局人工处理关键词、正文附加文字欢迎、全局超时配置和每店识图设置；另接独立平台事件规则和逐项批准组件。旧子组件保留为还原参考。平台能力由真实 provider 的当前证据决定，不根据本机归档补造访客、订单或客服名单。
+当前业务状态：ShopOpsPanel 保留分店/全局人工处理关键词、正文附加文字欢迎、全局超时配置和每店识图设置；另接独立平台事件规则和逐项批准组件。转接人工与进店欢迎仅通过店铺设置向导的接待设置进入，删除未使用的 TransferSettings/WelcomeSettings 旧页面及演示数据；ShopOpsPanel 保留为向导内嵌配置。平台能力由真实 provider 的当前证据决定，不根据本机归档补造访客、订单或客服名单。
 
 接入流程见根目录 docs/LOCAL_INTEGRATION.md。demo 是旧视图数据，不是 API DTO；新增能力在所属模块建立服务与类型，经过本地运行时契约，不直接访问 IPC、网络或文件系统。
 

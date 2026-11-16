@@ -4,7 +4,9 @@
   页面按注册面板导航，业务动作由领域模块服务处理。
 -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useShopSetupStore } from '@/modules/shops'
+import { useRuntimeStore } from '@/shared/state/runtime'
 import { useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/shared/ui/BrandMark.vue'
 import AppVersion from '@/shared/ui/AppVersion.vue'
@@ -18,6 +20,20 @@ import {
 } from '../navigation'
 const router = useRouter(),
   route = useRoute()
+const setup = useShopSetupStore()
+const runtime = useRuntimeStore()
+// 兼容旧收藏和看板入口，接待配置只保留店铺设置向导。
+watch(
+  [() => route.query.panel, () => runtime.selectedStoreId],
+  ([panel, storeId]) => {
+    if (panel !== 'transfer' && panel !== 'welcome') return
+    if (!runtime.snapshot.stores.some((shop) => shop.id === storeId)) return
+    setup.open(storeId)
+    setup.step = 3
+    void router.replace('/')
+  },
+  { immediate: true },
+)
 const __stub = notifyUnavailable
 const activeKey = computed(() => resolvePanelKey(route.query.panel))
 const expanded = ref<Partial<Record<PanelKey, boolean>>>({ shops: true, intent: true })
