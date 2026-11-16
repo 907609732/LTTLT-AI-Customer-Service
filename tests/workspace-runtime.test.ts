@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 function fixture(directory?: string, requiresInitializedSession = false) {
+  const restartAfterKnowledgeClearFailure = vi.fn()
   const source = { ...emptySnapshot().managed.configured }
   const instances: LocalRuntime[] = []
   const calls: string[] = []
@@ -125,7 +126,7 @@ function fixture(directory?: string, requiresInitializedSession = false) {
     instances.push(runtime)
     return runtime
   }
-  const manager = createWorkspaceRuntime({ factory })
+  const manager = createWorkspaceRuntime({ factory, restartAfterKnowledgeClearFailure })
   const command = (action: BackendCommand['action'], values = {}): BackendCommand => ({
     workspaceId: manager.snapshot().workspaceId,
     action,
@@ -133,6 +134,7 @@ function fixture(directory?: string, requiresInitializedSession = false) {
   })
   return {
     manager,
+    restartAfterKnowledgeClearFailure,
     command,
     calls,
     instances,
@@ -193,6 +195,7 @@ describe('workspace runtime activation', () => {
                 preview.token,
                 '清空当前账号',
               )
+        expect(f.restartAfterKnowledgeClearFailure).not.toHaveBeenCalled()
         expect(result.recovered).toBe(true)
         expect(result.message).toContain('isolated startup failure')
         const recovered = createKnowledgeRepository({ directory: dir, workspaceId: 'verify' })
@@ -252,6 +255,68 @@ describe('workspace runtime activation', () => {
       } finally {
         await f.manager.dispose()
         repository.dispose()
+        rmSync(dir, { recursive: true, force: true })
+      }
+    },
+  )
+  it.each(['clear', 'restore'] as const)(
+    'automatically requests restart only for unrecoverable clear, not %s recovery policy',
+    async (operation) => {
+      const dir = mkdtempSync(join(tmpdir(), 'knowledge-auto-restart-'))
+      const f = fixture(dir)
+      const repo = createKnowledgeRepository({ directory: dir, workspaceId: 'w' })
+      const canonical = repo.saveCanonical({ title: 'preserved in recovery' })
+      const backup = repo.createBackup(join(dir, 'backup'))
+      const knowledge = createKnowledgeRuntime({
+        repository: repo,
+        workspaceId: 'w',
+        stores: () => [],
+        assertActive() {},
+        changed() {},
+        chooseRestore: async () => backup.directory,
+      })
+      const preview = (await knowledge.request({
+        workspaceId: 'w',
+        operation: operation === 'clear' ? 'clear-preview' : 'restore-preview',
+        ...(operation === 'clear' ? { scope: { kind: 'account' } } : {}),
+      })) as { token: string }
+      vi.spyOn(f.instances[0], 'knowledge').mockReturnValue(knowledge)
+      vi.spyOn(f.instances[0], 'dispose').mockImplementation(async () => {
+        knowledge.dispose()
+        repo.dispose()
+      })
+      f.fail(true)
+      let restartShutdown: Promise<void> | undefined
+      if (operation === 'clear') {
+        f.restartAfterKnowledgeClearFailure.mockImplementation(() => {
+          // Mirrors before-quit reentry while this clear still owns the queue.
+          restartShutdown = f.manager.dispose()
+        })
+      }
+      try {
+        const id = f.manager.snapshot().workspaceId
+        await expect(
+          operation === 'clear'
+            ? f.manager.clearKnowledge(id, preview.token, '清空当前账号')
+            : f.manager.restoreKnowledge(id, preview.token),
+        ).rejects.toThrow(operation === 'clear' ? '正在自动重启' : '重启后核对')
+        expect(f.restartAfterKnowledgeClearFailure).toHaveBeenCalledTimes(
+          operation === 'clear' ? 1 : 0,
+        )
+        if (restartShutdown) await restartShutdown
+        // Even if restart is delayed, no second clear/restart may enter the unavailable workspace.
+        await expect(
+          f.manager.clearKnowledge(f.manager.snapshot().workspaceId, preview.token, '清空当前账号'),
+        ).rejects.toThrow(/不可用|已关闭/)
+        expect(f.restartAfterKnowledgeClearFailure).toHaveBeenCalledTimes(
+          operation === 'clear' ? 1 : 0,
+        )
+        const verify = createKnowledgeRepository({ directory: dir, workspaceId: 'verify' })
+        expect(verify.getCanonical(canonical.id)?.title === 'preserved in recovery').toBe(true)
+        verify.dispose()
+      } finally {
+        await f.manager.dispose()
+        repo.dispose()
         rmSync(dir, { recursive: true, force: true })
       }
     },

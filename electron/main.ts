@@ -33,6 +33,7 @@ let primaryWindow: BrowserWindow | undefined
 let runtime: ReturnType<typeof createWorkspaceRuntime> | undefined
 let assist: AssistWindowManager | undefined
 let shuttingDown = false
+let restartScheduled = false
 const ownsInstance = app.requestSingleInstanceLock()
 if (!ownsInstance) app.quit()
 app.on('second-instance', () => {
@@ -65,6 +66,14 @@ app
     primaryWindow = createWindow({ startMaximized: true })
     // 独立目录，绝不自动迁移或复用其他客服软件的数据和平台登录态。
     runtime = createWorkspaceRuntime({
+      restartAfterKnowledgeClearFailure: () => {
+        if (shuttingDown || restartScheduled) return
+        // Electron retains the current source path/profile/arguments; graceful quit
+        // drains runtime services before the replacement instance can take the lock.
+        app.relaunch()
+        restartScheduled = true
+        app.quit()
+      },
       factory: () =>
         createLocalRuntime({
           dataDir: path.join(app.getPath('userData'), 'local-runtime'),

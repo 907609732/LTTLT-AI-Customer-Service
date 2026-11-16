@@ -13,7 +13,11 @@ import { restoreKnowledgeBackup } from './knowledge/backup'
 const activationSchema = z.object({ mode: z.enum(['local', 'managed']) }).strict()
 
 /** Owns one workspace at a time. The renderer can select only a mode, never a path or origin. */
-export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): LocalRuntime & {
+export function createWorkspaceRuntime(options: {
+  factory(): LocalRuntime
+  /** Native owner only; invoked after confirmed clear cannot rebuild or roll back its services. */
+  restartAfterKnowledgeClearFailure?(): void
+}): LocalRuntime & {
   clearKnowledge(
     workspaceId: string,
     token: string,
@@ -129,6 +133,21 @@ export function createWorkspaceRuntime(options: { factory(): LocalRuntime }): Lo
             /* retain unavailable state and recovery point */
           }
           emit({ type: 'workspace:changed' })
+          if (confirmation !== undefined && !closed && options.restartAfterKnowledgeClearFailure) {
+            try {
+              // Do not await shutdown here: it drains this same command queue.
+              options.restartAfterKnowledgeClearFailure()
+            } catch (restartCause) {
+              throw new AggregateError(
+                [cause, recoveryCause, restartCause],
+                '清除后的服务恢复未完成；自动重启未能启动，已保留恢复点，请手动重启核对',
+              )
+            }
+            throw new AggregateError(
+              [cause, recoveryCause],
+              '清除后的服务恢复未完成；已保留恢复点，正在自动重启软件，请在启动后核对',
+            )
+          }
           throw new AggregateError([cause, recoveryCause], '恢复未完成；已保留恢复点，请重启后核对')
         }
       }
