@@ -19,7 +19,13 @@ interface VendorManager {
 }
 
 interface RegistryLike {
-  get(storeId: string): { id: string; storeName?: string; platform?: string } | null
+  get(storeId: string): {
+    id: string
+    storeName?: string
+    platform?: string
+    mallId?: string
+  } | null
+  update?(storeId: string, patch: Record<string, unknown>): unknown
 }
 
 export interface SimManagerState {
@@ -35,6 +41,15 @@ export interface SimManagerOptions {
    * 返回 null 表示尚未检查，不能当成未登录。
    */
   authenticatedFor?: (storeId: string) => boolean | null
+  /**
+   * 闲鱼等厂商管理器不跑身份识别的平台，在打开后由适配器读页面 cookie 回填店名。
+   * 只在占位名、空名或登录账号变化时更新，商家自定义名称不覆盖。
+   */
+  identityFor?: (storeId: string) => Promise<{
+    authenticated?: boolean | null
+    storeName?: string
+    mallId?: string
+  } | null>
 }
 
 export class SimStoreManager {
@@ -42,6 +57,7 @@ export class SimStoreManager {
   readonly #hub: SimHub
   readonly #registry: RegistryLike
   readonly #authenticatedFor: ((storeId: string) => boolean | null) | undefined
+  readonly #identityFor: SimManagerOptions['identityFor']
 
   constructor(
     delegate: VendorManager,
@@ -53,10 +69,33 @@ export class SimStoreManager {
     this.#hub = hub
     this.#registry = registry
     this.#authenticatedFor = options.authenticatedFor
+    this.#identityFor = options.identityFor
   }
 
   #isSim(storeId: string): boolean {
     return this.#registry.get(storeId)?.platform === SIM_PLATFORM_ID
+  }
+
+  /** 身份回填是打开店铺的附属动作；失败不阻断窗口，下一次打开会重试。 */
+  async #syncIdentity(storeId: string): Promise<void> {
+    if (!this.#identityFor) return
+    try {
+      const identity = await this.#identityFor(storeId)
+      const store = this.#registry.get(storeId)
+      if (!identity || !store) return
+      const storeName = identity.storeName?.trim() ?? ''
+      const mallId = identity.mallId?.trim() ?? ''
+      const accountChanged = Boolean(store.mallId && mallId && store.mallId !== mallId)
+      const patch: Record<string, unknown> = {}
+      if (mallId && mallId !== store.mallId) patch.mallId = mallId
+      if (storeName && (accountChanged || !store.storeName || store.storeName === '闲鱼店铺'))
+        patch.storeName = storeName
+      // 换登录账号后先停 AI，避免继续用旧店铺上下文回复。
+      if (accountChanged) patch.aiEnabled = false
+      if (Object.keys(patch).length) this.#registry.update?.(storeId, patch)
+    } catch {
+      // 页面尚未登录、cookie 暂不可读或注册表拒绝写入：保持原店名，等待下次打开。
+    }
   }
 
   /**
@@ -84,7 +123,9 @@ export class SimStoreManager {
   async open(storeId: string): Promise<unknown> {
     if (!this.#isSim(storeId)) {
       if (typeof this.#delegate.open !== 'function') throw new Error('平台窗口尚未就绪')
-      return this.#delegate.open(storeId)
+      const result = await this.#delegate.open(storeId)
+      await this.#syncIdentity(storeId)
+      return result
     }
     const store = this.#registry.get(storeId)
     if (!store) throw new Error('店铺不存在')

@@ -74,6 +74,20 @@ describe('闲鱼消息映射', () => {
     expect(value).toBe(new Date(2026, 10, 15, 23, 55, 1).getTime())
   })
 
+  it('解析带日期和相对时间的分组标签，避免旧消息被当成现在', () => {
+    const now = new Date(2026, 10, 17, 10, 0, 0).getTime()
+    expect(xianyuTimestamp('昨天 21:47#1', now)).toBe(
+      new Date(2026, 10, 16, 21, 47, 1).getTime(),
+    )
+    expect(xianyuTimestamp('前天 09:05', now)).toBe(new Date(2026, 10, 15, 9, 5, 0).getTime())
+    expect(xianyuTimestamp('11-05 21:31', now)).toBe(new Date(2026, 10, 5, 21, 31, 0).getTime())
+    expect(xianyuTimestamp('2026-11-05 21:31#2', now)).toBe(
+      new Date(2026, 10, 5, 21, 31, 2).getTime(),
+    )
+    expect(xianyuTimestamp('5分钟前', now)).toBe(now - 5 * 60_000)
+    expect(xianyuTimestamp('2小时前', now)).toBe(now - 2 * 3_600_000)
+  })
+
   it('只把最后一条卖家消息之后的买家消息视为待回复', () => {
     const messages = toLocalMessages(
       '买家A',
@@ -122,6 +136,28 @@ describe('闲鱼适配器', () => {
     }))
     expect(await adapter.ensure()).toEqual({ ok: true })
     expect(adapter.authenticated()).toBe(true)
+  })
+
+  it('从登录 cookie 读取店名和卖家 id，不用可能被打码的聊天昵称', async () => {
+    const { bridge, adapter } = adapterFixture()
+    bridge.handlers.set('cookieValue', (args) => {
+      const name = String(args.name)
+      return name === 'unb'
+        ? { name, found: true, value: '2218297228331' }
+        : { name, found: true, value: 'xy156791819394' }
+    })
+    bridge.handlers.set('readiness', () => ({
+      loggedOutVisible: false,
+      loginCookieMissing: false,
+      conversationCount: 3,
+      chatAreaPresent: true,
+    }))
+    await expect(adapter.identity()).resolves.toEqual({
+      authenticated: true,
+      storeName: 'xy156791819394',
+      mallId: '2218297228331',
+      customerServiceName: 'xy156791819394',
+    })
   })
 
   it('登录完成后自动复查登录态并只回调一次', async () => {
@@ -285,6 +321,34 @@ describe('闲鱼适配器', () => {
     const result = await adapter.sendText('买家A', 'AI 回复')
     expect(result).toMatchObject({ ok: false, reason: 'input_not_found' })
     expect(bridge.count('write')).toBe(0)
+    expect(bridge.count('commit')).toBe(0)
+  })
+
+  it('商家已切到其他买家时不抢回旧会话发送', async () => {
+    const { bridge, adapter } = adapterFixture()
+    bridge.handlers.set('activeBuyer', () => ({ count: 1, nick: '买家B' }))
+    bridge.handlers.set('activateChat', () => ({ switched: true }))
+    bridge.handlers.set('inputValue', () => ({ value: '' }))
+    const result = await adapter.sendText('买家A', 'AI 回复')
+    expect(result).toMatchObject({ ok: false, reason: 'input_not_found' })
+    expect(bridge.count('activateChat')).toBe(0)
+    expect(bridge.count('write')).toBe(0)
+    expect(bridge.count('commit')).toBe(0)
+  })
+
+  it('写入后商家切走时不点击发送', async () => {
+    const { bridge, adapter } = adapterFixture()
+    let written = false
+    bridge.handlers.set('activateChat', () => ({ switched: true }))
+    bridge.handlers.set('activeBuyer', () => ({ count: 1, nick: written ? '买家B' : '买家A' }))
+    bridge.handlers.set('inputValue', () => ({ value: '' }))
+    bridge.handlers.set('write', () => {
+      written = true
+      return { readback: 'AI 回复' }
+    })
+    bridge.handlers.set('commit', () => true)
+    const result = await adapter.sendText('买家A', 'AI 回复')
+    expect(result).toMatchObject({ ok: false, reason: 'input_not_found' })
     expect(bridge.count('commit')).toBe(0)
   })
 

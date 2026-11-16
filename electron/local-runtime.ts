@@ -519,6 +519,8 @@ export function createLocalRuntime(options: {
       {
         // 闲鱼适配器的 readiness 结果是登录态的唯一来源；未检查过时保持 null。
         authenticatedFor: (storeId) => xianyuAdapters.get(storeId)?.authenticated() ?? null,
+        // 打开店铺后从 cookie 读登录名回填店名；页面聊天区昵称可能被打码。
+        identityFor: (storeId) => xianyuAdapters.get(storeId)?.identity() ?? null,
       },
     ),
     safeStorage,

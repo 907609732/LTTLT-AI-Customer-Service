@@ -150,22 +150,71 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const TIME_TAG = /^(\d{1,2}):(\d{2})(?:#(\d+))?$/
+const CLOCK_TAG = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/
+const DAY_CLOCK_TAG = /^(今天|昨天|前天)\s*(\d{1,2}):(\d{2})(?::(\d{2}))?$/
+const DATE_TAG = /^(?:(\d{4})-)?(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
+const RELATIVE_TAG = /^(\d+)\s*(秒|分钟|小时|天)前$/
+
+function withGroupOrder(value: number, order: number): number {
+  return value + (order > 0 ? Math.min(order, 59) * 1000 : 0)
+}
 
 /**
- * 闲鱼只给「HH:MM#组内序号」，没有日期。换算为当天本地时间；比当前时间晚
- * 超过一分钟的时间标签视为昨天的消息（跨零点），组内序号补秒用于稳定排序。
+ * 闲鱼的时间标签既有「14:57#组内序号」，也有「昨天 21:47」「11-05 21:31」
+ * 这类带日期的分组标签。必须按标签里的日期换算，不能一律当成今天：
+ * 否则跨天消息全部落在同一时刻，AI 会拿旧消息当新上下文。
  */
 export function xianyuTimestamp(tag: string, now: number): number {
-  const match = TIME_TAG.exec(String(tag ?? '').trim())
-  if (!match) return now
-  const date = new Date(now)
-  date.setHours(Number(match[1]), Number(match[2]), 0, 0)
-  let value = date.getTime()
-  if (value > now + 60_000) value -= 86_400_000
-  const order = Number(match[3] ?? 0)
-  if (order > 0) value += Math.min(order, 59) * 1000
-  return value
+  const raw = String(tag ?? '').trim()
+  if (!raw) return now
+  const orderMatch = /#(\d+)$/.exec(raw)
+  const order = Number(orderMatch?.[1] ?? 0)
+  const text = orderMatch ? raw.slice(0, orderMatch.index).trim() : raw
+  if (!text) return now
+  if (text === '刚刚') return withGroupOrder(now, order)
+  const relative = RELATIVE_TAG.exec(text)
+  if (relative) {
+    const unit = relative[2]
+    const ms =
+      unit === '秒'
+        ? 1_000
+        : unit === '分钟'
+          ? 60_000
+          : unit === '小时'
+            ? 3_600_000
+            : 86_400_000
+    return withGroupOrder(now - Number(relative[1]) * ms, order)
+  }
+  const dayClock = DAY_CLOCK_TAG.exec(text)
+  if (dayClock) {
+    const date = new Date(now)
+    date.setDate(date.getDate() - (dayClock[1] === '今天' ? 0 : dayClock[1] === '昨天' ? 1 : 2))
+    date.setHours(Number(dayClock[2]), Number(dayClock[3]), Number(dayClock[4] ?? 0), 0)
+    return withGroupOrder(date.getTime(), order)
+  }
+  const clock = CLOCK_TAG.exec(text)
+  if (clock) {
+    const date = new Date(now)
+    date.setHours(Number(clock[1]), Number(clock[2]), Number(clock[3] ?? 0), 0)
+    let value = date.getTime()
+    if (value > now + 60_000) value -= 86_400_000
+    return withGroupOrder(value, order)
+  }
+  const dateTag = DATE_TAG.exec(text)
+  if (dateTag) {
+    const date = new Date(now)
+    const year = dateTag[1] ? Number(dateTag[1]) : date.getFullYear()
+    date.setFullYear(year, Number(dateTag[2]) - 1, Number(dateTag[3]))
+    date.setHours(Number(dateTag[4] ?? 0), Number(dateTag[5] ?? 0), Number(dateTag[6] ?? 0), 0)
+    let value = date.getTime()
+    // 只写月日时按最近的过去日期解释；12 月底看到的 01-02 属于去年。
+    if (!dateTag[1] && value > now + 86_400_000) {
+      date.setFullYear(year - 1)
+      value = date.getTime()
+    }
+    return withGroupOrder(value, order)
+  }
+  return now
 }
 
 function contentOf(message: Record<string, unknown>): {
@@ -285,6 +334,40 @@ export class XianyuAdapter {
     return this.#authenticated
   }
 
+  /**
+   * 店铺身份：闲鱼登录 cookie `unb` 是稳定的卖家 id，`tracknick` 是登录名。
+   * 页面聊天区自己的昵称可能被打码（x***4），不能拿来当店名。
+   */
+  async identity(): Promise<{
+    authenticated: boolean | null
+    storeName?: string
+    mallId?: string
+    customerServiceName?: string
+    identityError?: string
+  }> {
+    try {
+      const [unb, tracknick] = await Promise.all([this.#cookie('unb'), this.#cookie('tracknick')])
+      const readiness = await this.#readiness()
+      const authenticated = readiness ? authenticatedFrom(readiness) : null
+      const name = tracknick || (unb ? `闲鱼${unb}` : '')
+      if (!name)
+        return { authenticated, identityError: '店铺名称暂未获取，请点击打开重试' }
+      return {
+        authenticated,
+        storeName: name.slice(0, 60),
+        mallId: (unb || name).slice(0, 100),
+        customerServiceName: name.slice(0, 100),
+      }
+    } catch (error) {
+      return { authenticated: null, identityError: `店铺信息读取失败：${messageOf(error)}` }
+    }
+  }
+
+  async #cookie(name: string): Promise<string> {
+    const value = recordOf(await this.#invoke('cookieValue', { name }, 4_000))
+    return value?.found === true && typeof value.value === 'string' ? value.value.trim() : ''
+  }
+
   /** 供店铺缩放等宿主能力复用同一个页面对象。 */
   _wc(): WebContents | null {
     if (this.#directBridge) return this.#bridgeOwner
@@ -356,7 +439,11 @@ export class XianyuAdapter {
       this.#logger.debug(`闲鱼当前会话暂不可读：${messageOf(error)}`)
     }
     const activeNick = active?.nick || ''
-    if (activeNick && !targets.includes(activeNick) && !BLOCKED_NICKS.includes(activeNick))
+    if (
+      activeNick &&
+      !targets.some((target) => sameBuyer(target, activeNick)) &&
+      !BLOCKED_NICKS.includes(activeNick)
+    )
       targets.unshift(activeNick)
     for (const target of targets) {
       if (this.#claimed.has(target)) continue
@@ -463,6 +550,10 @@ export class XianyuAdapter {
     if (!content) throw new TypeError('sendText: text 不能为空')
     let committed = false
     try {
+      // 商家可能刚切到别的买家；AI 不能为了旧候选把页面抢回去。
+      const current = await this.#activeBuyerNick().catch(() => null)
+      if (current && !sameBuyer(current, String(uid)))
+        return fail('input_not_found', '当前会话已切换到其他买家，未发送')
       await this.#activate(String(uid))
       // 商家可能正在同一个输入框里写草稿；自动回复不能覆盖人工内容。
       const existing = await this.#inputValue()
@@ -476,6 +567,10 @@ export class XianyuAdapter {
       if (readback !== null && squeeze(readback) !== squeeze(content)) {
         return fail('input_not_found', '输入框内容被页面改写，未点击发送')
       }
+      // 写入后、点击前再核对一次；这段窗口里商家切走时不能点发送。
+      const afterWrite = await this.#activeBuyerNick().catch(() => null)
+      if (!afterWrite || !sameBuyer(afterWrite, String(uid)))
+        return fail('input_not_found', '会话在发送前已切换，未点击发送')
       committed = true
       await this.#invoke(
         'commit',
@@ -694,6 +789,26 @@ export class XianyuAdapter {
       )
     }
     return { itemCount: Number.isFinite(itemCount) ? itemCount : pending.length, pending }
+  }
+
+  /** 当前打开的买家昵称；页面在切换或没打开会话时返回 null。 */
+  async #activeBuyerNick(): Promise<string | null> {
+    const who = recordOf(
+      await this.#invoke(
+        'activeBuyer',
+        {
+          conversationActive: XIANYU_SELECTORS.conversationActive,
+          conversationNick: XIANYU_SELECTORS.conversationNick,
+          paneNick: XIANYU_SELECTORS.paneNick,
+          input: XIANYU_SELECTORS.input,
+          activePlaceholderPrefix: '',
+        },
+        4_000,
+      ),
+    )
+    const count = Number(who?.count)
+    const nick = typeof who?.nick === 'string' ? who.nick.trim() : ''
+    return count === 1 && nick ? nick : null
   }
 
   /** 读取当前打开的会话，不切换页面；同名多会话或未打开时返回 null。 */
