@@ -8,6 +8,9 @@ import { z } from 'zod'
 
 const output = path.resolve('artifacts/packaged')
 fs.mkdirSync(output, { recursive: true })
+const expectedVersion = z
+  .object({ version: z.string().min(1) })
+  .parse(JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'))).version
 const executable = path.resolve(
   process.env.LINGTU_PACKAGED_EXE ||
     process.env.YUNDUO_PACKAGED_EXE ||
@@ -266,12 +269,19 @@ try {
   for (let attempt = 0; attempt < 80; attempt++) {
     workbenchReady =
       (await evaluate(
-        `document.querySelector('.sidebar-footer')?.innerText.trim() === '快捷回复' && !document.querySelector('.advanced-model') && Boolean(document.querySelector('.login-trigger'))`,
+        `(() => {
+          const footer = document.querySelector('.sidebar-footer');
+          const actions = footer?.querySelectorAll('button');
+          return Boolean(actions?.length === 1 && actions[0].textContent.trim() === '快捷回复' &&
+            footer.querySelector('.app-version')?.textContent.trim() === ${JSON.stringify('v' + expectedVersion)} &&
+            !document.querySelector('.advanced-model') && document.querySelector('.login-trigger'));
+        })()`,
       )) === true
     if (workbenchReady) break
     await delay(250)
   }
-  if (!workbenchReady) throw new Error('Packaged simplified sidebar or login entry unavailable')
+  if (!workbenchReady)
+    throw new Error('Packaged simplified sidebar, source version or login entry unavailable')
   const captureHidden = () =>
     mainEvaluate(`(async () => {
       const win = globalThis.__lingtuPackageWindows.getAllWindows().find(window =>
@@ -367,7 +377,7 @@ try {
       'ASAR private/development exclusion',
       'real packaged window/preload',
       'real business IPC, empty isolated stores and no Key',
-      'legacy settings redirects to configuration center; sidebar keeps only quick replies',
+      'legacy settings redirects to configuration center; sidebar keeps only quick replies and matching source version',
       'simple own-Key/server login without server address fields',
       'packaged main parses scan PDF, DOCX embedded image, all XLSX sheets and PNG from ASAR dependencies',
     ],
