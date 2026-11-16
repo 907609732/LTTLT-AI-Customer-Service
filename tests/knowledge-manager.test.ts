@@ -224,10 +224,7 @@ it('labels received-fragment regeneration as paid and keeps uncertain jobs on th
   fake.query.mockImplementation(async (input) =>
     input.type === 'jobs' ? { items: jobs, total: 2, revision: 1 } : original(input),
   )
-  await wrapper
-    .findAll('button')
-    .find((b) => b.text().startsWith('任务'))!
-    .trigger('click')
+  await wrapper.get('nav button').trigger('click')
   await flushPromises()
   const buttons = wrapper.findAll('button').filter((b) => b.text() === '重新生成本片段（会计费）')
   expect(buttons).toHaveLength(1)
@@ -689,7 +686,8 @@ it.each(['jobs', 'misses'] as const)(
           }
         : original(input),
     )
-    await manager.showView(view)
+    if (view === 'jobs') await manager.refresh()
+    else await manager.showView(view)
     expect(view === 'jobs' ? manager.jobs.value : manager.misses.value).toHaveLength(1)
     const late = deferred<{
       identityVersion: string
@@ -1070,9 +1068,14 @@ it('clears the previous shop catalog and selected scope when the manager context
   wrapper.unmount()
 })
 
-it.each(['collect', 'daily-check'] as const)(
-  'continues a partial %s through the actual manager button without enabling uncertain paid or cancelled resume',
-  async (kind) => {
+it.each([
+  ['collect', 1],
+  ['collect', 2],
+  ['daily-check', 1],
+  ['daily-check', 2],
+] as const)(
+  'continues incomplete %s with 1/%s processed without enabling uncertain paid or cancelled resume',
+  async (kind, total) => {
     const { wrapper } = await setup()
     const original = fake.query.getMockImplementation()!
     const base: KnowledgeJob = {
@@ -1083,7 +1086,7 @@ it.each(['collect', 'daily-check'] as const)(
       status: 'needs-confirmation',
       checkpoint: {},
       payload: {},
-      progress: { completed: 1, total: 2 },
+      progress: { completed: 1, total },
       error: '图片读取不完整',
       createdAt: 1,
       updatedAt: 1,
@@ -1101,17 +1104,13 @@ it.each(['collect', 'daily-check'] as const)(
           }
         : original(input),
     )
-    await wrapper
-      .findAll('button')
-      .find((button) => button.text().startsWith('任务'))!
-      .trigger('click')
+    await wrapper.get('nav button').trigger('click')
     await flushPromises()
-    const cards = wrapper.findAll('article.knowledge-card')
-    expect(cards).toHaveLength(3)
+    const cards = wrapper.findAll('.knowledge-inline-status > .knowledge-job-progress')
+    expect(cards).toHaveLength(2)
     const resume = cards[0]!.findAll('button').find((button) => button.text() === '继续')
     expect(resume).toBeDefined()
     expect(cards[1]!.findAll('button').some((button) => button.text() === '继续')).toBe(false)
-    expect(cards[2]!.findAll('button').some((button) => button.text() === '继续')).toBe(false)
     await resume!.trigger('click')
     await flushPromises()
     expect(fake.pipeline).toHaveBeenCalledWith({ action: 'resume', storeId: 'a', jobId: 'partial' })
@@ -1433,5 +1432,156 @@ it('persists only the current-shop override through the manager and round trips 
     wrapper.unmount()
     repo.dispose()
     rmSync(directory, { recursive: true, force: true })
+  }
+})
+it('keeps learning on the product list and removes task navigation', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  fake.pipeline.mockResolvedValue({ jobId: 'learning-one' })
+  manager.estimate.value = {
+    estimateId: 'estimate',
+    sources: 1,
+    images: 0,
+    characters: 1,
+    estimatedTokens: 1,
+    message: '',
+  }
+  // Prepare the same single-product selection used by the actual card action.
+  const original = fake.query.getMockImplementation()!
+  fake.query.mockImplementation(async (input) =>
+    input.type === 'detail' ? { sources: [], bindings: [] } : original(input),
+  )
+  await manager.learnProduct({
+    id: 'one',
+    canonicalId: 'c',
+    storeId: 'a',
+    productId: 'p',
+    skuId: '',
+    title: 'one',
+    revision: 1,
+    active: true,
+    updatedAt: 1,
+  })
+  manager.estimate.value = {
+    estimateId: 'estimate',
+    sources: 1,
+    images: 0,
+    characters: 1,
+    estimatedTokens: 1,
+    message: '',
+  }
+  await manager.startLearn()
+  expect(manager.view.value).toBe('library')
+  expect(fake.pipeline).toHaveBeenCalledWith(
+    expect.objectContaining({ action: 'start', bindingIds: ['one'] }),
+  )
+  wrapper.unmount()
+  const screen = await setup()
+  expect(screen.wrapper.findAll('nav button').some((b) => b.text().startsWith('任务'))).toBe(false)
+  screen.wrapper.unmount()
+})
+it('shows loading and progress only on the owning product and preserves recovery actions inline', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'knowledge-inline-'))
+  const repo = createKnowledgeRepository({ directory, workspaceId: 'w' })
+  try {
+    for (const productId of ['one', 'two']) {
+      const c = repo.saveCanonical({ title: productId })
+      repo.bindProduct({ canonicalId: c.id, storeId: 'a', productId, title: productId })
+    }
+    const products = repo.listProducts({ storeId: 'a' }).items
+    const binding = products[0]!.binding
+    const job: KnowledgeJob = {
+      id: 'job',
+      storeId: 'a',
+      kind: 'learn',
+      revision: 1,
+      status: 'running',
+      payload: { bindingIds: [binding.id] },
+      checkpoint: {},
+      progress: { completed: 2, total: 8 },
+      error: '',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const wrapper = mount(KnowledgeProductCards, {
+      props: {
+        products,
+        selection: [],
+        page: 0,
+        canLearn: true,
+        loadAsset: async () => '',
+        jobs: [job],
+        pending: false,
+      },
+    })
+    const cards = wrapper.findAll('article')
+    expect(cards[0]!.find('.knowledge-card-media .knowledge-job-progress').exists()).toBe(true)
+    expect(cards[0]!.find('.knowledge-job-progress--compact').exists()).toBe(true)
+    expect(cards[0]!.find('progress').attributes('value')).toBe('2')
+    expect(cards[0]!.find('.progress-spinner').exists()).toBe(true)
+    expect(cards[0]!.text()).toContain('资料步数')
+    expect(cards[1]!.find('progress').exists()).toBe(false)
+    expect(
+      cards[0]!
+        .findAll('button')
+        .find((b) => b.text() === '开始学习')!
+        .attributes('disabled'),
+    ).toBeDefined()
+    await cards[0]!
+      .findAll('button')
+      .find((b) => b.text() === '暂停')!
+      .trigger('click')
+    expect(wrapper.emitted('job-action')?.[0]).toEqual([
+      { action: 'pause', storeId: 'a', jobId: 'job' },
+    ])
+    await wrapper.setProps({
+      jobs: [{ ...job, status: 'succeeded', progress: { completed: 8, total: 8 } }],
+    })
+    expect(wrapper.find('.progress-spinner').exists()).toBe(false)
+    expect(wrapper.text()).toContain('待审核')
+    await wrapper.setProps({ jobs: [{ ...job, storeId: 'other' }] })
+    expect(wrapper.find('progress').exists()).toBe(false)
+    wrapper.unmount()
+  } finally {
+    repo.dispose()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+it('refreshes inline running progress and stops polling after unmount', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  const original = fake.query.getMockImplementation()!
+  fake.query.mockImplementation(async (input) =>
+    input.type === 'jobs'
+      ? {
+          items: [
+            {
+              id: 'running',
+              kind: 'learn',
+              storeId: 'a',
+              payload: { bindingIds: ['one'] },
+              checkpoint: {},
+              status: 'running',
+              progress: { completed: 1, total: 8 },
+            },
+          ],
+          total: 1,
+          revision: 1,
+        }
+      : original(input),
+  )
+  vi.useFakeTimers()
+  try {
+    await manager.refresh()
+    const count = () => fake.query.mock.calls.filter(([input]) => input.type === 'jobs').length
+    const before = count()
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(count()).toBe(before + 1)
+    wrapper.unmount()
+    const stopped = count()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(count()).toBe(stopped)
+  } finally {
+    vi.useRealTimers()
   }
 })
