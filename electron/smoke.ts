@@ -186,48 +186,61 @@ app
       assert.ok(
         (await win.webContents.executeJavaScript('document.body.innerText')).includes('AI 训练场'),
       )
-      await runtime.execute({
+      const fixture = await runtime.execute({
         workspaceId: runtime.snapshot().workspaceId,
         action: 'add-store',
         values: { platform: 'sim-local', storeName: '隔离风格测试店' },
       })
-      await load('/shop/manage')
-      for (let i = 0; i < 80; i++) {
-        if (
-          await win.webContents.executeJavaScript(
-            `Boolean(document.querySelector('[data-action="basic-settings"]'))`,
+      const fixtureStoreId = String(fixture.data.id)
+      try {
+        await load('/shop/manage')
+        for (let i = 0; i < 80; i++) {
+          if (
+            await win.webContents.executeJavaScript(
+              `Boolean(document.querySelector('[data-action="basic-settings"]'))`,
+            )
           )
+            break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[data-action="basic-settings"]').click()`,
         )
-          break
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-      await win.webContents.executeJavaScript(
-        `document.querySelector('[data-action="basic-settings"]').click()`,
-      )
-      for (let i = 0; i < 80; i++) {
-        if (
+        for (let i = 0; i < 80; i++) {
+          if (
+            await win.webContents.executeJavaScript(
+              `Boolean(document.querySelector('textarea[aria-label="客服回复要求"]'))`,
+            )
+          )
+            break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        assert.ok(
           await win.webContents.executeJavaScript(
             `Boolean(document.querySelector('textarea[aria-label="客服回复要求"]'))`,
-          )
+          ),
         )
-          break
-        await new Promise((resolve) => setTimeout(resolve, 50))
+        assert.ok(
+          await win.webContents.executeJavaScript(
+            `Boolean(document.querySelector('[aria-label="回复字数上限"]'))`,
+          ),
+        )
+        assert.ok(runtime.snapshot().stores.every((store) => !store.aiEnabled))
+        fs.writeFileSync(
+          path.join(output, 'basic-settings-style.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+      } finally {
+        // This suite shares one isolated runtime; never leak this fixture into
+        // subsequent business checks, even when a UI assertion fails.
+        await runtime.execute({
+          workspaceId: runtime.snapshot().workspaceId,
+          action: 'remove-store',
+          storeId: fixtureStoreId,
+          values: { confirmed: true },
+        })
+        assert.ok(!runtime.snapshot().stores.some((store) => store.id === fixtureStoreId))
       }
-      assert.ok(
-        await win.webContents.executeJavaScript(
-          `Boolean(document.querySelector('textarea[aria-label="客服回复要求"]'))`,
-        ),
-      )
-      assert.ok(
-        await win.webContents.executeJavaScript(
-          `Boolean(document.querySelector('[aria-label="回复字数上限"]'))`,
-        ),
-      )
-      assert.ok(runtime.snapshot().stores.every((store) => !store.aiEnabled))
-      fs.writeFileSync(
-        path.join(output, 'basic-settings-style.png'),
-        (await win.webContents.capturePage()).toPNG(),
-      )
     })
     await check('redirect', '/float/messages', async () => {
       await load('/float/messages')

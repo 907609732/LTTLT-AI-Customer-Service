@@ -254,16 +254,14 @@ export async function simChecks(options: {
     fs.writeFileSync(path.join(output, 'sim-console-ready.png'), (await win.capturePage()).toPNG())
   })
 
-  await check('sim:sidebar-entry-opens-console', '/shop/manage?panel=sim', async () => {
-    // 侧栏入口走的是 /shop/manage?panel=sim，与 /sim 是两条独立路径，两条都要能用。
+  await check('sim:legacy-config-route-opens-training', '/shop/manage?panel=sim', async () => {
+    // The configuration registry intentionally maps this retired test panel to
+    // training. The real simulator remains independently verified at /sim above.
     await load('/shop/manage?panel=sim')
-    await waitFor(
-      `Boolean(document.querySelector('[aria-label="模拟店铺操作"]'))`,
-      '侧栏入口没有打开模拟客服台',
-    )
-    await waitFor(
-      `document.body.innerText.includes('本机演练店')`,
-      '侧栏打开的模拟客服台没有显示本机模拟店铺',
+    await waitFor(`document.body.innerText.includes('AI 训练场')`, '旧配置入口未进入AI训练场')
+    assert.equal(
+      await evaluate(`Boolean(document.querySelector('[aria-label="模拟店铺操作"]'))`),
+      false,
     )
   })
 

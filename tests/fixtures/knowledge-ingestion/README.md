@@ -6,3 +6,5 @@
 - `text.pdf`, `scan.pdf`, `sheets.xlsx`, `image.png` are generated synthetic, non-customer test materials. The PDF scan contains an actual embedded RGB raster with no text layer. The workbook has two worksheets, Chinese labels and separate row/cell positions. They contain no platform data or credentials.
 
 These files exercise installed real parsers, not OCR semantic quality. Model tests use deterministic local responses and do not claim provider recognition accuracy.
+
+The native ingestion check supplies a deterministic empty OCR result through the runtime's explicit dependency injection. It verifies that real PNG tiles reach that boundary and that actual image bytes reach the loopback model. It does not require optional OCR language packs on hosted runners or claim to validate the Windows recognition engine; production keeps the default Windows recognizer.
