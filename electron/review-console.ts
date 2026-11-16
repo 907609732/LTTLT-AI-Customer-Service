@@ -77,6 +77,30 @@ export class ReviewConsole {
   snapshot() {
     return { logs: this.logs, traces: this.traces, replies: this.replies }
   }
+  clearLogs() {
+    const before = {
+      logs: this.logs.length,
+      traces: this.traces.length,
+      replies: this.replies.length,
+    }
+    this.logs = []
+    this.messageDiagnostics.clear()
+    this.replies = this.replies.filter(
+      (row) => row.status === 'pending' || row.status === 'sending',
+    )
+    const retained = new Set([
+      ...this.traceStarted.keys(),
+      ...this.replies.map((row) => row.traceId),
+    ])
+    this.traces = this.traces.filter((row) => retained.has(row.id))
+    // Keep seen-message fingerprints: the next snapshot must not replay cleared archive history.
+    this.changed()
+    return {
+      logs: before.logs,
+      traces: before.traces - this.traces.length,
+      replies: before.replies - this.replies.length,
+    }
+  }
   private identity(storeId: string, uid: string) {
     const snap = this.read()
     return {

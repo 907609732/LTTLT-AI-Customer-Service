@@ -43,6 +43,8 @@ export interface DesktopApi extends Partial<ReceptionBridge> {
   toggleMaximize(): Promise<boolean>
   close(): Promise<void>
   isMaximized(): Promise<boolean>
+  isAlwaysOnTop?(): Promise<boolean>
+  setAlwaysOnTop?(pinned: boolean): Promise<boolean>
   beginMove(point: ScreenPoint): Promise<boolean>
   move(point: ScreenPoint): void
   endMove(): void

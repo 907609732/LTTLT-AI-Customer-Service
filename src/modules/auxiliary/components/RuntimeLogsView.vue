@@ -1,11 +1,33 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onMounted } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import { getDesktop } from '@/shared/platform/desktop'
 const runtime = useRuntimeStore(),
   task = useTask(),
   desktop = getDesktop()
+const pinned = ref<boolean | null>(null)
+onMounted(() => {
+  const read = desktop.isAlwaysOnTop
+  if (read)
+    void task.run(async () => {
+      pinned.value = await read()
+    })
+})
+async function togglePinned() {
+  const set = desktop.setAlwaysOnTop
+  if (!set || pinned.value === null) return
+  await task.run(async () => {
+    pinned.value = await set(!pinned.value)
+  })
+}
+async function clearLogs() {
+  await task.run(async () => {
+    const result = await runtime.run({ action: 'clear-runtime-logs' })
+    traceId.value = ''
+    task.message.value = result.message
+  })
+}
 const tab = ref('pending'),
   storeId = ref(''),
   query = ref(''),
@@ -78,9 +100,18 @@ async function resume(storeId: string, uid: string) {
 </script>
 <template>
   <main class="logs-window">
-    <header data-window-drag class="logs-header">
+    <header class="logs-header">
       <div><b>实时日志与 AI 发送确认</b><small>消息按时间排列 · 按店铺发送模式处理回复</small></div>
       <div class="runtime-actions" data-no-drag>
+        <el-button :disabled="task.pending.value || !runtime.available" @click="clearLogs"
+          >清除日志</el-button
+        >
+        <el-button
+          :disabled="task.pending.value || pinned === null"
+          :aria-pressed="pinned === true"
+          @click="togglePinned"
+          >{{ pinned ? '取消置顶' : '置顶' }}</el-button
+        >
         <el-button @click="desktop.minimize()">最小化</el-button
         ><el-button @click="desktop.close()">关闭</el-button>
       </div>
@@ -96,6 +127,12 @@ async function resume(storeId: string, uid: string) {
         v-if="task.error.value || runtime.error"
         :title="task.error.value || runtime.error"
         type="error"
+        :closable="false"
+      />
+      <el-alert
+        v-if="task.message.value"
+        :title="task.message.value"
+        type="success"
         :closable="false"
       />
       <p class="logs-note">
@@ -262,12 +299,20 @@ async function resume(storeId: string, uid: string) {
   color: #263958;
 }
 .logs-header {
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 18px 24px;
   background: #e9f2ff;
   border-bottom: 1px solid #ccdcf4;
+}
+.logs-header .runtime-actions {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 .logs-header b {
   font-size: 18px;

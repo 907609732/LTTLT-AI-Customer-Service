@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VER = 8;
+  var VER = 9;
   var reviewPageId=Date.now().toString(36)+Math.random().toString(36).slice(2);
   window.__PDD_WEB_VER = VER;
 
@@ -1724,14 +1724,26 @@
       var key = normUid(uid);
       if (!key) return { ok: false, reason: 'invalid_payload' };
       if (resolveActiveUid() === key) return { ok: true, already: true };
-      var box = document.querySelector('.chat-item-box[data-random^="' + key + '-"]');
-      if (!box) box = document.querySelector('.chat-item-box[data-random^="' + key + '"]');
+      var boxes = document.querySelectorAll('.chat-item-box[data-random]');
+      var box = null;
+      for (var b = 0; b < boxes.length; b++) {
+        if (String(boxes[b].getAttribute('data-random') || '').split('-')[0] !== key) continue;
+        if (!box || visible(boxes[b])) box = boxes[b];
+        if (visible(boxes[b])) break;
+      }
       if (box) {
         try {
           box.scrollIntoView({ block: 'center' });
-          clickEl(box.querySelector('.chat-item') || box);
+          // MMS selects the buyer on mousedown; click alone can return without switching.
+          var target = box.querySelector('.chat-item') || box;
+          var rect = target.getBoundingClientRect();
+          var pointer = { bubbles: true, cancelable: true, view: window, button: 0,
+            clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+          target.dispatchEvent(new MouseEvent('mousedown', Object.assign({}, pointer, { buttons: 1 })));
+          target.dispatchEvent(new MouseEvent('mouseup', Object.assign({}, pointer, { buttons: 0 })));
+          clickEl(target);
           await sleep(500);
-          return { ok: true, method: 'dom' };
+          if (resolveActiveUid() === key) return { ok: true, method: 'dom' };
         } catch (e) {}
       }
       var store = storeOf();
@@ -1756,7 +1768,7 @@
           if (conv && store._mutations && store._mutations['CHAGNGE_CURRENT_USER_INFO']) {
             store.commit('CHAGNGE_CURRENT_USER_INFO', conv);
             await sleep(500);
-            return { ok: true, method: 'store' };
+            if (resolveActiveUid() === key) return { ok: true, method: 'store' };
           }
         } catch (e) {}
       }
