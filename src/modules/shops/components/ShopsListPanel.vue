@@ -176,7 +176,7 @@ const reception = [
     <div class="page-head" data-v-ffbd3484="">
       <div>
         <h1>店铺与商品</h1>
-        <p>登录店铺 → 管理商品知识 → 配置接待。支持商品知识维护、平台采集审核和跨店同步。</p>
+        <p>登录店铺 → 管理商品知识 → 配置接待。支持商品知识维护和平台采集审核。</p>
       </div>
       <div class="page-head__acts">
         <button
@@ -301,9 +301,7 @@ const reception = [
                 :data-panel="item.key"
                 @click="navigate(shop, item.key)"
               >
-                {{ item.title }}</button
-              ><button class="chip" title="预览并确认跨店同步" @click="navigate(shop, 'sync')">
-                同步他店
+                {{ item.title }}
               </button>
             </div>
           </div>

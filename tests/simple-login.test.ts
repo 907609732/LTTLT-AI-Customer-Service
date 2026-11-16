@@ -14,7 +14,10 @@ it('间隔控件不再包含高级模型配置或账号入口', () => {
   const wrapper = mount(SettingsView, {
     global: { plugins: [ElementPlus], stubs: { ElTag: true } },
   })
-  expect(wrapper.text()).toContain('AI 回复间隔')
+  expect(wrapper.find('[aria-label="同一买家回复间隔（秒）"]').exists()).toBe(true)
+  expect(wrapper.find('h3').exists()).toBe(false)
+  expect(wrapper.text()).not.toContain('载入已保存间隔')
+  expect(wrapper.text()).not.toContain('间隔单独保存，保存不会开启 AI 或发送消息。')
   expect(wrapper.text()).not.toContain('托管 API 服务地址')
   expect(wrapper.find('details').exists()).toBe(false)
   wrapper.unmount()

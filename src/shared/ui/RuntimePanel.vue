@@ -8,9 +8,13 @@ const runtime = useRuntimeStore()
 </script>
 <template>
   <section class="runtime-page">
-    <header class="runtime-page__head" data-window-drag>
+    <header
+      v-if="title || description || $slots.actions"
+      class="runtime-page__head"
+      data-window-drag
+    >
       <div>
-        <h1>{{ title }}</h1>
+        <h1 v-if="title">{{ title }}</h1>
         <p v-if="description">{{ description }}</p>
       </div>
       <div class="runtime-actions"><slot name="actions" /></div>

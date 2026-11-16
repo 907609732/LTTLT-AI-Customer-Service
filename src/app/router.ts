@@ -7,6 +7,7 @@ import { PRODUCT_NAME } from '@/shared/brand'
  * 所有页面均可直接访问：本工程只还原 UI，不做登录态校验。
  */
 export const routes: RouteRecordRaw[] = [
+  { path: '/store-sync', redirect: '/shop/manage?panel=shops' },
   {
     path: '/knowledge',
     name: 'knowledge-manager',
@@ -111,12 +112,6 @@ export const routes: RouteRecordRaw[] = [
     path: '/',
     component: () => import('@/app/layouts/MainLayout.vue'),
     children: [
-      {
-        path: 'store-sync',
-        name: 'store-sync',
-        component: () => import('@/modules/sync').then((m) => m.StoreSyncView),
-        meta: { title: '跨店同步' },
-      },
       {
         path: '',
         name: 'dashboard',

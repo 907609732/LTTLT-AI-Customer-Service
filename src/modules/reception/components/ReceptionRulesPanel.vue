@@ -14,10 +14,11 @@ const props = defineProps<{
   snapshot?: ReceptionSnapshot
   busy?: boolean
   preserveDraft?: boolean
+  mediaOnly?: boolean
 }>()
 const drafts = props.preserveDraft ? useReceptionDraftCache() : undefined
 let draftLease = { workspaceId: props.workspaceId, storeId: props.storeId, trigger: props.trigger }
-const emit = defineEmits<{ command: [command: ReceptionCommand]; refresh: [] }>()
+const emit = defineEmits<{ command: [command: ReceptionCommand]; refresh: []; alert: [] }>()
 type Media = { kind: 'welcome-image' | 'welcome-video'; url: string }
 const form = reactive({
   id: '',
@@ -38,6 +39,13 @@ const rule = computed(() =>
 )
 const conflict = computed(() =>
   Boolean(rule.value && form.id === rule.value.id && form.revision !== rule.value.revision),
+)
+watch(
+  [error, conflict],
+  ([message, hasConflict]) => {
+    if (message || hasConflict) emit('alert')
+  },
+  { immediate: true },
 )
 const titles = {
   visitor: '无消息访客进店规则',
@@ -160,15 +168,34 @@ function removeMedia(index: number) {
 </script>
 <template>
   <section class="reception-rules">
-    <header>
+    <header v-if="!mediaOnly">
       <h2>{{ titles[trigger] }}</h2>
       <button type="button" :disabled="busy" @click="emit('refresh')">刷新真实平台状态</button>
     </header>
-    <p>规则保存不会批准任何平台写操作。每条文字、媒体、催支付或转接都需单独批准。</p>
-    <p v-if="!snapshot" role="status">接待操作服务尚未接入；当前不能保存规则或执行平台操作。</p>
-    <p v-if="facts?.error" role="alert">{{ facts.error }}</p>
-    <p v-if="snapshot?.error" role="alert">{{ snapshot.error }}</p>
-    <ul v-if="capabilities.length" class="capability-list">
+    <p v-if="!mediaOnly && !snapshot" role="status">
+      接待操作服务尚未接入；当前不能保存规则或执行平台操作。
+    </p>
+    <p
+      v-if="
+        !mediaOnly &&
+        facts?.error &&
+        facts.error !== '读取真实平台能力失败，请打开平台并重新只读采集'
+      "
+      role="alert"
+    >
+      {{ facts.error }}
+    </p>
+    <p
+      v-if="
+        !mediaOnly &&
+        snapshot?.error &&
+        snapshot.error !== '读取真实平台能力失败，请打开平台并重新只读采集'
+      "
+      role="alert"
+    >
+      {{ snapshot.error }}
+    </p>
+    <ul v-if="!mediaOnly && capabilities.length" class="capability-list">
       <li v-for="capability in capabilities" :key="capability.kind">
         <span :class="{ available: capability.available }"
           >{{ capabilityLabels[capability.kind] }} ·
@@ -176,14 +203,13 @@ function removeMedia(index: number) {
         >：{{ capability.reason }}
       </li>
     </ul>
-    <p v-else>尚未取得此店铺的真实能力证据。</p>
-    <p v-if="facts?.observedAt" class="evidence-time">
+    <p v-if="!mediaOnly && facts?.observedAt" class="evidence-time">
       最近平台读取：{{
         new Date(facts.observedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
       }}（北京时间）
     </p>
     <form class="rules-form" @submit.prevent="save" @input="dirty = true" @change="dirty = true">
-      <label class="enable-rule"
+      <label v-if="!mediaOnly" class="enable-rule"
         ><input
           v-model="form.enabled"
           type="checkbox"
@@ -191,8 +217,8 @@ function removeMedia(index: number) {
         />启用此规则（只生成待批准事项）</label
       >
       <template v-if="trigger === 'visitor'">
-        <p>仅响应平台明确报告的无消息访客；不会根据本机空归档推断进店。</p>
-        <label
+        <p v-if="!mediaOnly">仅响应平台明确报告的无消息访客；不会根据本机空归档推断进店。</p>
+        <label v-if="!mediaOnly"
           >欢迎文字<textarea v-model="form.text" rows="4" maxlength="2000" :disabled="busy" />
         </label>
         <div class="media-toolbar">
@@ -233,7 +259,7 @@ function removeMedia(index: number) {
               :aria-label="`欢迎视频 ${index + 1} 预览`" /></template
           ><button type="button" :disabled="busy" @click="removeMedia(index)">移除此媒体</button>
         </article>
-        <p class="evidence-time">
+        <p v-if="!mediaOnly" class="evidence-time">
           预览仅核对内容；批准前主进程仍会验证媒体类型、大小、指纹及对应买家的卖家回显能力。
         </p>
       </template>
@@ -285,14 +311,17 @@ function removeMedia(index: number) {
             </option>
           </select></label
         >
-        <p>执行前会再次核对平台可转接名单和目标买家。</p></template
-      >
-      <p v-if="conflict" role="alert">接待规则已在其他窗口更新。请载入最新配置后再保存。</p>
+      </template>
+      <p v-if="conflict" role="alert">
+        接待规则已在其他窗口更新。
+        <button type="button" class="conflict-reload" :disabled="busy" @click="load()">
+          使用最新版本重新编辑
+        </button>
+      </p>
       <p v-if="error" role="alert">{{ error }}</p>
       <div class="rules-actions">
         <button type="submit" class="primary" :disabled="busy || !snapshot || conflict">
           保存接待规则</button
-        ><button type="button" :disabled="busy" @click="load()">载入最新接待规则</button
         ><button
           v-if="rule"
           type="button"
@@ -384,6 +413,14 @@ textarea {
   max-width: 100%;
   max-height: 200px;
   border-radius: 6px;
+}
+.conflict-reload {
+  padding: 0;
+  border: 0;
+  color: #3779ed;
+  background: transparent;
+  text-decoration: underline;
+  cursor: pointer;
 }
 .evidence-time {
   color: #78818e;

@@ -23,3 +23,11 @@ it('旧接待页面不再注册，旧地址回到店铺入口', () => {
     expect(resolvePanelKey(key)).toBe('shops')
   }
 })
+
+it('删除跨店同步菜单和页面注册，旧查询回到店铺列表', () => {
+  expect(
+    navGroups.flatMap((group) => group.items).some((item) => item.key === ('sync' as string)),
+  ).toBe(false)
+  expect(Object.keys(panelRegistry)).not.toContain('sync')
+  expect(resolvePanelKey('sync')).toBe('shops')
+})
