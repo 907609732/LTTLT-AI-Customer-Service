@@ -2,7 +2,7 @@
 import KnowledgeSourceImage from './KnowledgeSourceImage.vue'
 import KnowledgeImportPreview from './KnowledgeImportPreview.vue'
 import KnowledgeBatchResult from './KnowledgeBatchResult.vue'
-import KnowledgeUncertainCall from './KnowledgeUncertainCall.vue'
+import KnowledgeJobProgress from './KnowledgeJobProgress.vue'
 import KnowledgeCatalogDialog from './KnowledgeCatalogDialog.vue'
 import KnowledgeThumbnail from './KnowledgeThumbnail.vue'
 import KnowledgeProductCards from './KnowledgeProductCards.vue'
@@ -16,8 +16,6 @@ import {
   fieldLabel,
   sourceLabel,
   productStatusLabel,
-  jobStatusLabel,
-  jobKindLabel,
 } from '../manager-labels'
 import { useKnowledgeManager } from '../manager-controller'
 const {
@@ -35,6 +33,8 @@ const {
   entries,
   total,
   summary,
+  backgroundJobs,
+  jobAction,
   jobs,
   misses,
   settings,
@@ -212,7 +212,6 @@ const {
         通用问答 <small>{{ summary?.generalEntries ?? 0 }}</small></button
       ><span class="spacer" /><button @click="showView('review')">
         待审核 {{ summary?.pending ?? 0 }}</button
-      ><button @click="showView('jobs')">任务 {{ summary?.jobs ?? 0 }}</button
       ><button @click="showView('misses')">待学问题 {{ summary?.misses ?? 0 }}</button
       ><button @click="showView('settings')">设置</button>
     </nav>
@@ -281,11 +280,27 @@ const {
         {{ selection.length }} {{ allScope ? '（跨页）' : '' }}</span
       ><button :disabled="!selection.length" @click="run(bulkReview)">审核所选草稿</button>
     </div>
+    <section
+      v-if="backgroundJobs.length"
+      class="knowledge-inline-status"
+      aria-label="采集与通用资料进度"
+    >
+      <KnowledgeJobProgress
+        v-for="job in backgroundJobs"
+        :key="job.id"
+        :job="job"
+        :pending="busy"
+        @action="(input) => run(() => jobAction(input))"
+      />
+    </section>
     <section class="knowledge-content" :aria-busy="loading">
       <p v-if="loading" class="knowledge-empty">正在读取当前店铺…</p>
       <template v-else-if="view === 'library' && tab === 'products'">
         <KnowledgeProductCards
           :products="products"
+          :jobs="jobs"
+          :pending="busy"
+          @job-action="(input) => run(() => jobAction(input))"
           :selection="selection"
           :page="page"
           :can-learn="Boolean(capabilities?.learn)"
@@ -406,95 +421,6 @@ const {
         </article>
         <p v-if="!entries.length" class="knowledge-empty">
           当前范围没有问答。可手写问题和标准答案，保存草稿后单独审核发布。
-        </p></template
-      >
-      <template v-else-if="view === 'jobs'"
-        ><article v-for="job in jobs" :key="job.id" class="knowledge-card">
-          <div class="knowledge-card-body">
-            <b>{{ jobKindLabel(job.kind) }} · {{ jobStatusLabel(job.status) }}</b>
-            <p>
-              {{ job.progress.completed }} / {{ job.progress.total ?? '总量未知' }} {{ job.error }}
-            </p>
-            <small>{{ job.id }}</small>
-          </div>
-          <KnowledgeUncertainCall
-            v-if="job.kind === 'learn'"
-            :job="job"
-            :pending="busy"
-            @resolve="
-              (decision) =>
-                run(async () => {
-                  await client().pipeline({
-                    action: 'resolve-uncertain',
-                    storeId: job.storeId,
-                    jobId: job.id,
-                    decision,
-                  })
-                  await refresh()
-                })
-            "
-          />
-          <button
-            v-if="job.status === 'running'"
-            @click="
-              run(async () => {
-                await client().pipeline({ action: 'pause', storeId: job.storeId, jobId: job.id })
-                await refresh()
-              })
-            "
-          >
-            暂停</button
-          ><button
-            v-if="
-              (['paused', 'failed'].includes(job.status) ||
-                (job.status === 'needs-confirmation' &&
-                  ['collect', 'daily-check'].includes(job.kind))) &&
-              job.checkpoint.state !== 'submitted' &&
-              !(
-                job.kind === 'learn' &&
-                job.status === 'failed' &&
-                job.checkpoint.state === 'received'
-              )
-            "
-            @click="
-              run(async () => {
-                await client().pipeline({ action: 'resume', storeId: job.storeId, jobId: job.id })
-                await refresh()
-              })
-            "
-          >
-            继续</button
-          ><button
-            v-if="
-              job.kind === 'learn' && job.status === 'failed' && job.checkpoint.state === 'received'
-            "
-            :disabled="busy"
-            @click="
-              run(async () => {
-                await client().pipeline({
-                  action: 'retry-received',
-                  storeId: job.storeId,
-                  jobId: job.id,
-                })
-                await refresh()
-              })
-            "
-          >
-            重新生成本片段（会计费）</button
-          ><button
-            :disabled="['succeeded', 'cancelled', 'failed'].includes(job.status)"
-            @click="
-              run(async () => {
-                await client().pipeline({ action: 'cancel', storeId: job.storeId, jobId: job.id })
-                await refresh()
-              })
-            "
-          >
-            取消
-          </button>
-        </article>
-        <p v-if="!jobs.length" class="knowledge-empty">
-          当前店铺没有采集或学习任务。退出后的学习任务保持暂停，不会自动产生模型费用。
         </p></template
       >
       <template v-else-if="view === 'misses'"
@@ -728,7 +654,7 @@ const {
           </p>
           <pre>{{
             source.text === '原始文件已登记；尚未解析。'
-              ? '原始文件已保存；解析内容和处理结果请查看对应资料与任务。'
+              ? '原始文件已保存；解析内容和处理结果请查看对应商品资料。'
               : source.text
           }}</pre>
           <KnowledgeThumbnail

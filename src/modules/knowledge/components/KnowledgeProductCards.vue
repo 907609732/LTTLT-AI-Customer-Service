@@ -1,15 +1,38 @@
 <script setup lang="ts">
-import type { KnowledgeProductCard } from '@/shared/contracts/knowledge'
+import type { KnowledgeProductCard, KnowledgeJob } from '@/shared/contracts/knowledge'
 import { sourceLabel } from '../manager-labels'
+import type { KnowledgePipelineInput } from '@/shared/contracts/knowledge-pipeline'
+import KnowledgeJobProgress from './KnowledgeJobProgress.vue'
 import KnowledgeThumbnail from './KnowledgeThumbnail.vue'
-defineProps<{
-  products: KnowledgeProductCard[]
-  selection: string[]
-  page: number
-  canLearn: boolean
-  loadAsset(id: string): Promise<string>
-}>()
+const props = withDefaults(
+  defineProps<{
+    jobs?: KnowledgeJob[]
+    pending?: boolean
+    products: KnowledgeProductCard[]
+    selection: string[]
+    page: number
+    canLearn: boolean
+    loadAsset(id: string): Promise<string>
+  }>(),
+  { jobs: () => [], pending: false },
+)
+function learningJob(row: KnowledgeProductCard) {
+  return props.jobs
+    .filter(
+      (job) =>
+        job.kind === 'learn' &&
+        job.storeId === row.binding.storeId &&
+        Array.isArray(job.payload?.bindingIds) &&
+        job.payload.bindingIds.includes(row.binding.id),
+    )
+    .sort((a, b) => b.createdAt - a.createdAt)[0]
+}
+function learningActive(row: KnowledgeProductCard) {
+  const job = learningJob(row)
+  return !!job && ['queued', 'running', 'paused', 'needs-confirmation'].includes(job.status)
+}
 const emit = defineEmits<{
+  'job-action': [input: KnowledgePipelineInput]
   select: [id: string, checked: boolean]
   edit: [row: KnowledgeProductCard]
   learn: [row: KnowledgeProductCard]
@@ -57,14 +80,42 @@ const emit = defineEmits<{
         ><button @click="emit('edit', row)">
           {{ row.approved }} 条已审核 · {{ row.drafts }} 条草稿 ›
         </button>
+        <KnowledgeJobProgress
+          v-if="learningJob(row)"
+          :job="learningJob(row)!"
+          :pending="pending"
+          compact
+          @action="(input) => emit('job-action', input)"
+        />
       </div>
     </div>
     <div class="knowledge-card-actions">
       <button @click="emit('ocr', row)">识别图片文字</button>
-      <button class="primary" :disabled="!canLearn" @click="emit('learn', row)">开始学习</button
+      <button
+        class="primary"
+        :disabled="!canLearn || pending || learningActive(row)"
+        @click="emit('learn', row)"
+      >
+        开始学习</button
       ><button @click="emit('backup', row.canonical.id)">同款备份</button
       ><button @click="emit('edit', row)">编辑</button
       ><button class="danger" @click="emit('remove', row)">解除关联</button>
     </div>
   </article>
 </template>
+
+<style scoped>
+.knowledge-card-media {
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+.knowledge-card-media > button {
+  flex: none;
+  white-space: nowrap;
+}
+.knowledge-image-empty {
+  width: 80px;
+  font-size: 12px;
+  flex: none;
+}
+</style>

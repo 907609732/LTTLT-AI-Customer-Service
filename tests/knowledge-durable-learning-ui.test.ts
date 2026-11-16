@@ -76,3 +76,15 @@ it('shows persisted diagram evidence and opens its exact image from the review e
   expect(view.find('img').attributes('src')).toBe('data:image/png;base64,AA==')
   view.unmount()
 })
+import KnowledgeJobProgress from '../src/modules/knowledge/components/KnowledgeJobProgress.vue'
+it('does not offer a no-op continuation when all learning fragments have already been processed', () => {
+  const job = {
+    ...uncertainJob('failed'),
+    checkpoint: { state: 'ready' },
+    progress: { completed: 2, total: 2 },
+  }
+  const view = mount(KnowledgeJobProgress, { props: { job, pending: false } })
+  expect(view.findAll('button').some((b) => b.text() === '继续')).toBe(false)
+  expect(view.text()).toContain('重新点击')
+  view.unmount()
+})

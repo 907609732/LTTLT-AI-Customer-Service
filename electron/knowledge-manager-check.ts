@@ -215,6 +215,105 @@ app
     await manager.open({ workspaceId: w, storeId: a })
     await until(`document.querySelectorAll('.knowledge-card').length===8`)
     checks.push('real route/preload/trusted IPC/SQLite cards loaded')
+
+    if (process.argv.includes('--inline-progress-only')) {
+      const binding = repo
+        .listBindings()
+        .find((item) => item.storeId === a && item.productId === 'product-1' && !item.skuId)!
+      let job = repo.createJob({ kind: 'learn', storeId: a, payload: { bindingIds: [binding.id] } })
+      job = repo.updateJob(job.id, {
+        expectedRevision: job.revision,
+        status: 'running',
+        checkpoint: {},
+        progress: { completed: 2, total: 8 },
+      })
+      await click('商品 8')
+      await until("document.querySelectorAll('.knowledge-card .progress-spinner').length===1")
+      assert.equal(
+        await evaluate(
+          "[...document.querySelectorAll('nav button')].some(button=>button.textContent.includes('任务'))",
+        ),
+        false,
+      )
+      assert.equal(
+        await evaluate("document.querySelectorAll('.knowledge-card progress').length"),
+        1,
+      )
+      assert.equal(await evaluate("document.querySelector('.knowledge-card progress').value"), 2)
+      assert(
+        await evaluate(`(() => {
+        const progress = document.querySelector('.knowledge-card-media .knowledge-job-progress');
+        const stats = progress?.previousElementSibling;
+        if (!progress || !stats) return false;
+        const p = progress.getBoundingClientRect(), s = stats.getBoundingClientRect();
+        return p.height <= 26 && p.left >= s.right && Math.abs((p.top + p.bottom) / 2 - (s.top + s.bottom) / 2) <= 2;
+      })()`),
+        'progress stays small on the same row as review counts',
+      )
+      await screenshot('inline-learning-running.png')
+      job = repo.updateJob(job.id, {
+        expectedRevision: job.revision,
+        status: 'running',
+        progress: { completed: 5, total: 8 },
+      })
+      await until("document.querySelector('.knowledge-card progress')?.value===5")
+      assert.equal(await evaluate("document.querySelectorAll('.knowledge-card').length"), 8)
+      job = repo.updateJob(job.id, {
+        expectedRevision: job.revision,
+        status: 'succeeded',
+        progress: { completed: 8, total: 8 },
+      })
+      await until(
+        "document.querySelector('.knowledge-card .knowledge-job-progress')?.getAttribute('data-status')==='succeeded'",
+      )
+      assert.equal(await evaluate("document.querySelectorAll('.progress-spinner').length"), 0)
+      assert(
+        await evaluate(
+          "document.querySelector('.knowledge-job-progress').textContent.includes('待审核')",
+        ),
+      )
+      await screenshot('inline-learning-complete.png')
+      repo.updateJob(job.id, {
+        expectedRevision: job.revision,
+        status: 'failed',
+        checkpoint: { state: 'received' },
+        error: '合成验收：模型依据不匹配',
+        progress: { completed: 5, total: 8 },
+      })
+      await click('商品 8')
+      await until(
+        "document.querySelector('.knowledge-card .knowledge-job-progress')?.getAttribute('data-status')==='failed'",
+      )
+      assert(
+        await evaluate(
+          "document.querySelector('.knowledge-job-progress').textContent.includes('重试（计费）')",
+        ),
+      )
+      await screenshot('inline-learning-failed.png')
+      fs.writeFileSync(
+        path.join(output, 'inline-progress-report.json'),
+        JSON.stringify(
+          {
+            passed: true,
+            checks: [
+              'no task navigation',
+              'one product owns progress',
+              'running progress polls without navigation',
+              'completion prompts review',
+              'failure and paid recovery remain inline',
+            ],
+            isolated: true,
+            realModelCalls: 0,
+          },
+          null,
+          2,
+        ),
+      )
+      manager.dispose()
+      console.log('Inline product learning native checks passed')
+      return
+    }
+
     await click('设置')
     await until(`Boolean(document.querySelector('.knowledge-settings input[type="checkbox"]'))`)
     assert.equal(
