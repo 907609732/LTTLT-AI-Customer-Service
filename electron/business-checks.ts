@@ -338,87 +338,99 @@ export async function businessChecks(options: {
       await win.webContents.executeJavaScript(`document.querySelector('[data-dismiss]').click()`)
     })
     await check('business:setup-reception-migration', '/', async () => {
-      if (!(await snapshot()).stores.length)
-        await execute({
-          action: 'add-store',
-          values: { platform: 'sim-local', storeName: '接待迁移验证店' },
-        })
-      const storeId = (await snapshot()).stores[0]!.id
-      await load('/shop/manage?panel=shops')
-      await wait(`Boolean(document.querySelector('[data-action="basic-settings"]'))`)
-      await win.webContents.executeJavaScript(
-        `document.querySelector('[data-action="basic-settings"]').click()`,
-      )
-      await wait(`Boolean(document.querySelector('button.wizard-step:not(:disabled)'))`)
-      const labels = await win.webContents.executeJavaScript(
-        `Array.from(document.querySelectorAll('.wizard-step')).map(el => el.innerText)`,
-      )
-      assert.equal(labels.length, 6)
-      assert.match(labels[2], /物流与发货政策/)
-      assert.match(labels[3], /接待设置/)
-      await win.webContents.executeJavaScript(
-        `document.querySelectorAll('.wizard-step')[2].click()`,
-      )
-      await wait(`Boolean(document.querySelector('[aria-label="发货时效"]'))`)
-      for (const label of ['发货地', '常用快递', '支持指定快递', '提供运费险', '其他发货说明'])
+      const previousStoreId = (await snapshot()).selection.storeId
+      const fixture = await execute({
+        action: 'add-store',
+        values: { platform: 'sim-local', storeName: '接待迁移验证店' },
+      })
+      const storeId = String(fixture.data.id)
+      try {
+        await execute({ action: 'select-store', storeId })
+        await load('/shop/manage?panel=shops')
+        await wait(`Boolean(document.querySelector('[data-action="basic-settings"]'))`)
+        await win.webContents.executeJavaScript(
+          `document.querySelector(${JSON.stringify(`.shop-card[data-store="${storeId}"] [data-action="basic-settings"]`)}).click()`,
+        )
+        await wait(`Boolean(document.querySelector('button.wizard-step:not(:disabled)'))`)
+        const labels = await win.webContents.executeJavaScript(
+          `Array.from(document.querySelectorAll('.wizard-step')).map(el => el.innerText)`,
+        )
+        assert.equal(labels.length, 6)
+        assert.match(labels[2], /物流与发货政策/)
+        assert.match(labels[3], /接待设置/)
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.wizard-step')[2].click()`,
+        )
+        await wait(`Boolean(document.querySelector('[aria-label="发货时效"]'))`)
+        for (const label of ['发货地', '常用快递', '支持指定快递', '提供运费险', '其他发货说明'])
+          assert.equal(
+            await win.webContents.executeJavaScript(
+              `Boolean(document.querySelector('[aria-label="${label}"]'))`,
+            ),
+            true,
+          )
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.wizard-step')[3].click()`,
+        )
+        await wait(`Boolean(document.querySelector('textarea[aria-label="文字欢迎语"]'))`)
         assert.equal(
           await win.webContents.executeJavaScript(
-            `Boolean(document.querySelector('[aria-label="${label}"]'))`,
+            `document.querySelectorAll('.reception-settings .runtime-page').length`,
           ),
-          true,
+          2,
         )
-      await win.webContents.executeJavaScript(
-        `document.querySelectorAll('.wizard-step')[3].click()`,
-      )
-      await wait(`Boolean(document.querySelector('textarea[aria-label="文字欢迎语"]'))`)
-      assert.equal(
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.querySelectorAll('.reception-settings .runtime-store-select').length`,
+          ),
+          0,
+        )
+        await setInput('文字欢迎语', '隔离接待欢迎语')
+        await win.webContents.executeJavaScript(`document.querySelector('[data-next]').click()`)
+        await wait(`Boolean(document.querySelector('[data-save]'))`)
+        await win.webContents.executeJavaScript(`document.querySelector('[data-back]').click()`)
+        await wait(`Boolean(document.querySelector('textarea[aria-label="文字欢迎语"]'))`)
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.querySelector('textarea[aria-label="文字欢迎语"]').value`,
+          ),
+          '隔离接待欢迎语',
+        )
         await win.webContents.executeJavaScript(
-          `document.querySelectorAll('.reception-settings .runtime-page').length`,
-        ),
-        2,
-      )
-      assert.equal(
+          `document.querySelectorAll('.reception-settings .runtime-form')[0].requestSubmit()`,
+        )
+        await wait(`!document.querySelector('[data-next]').disabled`)
         await win.webContents.executeJavaScript(
-          `document.querySelectorAll('.reception-settings .runtime-store-select').length`,
-        ),
-        0,
-      )
-      await setInput('文字欢迎语', '隔离接待欢迎语')
-      await win.webContents.executeJavaScript(`document.querySelector('[data-next]').click()`)
-      await wait(`Boolean(document.querySelector('[data-save]'))`)
-      await win.webContents.executeJavaScript(`document.querySelector('[data-back]').click()`)
-      await wait(`Boolean(document.querySelector('textarea[aria-label="文字欢迎语"]'))`)
-      assert.equal(
-        await win.webContents.executeJavaScript(
-          `document.querySelector('textarea[aria-label="文字欢迎语"]').value`,
-        ),
-        '隔离接待欢迎语',
-      )
-      await win.webContents.executeJavaScript(
-        `document.querySelectorAll('.reception-settings .runtime-form')[0].requestSubmit()`,
-      )
-      await wait(`!document.querySelector('[data-next]').disabled`)
-      await win.webContents.executeJavaScript(
-        `document.querySelectorAll('.reception-settings .runtime-page')[1].querySelector('.runtime-form').requestSubmit()`,
-      )
-      await wait(
-        `!document.querySelector('[data-next]').disabled && document.querySelector('.reception-settings').innerText.includes('已保存')`,
-      )
-      assert.equal((await snapshot()).welcomeByStore[storeId]?.text, '隔离接待欢迎语')
-      fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })
-      fs.writeFileSync(
-        path.resolve('artifacts/desktop/setup-reception-migration.png'),
-        (await win.webContents.capturePage()).toPNG(),
-      )
-      await win.webContents.executeJavaScript(`document.querySelector('[data-dismiss]').click()`)
-      await wait(`!document.querySelector('.shop-setup-page')`)
-      await load('/shop/manage?panel=shops')
-      assert.equal(
-        await win.webContents.executeJavaScript(
-          `Array.from(document.querySelectorAll('.sider__nav button')).some(el => ['转接人工','进店欢迎'].includes(el.textContent.trim()))`,
-        ),
-        false,
-      )
+          `document.querySelectorAll('.reception-settings .runtime-page')[1].querySelector('.runtime-form').requestSubmit()`,
+        )
+        await wait(
+          `!document.querySelector('[data-next]').disabled && document.querySelector('.reception-settings').innerText.includes('已保存')`,
+        )
+        assert.equal((await snapshot()).welcomeByStore[storeId]?.text, '隔离接待欢迎语')
+        fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/setup-reception-migration.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+        await win.webContents.executeJavaScript(`document.querySelector('[data-dismiss]').click()`)
+        await wait(`!document.querySelector('.shop-setup-page')`)
+        await load('/shop/manage?panel=shops')
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Array.from(document.querySelectorAll('.sider__nav button')).some(el => ['转接人工','进店欢迎'].includes(el.textContent.trim()))`,
+          ),
+          false,
+        )
+      } finally {
+        // Reception saves increment per-store revisions; isolate those writes
+        // from the business fixtures whose original revisions are tested later.
+        await execute({ action: 'remove-store', storeId, values: { confirmed: true } })
+        const after = await snapshot()
+        assert.ok(!after.stores.some((store) => store.id === storeId))
+        if (previousStoreId && after.stores.some((store) => store.id === previousStoreId)) {
+          await execute({ action: 'select-store', storeId: previousStoreId })
+        }
+      }
     })
     await check('business:context-compression-16k-to-8k', '/logs', async () => {
       const before = calls.length
