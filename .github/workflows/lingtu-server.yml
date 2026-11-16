@@ -1,0 +1,116 @@
+name: Verify and build managed server
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['server/**', '.github/workflows/lingtu-server.yml']
+  push:
+    branches: [main]
+    paths: ['server/**', '.github/workflows/lingtu-server.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  databases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: isolated-ci-only
+          MYSQL_DATABASE: lingtu_test
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h localhost -pisolated-ci-only" --health-interval=10s --health-timeout=5s --health-retries=12
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: isolated-ci-only
+          POSTGRES_DB: lingtu_test
+        ports: ['5432:5432']
+        options: --health-cmd="pg_isready -U postgres" --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - run: node server/scripts/prepare.mjs
+      - name: Create isolated service databases
+        run: |
+          docker exec ${{ job.services.mysql.id }} mysql -uroot -pisolated-ci-only -e 'CREATE DATABASE lingtu_service_test; CREATE DATABASE lingtu_service_test_log;'
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -c 'CREATE DATABASE lingtu_service_test;'
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -c 'CREATE DATABASE lingtu_service_test_log;'
+      - name: Complete service tests on all three engines
+        working-directory: server/.upstream
+        env:
+          TEST_FIXED_MYSQL_DSN: root:isolated-ci-only@tcp(127.0.0.1:3306)/lingtu_service_test?charset=utf8mb4&parseTime=True&loc=UTC
+          TEST_FIXED_MYSQL_LOG_DSN: root:isolated-ci-only@tcp(127.0.0.1:3306)/lingtu_service_test_log?charset=utf8mb4&parseTime=True&loc=UTC
+          TEST_FIXED_POSTGRES_DSN: host=127.0.0.1 port=5432 user=postgres password=isolated-ci-only dbname=lingtu_service_test sslmode=disable
+          TEST_FIXED_POSTGRES_LOG_DSN: host=127.0.0.1 port=5432 user=postgres password=isolated-ci-only dbname=lingtu_service_test_log sslmode=disable
+        run: go test ./service -count=1 -timeout=300s
+      - name: Complete managed MySQL tests
+        working-directory: server/.upstream
+        env:
+          LINGTU_TEST_ENGINE: mysql
+          LINGTU_TEST_DSN: root:isolated-ci-only@tcp(127.0.0.1:3306)/lingtu_test?charset=utf8mb4&parseTime=True&loc=UTC
+        run: go test -p 1 ./lingtu ./lingtuhost -count=1 -timeout=300s
+      - name: Complete managed PostgreSQL tests
+        working-directory: server/.upstream
+        env:
+          LINGTU_TEST_ENGINE: postgres
+          LINGTU_TEST_DSN: host=127.0.0.1 port=5432 user=postgres password=isolated-ci-only dbname=lingtu_test sslmode=disable
+        run: go test -p 1 ./lingtu ./lingtuhost -count=1 -timeout=300s
+
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - name: Install pinned frontend toolchain
+        run: npm install --global bun@1.4.4
+      - name: Verify native server and build local administration frontend
+        env:
+          VITE_MANAGED_API_ORIGIN: http://127.0.0.1:3000
+        run: node server/scripts/verify.ts
+      - name: Build Windows local preview and record source
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          Push-Location server/.upstream
+          go build -trimpath -o ../bin/lingtu-managed.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Windows server build failed' }
+          Pop-Location
+          @{ sourceCommit = $env:SOURCE_SHA; apiOrigin = 'http://127.0.0.1:3000'; platform = 'windows-amd64'; localPreviewOnly = $true } | ConvertTo-Json | Set-Content server/bin/BUILD-MANIFEST.json
+          Get-FileHash server/bin/lingtu-managed.exe -Algorithm SHA256 | ForEach-Object { '{0}  lingtu-managed.exe' -f $_.Hash.ToLowerInvariant() } | Set-Content server/bin/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lingtu-server-local-windows-${{ github.sha }}
+          path: |
+            server/bin/lingtu-managed.exe
+            server/bin/NEW-API-LICENSE
+            server/bin/BUILD-MANIFEST.json
+            server/bin/SHA256SUMS.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lingtu-server-verification-${{ github.sha }}
+          path: server/artifacts/verification.json

@@ -25,6 +25,7 @@ import (
 
 type modelConnectionView struct {
 	InputCNY      string `json:"input_cny"`
+	CacheReadCNY  string `json:"cache_read_cny"`
 	OutputCNY     string `json:"output_cny"`
 	CostRateModel string `json:"cost_rate_model"`
 	ConnectionID  int    `json:"connection_id"`
@@ -104,7 +105,7 @@ func syncLegacyModelBinding(tx *gorm.DB, ch *model.Channel) error {
 		var old lingtu.ModelConnection
 		err := tx.First(&old, ch.Id).Error
 		if err == nil {
-			next.CostRateModel, next.InputCNY, next.OutputCNY = old.CostRateModel, old.InputCNY, old.OutputCNY
+			next.CostRateModel, next.InputCNY, next.OutputCNY, next.CacheReadCNY = old.CostRateModel, old.InputCNY, old.OutputCNY, old.CacheReadCNY
 			next.Name = old.Name
 			next.Revision = old.Revision
 			if old.ConfigHash != next.ConfigHash || old.Enabled != next.Enabled {
@@ -161,7 +162,7 @@ func modelConnectionViews(db *gorm.DB, selected string) ([]modelConnectionView, 
 			status = "stale"
 			testedAt = 0
 		}
-		v := modelConnectionView{InputCNY: row.InputCNY, OutputCNY: row.OutputCNY, CostRateModel: row.CostRateModel, ConnectionID: ch.Id, Provider: row.Provider, Name: row.Name, ModelID: row.ModelID, BaseURL: ch.GetBaseURL(), UpstreamModel: ch.Models, Configured: credentialConfigured(p, ch), Enabled: row.Enabled, Ready: row.Enabled && ch.Status == common.ChannelStatusEnabled && row.ConfigHash == channelHash(ch) && credentialConfigured(p, ch), IsDefault: selected == row.ModelID, Revision: row.Revision, TestStatus: status, TestedAt: testedAt}
+		v := modelConnectionView{CacheReadCNY: row.CacheReadCNY, InputCNY: row.InputCNY, OutputCNY: row.OutputCNY, CostRateModel: row.CostRateModel, ConnectionID: ch.Id, Provider: row.Provider, Name: row.Name, ModelID: row.ModelID, BaseURL: ch.GetBaseURL(), UpstreamModel: ch.Models, Configured: credentialConfigured(p, ch), Enabled: row.Enabled, Ready: row.Enabled && ch.Status == common.ChannelStatusEnabled && row.ConfigHash == channelHash(ch) && credentialConfigured(p, ch), IsDefault: selected == row.ModelID, Revision: row.Revision, TestStatus: status, TestedAt: testedAt}
 		switch row.Provider {
 		case "azure":
 			v.APIVersion = ch.Other
@@ -545,19 +546,37 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 		// Pricing changes share the existing admin proof, audit and revision guard,
 		// but never invalidate an otherwise verified provider connection.
 		if r.CostRates != nil {
-			input, err := normalizeCostRate(r.CostRates.InputCNY)
-			if err != nil {
-				return err
+			input, output, cache := row.InputCNY, row.OutputCNY, row.CacheReadCNY
+			// Omitted prices are reusable only for the same upstream model.
+			// A partial pricing update must never rebind another model's rates.
+			if row.CostRateModel != ch.Models {
+				input, output, cache = "", "", ""
 			}
-			output, err := normalizeCostRate(r.CostRates.OutputCNY)
-			if err != nil || (input == "") != (output == "") {
-				return lingtu.ErrInvalidTrialInput
+			var err error
+			if r.CostRates.present("input_cny") {
+				input, err = normalizeCostRate(r.CostRates.InputCNY)
+				if err != nil {
+					return err
+				}
 			}
-			if row.InputCNY != input || row.OutputCNY != output || row.CostRateModel != ch.Models {
+			if r.CostRates.present("output_cny") {
+				output, err = normalizeCostRate(r.CostRates.OutputCNY)
+				if err != nil {
+					return err
+				}
+			}
+			if r.CostRates.present("cache_read_cny") {
+				cache, err = normalizeCostRate(r.CostRates.CacheReadCNY)
+				if err != nil {
+					return err
+				}
+			}
+			if row.InputCNY != input || row.OutputCNY != output || row.CacheReadCNY != cache || row.CostRateModel != ch.Models {
 				row.Revision++
 			}
-			row.InputCNY, row.OutputCNY, row.CostRateModel = input, output, ch.Models
+			row.InputCNY, row.OutputCNY, row.CacheReadCNY, row.CostRateModel = input, output, cache, ch.Models
 		}
+
 		hash := channelHash(ch)
 		changed := row.ChannelID == 0 || hash != row.ConfigHash || row.Enabled != r.Enabled || row.Name != r.Name
 		if changed {

@@ -246,11 +246,19 @@ app
     checks.push(
       'explicit estimate/manual start calls actual configured AiClient loopback transport with bounded input and draft-only result',
     )
+    // Product cards stay mounted during progress refreshes. Their presence alone
+    // does not mean run() can accept another action; wait for its existing busy gate.
+    await until(
+      `Boolean(document.querySelector('[data-testid="write-one"]'))&&!document.querySelector('[data-testid="write-one"]').disabled`,
+    )
     await evaluate(
       `([...document.querySelectorAll('.knowledge-tabs button')].find(n=>n.textContent.trim().startsWith('商品 '))).click()`,
     )
-    await until(`document.querySelectorAll('.knowledge-card-actions').length===2`)
+    await until(
+      `document.querySelectorAll('.knowledge-card-actions').length===2&&!document.querySelector('[data-testid="write-one"]').disabled`,
+    )
     await click('编辑')
+    await until(`Boolean(document.querySelector('[aria-label="知识编辑与审核"]'))`)
     await click('原始资料 / 来源版本')
     assert(
       await evaluate<boolean>(
@@ -341,8 +349,18 @@ app
     for (let i = 0; i < 200 && repo.getJob(jobId)?.status !== 'needs-confirmation'; i++)
       await delay(20)
     assert.equal(repo.getJob(jobId)?.status, 'needs-confirmation')
+    // Recovery actions now live in the affected product's compact progress row.
+    await until(
+      `Boolean(document.querySelector('[data-testid="write-one"]'))&&!document.querySelector('[data-testid="write-one"]').disabled`,
+    )
     await evaluate(
-      `([...document.querySelectorAll('button')].find(n=>n.textContent.trim().startsWith('任务 '))).click()`,
+      `([...document.querySelectorAll('.knowledge-tabs button')].find(n=>n.textContent.trim().startsWith('商品 '))).click()`,
+    )
+    await until(
+      `Boolean(document.querySelector('.knowledge-job-progress[data-status="needs-confirmation"] .progress-recovery > summary'))`,
+    )
+    await evaluate(
+      `document.querySelector('.knowledge-job-progress[data-status="needs-confirmation"] .progress-recovery > summary').click()`,
     )
     await until(`document.body.innerText.includes('可能重复计费')`)
     await screenshot('uncertain-call.png')

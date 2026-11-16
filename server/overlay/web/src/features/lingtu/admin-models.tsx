@@ -14,6 +14,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 
+import { validCostPrice } from './cost-display'
+
 export interface ModelProvider {
   provider: string
   name: string
@@ -42,6 +44,7 @@ export interface ModelConnection {
   test_status: string
   input_cny?: string
   output_cny?: string
+  cache_read_cny?: string
   cost_rate_model?: string
   tested_at: number
 }
@@ -74,6 +77,7 @@ interface Draft {
   enabled: boolean
   input_cny: string
   output_cny: string
+  cache_read_cny: string
   dirty: boolean
   unconfirmedCreation?: boolean
 }
@@ -104,6 +108,10 @@ function fromSaved(row: ModelConnection): Draft {
       row.cost_rate_model === row.upstream_model ? row.input_cny || '' : '',
     output_cny:
       row.cost_rate_model === row.upstream_model ? row.output_cny || '' : '',
+    cache_read_cny:
+      row.cost_rate_model === row.upstream_model
+        ? row.cache_read_cny || ''
+        : '',
     secret: '',
     clear_secret: false,
     dirty: false,
@@ -144,6 +152,7 @@ export function AdminModels(props: {
       secret: '',
       input_cny: '',
       output_cny: '',
+      cache_read_cny: '',
       clear_secret: false,
       base_url: p.base_url,
       upstream_model: p.upstream_model,
@@ -243,6 +252,17 @@ export function AdminModels(props: {
   ) {
     if (!provider || !active || props.busy || submitting.current) return
     if (action === 'save' && requiresRecovery) return
+    if (
+      action === 'save' &&
+      ![active.input_cny, active.output_cny, active.cache_read_cny].every(
+        validCostPrice
+      )
+    ) {
+      setResultMessage(
+        'Prices must be between 0 and 1000000 CNY with at most 6 decimal places.'
+      )
+      return
+    }
     submitting.current = true
     setResultMessage('')
     const owner = provider.provider
@@ -257,8 +277,9 @@ export function AdminModels(props: {
     if (action === 'save') {
       Object.assign(payload, {
         cost_rates: {
-          input_cny: captured.input_cny,
-          output_cny: captured.output_cny,
+          input_cny: captured.input_cny || null,
+          output_cny: captured.output_cny || null,
+          cache_read_cny: captured.cache_read_cny || null,
         },
         name: captured.name,
         base_url: captured.base_url,
@@ -727,6 +748,7 @@ export function AdminModels(props: {
                         upstream_model: e.target.value,
                         input_cny: '',
                         output_cny: '',
+                        cache_read_cny: '',
                       })
                     }
                   />
@@ -750,9 +772,19 @@ export function AdminModels(props: {
                     value={active.output_cny}
                     onChange={(e) => edit({ output_cny: e.target.value })}
                   />
+                  <Label htmlFor='cost-cache-read'>
+                    {t('Cache read price (CNY / million tokens, optional)')}
+                  </Label>
+                  <Input
+                    id='cost-cache-read'
+                    inputMode='decimal'
+                    disabled={props.busy}
+                    value={active.cache_read_cny}
+                    onChange={(e) => edit({ cache_read_cny: e.target.value })}
+                  />
                   <p className='admin-help'>
                     {t(
-                      'Enter both prices or leave both blank. Zero means free. Configured-rate estimates exclude cache, time bands, tiers and discounts; balances are unchanged.'
+                      'Blank means unconfigured; zero means free. Prices apply to future calls; historical price snapshots remain unchanged. Without a cache price, all input uses the input price. A configured cache price requires reported cache usage.'
                     )}
                   </p>
                   <div className='flex items-center justify-between'>

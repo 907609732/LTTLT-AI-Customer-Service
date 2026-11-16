@@ -108,7 +108,7 @@ func TestLingtuAdminUsageDailyBeijingRangeSnapshotsAndKnownCounters(t *testing.T
 	if body.Timezone != "Asia/Shanghai" || body.Scope != "clients_only" || body.Days != 7 || body.Model != "" || !reflect.DeepEqual(body.ModelOptions, []string{"alpha", "beta"}) {
 		t.Fatal(response.Body.String())
 	}
-	if body.Totals != (UsageSummaryTotals{CostTotals: CostTotals{UnpricedRequests: 7}, Requests: 7, Successes: 5, Failed: 1, Uncertain: 1, InputTokens: 18, OutputTokens: 32, TotalTokens: 50, UnknownUsage: 2}) || body.Today != (UsageSummaryTotals{CostTotals: CostTotals{UnpricedRequests: 5}, Requests: 5, Successes: 3, Failed: 1, Uncertain: 1, InputTokens: 11, OutputTokens: 22, TotalTokens: 33, UnknownUsage: 2}) {
+	if body.Totals != (UsageSummaryTotals{CostTotals: CostTotals{UnpricedRequests: 7, UnknownCostRequests: 7}, Requests: 7, Successes: 5, Failed: 1, Uncertain: 1, InputTokens: 18, OutputTokens: 32, TotalTokens: 50, UnknownUsage: 2}) || body.Today != (UsageSummaryTotals{CostTotals: CostTotals{UnpricedRequests: 5, UnknownCostRequests: 5}, Requests: 5, Successes: 3, Failed: 1, Uncertain: 1, InputTokens: 11, OutputTokens: 22, TotalTokens: 33, UnknownUsage: 2}) {
 		t.Fatal(response.Body.String())
 	}
 	dates := map[string]int64{}

@@ -90,7 +90,6 @@ try {
       './lingtuhost',
       './middleware',
       './controller',
-      './service',
       './common',
       './relay/helper',
       './relay/channel/aws',
@@ -103,6 +102,25 @@ try {
     upstream,
     { LINGTU_TEST_ENGINE: '', LINGTU_TEST_DSN: '' },
   )
+  // Native service fixtures must also exercise encrypted channel persistence;
+  // a Lingtu-only name filter missed failures in the existing accounting suite.
+  run(
+    'Go complete service regression (SQLite)',
+    'go',
+    ['test', './service', '-count=1', '-timeout=180s'],
+    upstream,
+    {
+      TEST_FIXED_MYSQL_DSN: '',
+      TEST_FIXED_MYSQL_LOG_DSN: '',
+      TEST_FIXED_POSTGRES_DSN: '',
+      TEST_FIXED_POSTGRES_LOG_DSN: '',
+    },
+  )
+  if (process.argv.includes('--database-matrix')) {
+    run('Isolated MySQL and PostgreSQL matrices', process.execPath, [
+      path.join(server, 'scripts', 'database-matrix.ts'),
+    ])
+  }
   run('Install locked web dependencies', bun, ['install', '--frozen-lockfile'], web, {
     BUN_INSTALL_CACHE_DIR: process.env.BUN_INSTALL_CACHE_DIR || path.join(buildRoot, 'bun-cache'),
   })
@@ -169,10 +187,12 @@ try {
         node: process.versions.node,
         bun: '1.4.4',
         webBuildDirectory: web,
-        database: 'isolated SQLite',
+        database: process.argv.includes('--database-matrix')
+          ? 'isolated SQLite, MySQL and PostgreSQL'
+          : 'isolated SQLite',
         steps,
         boundaries:
-          'No production deployment, real provider credentials, buyer sends or MySQL/PostgreSQL runtime claims.',
+          'No production deployment, real provider credentials or buyer sends; database scope is recorded above.',
       },
       null,
       2,

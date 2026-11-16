@@ -54,7 +54,7 @@ func trialDB(t *testing.T) *gorm.DB {
 			t.Fatal("refusing to modify a non-test database")
 		}
 		// CI-only database, never a production connection. Tests run sequentially.
-		if err := db.Migrator().DropTable(&TrialRequest{}, &TrialGrant{}, &ManagedSession{}, &DeviceGrant{}); err != nil {
+		if err := db.Migrator().DropTable(&BillingCredit{}, &BillingOrder{}, &trialLimitedRequest{}, &trialDailyBudget{}, &trialLimitGate{}, &TrialRequest{}, &TrialGrant{}, &ManagedSession{}, &DeviceGrant{}); err != nil {
 			t.Fatal(err)
 		}
 	}

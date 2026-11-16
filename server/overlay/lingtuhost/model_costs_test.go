@@ -12,7 +12,7 @@ import (
 )
 
 func TestLingtuCNYRatesAndSnapshots(t *testing.T) {
-	for _, bad := range []string{"-1", "1e3", "NaN", "1000000", "0.1234567", " 1"} {
+	for _, bad := range []string{"-1", "1e3", "NaN", "1000000.000001", "0.1234567", " 1"} {
 		if _, err := normalizeCostRate(bad); err == nil {
 			t.Fatalf("accepted %q", bad)
 		}
@@ -21,7 +21,7 @@ func TestLingtuCNYRatesAndSnapshots(t *testing.T) {
 	current := map[int]lingtu.ModelConnection{1: rate}
 	record := usageDailyRecord{ChannelID: 1, UpstreamModel: "qwen", UsageKnown: true, InputTokens: 1565, OutputTokens: 499}
 	got := estimateCNY(record, current)
-	if got.CNY != "0.006555" || got.Basis != "current_rates" {
+	if got.Basis != "unpriced" {
 		t.Fatalf("historical: %+v", got)
 	}
 	record.CostSnapshot = true
@@ -86,7 +86,7 @@ func TestLingtuCNYUsageViewsAgreeAndKeepUnknown(t *testing.T) {
 				Totals UsageSummaryTotals `json:"totals"`
 			}
 			json.Unmarshal(recorder.Body.Bytes(), &result)
-			if result.Totals.EstimatedCNY != "0.013677" || result.Totals.UnpricedRequests != 1 || result.Totals.CurrentRateRequests != 1 {
+			if result.Totals.EstimatedCNY != "0.007122" || result.Totals.UnpricedRequests != 2 || result.Totals.CurrentRateRequests != 0 {
 				t.Fatalf("summary: %s", recorder.Body.String())
 			}
 		} else {
@@ -106,7 +106,7 @@ func TestLingtuCNYUsageViewsAgreeAndKeepUnknown(t *testing.T) {
 		}
 	}
 	recorder, result := dailyUsageTestCall(t, "/?days=7")
-	if recorder.Code != 200 || result.Totals.EstimatedCNY != "0.013677" || result.Totals.UnpricedRequests != 1 {
+	if recorder.Code != 200 || result.Totals.EstimatedCNY != "0.007122" || result.Totals.UnpricedRequests != 2 {
 		t.Fatalf("daily: %s", recorder.Body.String())
 	}
 }
@@ -123,15 +123,17 @@ func TestLingtuCNYConfigRetainsRatesForOldClientsAndRejectsPartialRates(t *testi
 	db.First(&row)
 	r.ConnectionID, r.Revision, r.Secret = row.ChannelID, row.Revision, ""
 	r.CostRates = &costRatesRequest{InputCNY: "2"}
-	if err := h.saveModelConnection(nil, r); err == nil {
-		t.Fatal("partial rates accepted")
+	if err := h.saveModelConnection(nil, r); err != nil {
+		t.Fatal("partial rates rejected")
 	}
+	db.First(&row)
+	r.Revision = row.Revision
 	r.CostRates = nil
 	if err := h.saveModelConnection(nil, r); err != nil {
 		t.Fatal(err)
 	}
 	db.First(&row)
-	if row.InputCNY != "1" || row.OutputCNY != "10" {
+	if row.InputCNY != "2" || row.OutputCNY != "10" {
 		t.Fatal("old client erased rates")
 	}
 }

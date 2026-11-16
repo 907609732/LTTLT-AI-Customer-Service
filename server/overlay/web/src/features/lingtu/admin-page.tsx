@@ -35,7 +35,7 @@ import {
 } from '@/lib/format'
 
 import { AdminBilling } from './admin-billing'
-import { formatCNY } from './admin-cost-format'
+import { CostRecordCell, type CostRecord } from './admin-cost-record'
 import {
   AdminModels,
   type ModelProvider,
@@ -402,8 +402,9 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
         ? ids
         : availableModels.slice(0, 1).map((row) => row.model_id)
       editPolicy('allowed_models', next)
-      if (!next.includes(policy.default_model))
+      if (!next.includes(policy.default_model)) {
         editPolicy('default_model', next[0] ?? '')
+      }
     } else if (
       !availableModels.some((row) => row.model_id === policy.default_model)
     ) {
@@ -415,8 +416,9 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
       ? selectedModels.filter((model) => model !== id)
       : [...selectedModels, id]
     editPolicy('allowed_models', next)
-    if (!next.includes(policy.default_model))
+    if (!next.includes(policy.default_model)) {
       editPolicy('default_model', next[0] ?? '')
+    }
   }
   const selectionInvalid =
     Boolean(policy.model_scope) &&
@@ -785,7 +787,7 @@ function Accounts(props: {
     </div>
   )
 }
-interface UsageRecord {
+interface UsageRecord extends CostRecord {
   user_id: number
   display_name: string
   request_id: string
@@ -967,10 +969,7 @@ function UsageRecords(props: { save: Save; busy: boolean; userId?: number }) {
             {
               id: 'estimated_cny',
               header: t('Estimated cost (CNY)'),
-              cell: (row) =>
-                row.cost_basis === 'unpriced'
-                  ? t('Unpriced')
-                  : `${formatCNY(row.estimated_cny)} · ${t(row.cost_basis === 'current_rates' ? 'Recalculated at current rates' : 'Admission price snapshot')}`,
+              cell: (row) => <CostRecordCell row={row} />,
             },
             {
               id: 'diagnostic',

@@ -403,7 +403,7 @@
     },
     {
       "before": "\tlogger.LogDebug(c, \"upstream response body: %s\", responseBody)",
-      "after": "\tif c.GetBool(\"lingtu_internal\") {\n input, output, known := lingtu.ParseTokenUsage(responseBody)\n c.Set(\"lingtu_provider_usage_seen\", true); c.Set(\"lingtu_provider_usage_known\", known); c.Set(\"lingtu_provider_input_tokens\", input); c.Set(\"lingtu_provider_output_tokens\", output)\n }\n\tlogger.LogDebug(c, \"upstream response body: %s\", responseBody)"
+      "after": "\tif c.GetBool(\"lingtu_internal\") {\n usage := lingtu.ParseDetailedTokenUsage(responseBody); input, output, known := usage.Input, usage.Output, usage.Known\n c.Set(\"lingtu_provider_cache_read_tokens\", usage.CacheRead); c.Set(\"lingtu_provider_cache_usage_known\", usage.CacheKnown)\n c.Set(\"lingtu_provider_usage_seen\", true); c.Set(\"lingtu_provider_usage_known\", known); c.Set(\"lingtu_provider_input_tokens\", input); c.Set(\"lingtu_provider_output_tokens\", output)\n }\n\tlogger.LogDebug(c, \"upstream response body: %s\", responseBody)"
     }
   ],
   "relay/channel/aws/relay-aws.go": [
@@ -449,6 +449,12 @@
     {
       "before": "<title>New API</title>",
       "after": "<title>灵兔 AI</title>"
+    }
+  ],
+  "service/task_billing_test.go": [
+    {
+      "before": "func TestMain(m *testing.M) {",
+      "after": "func TestMain(m *testing.M) {\n\tinitializeLingtuServiceTestEncryption()"
     }
   ]
 }
