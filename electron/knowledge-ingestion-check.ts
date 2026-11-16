@@ -76,7 +76,7 @@ async function until(script: string) {
 async function click(text: string) {
   for (let i = 0; i < 150; i++) {
     const clicked = await evaluate<boolean>(
-      `(()=>{const node=[...document.querySelectorAll('button')].find(n=>n.textContent.trim()===${JSON.stringify(text)});if(!node||node.disabled)return false;node.click();return true})()`,
+      `(()=>{const node=[...document.querySelectorAll('button,[role="menuitem"]')].find(n=>n.textContent.trim()===${JSON.stringify(text)});if(!node||node.disabled||node.getAttribute('aria-disabled')==='true'||node.classList.contains('is-disabled'))return false;node.click();return true})()`,
     )
     if (clicked) {
       await delay(90)
@@ -90,6 +90,18 @@ async function click(text: string) {
       ' / ' +
       (await evaluate<string>('document.body.innerText')),
   )
+}
+async function openToolbarMenu(label: string, item: string) {
+  await until(
+    `Boolean([...document.querySelectorAll('.knowledge-toolbar-actions button')].find(node=>node.textContent.trim().startsWith(${JSON.stringify(label)})&&!node.disabled))`,
+  )
+  await evaluate(
+    `([...document.querySelectorAll('.knowledge-toolbar-actions button')].find(node=>node.textContent.trim().startsWith(${JSON.stringify(label)}))).click()`,
+  )
+  await until(
+    `Boolean([...document.querySelectorAll('.knowledge-toolbar-menu[aria-hidden="false"] [role="menuitem"]')].find(node=>node.textContent.trim()===${JSON.stringify(item)}))`,
+  )
+  await click(item)
 }
 async function screenshot(name: string) {
   await delay(150)
@@ -212,8 +224,7 @@ app
       }),
     )
     await manager.open({ workspaceId: w, storeId: a })
-    await until(`document.body.innerText.includes('导入商品CSV / 通用资料')`)
-    await click('导入商品CSV / 通用资料')
+    await openToolbarMenu('导入商品', '导入商品CSV / 通用资料')
     await until(`Boolean(document.querySelector('[aria-label="导入预览"]'))`)
     assert((await evaluate<string>('document.body.innerText')).includes('商品 1'))
     await screenshot('import-preview.png')
@@ -373,7 +384,7 @@ app
     checks.push(
       'actual failed HTTP call persists uncertain result; bare resume no replay; explicit skip causes zero additional calls',
     )
-    await click('导入本机归档聊天')
+    await openToolbarMenu('导入商品', '导入本机归档聊天')
     await until(`Boolean(document.querySelector('[aria-label="选择归档聊天范围"]'))`)
     await screenshot('archive-range.png')
     checks.push(

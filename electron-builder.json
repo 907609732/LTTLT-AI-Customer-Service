@@ -32,6 +32,8 @@
     "vendor/lingtu-runtime/LICENSE*",
     "vendor/lingtu-runtime/LICENSING.md",
     "vendor/lingtu-runtime/*NOTICES*",
+    "vendor/xianyu-bridge/bridge.js",
+    "vendor/xianyu-bridge/PROVENANCE.md",
     "package.json",
     "README.md",
     "LICENSE",

@@ -205,6 +205,40 @@ describe('本机模拟店铺管理器包装', () => {
     expect(() => manager.restartClient('sim-1')).toThrow('本机模拟店铺没有可重启的客户端')
   })
 
+  it('打开闲鱼店铺后回填登录名和卖家 id，换账号时停 AI', async () => {
+    const hub = new SimHub({ file: tempFile() })
+    let store: {
+      id: string
+      storeName?: string
+      platform?: string
+      mallId?: string
+      aiEnabled?: boolean
+    } = { id: 'xy-1', storeName: '闲鱼店铺', platform: 'xianyu', mallId: '', aiEnabled: true }
+    let identity = { storeName: 'xy156791819394', mallId: '2218297228331' }
+    const updates: Record<string, unknown>[] = []
+    const registry = {
+      get: () => store,
+      update: (_storeId: string, patch: Record<string, unknown>) => {
+        updates.push(patch)
+        store = { ...store, ...patch } as typeof store
+      },
+    }
+    const manager = new SimStoreManager(delegate, hub, registry, {
+      identityFor: async () => identity,
+    })
+    await manager.open('xy-1')
+    expect(store).toMatchObject({ storeName: 'xy156791819394', mallId: '2218297228331' })
+    expect(updates.at(-1)).toEqual({ mallId: '2218297228331', storeName: 'xy156791819394' })
+
+    identity = { storeName: 'xy-new-account', mallId: '42' }
+    await manager.open('xy-1')
+    expect(store).toMatchObject({
+      storeName: 'xy-new-account',
+      mallId: '42',
+      aiEnabled: false,
+    })
+  })
+
   it('工厂按同签名注入，并从依赖里取店铺注册表', () => {
     const hub = new SimHub({ file: tempFile() })
     const factory = createSimManagerFactory(() => delegate, hub)

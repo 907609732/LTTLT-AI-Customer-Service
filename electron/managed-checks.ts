@@ -21,6 +21,7 @@ export async function managedChecks(options: {
   const root = path.join(options.dataDir, 'managed-contract-fixture')
   const api = 'https://api.managed.test'
   const portal = 'https://account.managed.test'
+  let seededStoreId = ''
   fs.mkdirSync(root, { recursive: true })
   fs.writeFileSync(
     path.join(root, 'model-source.json'),
@@ -128,19 +129,22 @@ export async function managedChecks(options: {
   }
   try {
     await check(
-      'managed:device-login-encrypted-restore-and-account-workspace',
+      'managed:device-login-encrypted-restore-and-shared-workspace',
       '/settings',
       async () => {
         assert.ok(safeStorage.isEncryptionAvailable(), '托管测试要求真实系统加密可用')
         runtime = make()
         await runtime.start()
         assert.equal(runtime.snapshot().managed.session.status, 'signed_out')
-        await assert.rejects(
-          execute({
-            action: 'add-store',
-            values: { platform: 'sim-local', storeName: '禁止未登录写入' },
-          }),
-          /登录/,
+        // 登录前后共用本机工作区：未登录也能先有店铺，登录后不得被清空。
+        const seeded = await execute({
+          action: 'add-store',
+          values: { platform: 'sim-local', storeName: '登录前后共用店铺' },
+        })
+        seededStoreId = String(seeded.data.id)
+        assert.deepEqual(
+          runtime.snapshot().stores.map((store) => store.id),
+          [seededStoreId],
         )
         await execute({ action: 'managed-login' })
         for (
@@ -167,7 +171,10 @@ export async function managedChecks(options: {
         assert.equal(runtime.snapshot().capabilities.modelMode, 'managed')
         assert.ok(!JSON.stringify(runtime.snapshot()).includes('fixture-managed-refresh'))
         assert.ok(!JSON.stringify(runtime.snapshot()).includes('fixture-managed-access'))
-        assert.equal(runtime.snapshot().stores.length, 0)
+        assert.deepEqual(
+          runtime.snapshot().stores.map((store) => store.id),
+          [seededStoreId],
+        )
       },
     )
     await check('managed:actual-training-trace-and-settings-ui', '/settings', async () => {
@@ -330,10 +337,10 @@ export async function managedChecks(options: {
         assert.equal(chatCalls.length, 2)
         await execute({ action: 'managed-logout' })
         assert.equal(runtime.snapshot().managed.session.status, 'signed_out')
-        assert.equal(
-          runtime.snapshot().review.traces.length,
-          0,
-          '退出后不得继续返回账号的模型上下文',
+        // 退出只移除托管凭据和 AI 资格；本机店铺与本地模型记录属于共用工作区，不被清空。
+        assert.deepEqual(
+          runtime.snapshot().stores.map((store) => store.id),
+          [seededStoreId],
         )
       },
     )
