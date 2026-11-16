@@ -146,3 +146,5 @@ Task4 review round1: source replacement now uses stable logical positions and re
 2026-11-15 final integration: `local-runtime → knowledge/daily → existing collector` persists per-shop Beijing day claims and quiet jobs in the same SQLite. `WorkspaceRuntime.restoreKnowledge → prepareRestore → full runtime disposal → stopped-writer restore → same-account factory` owns reopen/recovery; ordinary knowledge IPC cannot replace files. Explicit restore returns/rebinds a new lease without changing configured model source or persisted send mode, respecting startup AI-off defaults. `knowledge/budget` uses Node worker_threads with the existing js-tiktoken codec and context count function; full low-level requests are rejected at16K before model I/O. No new dependency or renderer filesystem/network access.
 
 2026-11-15：shops基础设置通过settings公开ReplyPacingSettings控件复用REPLY_PACING。主进程加载Config时修正低于1秒旧值，新配置1秒且保留已有合法间隔。生产调度timedTasksEnabled:false仅禁用独立定时任务，保留接待事件调度。
+
+店铺AI恢复由electron/store-ai-preferences.ts与ai-state-restore.ts在主进程协调，接入local-runtime普通启动、平台身份事件及显式开关命令；共享店铺快照仅暴露可选恢复状态，不公开存储身份。知识库维护重建抑制恢复，规则与验证边界见AI_STATE_RESTORE.md。

@@ -150,7 +150,13 @@ async function setAi(shop: LocalStore) {
     const r = await runtime.run({
       action: 'set-ai',
       storeId: shop.id,
-      values: { enabled: !shop.aiEnabled },
+      values: {
+        enabled: !(
+          shop.aiEnabled ||
+          (shop.aiRestore?.desiredEnabled &&
+            ['waiting', 'restoring'].includes(shop.aiRestore.status))
+        ),
+      },
     })
     task.message.value = r.message
   })
