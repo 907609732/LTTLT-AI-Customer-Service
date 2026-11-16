@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import { BrowserWindow, safeStorage } from 'electron'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -78,6 +79,86 @@ export async function businessChecks(options: {
     const address = server.address()
     assert.ok(address && typeof address !== 'string')
     const baseUrl = `http://127.0.0.1:${address.port}/v1`
+    await check('business:runtime-log-controls', '/logs', async () => {
+      await load('/logs')
+      const evaluate = (script: string) => win.webContents.executeJavaScript(script)
+      const originalPinned = win.isAlwaysOnTop(),
+        originalBounds = win.getBounds()
+      await wait("Boolean(document.querySelector('.logs-header'))")
+      await wait(
+        "[...document.querySelectorAll('.logs-header button')].some(b => !b.disabled && (b.textContent.trim() === '置顶' || b.textContent.trim() === '取消置顶'))",
+      )
+      assert.equal(
+        await evaluate("getComputedStyle(document.querySelector('.logs-header')).webkitAppRegion"),
+        'drag',
+      )
+      assert.equal(
+        await evaluate(
+          "getComputedStyle(document.querySelector('.logs-header .runtime-actions')).webkitAppRegion",
+        ),
+        'no-drag',
+      )
+      const clickPin = () =>
+        evaluate(
+          "[...document.querySelectorAll('.logs-header button')].find(b=>b.textContent.trim()==='置顶'||b.textContent.trim()==='取消置顶').click()",
+        )
+      try {
+        await clickPin()
+        for (let i = 0; i < 50 && win.isAlwaysOnTop() === originalPinned; i++)
+          await new Promise((r) => setTimeout(r, 20))
+        assert.equal(win.isAlwaysOnTop(), !originalPinned)
+        await wait(
+          `document.querySelector('.logs-header [aria-pressed]').getAttribute('aria-pressed')===${JSON.stringify(String(!originalPinned))}`,
+        )
+        await clickPin()
+        for (let i = 0; i < 50 && win.isAlwaysOnTop() !== originalPinned; i++)
+          await new Promise((r) => setTimeout(r, 20))
+        assert.equal(win.isAlwaysOnTop(), originalPinned)
+        await wait(
+          "![...document.querySelectorAll('.logs-header button')].find(b=>b.textContent.trim()==='清除日志').disabled",
+        )
+        await evaluate(
+          "[...document.querySelectorAll('.logs-header button')].find(b=>b.textContent.trim()==='清除日志').click()",
+        )
+        await wait("document.body.innerText.includes('已清除')")
+        assert.equal((await snapshot()).review.logs.length, 0)
+        if (process.platform === 'win32' && process.env.LINGTU_NATIVE_LOG_DRAG === '1') {
+          if (win.isMaximized()) win.unmaximize()
+          win.setBounds({ x: 80, y: 80, width: 1200, height: 800 })
+          win.setAlwaysOnTop(true)
+          win.show()
+          win.focus()
+          await new Promise((r) => setTimeout(r, 500))
+          const before = win.getPosition()
+          const handle = win.getNativeWindowHandle().readUInt32LE(0).toString()
+          await new Promise<void>((resolve, reject) =>
+            execFile(
+              'python',
+              [
+                '-c',
+                'from pywinauto import Desktop; import sys,win32gui; w=Desktop(backend="win32").window(handle=int(sys.argv[1])).wrapper_object(); w.set_focus(); win32gui.SetWindowPos(w.handle,-1,0,0,0,0,0x43); w.drag_mouse_input(src=(500,35),dst=(580,95),absolute=False)',
+                handle,
+              ],
+              { timeout: 20000, windowsHide: true },
+              (error) => (error ? reject(error) : resolve()),
+            ),
+          )
+          const after = win.getPosition()
+          assert(
+            Math.abs(after[0] - before[0]) >= 40 && Math.abs(after[1] - before[1]) >= 30,
+            `native titlebar drag did not move the actual window: ${before} -> ${after}`,
+          )
+        }
+        fs.mkdirSync(path.resolve('artifacts/runtime-log-controls'), { recursive: true })
+        fs.writeFileSync(
+          path.resolve('artifacts/runtime-log-controls/native.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+      } finally {
+        win.setAlwaysOnTop(originalPinned)
+        win.setBounds(originalBounds)
+      }
+    })
     await check('business:ui-add-store', '/', async () => {
       await load('/')
       await win.webContents.executeJavaScript(

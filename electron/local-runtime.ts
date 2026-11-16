@@ -1059,6 +1059,14 @@ export function createLocalRuntime(options: {
         (command.action === 'review-reply' && command.values.approve === true)
       if (managed.snapshot().restartRequired && startsAi)
         throw new Error('模型来源或账号已改变，请重启软件；旧候选不能继续发送')
+      if (command.action === 'clear-runtime-logs') {
+        const cleared = review.clearLogs()
+        return {
+          status: 'ok',
+          message: `已清除 ${cleared.logs} 条日志、${cleared.traces} 条调试记录及 ${cleared.replies} 条历史确认；待确认、发送中和运行中的请求已保留。`,
+          data: cleared,
+        }
+      }
       if (command.action === 'open-runtime-logs') {
         await openLogs()
         return { status: 'ok' as const, message: '日志窗口已打开', data: {} }

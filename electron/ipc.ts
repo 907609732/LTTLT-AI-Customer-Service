@@ -141,6 +141,12 @@ export function registerDesktopIpc(
     'win:close': (event: IpcMainInvokeEvent) => {
       sourceWindow(event).close()
     },
+    'win:is-always-on-top': (event: IpcMainInvokeEvent) => sourceWindow(event).isAlwaysOnTop(),
+    'win:set-always-on-top': (event: IpcMainInvokeEvent, pinned: unknown) => {
+      const win = sourceWindow(event)
+      win.setAlwaysOnTop(z.boolean().parse(pinned))
+      return win.isAlwaysOnTop()
+    },
     'win:is-maximized': (event: IpcMainInvokeEvent) => sourceWindow(event).isMaximized(),
     'win:begin-move': (event: IpcMainInvokeEvent, point: unknown) => {
       const win = sourceWindow(event)

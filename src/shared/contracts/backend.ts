@@ -16,6 +16,7 @@ export const actions = [
   'acknowledge-model-issue',
   'add-store',
   'open-runtime-logs',
+  'clear-runtime-logs',
   'open-reply-monitor',
   'set-store-send-mode',
   'review-reply',

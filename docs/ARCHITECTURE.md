@@ -148,3 +148,5 @@ Task4 review round1: source replacement now uses stable logical positions and re
 2026-11-15：shops基础设置通过settings公开ReplyPacingSettings控件复用REPLY_PACING。主进程加载Config时修正低于1秒旧值，新配置1秒且保留已有合法间隔。生产调度timedTasksEnabled:false仅禁用独立定时任务，保留接待事件调度。
 
 店铺AI恢复由electron/store-ai-preferences.ts与ai-state-restore.ts在主进程协调，接入local-runtime普通启动、平台身份事件及显式开关命令；共享店铺快照仅暴露可选恢复状态，不公开存储身份。知识库维护重建抑制恢复，规则与验证边界见AI_STATE_RESTORE.md。
+
+2026-11-16（1.0.35）：详细日志通过现有 runtime 命令 clear-runtime-logs 清除有界内存中的已完成记录；不会删除持久化会话、批准候选或取消在途请求。Desktop 新增可选 isAlwaysOnTop/setAlwaysOnTop，preload 对应受信来源窗口 IPC win:is-always-on-top/win:set-always-on-top，布尔输入校验。日志窗以原生 app-region 拖动，工具栏 no-drag；无新增生产依赖。
