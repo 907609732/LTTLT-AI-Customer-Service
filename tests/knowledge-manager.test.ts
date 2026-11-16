@@ -35,6 +35,7 @@ const fake = vi.hoisted(() => ({
   backup: vi.fn(),
   clearPreview: vi.fn(),
   clear: vi.fn(),
+  restore: vi.fn(),
 }))
 it('shows the saved shop product code on the knowledge card', () => {
   const directory = mkdtempSync(join(tmpdir(), 'knowledge-card-code-'))
@@ -325,6 +326,167 @@ it('clears the transient workspace-change warning after the owner supplies a ver
   expect(manager!.storeId.value).toBe('a')
   expect(manager!.error.value).toBe('')
   wrapper.unmount()
+})
+
+it.each(['clear', 'restore'] as const)(
+  'waits for the actual replacement snapshot during two consecutive %s operations',
+  async (operation) => {
+    const { wrapper, runtime, manager: state } = await setup(true)
+    const manager = state!
+    const refresh = vi.spyOn(runtime, 'refresh').mockResolvedValue(undefined)
+    try {
+      for (let index = 0; index < 2; index++) {
+        const workspaceId = `replacement-${index}`
+        const message = operation === 'clear' ? '知识库已清除' : '知识库已恢复'
+        fake[operation].mockResolvedValueOnce({
+          workspaceId,
+          recovered: false,
+          message,
+          context: { workspaceId, storeId: 'a', revision: index + 2 },
+        })
+        if (operation === 'clear') {
+          manager.clearPreview.value = {
+            token: 'clear',
+            scope: { kind: 'store', storeId: 'a' },
+            label: 'a',
+            confirmation: '清除当前店铺',
+            products: 0,
+            entries: 0,
+            jobs: 0,
+            misses: 0,
+            message: '',
+          }
+          manager.clearConfirmation.value = '清除当前店铺'
+        } else {
+          manager.restorePreview.value = {
+            token: 'restore',
+            scope: 'all',
+            stores: [],
+            bindings: [],
+            originalFiles: [],
+            message: '',
+          }
+        }
+        let finished = false
+        const replacing = (
+          operation === 'clear' ? manager.clearKnowledge() : manager.restoreBackup()
+        ).then(() => {
+          finished = true
+        })
+        await flushPromises()
+        expect(finished).toBe(false)
+        expect(manager.notice.value).not.toBe(message)
+        // A newer refresh wins only after the operation's own refresh has resolved.
+        runtime.snapshot.workspaceId = workspaceId
+        await flushPromises()
+        await replacing
+        expect(manager.storeId.value).toBe('a')
+        expect(manager.notice.value).toBe(message)
+        await flushPromises()
+        expect(manager.notice.value).toBe(message)
+        expect(manager.error.value).not.toContain('账号工作区已改变')
+      }
+    } finally {
+      wrapper.unmount()
+      refresh.mockRestore()
+    }
+  },
+)
+
+it('cancels a replacement context wait when the manager closes without restoring an old shop', async () => {
+  const { wrapper, runtime, manager: state } = await setup(true)
+  const manager = state!
+  const refresh = vi.spyOn(runtime, 'refresh').mockResolvedValue(undefined)
+  manager.restorePreview.value = {
+    token: 'restore',
+    scope: 'all',
+    stores: [],
+    bindings: [],
+    originalFiles: [],
+    message: '',
+  }
+  fake.restore.mockResolvedValueOnce({
+    context: { workspaceId: 'replacement', storeId: 'a', revision: 2 },
+    message: '知识库已恢复',
+  })
+  const replacing = manager.restoreBackup()
+  const rejected = expect(replacing).rejects.toThrow(/关闭|取消/)
+  await flushPromises()
+  runtime.snapshot.workspaceId = 'another-account'
+  await flushPromises()
+  wrapper.unmount()
+  await rejected
+  expect(manager.storeId.value).toBe('')
+  expect(manager.notice.value).not.toContain('已恢复')
+  refresh.mockRestore()
+})
+
+it('bounds a missing replacement snapshot without reporting success or applying it later', async () => {
+  const { wrapper, runtime, manager: state } = await setup(true)
+  const manager = state!
+  const refresh = vi.spyOn(runtime, 'refresh').mockResolvedValue(undefined)
+  vi.useFakeTimers()
+  try {
+    manager.restorePreview.value = {
+      token: 'restore',
+      scope: 'all',
+      stores: [],
+      bindings: [],
+      originalFiles: [],
+      message: '',
+    }
+    fake.restore.mockResolvedValueOnce({
+      context: { workspaceId: 'missing', storeId: 'a', revision: 2 },
+      message: '知识库已恢复',
+    })
+    const replacing = manager.restoreBackup()
+    const rejected = expect(replacing).rejects.toThrow('工作区交接尚未完成')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10000)
+    await rejected
+    runtime.snapshot.workspaceId = 'missing'
+    await flushPromises()
+    expect(manager.storeId.value).toBe('')
+    expect(manager.notice.value).not.toContain('已恢复')
+  } finally {
+    wrapper.unmount()
+    refresh.mockRestore()
+    vi.useRealTimers()
+  }
+})
+
+it('does not report replacement success after closing during the final context refresh', async () => {
+  const { wrapper, runtime, manager: state } = await setup(true)
+  const manager = state!
+  const refresh = vi.spyOn(runtime, 'refresh').mockResolvedValue(undefined)
+  const pending = deferred<unknown>()
+  const originalQuery = fake.query.getMockImplementation()!
+  fake.query.mockImplementation((input: { type: string }) =>
+    input.type === 'summary' ? pending.promise : originalQuery(input),
+  )
+  manager.restorePreview.value = {
+    token: 'restore',
+    scope: 'all',
+    stores: [],
+    bindings: [],
+    originalFiles: [],
+    message: '',
+  }
+  fake.restore.mockResolvedValueOnce({
+    context: { workspaceId: 'replacement', storeId: 'a', revision: 2 },
+    message: '知识库已恢复',
+  })
+  const replacing = manager.restoreBackup()
+  const rejected = expect(replacing).rejects.toThrow(/关闭/)
+  await flushPromises()
+  runtime.snapshot.workspaceId = 'replacement'
+  await flushPromises()
+  expect(manager.storeId.value).toBe('a')
+  wrapper.unmount()
+  pending.resolve({ products: 0, entries: 0, pending: 0, jobs: 0, misses: 0, readOnly: false })
+  await rejected
+  expect(manager.notice.value).not.toContain('已恢复')
+  refresh.mockRestore()
 })
 it('defaults clearing to the current shop, previews account scope separately, and never clears on cancel or an incomplete phrase', async () => {
   const { wrapper } = await setup()

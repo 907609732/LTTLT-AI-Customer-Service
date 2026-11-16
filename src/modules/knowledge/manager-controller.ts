@@ -1,6 +1,6 @@
 import { publishKnowledgeBatch, type BatchReviewResult } from './batch-review'
 import { useKnowledgeIngestion } from './ingestion-controller'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { getDesktop } from '@/shared/platform/desktop'
 import { downloadText } from '@/shared/platform/files'
@@ -162,6 +162,7 @@ export function useKnowledgeManager() {
     editGeneration = 0,
     draftSession = 0
   let activeRun: symbol | undefined
+  const replacementWaiters = new Set<() => void>()
   function client() {
     const service = createKnowledgeClient(workspace.value),
       revision = leaseRevision,
@@ -921,10 +922,10 @@ export function useKnowledgeManager() {
     if (!preview) return
     const service = createKnowledgeClient(workspace.value)
     restorePreview.value = undefined
+    notice.value = ''
     // Restore intentionally replaces the lease. The owner returns the verified NEW context.
     const result = await service.restore(preview.token)
-    await runtime.refresh()
-    await applyContext(result.context)
+    await applyReplacementContext(result.context)
     notice.value = result.message
   }
   async function previewClear() {
@@ -946,8 +947,7 @@ export function useKnowledgeManager() {
     clearPreview.value = undefined
     clearConfirmation.value = ''
     const result = await service.clear(preview.token, confirmation)
-    await runtime.refresh()
-    await applyContext(result.context)
+    await applyReplacementContext(result.context)
     notice.value = result.message
   }
   async function exportEntries(format: 'csv' | 'json' = 'json') {
@@ -1105,8 +1105,11 @@ export function useKnowledgeManager() {
     if (context.workspaceId !== runtime.snapshot.workspaceId) return
     if (context.revision <= contextRevision && context.workspaceId === workspace.value) return
     await saveDraft()
+    if (context.workspaceId !== runtime.snapshot.workspaceId) return
     if (context.revision <= contextRevision && context.workspaceId === workspace.value) return
     await closeEditor()
+    if (context.workspaceId !== runtime.snapshot.workspaceId) return
+    if (context.revision <= contextRevision && context.workspaceId === workspace.value) return
     leaseRevision++
     contextRevision = context.revision
     workspace.value = context.workspaceId
@@ -1120,6 +1123,50 @@ export function useKnowledgeManager() {
     page.value = 0
     if (context.workspaceId === runtime.snapshot.workspaceId && currentStore.value) error.value = ''
     await refresh()
+  }
+  async function applyReplacementContext(context: KnowledgeWindowContext) {
+    if (disposed) throw Error('知识库窗口已关闭')
+    // A refresh may resolve after its result was superseded by another refresh.
+    // Wait for the actual owner snapshot, after workspace invalidation watchers,
+    // rather than treating completion of an individual request as a handoff.
+    await new Promise<void>((resolve, reject) => {
+      let settled = false
+      let stop = () => {}
+      const cancel = () => finish(Error('知识库窗口已关闭，已取消工作区交接'))
+      const finish = (cause?: unknown) => {
+        if (settled) return
+        settled = true
+        stop()
+        clearTimeout(timer)
+        replacementWaiters.delete(cancel)
+        if (cause) reject(cause)
+        else resolve()
+      }
+      replacementWaiters.add(cancel)
+      stop = watch(
+        () => runtime.snapshot.workspaceId,
+        (workspaceId) => {
+          if (workspaceId === context.workspaceId) finish()
+        },
+        { flush: 'post' },
+      )
+      const timer = setTimeout(
+        () => finish(Error('工作区交接尚未完成，请从目标店铺重新打开知识库')),
+        10000,
+      )
+      if (runtime.snapshot.workspaceId === context.workspaceId) finish()
+      void runtime.refresh().catch(finish)
+    })
+    await nextTick()
+    if (disposed) throw Error('知识库窗口已关闭')
+    await applyContext(context)
+    if (disposed) throw Error('知识库窗口已关闭')
+    if (
+      runtime.snapshot.workspaceId !== context.workspaceId ||
+      workspace.value !== context.workspaceId ||
+      (context.storeId && storeId.value !== context.storeId)
+    )
+      throw Error('账号工作区已再次改变，请从目标店铺重新打开知识库')
   }
   let contextRevision = -1
   async function hide() {
@@ -1248,6 +1295,7 @@ export function useKnowledgeManager() {
   })
   onBeforeUnmount(() => {
     disposed = true
+    for (const cancel of replacementWaiters) cancel()
     ticket++
     clearTimeout(timer)
     offContext?.()
