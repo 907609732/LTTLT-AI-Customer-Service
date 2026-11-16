@@ -23,6 +23,7 @@ let runtime: ReturnType<typeof createLocalRuntime> | undefined,
   parent: BrowserWindow | undefined,
   win: BrowserWindow | undefined
 let uncertain = false
+let fixtureOcrCalls = 0
 const calls: { messages: import('./context-compression').ModelMessages }[] = [],
   checks: string[] = []
 const disposals: (() => void)[] = []
@@ -107,7 +108,18 @@ app
     const address = model.address()
     assert(address && typeof address !== 'string')
     parent = createWindow({ smoke: true })
-    runtime = createLocalRuntime({ dataDir: path.join(root, 'account'), getWindow: () => parent })
+    runtime = createLocalRuntime({
+      dataDir: path.join(root, 'account'),
+      getWindow: () => parent,
+      recognizeKnowledgeImage: async (bytes, signal) => {
+        signal.throwIfAborted()
+        assert.equal(Buffer.from(bytes.subarray(0, 8)).toString('hex'), '89504e470d0a1a0a')
+        fixtureOcrCalls++
+        // Synthetic raster fixture: exercise the real image/OCR pipeline without
+        // depending on a hosted runner's optional Windows OCR language packs.
+        return { text: '', lines: [], language: 'zh-Hans-CN' }
+      },
+    })
     disposals.push(registerBusinessIpc(runtime))
     await runtime.start()
     const w = runtime.snapshot().workspaceId
@@ -266,6 +278,7 @@ app
     await click('关闭图片')
     await click('学习本商品资料')
     await until(`document.body.innerText.includes('明确开始模型学习')`)
+    assert(fixtureOcrCalls > 0, 'must pass actual PNG tiles through the injected OCR boundary')
     const beforeVision = calls.length
     await click('明确开始模型学习')
     for (

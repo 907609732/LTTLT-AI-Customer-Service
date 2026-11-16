@@ -135,6 +135,8 @@ export function createLocalRuntime(options: {
   getWindow: () => BrowserWindow | undefined
   /** Test-only dependency injection; production has no environment or renderer override. */
   managedTransport?: ManagedTransport
+  /** Native acceptance can supply a recognizer without requiring OS language packs. */
+  recognizeKnowledgeImage?: Parameters<typeof createKnowledgeImageOcr>[0]['recognize']
 }) {
   const workspaceId = randomUUID()
   const listeners = new Set<(event: BackendEvent) => void>()
@@ -631,6 +633,7 @@ export function createLocalRuntime(options: {
         repository: knowledgeRepository,
         assertActive,
         assertStore: knowledge.assertStore,
+        recognize: options.recognizeKnowledgeImage,
       }),
       assertStore: knowledge.assertStore,
       model: {
