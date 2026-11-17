@@ -549,3 +549,13 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 修复：用现有 Pillow 从 `src/assets/lingtu-ai-icon.png` 生成圆形透明七尺寸 ICO，完整品牌内容内缩86%半径避免裁切；windows.ts 源码读 public、打包读 app.asar/dist；打包应用在窗口前设置 builder appId 对应的 AppUserModelID（源码调试不设置，避免归到本机旧安装快捷方式）；保留 builder signExecutable:false 和现有图标配置。新增 ICO 尺寸/路径/AUMID 与 builder appId 一致性回归，透明度复用 Pillow 生成脚本核对。
 
 验证：Codex 独立复验 3 个文件9项测试、Electron TypeScript、修改范围 ESLint 和主目录 npm run build 通过；Pillow --check 七尺寸均四角 alpha=0、中心 alpha=255。已重新打开主目录源码，窗口显示v1.0.47。另用已安装 Electron 生成本机 --dir 解包测试产物（非Release），退出码0；已从EXE提取7个透明圆形尺寸；产品名与1.0.47.0版本元数据正确，asar/public图标逐字节一致，EXE提取图标各尺寸RGBA像素一致（ICO容器头重建后字节不同）。未制作或公开发布安装器，旧安装目录保留原样。测试不自写PNG解码器，透明度复用Pillow检查。
+
+## 2026-11-17 同一买家随机回复节奏（1.0.49，本地）
+
+按用户最终要求完成：基础设置“客服风格”页回复间隔保留原卡片与保存按钮，改为下拉四项——1～3 秒随机（默认）、2～3 秒随机、自定义随机范围（选中才显示起止整数秒输入）、固定 1 秒。范围校验 1≤min≤max≤3600，随机结果至少 1 秒；只作用于同一买家连续回复的排队节奏，不是模型生成耗时承诺。界面显示真实“当前：…·全局生效”，脏草稿标“未保存”，CAS 冲突保留草稿并提供“重新载入已保存设置”，普通快照刷新不丢草稿；说明“模型生成和审核耗时另计”，窄屏按组换行不溢出。
+
+实现：`electron/reply-pacing.ts` 的 `ReplyPacingStore` 独立保存本机业务目录 `reply-pacing.json`（版本 1，原子写入 0600）；`createUidIntervalResolver` 在自有 TypeScript 抽样并按“店铺+买家+上次发送时间+模式/范围指纹”缓存，保存后指纹变化使当前等待立即重算，同一等待只抽一次。`electron/local-runtime.ts` 在快照叠加 `config.reply.pacing`、拦截 REPLY_PACING 保存（CAS 必填）并把 resolver 注入厂商；`electron/message-diagnostics.ts` 读取引擎本次已确定的间隔。厂商仅两处最小补丁：ReplyEngine 接收并转发 resolver 到每个 StoreWorker（Worker 不缓存业务节奏，注入时不再叠加旧 0.5～2 秒发送抖动，异常退 1 秒下限），未注入时每次动态读取 `perUidMinIntervalMs` 并保留原抖动；backend.cjs 只透传该可选函数。双哈希与 PROVENANCE 已更新。
+
+迁移与错误边界：首次没有 `reply-pacing.json` 的旧账号（含旧 60 秒或其他固定值）迁移为 1～3 秒随机并记录迁移来源；旧值继续留在 `config.json` 的 `perUidMinIntervalMs` 供审计/回退，保存新模式不改写它，已有新配置不会被启动流程覆盖。坏 JSON、反序/越界配置、首次迁移写失败都会明确报错并保留原文件，不静默回默认。未改动店铺、账号、Key、AI 开启状态、旧批准或发送审批。
+
+验证（均为本机实际执行）：Vitest 7 个相关文件 60 项通过（含审查者新增 `tests/reply-pacing-factory.test.ts` 7 项真实工厂链路）；相关上游 89 项通过；`npm run typecheck`、变更文件 ESLint/Prettier、`npm run check:vendor`、`npm run build` 通过；`LINGTU_DESKTOP_CHECKS=business:reply-pacing-settings npm run test:desktop` 1/1 通过并查看截图。未运行全量 `npm run check`、全量桌面检查、真实买家发送、安装包发布或生产部署；未提交推送。未重启/打开真实资料实例：本轮为独立 worktree 的源码修改与隔离桌面验收，是否切换运行实例由整合方按版本规则决定（运行中的实例仍显示其原构建版本）。

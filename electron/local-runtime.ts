@@ -19,8 +19,8 @@ import { StoreAiPreferences } from './store-ai-preferences'
 import { StoreSendModes } from './store-send-modes'
 import { SendModeAuthorizations } from './send-mode-authorizations'
 import { createRequire } from 'node:module'
-import { existsSync } from 'node:fs'
-import { normalizeReplyInterval, validateReplyInterval } from './reply-pacing'
+import { ReplyPacingStore, createUidIntervalResolver } from './reply-pacing'
+import { describeReplyPacing } from '../src/shared/reply-pacing'
 import { MANUAL_REPLY_KEYWORDS_SCREEN, normalizeManualReplyKeywords } from './manual-reply-keywords'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -229,15 +229,12 @@ export function createLocalRuntime(options: {
   const { Config } = loadFactory<{
     Config: new (options: { file: string }) => {
       all(): { reply: { perUidMinIntervalMs: number } }
-      update(patch: { reply: { perUidMinIntervalMs: number } }): void
     }
   }>('desk-v1/src/main/config.js', 'Config')
-  const pacingConfigExists = existsSync(path.join(dataDir, 'config.json'))
   const pacingConfig = new Config({ file: path.join(dataDir, 'config.json') })
-  const previousInterval = pacingConfig.all().reply.perUidMinIntervalMs
-  const nextInterval = pacingConfigExists ? normalizeReplyInterval(previousInterval) : 1000
-  if (previousInterval !== nextInterval)
-    pacingConfig.update({ reply: { perUidMinIntervalMs: nextInterval } })
+  // 旧版固定间隔（含 60 秒）不再改写：原值留在 config.json 供审计/回退，
+  // 新的随机节奏单独保存在 reply-pacing.json，首次缺失时迁移为 1～3 秒随机。
+  const replyPacing = new ReplyPacingStore(dataDir, pacingConfig.all().reply.perUidMinIntervalMs)
   const knowledgeRepository = createKnowledgeRepository({ directory: dataDir, workspaceId })
   const knowledge = createKnowledgeRuntime({
     repository: knowledgeRepository,
@@ -335,8 +332,19 @@ export function createLocalRuntime(options: {
     const masked = emptySnapshot()
     masked.capabilities.modelMode = managed.active.mode
     // 本机与托管账号共用同一工作区；仅在本地后端尚未装配时使用空快照。
+    const source = (backendRef.current ? backendRef.current.snapshot() : masked) as {
+      config?: { reply?: Record<string, unknown> } & Record<string, unknown>
+    } & Record<string, unknown>
     const snapshot = snapshotSchema.parse({
-      ...(backendRef.current ? (backendRef.current.snapshot() as Record<string, unknown>) : masked),
+      ...source,
+      // 随机回复节奏属于本工程配置，由主进程叠加到厂商快照上。
+      config: {
+        ...(source.config ?? masked.config),
+        reply: {
+          ...(source.config?.reply ?? masked.config.reply),
+          pacing: replyPacing.snapshot(),
+        },
+      },
       workspaceId,
       managed: managed.snapshot(),
     })
@@ -569,6 +577,8 @@ export function createLocalRuntime(options: {
       },
     ),
     safeStorage,
+    // 每次等待按买家当前模式抽取一次间隔；厂商侧缓存同一次等待的值。
+    resolveUidIntervalMs: createUidIntervalResolver(() => replyPacing.snapshot()),
     modelMode: managed.active.mode,
     managedChat: (
       payload: { client_request_id: string; messages: unknown },
@@ -1127,8 +1137,6 @@ export function createLocalRuntime(options: {
       if (closed) throw new Error('本地服务已关闭')
       if (storeSync.isBusy()) throw new Error('正在跨店同步或回滚，请等待完成后再修改工作区')
       const command = commandSchema.parse(input)
-      if (command.action === 'save-config' && command.screenId === 'REPLY_PACING')
-        validateReplyInterval(command.values.seconds)
       if (command.action === 'save-config' && command.screenId === MANUAL_REPLY_KEYWORDS_SCREEN) {
         // 只采纳这两个字段，其他 safety 配置由 ConfigStore 的深合并保留。
         command.values = {
@@ -1137,6 +1145,21 @@ export function createLocalRuntime(options: {
         }
       }
       if (command.workspaceId !== workspaceId) throw new Error('本地服务已重启，请刷新后重试')
+      if (command.action === 'save-config' && command.screenId === 'REPLY_PACING') {
+        // 只写本机随机节奏文件：不碰店铺、账号、Key、AI 开关、发送审批或旧固定间隔。
+        const saved = replyPacing.save({
+          mode: command.values.mode,
+          customMinSeconds: command.values.customMinSeconds,
+          customMaxSeconds: command.values.customMaxSeconds,
+          expected: command.values.expected,
+        })
+        notifyReview()
+        return {
+          status: 'ok' as const,
+          message: `回复间隔已保存：${describeReplyPacing(saved)}（同一买家）；这是排队节奏，模型生成和审核耗时另计。`,
+          data: { pacing: saved },
+        }
+      }
       if (
         [
           'save-model-source',

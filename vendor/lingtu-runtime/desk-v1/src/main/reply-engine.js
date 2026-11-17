@@ -78,6 +78,7 @@ class StoreWorker {
     random = Math.random,
     selfSendLedger = null,
     welcomePolicy = null,
+    resolveUidIntervalMs = null,
   }) {
     if (!store?.id) throw new Error('store_required');
     if (!aiClient || typeof aiClient.reply !== 'function') throw new Error('ai_client_required');
@@ -100,6 +101,10 @@ class StoreWorker {
     this.random = typeof random === 'function' ? random : Math.random;
     this.selfSend = selfSendLedger || new SelfSendLedger({ now });
     this.welcomePolicy = welcomePolicy;
+    // 云朵本地兼容补丁（随机回复节奏）：本工程 TypeScript 按买家给出等待毫秒数，
+    // 业务缓存与策略都在 TypeScript；这里只透传上下文并调用，未注入时保持上游行为。
+    this.resolveUidIntervalMs =
+      typeof resolveUidIntervalMs === 'function' ? resolveUidIntervalMs : null;
 
     this.running = false;
     this.generation = 0;
@@ -431,7 +436,7 @@ class StoreWorker {
       // Pacing is a queue delay, not a failed delivery or a manual takeover.
       const pacing = this.#sendGate(uid);
       if (!pacing.ok) {
-        decision('waiting',pacing.reason,pacing.reason==='uid_interval'?'尚未交给 AI：同一买家回复间隔 '+Math.round((this.cfg.perUidMinIntervalMs??60000)/1000)+' 秒，约 '+Math.ceil(pacing.retryAfterMs/1000)+' 秒后重试。':'尚未交给 AI：本店每分钟发送数量已达设置上限，等待窗口恢复。');
+        decision('waiting',pacing.reason,pacing.reason==='uid_interval'?'尚未交给 AI：同一买家回复节奏本次间隔 '+Math.round(this.#uidIntervalMs(uid)/1000)+' 秒，约 '+Math.ceil(pacing.retryAfterMs/1000)+' 秒后重试。':'尚未交给 AI：本店每分钟发送数量已达设置上限，等待窗口恢复。');
         this.stats.throttled += 1;
         this.onEvent?.({ type: 'reply:throttled', storeId: this.store.id, uid,
           reason: pacing.reason, retryAfterMs: pacing.retryAfterMs });
@@ -540,10 +545,39 @@ class StoreWorker {
     while (this.sendWindow.length && this.sendWindow[0] <= cutoff) this.sendWindow.shift();
   }
 
+  /**
+   * 云朵本地兼容补丁（随机回复节奏）：同一买家本次等待使用的间隔。
+   * 注入解析器时只透传店铺/买家/上次发送时间，由 TypeScript 负责“每轮只抽一次”
+   * 与保存后立即失效；解析异常时退到 1 秒下限，绝不叠加或回落到旧 60 秒固定值。
+   * 未注入时每次动态读取上游 perUidMinIntervalMs，旧 save-config 改值立即生效。
+   */
+  #uidIntervalMs(uid) {
+    if (this.resolveUidIntervalMs) {
+      try {
+        const resolved = Number(
+          this.resolveUidIntervalMs(
+            { storeId: this.store.id, uid, lastSentAt: this.lastSentAt.get(uid) || 0 },
+            this.random,
+          ),
+        );
+        if (Number.isFinite(resolved)) return Math.max(1000, Math.round(resolved));
+      } catch {
+        /* 策略解析失败不能让发送失控，也不能沿用旧固定值 */
+      }
+      return 1000;
+    }
+    return Number(this.cfg.perUidMinIntervalMs ?? DEFAULT_PER_UID_INTERVAL_MS);
+  }
+
+  /** 消息诊断读取本次等待实际使用的间隔（同一策略缓存会返回同一个值）。 */
+  pacingIntervalMs(uid) {
+    return this.#uidIntervalMs(uid);
+  }
+
   #sendGate(uid, { bypassUidInterval = false } = {}) {
     const now = this.now();
     if (!bypassUidInterval) {
-      const interval = Number(this.cfg.perUidMinIntervalMs ?? DEFAULT_PER_UID_INTERVAL_MS);
+      const interval = this.#uidIntervalMs(uid);
       const last = this.lastSentAt.get(uid) || 0;
       if (interval > 0 && last && now - last < interval) {
         return { ok: false, reason: 'uid_interval', retryAfterMs: interval - (now - last) };
@@ -578,7 +612,9 @@ class StoreWorker {
       });
       return { ok: false, throttled: true, reason: gate.reason };
     }
-    const jitterMs = jitter ? this.#jitterMs() : 0;
+    // 云朵：注入随机节奏时只保留这一套间隔，不再叠加旧 0.5~2s 发送抖动；
+    // 未注入时保持上游抖动行为。
+    const jitterMs = jitter && !this.resolveUidIntervalMs ? this.#jitterMs() : 0;
     if (jitterMs > 0) {
       try {
         await this.sleep(jitterMs);
@@ -691,7 +727,7 @@ class StoreWorker {
 }
 
 class ReplyEngine {
-  constructor({ registry, adapterFactory, aiClient, getConfig, logger, onEvent = null, now = Date.now, sleep = null, random = Math.random, welcomePolicy = null }) {
+  constructor({ registry, adapterFactory, aiClient, getConfig, logger, onEvent = null, now = Date.now, sleep = null, random = Math.random, welcomePolicy = null, resolveUidIntervalMs = null }) {
     if (typeof adapterFactory !== 'function') throw new Error('adapter_factory_required');
     this.registry = registry;
     this.adapterFactory = adapterFactory;
@@ -703,6 +739,9 @@ class ReplyEngine {
     this.sleep = sleep;
     this.random = random;
     this.welcomePolicy = welcomePolicy;
+    // 工厂层必须保留该注入，否则真实 StoreWorker 会静默退回旧固定间隔。
+    this.resolveUidIntervalMs =
+      typeof resolveUidIntervalMs === 'function' ? resolveUidIntervalMs : null;
     this.workers = new Map();
   }
 
@@ -737,6 +776,7 @@ class ReplyEngine {
       sleep: this.sleep,
       random: this.random,
       welcomePolicy: this.welcomePolicy,
+      resolveUidIntervalMs: this.resolveUidIntervalMs,
     });
     this.workers.set(storeId, worker);
     await adapter.syncAiEnabled(store.aiEnabled !== false).catch((err) => {

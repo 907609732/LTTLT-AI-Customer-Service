@@ -67,6 +67,22 @@ describe('每条买家消息的 AI 处理证据', () => {
     tracker.refresh([row])
     expect(row.ai?.code).toBe('collected')
   })
+  it('随机节奏按引擎已确定的本次间隔解释，不再读旧固定值', () => {
+    const { worker, tracker, log, ref } = setup()
+    worker.cfg.perUidMinIntervalMs = 60000
+    let calls = 0
+    worker.pacingIntervalMs = () => {
+      calls += 1
+      return 2500
+    }
+    worker.lastSentAt.set('buyer', Date.now())
+    const row = log('1')
+    tracker.register(row, ref, false)
+    expect(row.ai?.code).toBe('uid_interval')
+    expect(row.ai?.reason).toContain('2.5 秒')
+    expect(row.ai?.reason).not.toContain('60 秒')
+    expect(calls).toBe(1)
+  })
   it('明确标出会话暂停来源，历史记录不倒推当时设置', () => {
     const { worker, tracker, log, ref } = setup()
     worker.manualSuppressed.add('buyer')
