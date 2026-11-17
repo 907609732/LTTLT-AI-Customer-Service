@@ -413,3 +413,40 @@ it('retires superseded duplicate image sources created before stable part identi
     }),
   ).toThrow(/移除/)
 })
+
+it.each(['json', 'csv'] as const)(
+  'exports all current-store knowledge in %s without unrelated shop content',
+  (format) => {
+    const { repo } = setup()
+    const shared = repo.saveCanonical({ title: 'shared' })
+    const second = repo.saveCanonical({ title: 'second' })
+    const foreign = repo.saveCanonical({ title: 'foreign' })
+    repo.bindProduct({ canonicalId: shared.id, storeId: 'a', productId: 'a1' })
+    repo.bindProduct({ canonicalId: shared.id, storeId: 'b', productId: 'b1' })
+    repo.bindProduct({ canonicalId: second.id, storeId: 'a', productId: 'a2' })
+    repo.bindProduct({ canonicalId: foreign.id, storeId: 'b', productId: 'b2' })
+    for (const [scope, answer] of [
+      [{ kind: 'canonical', canonicalId: shared.id }, 'shared-answer'],
+      [{ kind: 'canonical', canonicalId: second.id }, 'second-answer'],
+      [{ kind: 'store', storeId: 'a' }, 'own-general'],
+      [{ kind: 'template', storeIds: ['a', 'b'] }, 'applied-template'],
+      [{ kind: 'canonical', canonicalId: foreign.id }, 'foreign-product-secret'],
+      [{ kind: 'store', storeId: 'b' }, 'foreign-general-secret'],
+    ] as const) {
+      repo.saveDraft({
+        scope:
+          scope.kind === 'template' ? { kind: 'template', storeIds: [...scope.storeIds] } : scope,
+        question: answer,
+        answer,
+      })
+    }
+    const result = exportKnowledge(repo, { storeId: 'a', format })
+    expect(result.count).toBe(4)
+    for (const value of ['shared-answer', 'second-answer', 'own-general', 'applied-template'])
+      expect(result.text).toContain(value)
+    expect(result.text).not.toContain('foreign-product-secret')
+    expect(result.text).not.toContain('foreign-general-secret')
+    expect(result.text).not.toContain('b1')
+    expect(result.text).not.toContain('b2')
+  },
+)

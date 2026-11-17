@@ -4,9 +4,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import ShopSetupGuide from '../src/modules/shops/components/ShopSetupGuide.vue'
+import ShopOpsPanel from '../src/modules/reception/components/ShopOpsPanel.vue'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 import { useShopSetupStore } from '../src/modules/shops/setup-store'
 import { profileSchema, type ModelProfile } from '../src/shared/contracts/backend'
+import type { SchedulerRun } from '../src/shared/contracts/scheduler'
+import { getDesktop } from '../src/shared/platform/desktop'
 const wrappers: ReturnType<typeof mount>[] = []
 it('客服风格编辑并保存全局间隔，最少1秒且保留并发版本校验', async () => {
   const { wrapper, runtime } = await fixture()
@@ -465,20 +468,323 @@ it('保存期间工作区失效后，新向导不会保留旧的忙碌锁', asyn
   expect(wrapper.get('[data-next]').attributes('disabled')).toBeUndefined()
 })
 
-it('接待高级设置默认收起，展开折叠保留草稿且不会触发保存', async () => {
+it('客服接管关键词独立保存，空默认且不改买家转人工关键词', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const area = wrapper.get('.reception-manual')
+  expect(area.text()).toContain('客服接管关键词')
+  expect(area.text()).toContain('全局')
+  expect(area.text()).toContain('客服发出后暂停当前会话 AI')
+  const input = area.get('textarea[aria-label="客服接管关键词"]')
+  expect((input.element as HTMLTextAreaElement).value).toBe('')
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '客服接管关键词已保存', data: {} })
+  await input.setValue(' 我来接待 \n\n转人工 \n我来接待')
+  await area.get('form').trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-config',
+    screenId: 'MANUAL_REPLY_KEYWORDS',
+    values: { keywords: ['我来接待', '转人工'], expectedKeywords: [] },
+  })
+  expect(run).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'save-store-handoff' }))
+  expect(wrapper.text()).toContain('客服接管关键词已保存')
+})
+
+it('客服接管关键词草稿在步骤和关闭重开后保留，切换工作区后清除', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
+  await input.setValue('未保存的客服接管关键词')
+  await wrapper.find('[data-next]').trigger('click')
+  await wrapper.find('[data-back]').trigger('click')
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('未保存的客服接管关键词')
+  setup.dismiss()
+  await flushPromises()
+  setup.open('shop-a')
+  await flushPromises()
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('未保存的客服接管关键词')
+  setup.dismiss()
+  await flushPromises()
+  runtime.snapshot.workspaceId = 'another-workspace'
+  setup.open('shop-a')
+  await flushPromises()
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('')
+})
+
+it('客服接管关键词保存失败显示错误并保留草稿，不伪造成功', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
+  await input.setValue('需要保留的关键词')
+  vi.spyOn(runtime, 'run').mockRejectedValue(new Error('客服接管关键词保存失败'))
+  await wrapper.get('.reception-manual form').trigger('submit')
+  await flushPromises()
+  expect(wrapper.text()).toContain('客服接管关键词保存失败')
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('需要保留的关键词')
+  expect(wrapper.text()).not.toContain('客服接管关键词已保存')
+})
+
+it('切店后迟到的客服接管关键词保存不回填新页面', async () => {
+  setActivePinia(createPinia())
+  const runtime = useRuntimeStore()
+  runtime.snapshot.workspaceId = 'panel-workspace'
+  runtime.snapshot.stores = [
+    {
+      id: 'shop-a',
+      storeName: '甲店',
+      platform: 'pdd-web',
+      group: '',
+      aiEnabled: false,
+      runtime: { open: true, online: true },
+    },
+    {
+      id: 'shop-b',
+      storeName: '乙店',
+      platform: 'pdd-web',
+      group: '',
+      aiEnabled: false,
+      runtime: { open: true, online: true },
+    },
+  ]
+  runtime.available = true
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: { template: '<div />' } }],
+  })
+  await router.push('/')
+  const wrapper = mount(ShopOpsPanel, {
+    props: { storeId: 'shop-a', viewKey: 'transfer' },
+    global: { plugins: [ElementPlus, router] },
+  })
+  wrappers.push(wrapper)
+  await flushPromises()
+  const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
+  await input.setValue('甲店草稿')
+  let complete!: (value: { status: 'ok'; message: string; data: Record<string, unknown> }) => void
+  vi.spyOn(runtime, 'run').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve
+      }),
+  )
+  await wrapper.get('.reception-manual form').trigger('submit')
+  await flushPromises()
+  await wrapper.setProps({ storeId: 'shop-b' })
+  await flushPromises()
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('')
+  complete({ status: 'ok', message: '客服接管关键词已保存', data: {} })
+  await flushPromises()
+  expect(wrapper.text()).not.toContain('客服接管关键词已保存')
+})
+
+it('外部更新客服接管关键词后，旧草稿仍用载入时的 expected 提交', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
+  await input.setValue('甲草稿')
+  runtime.snapshot.config.safety.manualReplyKeywords = ['乙先保存']
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '客服接管关键词已保存', data: {} })
+  await wrapper.get('.reception-manual form').trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-config',
+    screenId: 'MANUAL_REPLY_KEYWORDS',
+    values: { keywords: ['甲草稿'], expectedKeywords: [] },
+  })
+})
+
+it('未保存的客服接管草稿重挂后保留载入时的 expected', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  await wrapper.get('textarea[aria-label="客服接管关键词"]').setValue('甲草稿')
+  runtime.snapshot.config.safety.manualReplyKeywords = ['乙先保存']
+  setup.loaded = true
+  setup.dismiss()
+  await flushPromises()
+  setup.open('shop-a')
+  await flushPromises()
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('甲草稿')
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '客服接管关键词已保存', data: {} })
+  await wrapper.get('.reception-manual form').trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-config',
+    screenId: 'MANUAL_REPLY_KEYWORDS',
+    values: { keywords: ['甲草稿'], expectedKeywords: [] },
+  })
+})
+
+it('冲突载入最新关键词只替换本字段，不覆盖其他未保存草稿', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  await wrapper.get('textarea[aria-label="客服接管关键词"]').setValue('甲草稿')
+  await wrapper.get('textarea[aria-label="全局人工处理关键词"]').setValue('买家人工草稿')
+  await wrapper.get('textarea[aria-label="文字欢迎语"]').setValue('欢迎草稿')
+  runtime.snapshot.config.safety.manualReplyKeywords = ['最新关键词']
+  await flushPromises()
+  const run = vi.spyOn(runtime, 'run')
+  const button = wrapper.findAll('button').find((item) => item.text() === '载入最新关键词')
+  expect(button).toBeTruthy()
+  await button!.trigger('click')
+  await flushPromises()
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('最新关键词')
+  expect(
+    (wrapper.get('textarea[aria-label="全局人工处理关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('买家人工草稿')
+  expect(
+    (wrapper.get('textarea[aria-label="文字欢迎语"]').element as HTMLTextAreaElement).value,
+  ).toBe('欢迎草稿')
+  expect(run).not.toHaveBeenCalled()
+})
+
+it('提交等待期间继续输入时，成功后新输入仍是未保存草稿', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
+  await input.setValue('已提交甲')
+  let complete!: (value: { status: 'ok'; message: string; data: Record<string, unknown> }) => void
+  vi.spyOn(runtime, 'run').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        complete = (value) => {
+          runtime.snapshot.config.safety.manualReplyKeywords = ['已提交甲']
+          resolve(value)
+        }
+      }),
+  )
+  await wrapper.get('.reception-manual form').trigger('submit')
+  await flushPromises()
+  await input.setValue('等待期间新输入乙')
+  complete({ status: 'ok', message: '客服接管关键词已保存', data: {} })
+  await flushPromises()
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('等待期间新输入乙')
+  setup.loaded = true
+  setup.dismiss()
+  await flushPromises()
+  setup.open('shop-a')
+  await flushPromises()
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('等待期间新输入乙')
+})
+
+it('全局人工关键词与平台接待规则常驻展开，编辑不触发保存', async () => {
   const { wrapper, setup, runtime } = await fixture()
   const run = vi.spyOn(runtime, 'run')
   setup.step = 3
   await flushPromises()
+  const summaries = wrapper.findAll('summary').map((node) => node.text())
+  expect(summaries.some((text) => text.includes('全局人工关键词'))).toBe(false)
+  expect(summaries.some((text) => text.includes('平台接待规则与能力'))).toBe(false)
   const input = wrapper.get('textarea[aria-label="全局人工处理关键词"]')
-  const details = input.element.closest('details')
-  expect(details).not.toBeNull()
-  expect(details!.open).toBe(false)
-  details!.open = true
+  expect(input.element.closest('details')).toBeNull()
+  const globalTitle = wrapper.findAll('h3').find((node) => node.text().includes('全局人工关键词'))
+  expect(globalTitle).toBeTruthy()
+  expect(globalTitle!.element.closest('details')).toBeNull()
+  const rulesTitle = wrapper
+    .findAll('h3')
+    .find((node) => node.text().includes('平台接待规则与能力'))
+  expect(rulesTitle).toBeTruthy()
+  expect(rulesTitle!.element.closest('details')).toBeNull()
+  expect(wrapper.find('.reception-rules').exists()).toBe(true)
   await input.setValue('退款争议\n需要人工')
-  details!.open = false
-  details!.open = true
   expect(wrapper.get('textarea[aria-label="全局人工处理关键词"]').element).toBe(input.element)
   expect((input.element as HTMLTextAreaElement).value).toBe('退款争议\n需要人工')
   expect(run).not.toHaveBeenCalled()
+})
+
+it('历史平台操作仍保留折叠', async () => {
+  const previous = window.yunduoDesktop
+  const now = Date.now()
+  const run: SchedulerRun = {
+    id: 'history-run',
+    taskId: 'rule',
+    storeId: 'shop-a',
+    uid: 'buyer',
+    occurrence: now,
+    action: { kind: 'welcome-text', text: '历史内容' },
+    state: 'confirmed',
+    reason: '已确认执行',
+    createdAt: now,
+    expiresAt: now + 600000,
+  }
+  window.yunduoDesktop = {
+    ...getDesktop(),
+    isElectron: true,
+    receptionSnapshot: async (workspaceId) => ({
+      workspaceId,
+      rules: [],
+      runs: [run],
+      facts: [],
+    }),
+    receptionExecute: async (command) => ({
+      workspaceId: command.workspaceId,
+      rules: [],
+      runs: [run],
+      facts: [],
+    }),
+  }
+  try {
+    setActivePinia(createPinia())
+    const runtime = useRuntimeStore()
+    runtime.snapshot.workspaceId = 'panel-workspace'
+    runtime.snapshot.stores = [
+      {
+        id: 'shop-a',
+        storeName: '甲店',
+        platform: 'pdd-web',
+        group: '',
+        aiEnabled: false,
+        runtime: { open: true, online: true },
+      },
+    ]
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }],
+    })
+    await router.push('/')
+    const wrapper = mount(ShopOpsPanel, {
+      props: { storeId: 'shop-a', viewKey: 'transfer', embedded: true },
+      global: { plugins: [ElementPlus, router] },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    const details = wrapper
+      .findAll('details')
+      .find((node) => node.get('summary').text().includes('历史平台操作'))
+    expect(details).toBeTruthy()
+    expect(details!.element.open).toBe(false)
+  } finally {
+    if (previous) window.yunduoDesktop = previous
+    else delete window.yunduoDesktop
+  }
 })

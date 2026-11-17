@@ -124,13 +124,13 @@ export function createKnowledgeClient(workspaceId: string) {
         input: knowledgePipelineInputSchema.parse(input),
       }) as Promise<KnowledgePipelineResults[T['action']]>
     },
-    backup(canonicalId?: string) {
-      return request({ workspaceId, operation: 'backup', canonicalId }) as Promise<
+    backup(canonicalId?: string, storeId?: string) {
+      return request({ workspaceId, operation: 'backup', canonicalId, storeId }) as Promise<
         import('@/shared/contracts/knowledge').KnowledgeBackupManifest & { directory: string }
       >
     },
-    restorePreview() {
-      return request({ workspaceId, operation: 'restore-preview' }) as Promise<
+    restorePreview(storeId?: string) {
+      return request({ workspaceId, operation: 'restore-preview', storeId }) as Promise<
         import('@/shared/contracts/knowledge-client').KnowledgeRestorePreview | null
       >
     },

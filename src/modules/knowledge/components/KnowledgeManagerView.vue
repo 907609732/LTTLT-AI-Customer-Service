@@ -109,6 +109,7 @@ const {
   bindShared,
   doTrial,
   backup,
+  backupStore,
   recommendations,
   entryHistory,
   loadEntryHistory,
@@ -122,6 +123,7 @@ const {
   previewClear,
   clearKnowledge,
   chooseRestore,
+  chooseStoreRestore,
   restoreBackup,
   exportEntries,
   loadCatalog,
@@ -182,7 +184,6 @@ const {
     <header class="knowledge-top" data-window-drag>
       <div>
         <h1>知识库</h1>
-        <p>审核后使用 · 商品与店铺范围明确</p>
       </div>
       <div class="knowledge-top-actions" data-window-no-drag>
         <label
@@ -242,23 +243,35 @@ const {
       <KnowledgeToolbar
         :busy="busy"
         :store-id="storeId"
+        :store-name="currentStore?.storeName"
         :tab="tab"
         :context-key="`${runtime.snapshot.workspaceId}:${storeId}:${tab}:${view}`"
         :read-only="summary?.readOnly"
         :capabilities="capabilities"
         @catalog="run(() => loadCatalog())"
         @archive="run(archiveChats)"
-        @learn="run(learnStore)"
         @sources="run(chooseSources)"
         @write="run(writeOne)"
-        @export-json="run(() => exportEntries('json'))"
-        @export-csv="run(() => exportEntries('csv'))"
-        @backup="run(() => backup())"
-        @restore="run(chooseRestore)"
+        @export-json="run(() => exportEntries('json', 'shop'))"
+        @export-csv="run(() => exportEntries('csv', 'shop'))"
+        @backup="run(backupStore)"
+        @restore="run(chooseStoreRestore)"
       />
     </div>
-    <p v-if="capabilities?.reason" class="knowledge-muted capability">{{ capabilities.reason }}</p>
-    <div v-if="view === 'library' || view === 'review'" class="knowledge-selection">
+    <div v-if="view === 'library' && tab === 'general'" class="knowledge-general-heading">
+      <h2>通用问答</h2>
+      <button
+        data-testid="learn-store-materials"
+        :disabled="busy || !storeId || summary?.readOnly || !capabilities?.learn"
+        @click="run(learnStore)"
+      >
+        学习通用资料
+      </button>
+    </div>
+    <div
+      v-if="(view === 'library' || view === 'review') && selection.length > 0"
+      class="knowledge-selection"
+    >
       <label
         ><input
           type="checkbox"
@@ -271,11 +284,9 @@ const {
               : []
           "
         />
-        当前页</label
-      ><button @click="run(selectAll)">选择当前筛选全部 {{ total }} 项</button
-      ><span
-        >店铺：{{ currentStore?.storeName }} · 筛选：{{ search || '全部' }} · 已选
-        {{ selection.length }} {{ allScope ? '（跨页）' : '' }}</span
+        全选本页</label
+      ><button @click="run(selectAll)">全选当前筛选 {{ total }} 项</button
+      ><span>已选 {{ selection.length }} 项{{ allScope ? '（跨页）' : '' }}</span
       ><button :disabled="!selection.length" @click="run(bulkReview)">审核所选草稿</button>
     </div>
     <section
@@ -504,6 +515,11 @@ const {
           当前每日检查执行器尚未接入，保存时间不会声称后台已运行。
         </p>
         <button class="primary">保存设置</button>
+        <details class="knowledge-advanced-settings">
+          <summary>高级备份与恢复</summary>
+          <button type="button" :disabled="busy" @click="run(() => backup())">全库备份</button>
+          <button type="button" :disabled="busy" @click="run(chooseRestore)">恢复旧全库备份</button>
+        </details>
         <section class="knowledge-clear-settings">
           <h3>清除知识库</h3>
           <p>执行前自动完整备份，保留店铺登录与模型配置；清除后可通过“恢复备份”恢复。</p>
@@ -898,6 +914,12 @@ v{{ source.revision }} · {{ source.hash }}
       <section class="knowledge-modal">
         <h2>确认恢复范围</h2>
         <p>{{ restorePreview.scope }}</p>
+        <p v-if="restorePreview.targetStoreId">
+          目标店铺：{{
+            stores.find((s) => s.id === restorePreview?.targetStoreId)?.storeName ||
+            restorePreview.targetStoreId
+          }}
+        </p>
         <p v-if="restorePreview.stores.length">
           全部受影响店铺：{{ restorePreview.stores.join('、') }}
         </p>

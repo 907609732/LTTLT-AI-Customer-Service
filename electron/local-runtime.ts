@@ -21,6 +21,7 @@ import { SendModeAuthorizations } from './send-mode-authorizations'
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 import { normalizeReplyInterval, validateReplyInterval } from './reply-pacing'
+import { MANUAL_REPLY_KEYWORDS_SCREEN, normalizeManualReplyKeywords } from './manual-reply-keywords'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow, safeStorage, shell, dialog, type IpcMainInvokeEvent } from 'electron'
@@ -1031,6 +1032,13 @@ export function createLocalRuntime(options: {
       const command = commandSchema.parse(input)
       if (command.action === 'save-config' && command.screenId === 'REPLY_PACING')
         validateReplyInterval(command.values.seconds)
+      if (command.action === 'save-config' && command.screenId === MANUAL_REPLY_KEYWORDS_SCREEN) {
+        // 只采纳这两个字段，其他 safety 配置由 ConfigStore 的深合并保留。
+        command.values = {
+          keywords: normalizeManualReplyKeywords(command.values.keywords),
+          expectedKeywords: normalizeManualReplyKeywords(command.values.expectedKeywords),
+        }
+      }
       if (command.workspaceId !== workspaceId) throw new Error('本地服务已重启，请刷新后重试')
       if (
         [

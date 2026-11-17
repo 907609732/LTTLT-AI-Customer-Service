@@ -7,6 +7,8 @@ export interface ReceptionSettingsDraft {
   inherited?: boolean
   keywords?: string
   globalKeywords?: string
+  manualKeywords?: string
+  manualExpectedKeywords?: string[]
 }
 export interface ReceptionRuleDraft {
   form: {

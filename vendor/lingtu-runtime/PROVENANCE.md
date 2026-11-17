@@ -79,3 +79,7 @@ tests/pdd-conversation-focus.test.ts 使用合成页面验证选择事件、忽�
 实店日志确认托管 maxInflight=1 时，beforeSend 的审核承诺一直占用 inflight，新买家停在 max_inflight。reply-engine 仅在等待原 beforeSend 门期间释放模型处理名额，finally 恢复计数，保留 processing 对同一买家的独占、tasks/settle 退出等待和原发送复核。总保留任务上限为 maxInflight+32，避免无人审核时无限增长。未增加模型并发、批准或自动发送权限。只改既有兼容点，保留上游摘要与许可，更新实际摘要和 localPatch。
 
 真实引擎与 ReviewConsole 联测新增：一位买家等待审核，另一位在 maxInflight=1 下生成候选，确认前始终零发送。
+
+## 2026-11-17：客服接管关键词保存适配
+
+backend.cjs 的既有 save-config 仅新增 MANUAL_REPLY_KEYWORDS 分支：按 keywords / expectedKeywords 解析并执行 trim、去空、去重、每词 1–30 字和最多 100 个校验，读取 config.all().safety.manualReplyKeywords 做旧值比较，冲突时拒绝，随后 config.update 只写 safety.manualReplyKeywords。同一规则也由本工程 electron/manual-reply-keywords.ts 在主进程保存边界执行，覆盖直接调用入口。卖家侧消息命中、selfSend 回环过滤、生成/待批准取消和显式恢复继续沿用上游 D-07 与既有注入点，没有第二套暂停引擎。source-files.json 保留 upstreamGitBlob / upstreamSha256，仅更新实际 sha256 与 localPatch 说明。

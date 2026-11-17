@@ -150,3 +150,11 @@ Task4 review round1: source replacement now uses stable logical positions and re
 店铺AI恢复由electron/store-ai-preferences.ts与ai-state-restore.ts在主进程协调，接入local-runtime普通启动、平台身份事件及显式开关命令；共享店铺快照仅暴露可选恢复状态，不公开存储身份。知识库维护重建抑制恢复，规则与验证边界见AI_STATE_RESTORE.md。
 
 2026-11-16（1.0.35）：详细日志通过现有 runtime 命令 clear-runtime-logs 清除有界内存中的已完成记录；不会删除持久化会话、批准候选或取消在途请求。Desktop 新增可选 isAlwaysOnTop/setAlwaysOnTop，preload 对应受信来源窗口 IPC win:is-always-on-top/win:set-always-on-top，布尔输入校验。日志窗以原生 app-region 拖动，工具栏 no-drag；无新增生产依赖。
+
+## 单店知识备份与恢复（2026-11-17）
+
+knowledge runtime 的既有 backup/restore-preview 请求新增可选 storeId，沿用既有受信窗口IPC及工作区租约；无新通道或依赖。repository.createBackup 在一致SQLite副本中通过 backup-store-scope 裁剪本店实际适用知识及必要证据，manifest scope 为 family/store 判别联合，旧无scope全库包保持兼容。包内任务、待学问题及无关导入元信息排除，完整原件可能包含其他商品行，预览披露。
+
+单店恢复继续由工作区所有者停止写者，使用现有staging、恢复意图和回滚。共享身份克隆到本店隔离副本；只保留原本适用于本店的草稿、审核版本和历史，不通过恢复扩大其他店批准范围。外店依赖只核对不覆写，依赖缺失/变化拒绝恢复；其他店私有数据及解析内容保持。原全库与family路径保留在高级入口。
+
+客服接管关键词入口复用现有ConfigStore与ReplyEngine D-07，保存命令在既有save-config白名单下增加MANUAL_REPLY_KEYWORDS屏幕标识；自有manual-reply-keywords helper在主进程规范化输入，vendor仅最小配置保存分支。快照新字段manualReplyKeywords默认空，旧数据兼容；没有新增IPC通道、依赖或独立暂停调度器。源代码出处与hash见vendor/lingtu-runtime/PROVENANCE.md。

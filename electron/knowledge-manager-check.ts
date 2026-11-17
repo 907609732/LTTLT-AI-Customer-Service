@@ -532,13 +532,15 @@ app
       filePaths: [backup.directory],
     })) as typeof dialog.showOpenDialog
     try {
+      // Full restoration moved from the toolbar menu to Settings → advanced. Expand it
+      // explicitly so this native check still exercises the original full/family archive.
+      await click('设置')
+      await until(`!!document.querySelector('.knowledge-advanced-settings')`)
       await evaluate(
-        `(()=>{const button=[...document.querySelectorAll('.knowledge-toolbar-actions button')].find(node=>node.textContent.trim().startsWith('备份'));if(!button)throw Error('missing backup menu');button.click()})()`,
+        `(()=>{const details=document.querySelector('.knowledge-advanced-settings');if(!details.open)details.querySelector('summary').click()})()`,
       )
-      await until(
-        `document.querySelector('.knowledge-toolbar-menu[aria-hidden="false"] [role="menuitem"]')`,
-      )
-      await click('恢复全库备份')
+      await until(`document.querySelector('.knowledge-advanced-settings').open`)
+      await click('恢复旧全库备份')
       await until(`document.body.innerText.includes('确认恢复范围')`)
       await screenshot('final-restore-preview.png')
       await click('停止服务并恢复上述范围')
@@ -549,7 +551,7 @@ app
       assert(runtime.snapshot().stores.every((s) => s.aiEnabled === false))
       assert.equal(repo.listProducts({ storeId: a }).total, 1001)
       checks.push(
-        'native picker/opaque preview/IPC owner closes writer and restores family, new manager context survives; unrelated1000 retained and AI startup defaults respected',
+        'settings-advanced native picker/opaque preview/IPC owner closes writer and restores family, new manager context survives; unrelated1000 retained and AI startup defaults respected',
       )
     } finally {
       dialog.showOpenDialog = originalPicker
