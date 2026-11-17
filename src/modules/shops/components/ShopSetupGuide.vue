@@ -1,14 +1,71 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import { ShopOpsPanel } from '@/modules/reception'
+import { ElMessageBox } from 'element-plus'
+import { ShopOpsPanel, readReceptionSetup } from '@/modules/reception'
 import { ReplyPacingSettings } from '@/modules/settings'
 import { useRoute, useRouter } from 'vue-router'
 import { useRuntimeStore } from '@/shared/state/runtime'
+import { normalizeWelcomeSetting, type WelcomeSetting } from '@/shared/contracts/welcome'
 import { useShopSetupStore } from '../setup-store'
+import { reuseSectionNames, reuseSections } from '../setup-reuse'
 const setup = useShopSetupStore(),
   runtime = useRuntimeStore(),
   router = useRouter(),
   route = useRoute()
+const platformName = (id: string) =>
+  runtime.snapshot.capabilities.platforms.find((item) => item.id === id)?.label || id
+const reuseHints = computed(() => setup.reusePreview?.hints ?? [])
+const saveModeText = computed(() =>
+  setup.receptionDeferred ? '已复用接待内容 · 最后统一保存' : '接待配置独立保存 · 政策最后统一保存',
+)
+function chooseReuseSource(value: string) {
+  void setup.selectReuseSource(value)
+}
+function applyReuse() {
+  setup.applyReuse()
+}
+async function retryReuseSave() {
+  const applied = setup.reuseApplied
+  if (!applied || setup.saving) return
+  const id = setup.storeId
+  const workspace = runtime.snapshot.workspaceId
+  const latest = readReceptionSetup(runtime.snapshot, id)
+  const details: string[] = []
+  const delayDescription = (value: Partial<WelcomeSetting>) => {
+    const delay = normalizeWelcomeSetting(value)
+    return `${delay.delayMinSeconds}～${delay.delayMaxSeconds} 秒`
+  }
+  if (applied.parts.welcome === 'pending')
+    details.push(
+      `文字欢迎当前为「${latest.welcome.text || '空'}」（${latest.welcome.enabled ? '开启' : '关闭'}，延迟 ${delayDescription(latest.welcome)}），将替换为「${applied.reception.welcome.text || '空'}」（${applied.reception.welcome.enabled ? '开启' : '关闭'}，延迟 ${delayDescription(applied.reception.welcome)}）。`,
+    )
+  if (applied.parts.handoff === 'pending') {
+    const describe = (value: typeof latest.handoff) =>
+      value.inherited ? '继承全局' : `本店关键词：${value.keywords.join('、') || '空'}`
+    details.push(
+      `转人工当前为「${describe(latest.handoff)}」，将替换为「${describe(applied.reception.handoff)}」。`,
+    )
+  }
+  if (!details.length) return
+  try {
+    await ElMessageBox.confirm(details.join('\n'), '确认覆盖本店最新接待配置', {
+      confirmButtonText: '确认覆盖并重试',
+      cancelButtonText: '取消',
+      type: 'warning',
+      customClass: 'shop-setup-conflict-box',
+    })
+  } catch {
+    return
+  }
+  if (
+    setup.storeId !== id ||
+    runtime.snapshot.workspaceId !== workspace ||
+    setup.reuseApplied !== applied
+  )
+    return
+  if (!setup.adoptReceptionBaseline(latest)) return
+  if (await setup.saveRules()) setup.step = 5
+}
 const receptionPending = reactive({ transfer: false, welcome: false })
 const receptionBusy = computed(() => receptionPending.transfer || receptionPending.welcome)
 const navigationBusy = computed(() => setup.saving || receptionBusy.value)
@@ -277,7 +334,7 @@ const afterSales = [
         <div class="wizard-header-actions" data-no-drag>
           <span
             >填写进度 {{ Math.round((setup.step / (steps.length - 1)) * 100) }}% ·
-            {{ setup.step === 5 ? '设置已保存' : '接待配置独立保存 · 政策最后统一保存' }}</span
+            {{ setup.step === 5 ? '设置已保存' : saveModeText }}</span
           ><button
             data-dismiss
             aria-label="关闭引导"
@@ -306,6 +363,20 @@ const afterSales = [
           ><span>{{ label }}</span>
         </button>
       </nav>
+      <div
+        v-if="setup.reuseApplied && setup.reuseSummary && setup.step !== 5"
+        class="reuse-banner"
+        data-reuse-banner
+      >
+        <span
+          >已复用「{{ setup.reuseSummary.storeName }}」的{{
+            setup.reuseSummary.sections.join('、')
+          }}；一次性复制到本店草稿，不建立关联。</span
+        >
+        <span v-if="setup.reuseSummary.retainedReception.length"
+          >保留之前的{{ setup.reuseSummary.retainedReception.join('、') }}草稿。</span
+        >
+      </div>
       <section
         class="wizard-card"
         :class="{ 'intro-card': setup.step === 0, 'finish-card': setup.step === 5 }"
@@ -327,6 +398,12 @@ const afterSales = [
             <div class="intro-actions">
               <el-button type="primary" data-start :disabled="setup.loading" @click="setup.step = 1"
                 >开始设置</el-button
+              ><el-button
+                v-if="setup.reuseSources.length"
+                data-reuse-open
+                :disabled="setup.loading || setup.saving"
+                @click="setup.openReuse()"
+                >复用其他店铺配置</el-button
               ><el-button @click="setup.dismiss()">稍后再说</el-button>
             </div>
             <h1>{{ setup.shop?.storeName }}，完善您的店铺信息</h1>
@@ -527,12 +604,24 @@ const afterSales = [
                 view-key="transfer"
                 :store-id="setup.storeId"
                 embedded
+                :deferred-save="setup.receptionDeferred"
+                :setup-draft="
+                  setup.receptionDeferred ? (setup.reuseApplied?.reception ?? null) : null
+                "
+                @update:welcome="setup.updateReceptionPart('welcome', $event)"
+                @update:handoff="setup.updateReceptionPart('handoff', $event)"
                 @busy="receptionPending.transfer = $event"
               />
               <ShopOpsPanel
                 view-key="welcome"
                 :store-id="setup.storeId"
                 embedded
+                :deferred-save="setup.receptionDeferred"
+                :setup-draft="
+                  setup.receptionDeferred ? (setup.reuseApplied?.reception ?? null) : null
+                "
+                @update:welcome="setup.updateReceptionPart('welcome', $event)"
+                @update:handoff="setup.updateReceptionPart('handoff', $event)"
                 @busy="receptionPending.welcome = $event"
               />
             </div>
@@ -578,6 +667,48 @@ const afterSales = [
             <p class="quiet-note">
               请核对以上政策，保存后将写入本店客服规则；不会自动处理退款、返现或补偿。
             </p>
+            <section
+              v-if="setup.reuseApplied && setup.reuseSummary"
+              class="reuse-summary"
+              data-reuse-summary
+            >
+              <h3>复用来源与保存状态</h3>
+              <dl>
+                <dt>来源店铺</dt>
+                <dd>
+                  {{ setup.reuseSummary.storeName }}（{{
+                    platformName(setup.reuseSummary.platform)
+                  }}）
+                </dd>
+                <dt>复用类别</dt>
+                <dd>{{ setup.reuseSummary.sections.join('、') }}</dd>
+                <template v-if="setup.reuseSummary.retainedReception.length">
+                  <dt>保留的接待项</dt>
+                  <dd>
+                    {{
+                      setup.reuseSummary.retainedReception.join('、')
+                    }}（本次未重新选择，沿用上次导入草稿）
+                  </dd>
+                </template>
+                <template v-if="setup.reuseSummary.retainedReception.length">
+                  <dt>保留之前草稿</dt>
+                  <dd>{{ setup.reuseSummary.retainedReception.join('、') }}</dd>
+                </template>
+                <dt>保存状态</dt>
+                <dd>
+                  <span
+                    v-for="part in setup.reuseParts"
+                    :key="part.key"
+                    class="reuse-part"
+                    :data-reuse-part="part.key"
+                    >{{ part.label }}：{{ part.state === 'saved' ? '已保存' : '待保存' }}</span
+                  >
+                </dd>
+              </dl>
+              <p class="quiet-note">
+                来源店铺只读，不会被修改；最终保存只写入本店，按项目原命令逐项保存并回读。
+              </p>
+            </section>
           </template>
           <template v-else>
             <div class="finish-hero">
@@ -649,6 +780,11 @@ const afterSales = [
                 >
               </dl>
             </section>
+            <p v-if="setup.reuseSummary" class="quiet-note">
+              本次从「{{ setup.reuseSummary.storeName }}」一次性复制了{{
+                setup.reuseSummary.sections.join('、')
+              }}，不保持关联；之后两店各自独立。
+            </p>
             <p class="quiet-note">完成设置不会自动开启 AI，正式发送仍需逐条批准。</p>
             <div class="setup-shortcuts">
               <button @click="configure('goods')">商品知识</button
@@ -676,9 +812,23 @@ const afterSales = [
           @click="setup.loadRules()"
           >重新载入</el-button
         >
+        <el-button
+          v-if="setup.error && setup.receptionDeferred"
+          class="conditional-field"
+          data-reuse-refresh-baseline
+          :disabled="navigationBusy"
+          @click="retryReuseSave"
+          >以最新接待配置为基线重试</el-button
+        >
         <footer v-if="setup.step > 0 && setup.step < 5" class="wizard-footer">
           <el-button data-back :disabled="navigationBusy" @click="setup.step--">上一步</el-button
-          ><span>{{ setup.step === 3 ? '请分别保存接待配置' : '政策尚未保存' }}</span
+          ><span>{{
+            setup.step === 3
+              ? setup.receptionDeferred
+                ? '导入的接待内容将在最后统一保存'
+                : '请分别保存接待配置'
+              : '政策尚未保存'
+          }}</span
           ><el-button
             v-if="setup.step < 4"
             type="primary"
@@ -699,8 +849,115 @@ const afterSales = [
       </section>
     </div>
   </main>
+  <div
+    v-if="setup.reuse.dialog"
+    class="reuse-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-label="复用其他店铺配置"
+    @keydown.esc="!setup.reuse.loading && setup.closeReuse()"
+  >
+    <div class="reuse-card">
+      <header class="reuse-head">
+        <h2>复用其他店铺配置</h2>
+        <button
+          type="button"
+          data-reuse-cancel
+          aria-label="关闭复用配置"
+          :disabled="setup.reuse.loading"
+          @click="setup.closeReuse()"
+        >
+          ×
+        </button>
+      </header>
+      <p>一次性复制到当前店铺草稿，不建立持续关联，也不会修改来源店铺。</p>
+      <label class="reuse-source"
+        ><span>来源店铺</span>
+        <el-select
+          :model-value="setup.reuse.sourceId"
+          :teleported="false"
+          data-reuse-source
+          placeholder="请选择当前工作区的其他店铺"
+          @update:model-value="chooseReuseSource"
+          ><el-option
+            v-for="item in setup.reuseSources"
+            :key="item.id"
+            :value="item.id"
+            :label="`${item.storeName} · ${platformName(item.platform)}`"
+        /></el-select>
+      </label>
+      <p v-if="setup.reuse.loading" class="reuse-loading" role="status">正在读取来源店铺设置…</p>
+      <el-alert
+        v-if="setup.reuse.error"
+        :title="setup.reuse.error"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+      <el-button
+        v-if="setup.reuse.error && !setup.reuse.loaded && !setup.reuse.loading"
+        data-reuse-retry
+        @click="chooseReuseSource(setup.reuse.sourceId)"
+        >重试</el-button
+      >
+      <fieldset class="reuse-options" :disabled="setup.reuse.loading">
+        <legend>选择要复用的配置（默认全选）</legend>
+        <el-checkbox
+          v-for="section in reuseSections"
+          :key="section"
+          v-model="setup.reuse.selection[section]"
+          :data-reuse-section="section"
+          >{{ reuseSectionNames[section] }}</el-checkbox
+        >
+      </fieldset>
+      <p class="reuse-scope">
+        接待设置只复制文字欢迎及启用状态、本店转人工关键词/继承状态；不复制平台人工账号、媒体、平台规则、全局配置或
+        AI 开关，也不会执行平台操作。
+      </p>
+      <template v-if="setup.reuse.loaded">
+        <dl class="reuse-meta">
+          <dt>来源店铺</dt>
+          <dd data-reuse-source-name>{{ setup.reuse.loaded.storeName }}</dd>
+          <dt>平台</dt>
+          <dd>{{ platformName(setup.reuse.loaded.platform) }}</dd>
+        </dl>
+        <el-alert
+          v-if="setup.reuseCrossPlatform"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="来源与当前店铺平台不同，请核对物流、发货与售后承诺后再复用。"
+        />
+        <ul v-if="reuseHints.length" class="reuse-hints">
+          <li v-for="hint in reuseHints" :key="hint">{{ hint }}</li>
+        </ul>
+        <el-checkbox
+          v-if="setup.reuseNeedsReplace"
+          v-model="setup.reuse.replaceConfirm"
+          data-reuse-confirm
+          >当前店铺已有填写内容，确认用来源配置替换所选类别</el-checkbox
+        >
+      </template>
+      <footer class="reuse-actions">
+        <el-button data-reuse-cancel :disabled="setup.reuse.loading" @click="setup.closeReuse()"
+          >取消</el-button
+        >
+        <el-button
+          type="primary"
+          data-reuse-apply
+          :disabled="setup.reuse.loading || !setup.reusePreview"
+          @click="applyReuse"
+          >填入并继续设置</el-button
+        >
+      </footer>
+    </div>
+  </div>
 </template>
 <style scoped>
+:global(.el-overlay:has(.shop-setup-conflict-box)) {
+  /* Element Plus 2.8.8 为遮罩分配内联层级；仅此确认框需高于固定店铺助手。 */
+  z-index: 4000 !important;
+}
 .shop-setup-page {
   position: fixed;
   inset: 72px 0 0 300px;
@@ -1216,6 +1473,165 @@ const afterSales = [
 .shop-setup-page :deep(.el-button) {
   min-height: 36px;
   border-radius: 3px;
+}
+.reuse-banner {
+  box-sizing: border-box;
+  max-width: 840px;
+  margin: 0 auto 12px;
+  padding: 10px 14px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #cfe0ff;
+  border-radius: 8px;
+  background: #f2f7ff;
+  color: #31639f;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.reuse-banner button {
+  flex: none;
+  border: 0;
+  background: none;
+  color: #2d70ff;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+.reuse-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 3200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #0e1c304d;
+}
+.reuse-card {
+  box-sizing: border-box;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  border-radius: 12px;
+  background: white;
+  padding: 20px 22px 18px;
+  box-shadow: 0 18px 48px #0e1c3033;
+  color: #293d59;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.reuse-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.reuse-head h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #142338;
+}
+.reuse-head button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #728095;
+  font-size: 22px;
+  cursor: pointer;
+}
+.reuse-source {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0;
+  color: #38475b;
+}
+.reuse-source :deep(.el-select) {
+  width: 100%;
+}
+.reuse-loading {
+  margin: 8px 0;
+  color: #3c80df;
+}
+.reuse-meta {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 4px 12px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.reuse-meta dt {
+  color: #7c899b;
+}
+.reuse-meta dd {
+  margin: 0;
+  font-weight: 600;
+}
+.reuse-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 14px 0 10px;
+  padding: 12px;
+  border: 1px solid #e3e8f0;
+  border-radius: 8px;
+}
+.reuse-options legend {
+  padding: 0 6px;
+  color: #50647f;
+  font-size: 12px;
+}
+.reuse-options :deep(.el-checkbox) {
+  margin-right: 0;
+}
+.reuse-scope {
+  margin: 8px 0;
+  color: #7c899b;
+  font-size: 12px;
+}
+.reuse-hints {
+  margin: 8px 0;
+  padding: 8px 12px 8px 26px;
+  border-radius: 6px;
+  background: #fdf6e8;
+  color: #8a6416;
+  font-size: 12px;
+}
+.reuse-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+.reuse-summary {
+  margin-top: 22px;
+  padding: 14px 16px;
+  border: 1px solid #e3e8f0;
+  border-radius: 8px;
+  background: #f8fafd;
+}
+.reuse-summary h3 {
+  margin: 0 0 10px;
+}
+.reuse-summary dl {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.reuse-summary dt {
+  color: #7c899b;
+}
+.reuse-summary dd {
+  margin: 0;
+}
+.reuse-part {
+  display: inline-block;
+  margin-right: 14px;
 }
 @media (max-width: 700px) {
   .wizard-header-content {
