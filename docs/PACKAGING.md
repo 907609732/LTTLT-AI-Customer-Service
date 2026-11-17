@@ -39,3 +39,7 @@ ZIP 解压后运行 LingtuAI.exe；NSIS 为当前用户安装，可选择目录�
 ## 手动云端上传已验证产物
 
 `lingtu-release-assets.yml` 仅手动触发：输入已有草稿tag、成功桌面构建run ID和确切源码SHA，复用官方 actions/download-artifact 与 GitHub CLI。校验run成功、tag/manifest源码一致及全部SHA256后，只上传到仍为draft的指定Release，不自动公开。使用Actions短期token的actions:read/contents:write权限，不新增长期密钥。最终仍须核对远程附件digest并明确执行公开发布；不得用它覆盖已公开版本。
+
+## 2026-11-17 图标整合
+
+复用 public/lingtu-ai.ico，构建后位于 dist/lingtu-ai.ico；主窗口和平台窗口引用同一文件，NSIS 的 installer/uninstaller/header 图标均显式配置。关闭签名采用 signExecutable:false，保留 electron-builder 的图标和资源写入。本次源码合并不发布安装包；最终 EXE/安装器/卸载器外观以对应 Actions 产物检查为准。

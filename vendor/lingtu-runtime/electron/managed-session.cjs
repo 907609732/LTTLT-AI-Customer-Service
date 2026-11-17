@@ -297,6 +297,23 @@ function createManagedSession(options = {}) {
       throw err;
     }
   }
+  // Fixed authenticated internal summary. It is a free auxiliary request bound
+  // to one parent reply, so it carries only the untrusted history JSON and the
+  // token budget; the caller never supplies a system prompt, model or URL.
+  async function summarize(payload, { signal } = {}) {
+    const uuid = v => typeof v === 'string' && /^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$/.test(v);
+    if (!payload || !uuid(payload.parent_request_id) || !text(payload.history, 96*1024) || !Number.isInteger(payload.max_tokens) || payload.max_tokens < 1 || payload.max_tokens > 7000) throw error('invalid_request');
+    const body = { parent_request_id: payload.parent_request_id, history: payload.history, max_tokens: payload.max_tokens };
+    if (Buffer.byteLength(JSON.stringify(body)) > 128*1024) throw error('invalid_request');
+    const e = epoch;
+    try {
+      if (disposed || !credential || credential.expiresAt <= now()) throw error('session_expired');
+      if (!access || access.expiresAt <= now() + 30) await refresh(); check(e);
+      const result = await request('/chat/summaries', { body, bearer: access.token, signal }); check(e);
+      if (credential.expiresAt <= now()) throw error('session_expired');
+      return result;
+    } catch (err) { failure(err, e); throw err; }
+  }
   // Main-process service adapter reuses the session without exporting credentials.
   async function serviceRequest(endpoint, { method = 'GET', body, signal } = {}) {
     if (typeof endpoint !== 'string' || !/^\/(?:billing|team|teams)(?:\/[a-zA-Z0-9_-]{1,128})*$/.test(endpoint) || !['GET','POST','PATCH','DELETE'].includes(method) || (method === 'GET' && body !== undefined)) throw error('invalid_request');
@@ -311,7 +328,7 @@ function createManagedSession(options = {}) {
     } catch (err) { failure(err, e); throw err; }
   }
   function dispose() { stop(); credential = null; disposed = true; }
-  return { init, snapshot, beginLogin, cancelLogin, logout, refresh, chat, config, serviceRequest, dispose };
+  return { init, snapshot, beginLogin, cancelLogin, logout, refresh, chat, config, summarize, serviceRequest, dispose };
 }
 module.exports = { createManagedSession, ManagedSessionError };
 

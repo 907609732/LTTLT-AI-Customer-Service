@@ -8,7 +8,13 @@ import { emptySnapshot, type BackendResult } from '../src/shared/contracts/backe
 import { downloadText } from '../src/shared/platform/files'
 import { emptyReportingCounts } from '../src/shared/contracts/reporting'
 
+const mockDesktop = vi.hoisted(() => ({
+  isElectron: true,
+  openAssist: vi.fn(async () => {}),
+}))
+
 vi.mock('../src/shared/platform/files', () => ({ downloadText: vi.fn() }))
+vi.mock('../src/shared/platform/desktop', () => ({ getDesktop: () => mockDesktop }))
 
 it('marks observed report scope and keeps buyer details out of the actual export action', async () => {
   const { wrapper, runtime } = await fixture()
@@ -74,6 +80,7 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 async function fixture(available = true) {
+  vi.clearAllMocks()
   setActivePinia(createPinia())
   const runtime = useRuntimeStore()
   runtime.available = available
@@ -200,7 +207,8 @@ it('risk navigation uses current panels and backlog selects store before auxilia
   await wrapper.get('[data-backlog="a"]').trigger('click')
   await flushPromises()
   expect(runtime.selectedStoreId).toBe('a')
-  expect(router.currentRoute.value.path).toBe('/float/assist')
+  expect(router.currentRoute.value.path).toBe('/shop/manage')
+  expect(mockDesktop.openAssist).toHaveBeenCalledWith({ tab: 'consult' })
   wrapper.unmount()
 })
 it('aggregate cards select the store with the matching problem instead of an unrelated selected store', async () => {
@@ -226,12 +234,88 @@ it('aggregate cards select the store with the matching problem instead of an unr
   await flushPromises()
   await wrapper.get('[data-metric="pending"]').trigger('click')
   expect(runtime.selectedStoreId).toBe('b')
+  expect(mockDesktop.openAssist).toHaveBeenLastCalledWith({ tab: 'consult' })
   runtime.selectedStoreId = 'a'
   await wrapper.get('[data-risk="offline"]').trigger('click')
   expect(runtime.selectedStoreId).toBe('b')
   runtime.selectedStoreId = 'a'
   await wrapper.get('[data-risk="welcome"]').trigger('click')
   expect(runtime.selectedStoreId).toBe('b')
+  wrapper.unmount()
+})
+it('real-time guard cards open the auxiliary side window on the matching tab', async () => {
+  const { wrapper, runtime, router } = await fixture()
+  runtime.snapshot.conversations.push({
+    storeId: 'a',
+    uid: 'u',
+    name: '',
+    status: 'handoff',
+    messages: [{ from: 'buyer', content: '需要人工', ts: Date.now() }],
+  })
+  runtime.snapshot.workOrders.push({
+    id: 'w1',
+    storeId: 'a',
+    storeName: '真实店铺',
+    type: '售后',
+    orderNo: '',
+    buyer: '',
+    priority: 'normal',
+    description: '本机工单',
+    status: 'pending',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    notes: [],
+  })
+  const report = {
+    start: Date.now() - 1,
+    end: Date.now() + 1,
+    observedSince: Date.now(),
+    persistence: 'ready' as const,
+    truncated: false,
+    source: 'local-observed-events' as const,
+    complete: false as const,
+    real: emptyReportingCounts(),
+    simulated: emptyReportingCounts(),
+  }
+  runtime.snapshot.reporting = {
+    today: report,
+    yesterday: report,
+    week: report,
+    month: report,
+    aftersales: [
+      {
+        storeId: 'a',
+        platform: 'pdd-web',
+        status: 'success',
+        complete: true,
+        total: 1,
+        observed: 1,
+        lastSyncedAt: Date.now(),
+        scope: 'current-merchant-pending',
+      },
+    ],
+  }
+  await flushPromises()
+  await wrapper.get('[data-metric="handoff"]').trigger('click')
+  expect(mockDesktop.openAssist).toHaveBeenLastCalledWith({ tab: 'handoff' })
+  await wrapper.get('[data-metric="workorder"]').trigger('click')
+  expect(mockDesktop.openAssist).toHaveBeenLastCalledWith({ tab: 'ticket', ticketMode: 'local' })
+  await wrapper.get('[data-metric="aftersale"]').trigger('click')
+  expect(mockDesktop.openAssist).toHaveBeenLastCalledWith({ tab: 'aftersale' })
+  expect(router.currentRoute.value.path).toBe('/shop/manage')
+  wrapper.unmount()
+})
+it('shows a visible error when the auxiliary side window cannot open', async () => {
+  const { wrapper, router } = await fixture()
+  mockDesktop.openAssist.mockRejectedValueOnce(new Error('窗口服务离线'))
+  await wrapper.get('[data-metric="pending"]').trigger('click')
+  await flushPromises()
+  expect(wrapper.get('[role="alert"]').text()).toContain('辅助中心打开失败：窗口服务离线')
+  expect(router.currentRoute.value.path).toBe('/shop/manage')
+  mockDesktop.openAssist.mockResolvedValueOnce(undefined)
+  await wrapper.get('[data-metric="pending"]').trigger('click')
+  await flushPromises()
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   wrapper.unmount()
 })
 it('托管模式与待重启提示不隐藏共用工作区的真实数据', async () => {

@@ -1,5 +1,11 @@
 # 上游来源与维护边界
 
+## 2026-11-17：免费托管内部摘要
+
+managed-session.cjs 新增主进程专用 summarize()，仅以现有鉴权会话 POST 固定 /api/client/chat/summaries；正文只包含 UUID 父回复 ID、已组装的不可信历史 JSON（上限 96KiB）与 1–7000 的 token 预算，不接受系统规则、模型或任意 URL，未知字段不进入正文。错误沿用现有 failure/epoch 语义，取消信号、20 秒请求上限与既有响应大小边界不变；config() 与 chat 的强类型策略透传、团队/计费白名单保持原样。该请求是服务端标记的 auxiliary（免费）请求，仍需登录与有效账号；客户端把摘要父 ID 绑定到紧接着的一次回复，服务端据此每笔回复只记一次内部摘要。source-files.json 保留 upstreamGitBlob/upstreamSha256，仅更新该文件的实际 sha256 与补丁说明。backend.cjs 未改动，回复侧的父 ID 复用由 electron/local-runtime.ts 在 managedChat 注入点完成。
+
+针对性验证：桌面 managed-context、managed-billing-integration、managed-controller、managed-service-request 与既有 managed-context-policy/managed-context-transport 测试通过；未运行全量上游套件。
+
 ## 2026-11-15：审核知识仓储兼容注入
 
 backend.cjs 只增加可选 knowledgePorts / knowledgeContext / onKnowledgeModel：在旧 JSON 构造前注入 SQLite 的完整兼容端口，统一审核检索，并将现有配置、密钥及托管计费所使用的完成器提供给本工程主进程。AiClient 的可选 completeKnowledge 在序列化审核依据时保留完整条目，继续交给现有16K/8K压缩器；未注入仍沿用上游16000字符路径。请求 trace 携带同次知识相关标识，生成返回 traceId，reply-engine 将该精确ID交到既有批准门，并把注入的当前性守卫延续至适配器输入/点击。外部 AbortSignal 可取消本机或托管请求。知识策略、SQLite、工作区校验和UI均在本工程 TypeScript，默认无注入行为保留。source-files.json 保留 upstreamGitBlob / upstreamSha256，仅更新这三个文件的实际 sha256 与补丁说明。
@@ -58,7 +64,7 @@ source-files.json 为此文件同时记录 upstreamGitBlob、upstreamSha256、�
 
 ## 附加平台注入（2026-11-13）
 
-本机模拟店铺：electron/backend.cjs 的 createBackend 新增可选 extraPlatforms，只把注入项合并进 allPlatforms（按 /^[a-z0-9][a-z0-9-]{0,39}$/ 过滤），用于 capabilities.platforms 快照与 add-store 的平台校验；未注入时 allPlatforms 与上游 platforms 完全一致，拼多多/抖店的默认清单、accessModeFor 与 createAdapter 表均未改动。云朵在 electron/local-runtime.ts 注入唯一一项 sim-local（本机模拟店铺），其适配器、门店管理器与模拟顾客页全部位于本工程 TypeScript（electron/sim-*.ts）与渲染层模块 src/modules/simulation/。
+本机模拟店铺：electron/backend.cjs 的 createBackend 新增可选 extraPlatforms，只把注入项合并进 allPlatforms（按 /^[a-z0-9][a-z0-9-]{0,39}$/ 过滤），用于 capabilities.platforms 快照与 add-store 的平台校验；未注入时 allPlatforms 与上游 platforms 完全一致，拼多多/抖店的默认清单、accessModeFor 与 createAdapter 表均未改动。云朵在 electron/local-runtime.ts 注入唯一一项 sim-local（本机模拟店铺），其适配器、门店管理器与模拟顾客页全部位于本工程 TypeScript（electron/sim-\*.ts）与渲染层模块 src/modules/simulation/。
 
 此注入只放开“平台 id 白名单”，不给模拟店铺任何真实登录、真实买家或平台发送能力；模拟消息仍走上游同一套 ingest → 会话快照 → 回复引擎 → 逐条确认门 → send-reply 链路。source-files.json 中该文件的 localPatch 说明与实际 sha256 已随补丁更新（当前 fb2ffd7d531500a2579961ec282015b0ccd0657cf47c9325f68a18e180c158c6）。升级上游时必须重新审查该注入点，不能只更新哈希。
 
@@ -91,3 +97,7 @@ tests/pdd-conversation-focus.test.ts 使用合成页面验证选择事件、忽�
 ## 2026-11-17：客服接管关键词保存适配
 
 backend.cjs 的既有 save-config 仅新增 MANUAL_REPLY_KEYWORDS 分支：按 keywords / expectedKeywords 解析并执行 trim、去空、去重、每词 1–30 字和最多 100 个校验，读取 config.all().safety.manualReplyKeywords 做旧值比较，冲突时拒绝，随后 config.update 只写 safety.manualReplyKeywords。同一规则也由本工程 electron/manual-reply-keywords.ts 在主进程保存边界执行，覆盖直接调用入口。卖家侧消息命中、selfSend 回环过滤、生成/待批准取消和显式恢复继续沿用上游 D-07 与既有注入点，没有第二套暂停引擎。source-files.json 保留 upstreamGitBlob / upstreamSha256，仅更新实际 sha256 与 localPatch 说明。
+
+## 2026-11-17 本地遗漏改动整合
+
+保留当前知识端口、用途/策略版本透传和取消链路，在拼多多消息、待处理队列及回复上下文透传 goodsId；精确商品ID优先，标题与问题检索去重后补充。hook版本从9递增到10，保留已有会话定位修复。backend仅新增可选 resolveManagedRequestId 注入，在记录失败诊断前确定摘要父回复ID，保证实际HTTP正文和诊断一致。保留原始来源哈希，更新实际文件哈希与对应回归测试。

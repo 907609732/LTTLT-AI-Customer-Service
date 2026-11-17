@@ -9,6 +9,7 @@ import type { PlatformLearningTransport } from './platform-learning'
 import type { PlatformOrderRequest, PlatformOrderSnapshot } from './platform-orders'
 import type { ReceptionBridge } from './platform-operations'
 import type {
+  AssistOpenTarget,
   AssistMainSection,
   AssistPreferencesPatch,
   AssistWindowState,
@@ -60,13 +61,14 @@ export interface DesktopApi extends Partial<ReceptionBridge> {
   simulatorStatus?(): Promise<SimulatorStatus>
   /** 在系统浏览器打开模拟顾客页；浏览器预览版不具备此能力。 */
   openSimulatorPage?(): Promise<SimulatorActionResult>
-  openAssist?(): Promise<void>
+  openAssist?(target?: AssistOpenTarget): Promise<void>
   assistState?(): Promise<AssistWindowState>
   updateAssistPreferences?(
     patch: AssistPreferencesPatch,
     workspaceId: string,
   ): Promise<AssistWindowState>
   onAssistState?(listener: (state: AssistWindowState) => void): () => void
+  onAssistNavigate?(listener: (target: AssistOpenTarget) => void): () => void
   onAssistCloseRequest?(listener: () => void): () => void
   closeAssist?(): Promise<void>
   openMainSection?(section: AssistMainSection): Promise<void>

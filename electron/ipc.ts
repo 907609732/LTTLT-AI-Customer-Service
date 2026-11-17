@@ -13,7 +13,10 @@ import { loadRenderer } from './windows'
 import type { AssistWindowManager } from './assist-window'
 import type { LocalRuntime } from './local-runtime'
 import { z } from 'zod'
-import { assistPreferencesPatchSchema } from '../src/shared/contracts/assist'
+import {
+  assistOpenTargetSchema,
+  assistPreferencesPatchSchema,
+} from '../src/shared/contracts/assist'
 import { createAssistConversationNavigator } from './assist-conversation'
 import {
   openAssistPlatformItemSchema,
@@ -59,11 +62,11 @@ export function registerDesktopIpc(
       sourceWindow(event)
       return openConversation(input)
     },
-    'assist:open': async (event: IpcMainInvokeEvent) => {
+    'assist:open': async (event: IpcMainInvokeEvent, input: unknown) => {
       sourceWindow(event)
       const manager = options.assist?.()
       if (!manager) throw new Error('辅助中心尚未就绪')
-      await manager.open()
+      await manager.open(input === undefined ? undefined : assistOpenTargetSchema.parse(input))
     },
     'assist:state': (event: IpcMainInvokeEvent) => {
       const caller = sourceWindow(event)

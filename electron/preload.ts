@@ -73,7 +73,7 @@ const api: DesktopApi = {
     ipcRenderer.invoke('business:present-store', { storeId, visible }),
   simulatorStatus: () => ipcRenderer.invoke('sim:status'),
   openSimulatorPage: () => ipcRenderer.invoke('sim:open-page'),
-  openAssist: () => ipcRenderer.invoke('assist:open'),
+  openAssist: (target) => ipcRenderer.invoke('assist:open', target),
   assistState: () => ipcRenderer.invoke('assist:state'),
   updateAssistPreferences: (patch, workspaceId) =>
     ipcRenderer.invoke('assist:update-preferences', { patch, workspaceId }),
@@ -90,6 +90,14 @@ const api: DesktopApi = {
     ) => listener(state)
     ipcRenderer.on('assist:state-changed', receive)
     return () => ipcRenderer.removeListener('assist:state-changed', receive)
+  },
+  onAssistNavigate: (listener) => {
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      target: import('../src/shared/contracts/assist').AssistOpenTarget,
+    ) => listener(target)
+    ipcRenderer.on('assist:navigate', receive)
+    return () => ipcRenderer.removeListener('assist:navigate', receive)
   },
   onAssistCloseRequest: (listener) => {
     const receive = () => listener()

@@ -21,7 +21,7 @@ const {createAuxiliaryState}=require('./auxiliary-state.cjs');
 const {createConversationQuality}=require('./conversation-quality.cjs');
 const platforms=[{id:'pdd-web',label:'拼多多'},{id:'doudian-client',label:'抖店'}];
 const Command=z.object({action:z.string().min(1).max(60),screenId:z.string().max(30).optional(),storeId:z.string().max(64).optional(),conversationId:z.string().max(200).optional(),values:z.record(z.string(),z.unknown()).optional()});
-function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},managedCapabilities=()=>({}),allowExternalClient=true,externalClientReady=()=>{},sourceDiagnostics=false,localVisionSupport,beforeSend,onModelTrace,onRuntimeEvent,prepareModelContext,resolveConversationThread,extraPlatforms,knowledgePorts,knowledgeContext,onKnowledgeModel}={}){
+function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiClient,safeStorage,fetchImpl,openExternal,modelMode='local',managedChat,managedReady=()=>{},managedCapabilities=()=>({}),allowExternalClient=true,externalClientReady=()=>{},sourceDiagnostics=false,localVisionSupport,beforeSend,onModelTrace,onRuntimeEvent,prepareModelContext,resolveConversationThread,extraPlatforms,knowledgePorts,knowledgeContext,onKnowledgeModel,resolveManagedRequestId}={}){
  if(!dataDir)throw Error('data_directory_required');
  // 云朵本地兼容补丁：可选的 extraPlatforms 只追加本机自有的模拟店铺平台 id，供本项目适配器使用；
  // 未注入时平台枚举、校验与上游完全一致，不会放行任意平台。
@@ -163,8 +163,15 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   if(knowledgeContext)return knowledgeContext({thread,goodsTitle,reviewContext});
   const storeId=reviewContext?.storeId;if(!registry.get(storeId))return [];
   const question=[...(thread||[])].reverse().find(m=>m.from==='buyer')?.content||'';
-  const productId=products.getByProductId(storeId,reviewContext?.productId)?.productId||products.identifyTitle(storeId,goodsTitle);
-  return [...products.search(storeId,[goodsTitle,question].filter(Boolean).join(' '),3).map(x=>({...x,source:'product'})),...intents.search(storeId,question,productId)];
+  const addProduct=(list,seen,item)=>{if(!item?.productId||seen.has(item.productId))return;seen.add(item.productId);list.push({...item,source:'product'});};
+  const seen=new Set(),productHits=[];
+  const directProduct=products.getByProductId(storeId,reviewContext?.productId);
+  addProduct(productHits,seen,directProduct);
+  const titleProductId=directProduct?.productId||products.identifyTitle(storeId,goodsTitle);
+  if(titleProductId&&!directProduct)addProduct(productHits,seen,products.getByProductId(storeId,titleProductId));
+  for(const item of products.search(storeId,goodsTitle,3))addProduct(productHits,seen,item);
+  for(const item of products.search(storeId,question,3))addProduct(productHits,seen,item);
+  return [...productHits.slice(0,3),...intents.search(storeId,question,titleProductId)];
  }});
  // 本机上下文策略由 TypeScript 注入，未注入的上游行为保持不变。
  if(resolveConversationThread)modelClient.resolveThread=resolveConversationThread;
@@ -183,7 +190,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    if(reviewContext?.storeId&&reviewContext.uid&&quality.blocked(reviewContext.storeId,reviewContext.uid))throw Object.assign(Error('该会话等待人工处理'),{code:'queued_canceled'});
    if(!managedChat)throw Error('托管服务尚未连接');
    const c=new AbortController();const abort=()=>c.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)c.abort();generations.add(c);const timer=setTimeout(()=>c.abort(),timeoutMs||60000);timer.unref?.();
-   const requestId=randomUUID();
+   const requestId=resolveManagedRequestId?resolveManagedRequestId(messages,randomUUID()):randomUUID();
    // Only an explicitly marked main-process caller may add policy metadata.
    // Unknown input fields (including client output limits) never reach the wire.
    const payload={client_request_id:requestId,messages};

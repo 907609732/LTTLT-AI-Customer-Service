@@ -5,7 +5,10 @@
   "asar": true,
   "npmRebuild": false,
   "extraResources": [
-    { "from": "dist-electron/lingtu-mcp.cjs", "to": "ai-interface/lingtu-mcp.cjs" },
+    {
+      "from": "dist-electron/lingtu-mcp.cjs",
+      "to": "ai-interface/lingtu-mcp.cjs"
+    },
     {
       "from": "node_modules/@modelcontextprotocol/server/LICENSE",
       "to": "ai-interface/licenses/mcp-server-LICENSE"
@@ -45,7 +48,8 @@
   ],
   "win": {
     "target": ["nsis", "zip"],
-    "signAndEditExecutable": false
+    "signExecutable": false,
+    "icon": "public/lingtu-ai.ico"
   },
   "nsis": {
     "oneClick": false,
@@ -53,7 +57,10 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "deleteAppDataOnUninstall": false,
-    "artifactName": "LingtuAI-Setup-${version}-win-${arch}.${ext}"
+    "artifactName": "LingtuAI-Setup-${version}-win-${arch}.${ext}",
+    "installerIcon": "public/lingtu-ai.ico",
+    "uninstallerIcon": "public/lingtu-ai.ico",
+    "installerHeaderIcon": "public/lingtu-ai.ico"
   },
   "artifactName": "LingtuAI-${version}-win-${arch}.${ext}"
 }

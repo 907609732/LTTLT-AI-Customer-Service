@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useBilling } from '../use-billing'
+import { paymentCodeImage } from '../payment-code'
+import type { BillingChannel, BillingOrder, BillingPlan } from '../contracts'
 const props = defineProps<{ section?: 'plans' | 'orders' | 'usage'; compact?: boolean }>()
 const billing = useBilling()
 const {
@@ -13,11 +15,16 @@ const {
   ordersError,
   ledgerError,
   checkoutError,
+  paymentError,
   catalogPending,
   ordersPending,
   ledgerPending,
+  checkoutPending,
+  paymentPending,
   ordersLoaded,
   ledgerSyncedAt,
+  activePayment,
+  pollingExpired,
 } = billing
 const signedOutReason = computed(() => {
   const managed = billing.runtime.snapshot.managed
@@ -29,6 +36,41 @@ const signedOutReason = computed(() => {
     return '暂时无法连接托管服务，请在主页登录入口重新同步账号。'
   return '使用托管账号后可查询额度和充值订单。本机 Key 的费用由模型服务商管理。'
 })
+/** 服务端只发布已配置的官方渠道；缺省按未配置展示，绝不自动替换成其他付款方式。 */
+const channels = computed(() =>
+  (['alipay', 'wechat'] as const).map(
+    (id) =>
+      catalog.value?.channels?.find((item) => item.id === id) ?? { id, ready: false, reason: '' },
+  ),
+)
+/** 只有服务端明确 ready 的官方扫码渠道才能进入收银台。 */
+const nativeReady = computed(() => channels.value.some((channel) => channel.ready))
+const cashierOpen = ref(false)
+const selectedPlan = ref<BillingPlan | null>(null)
+const selectedChannel = ref<BillingChannel>('alipay')
+const qrImage = ref('')
+const qrError = ref('')
+const channelReady = (id: BillingChannel) =>
+  channels.value.some((channel) => channel.id === id && channel.ready)
+const createLabel = computed(() =>
+  activePayment.value && ['pending', 'reconciling'].includes(activePayment.value.order.state)
+    ? '关闭原订单后重新支付'
+    : '创建支付订单',
+)
+function channelReason(channel: { ready: boolean; reason: string }) {
+  if (channel.ready) return ''
+  return channel.reason && !/^[a-z_]+$/.test(channel.reason) ? channel.reason : '商户支付尚未配置'
+}
+function choose(plan: BillingPlan) {
+  selectedPlan.value = plan
+  selectedChannel.value = channels.value.find((channel) => channel.ready)?.id ?? 'alipay'
+  cashierOpen.value = true
+}
+function resume(order: BillingOrder) {
+  cashierOpen.value = true
+  selectedPlan.value = null
+  void billing.resumeOrder(order)
+}
 async function refresh() {
   if (!props.compact) return billing.refresh()
   await Promise.all([
@@ -39,12 +81,42 @@ async function refresh() {
 watch(
   billing.identity,
   () => {
+    cashierOpen.value = false
+    selectedPlan.value = null
+    qrImage.value = ''
+    qrError.value = ''
     void refresh()
   },
   { immediate: true },
 )
+// 二维码内容变化即重绘；迟到结果按序号丢弃，身份切换后不再显示旧订单的码。
+let qrGeneration = 0
+watch(
+  () => activePayment.value?.qr_code,
+  async (text) => {
+    const ticket = ++qrGeneration
+    qrImage.value = ''
+    qrError.value = ''
+    if (!text) return
+    try {
+      const image = await paymentCodeImage(text)
+      if (ticket === qrGeneration) qrImage.value = image
+    } catch {
+      if (ticket === qrGeneration) qrError.value = '二维码生成失败，请重试查询或改用官方渠道页面。'
+    }
+  },
+)
 const money = (amount: number) => `¥${(amount / 100).toFixed(2)}`
 const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-CN') : '—')
+const channelName = (id?: string) =>
+  id === 'wechat' ? '微信支付' : id === 'alipay' ? '支付宝' : '网页支付'
+const stateNames: Record<string, string> = {
+  pending: '待支付',
+  paid: '服务端已入账',
+  closed: '已关闭',
+  reconciling: '待对账',
+}
+const stateName = (state: string) => stateNames[state] ?? '待对账'
 </script>
 <template>
   <div class="billing-dashboard" :class="{ compact }" data-v-a08d080e="" data-v-d2122d6b="">
@@ -92,21 +164,44 @@ const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-
       aria-label="服务端调用额度"
     >
       <div class="quota-remaining">
-        <span>剩余调用额度</span><strong>{{ account.trial.remaining }} <small>次</small></strong>
+        <span>剩余调用额度</span
+        ><strong
+          >{{ catalog?.quota ? catalog.quota.remaining : account.trial.remaining }}
+          <small>次</small></strong
+        >
       </div>
-      <div class="quota-stat">
-        <span>总额度</span><strong>{{ account.trial.limit }} 次</strong>
-      </div>
-      <div class="quota-stat">
-        <span>已结算</span><strong>{{ account.trial.used }} 次</strong>
-      </div>
-      <div class="quota-stat">
-        <span>处理中或待对账</span><strong>{{ account.trial.reserved }} 次</strong>
-      </div>
-      <div class="quota-stat">
-        <span>到期时间</span><strong>{{ date(account.trial.expiresAt) }}</strong>
-      </div>
+      <template v-if="catalog?.quota">
+        <div class="quota-stat">
+          <span>付费剩余</span><strong>{{ catalog.quota.paid.remaining }} 次</strong>
+          <span>到期 {{ date(catalog.quota.paid.expires_at) }}</span>
+        </div>
+        <div class="quota-stat">
+          <span>试用剩余</span><strong>{{ catalog.quota.trial.remaining }} 次</strong>
+          <span>到期 {{ date(catalog.quota.trial.expires_at) }}</span>
+        </div>
+        <div class="quota-stat">
+          <span>处理中或待对账</span
+          ><strong>{{ catalog.quota.paid.reserved + catalog.quota.trial.reserved }} 次</strong>
+        </div>
+      </template>
+      <template v-else>
+        <div class="quota-stat">
+          <span>总额度</span><strong>{{ account.trial.limit }} 次</strong>
+        </div>
+        <div class="quota-stat">
+          <span>已结算</span><strong>{{ account.trial.used }} 次</strong>
+        </div>
+        <div class="quota-stat">
+          <span>处理中或待对账</span><strong>{{ account.trial.reserved }} 次</strong>
+        </div>
+        <div class="quota-stat">
+          <span>到期时间</span><strong>{{ date(account.trial.expiresAt) }}</strong>
+        </div>
+      </template>
       <p>摘要与正式回复可能各消耗一次调用。失败释放占用，结果不确定时保留占用等待对账。</p>
+      <p v-if="catalog?.quota?.trial.provenance === 'legacy_mixed'">
+        历史额度保留原有效期，新充值单独计入付费额度。
+      </p>
     </section>
     <section v-if="section !== 'orders' && section !== 'usage'" class="plans-section">
       <div class="section-head">
@@ -142,7 +237,12 @@ const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-
         >
           <div>
             <h3>{{ plan.name }}</h3>
-            <div class="plan-price">{{ money(plan.amount) }}</div>
+            <div class="plan-price">
+              {{ money(plan.amount)
+              }}<del v-if="plan.list_amount && plan.list_amount > plan.amount">{{
+                money(plan.list_amount)
+              }}</del>
+            </div>
             <dl class="plan-details">
               <div>
                 <dt>调用额度</dt>
@@ -155,18 +255,102 @@ const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-
             </dl>
           </div>
           <el-button
+            v-if="nativeReady"
             type="primary"
             :disabled="!catalog?.ready || !signedIn || Boolean(catalogError)"
-            :loading="pending"
+            :loading="checkoutPending || paymentPending"
+            @click="choose(plan)"
+            >选择套餐</el-button
+          >
+          <el-button
+            v-else
+            type="primary"
+            :disabled="!catalog?.ready || !signedIn || Boolean(catalogError)"
+            :loading="checkoutPending"
             @click="billing.checkout(plan)"
             >创建订单并前往支付</el-button
           >
         </div>
       </div>
+      <p v-if="!nativeReady && catalog?.ready && catalogError === ''" class="section-note">
+        微信/支付宝扫码渠道尚未配置；如管理员启用了网页支付，可使用上方按钮按网页收银台付款。
+      </p>
       <p class="section-note">
         充值增加调用额度，不自动启用
         AI。有效期采用当前到期时间与本次充值有效期的较晚值，已过期未使用额度不会恢复。
       </p>
+    </section>
+    <section
+      v-if="cashierOpen && !compact && signedIn && billing.transport"
+      class="card cashier"
+      role="dialog"
+      aria-label="扫码收银台"
+    >
+      <div class="section-head">
+        <h2>扫码收银台</h2>
+        <el-button @click="cashierOpen = false">收起收银台</el-button>
+      </div>
+      <p v-if="selectedPlan">
+        {{ selectedPlan.name }} · {{ money(selectedPlan.amount) }} · {{ selectedPlan.calls }} 次 ·
+        有效期 {{ selectedPlan.valid_days }} 天
+      </p>
+      <fieldset v-if="selectedPlan" class="billing-channels">
+        <legend>选择支付方式</legend>
+        <label v-for="channel in channels" :key="channel.id"
+          ><input
+            v-model="selectedChannel"
+            type="radio"
+            :value="channel.id"
+            :disabled="!channelReady(channel.id) || pending"
+          />{{ channelName(channel.id)
+          }}<small v-if="!channel.ready">（暂不可用：{{ channelReason(channel) }}）</small></label
+        >
+      </fieldset>
+      <el-alert v-if="paymentError" type="error" :closable="false" :title="paymentError" />
+      <template v-if="activePayment">
+        <p>
+          订单 {{ activePayment.order.id }} · {{ channelName(activePayment.order.channel) }} ·
+          {{ stateName(activePayment.order.state) }}
+        </p>
+        <template v-if="activePayment.order.state === 'pending'">
+          <img v-if="qrImage" :src="qrImage" alt="支付二维码" class="billing-qr" />
+          <p v-else>
+            {{
+              qrError ||
+              (activePayment.qr_code ? '正在生成二维码…' : '暂无可用二维码，请查询订单结果。')
+            }}
+          </p>
+          <p>
+            请使用{{ channelName(activePayment.order.channel) }}扫码。有效期至
+            {{ date(activePayment.expires_at || activePayment.order.expires_at || 0) }}
+          </p>
+        </template>
+        <p v-if="activePayment.order.state === 'paid'">服务端已确认付款并入账，请查看最新额度。</p>
+        <p v-if="activePayment.order.state === 'reconciling'">
+          渠道结果尚未确认，请勿重复付款；可重试查询，确认关闭前不能更换渠道。
+        </p>
+        <p v-if="pollingExpired">自动查询已暂停，可手动重试；请勿重复付款。</p>
+        <el-button :loading="paymentPending" @click="billing.checkPayment(true)"
+          >重试查询结果</el-button
+        >
+        <el-button
+          v-if="
+            activePayment.order.state === 'pending' || activePayment.order.state === 'reconciling'
+          "
+          :disabled="pending"
+          @click="billing.closePayment"
+          >关闭原订单</el-button
+        >
+      </template>
+      <el-button
+        v-if="selectedPlan"
+        type="primary"
+        :loading="checkoutPending"
+        :disabled="!channelReady(selectedChannel) || !signedIn || Boolean(catalogError) || pending"
+        @click="billing.checkout(selectedPlan, selectedChannel)"
+        >{{ createLabel }}</el-button
+      >
+      <p>切换渠道须先确认原订单已关闭。收起收银台后仍可继续查单，离开本页则停止。</p>
     </section>
     <section v-if="section !== 'usage'" class="card">
       <div class="section-head orders-head">
@@ -192,15 +376,30 @@ const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-
               money(scope.row.plan.amount)
             }}</template></el-table-column
           >
+          <el-table-column label="支付方式" width="110"
+            ><template #default="scope">{{
+              channelName(scope.row.channel)
+            }}</template></el-table-column
+          >
           <el-table-column label="状态" width="140"
             ><template #default="scope"
               ><span class="order-state" :class="{ 'is-paid': scope.row.state === 'paid' }">{{
-                scope.row.state === 'paid' ? '服务端已入账' : '待支付或待对账'
+                stateName(scope.row.state)
               }}</span></template
             ></el-table-column
           >
           <el-table-column label="创建时间" min-width="180"
             ><template #default="scope">{{ date(scope.row.created_at) }}</template></el-table-column
+          >
+          <el-table-column v-if="!compact" label="操作" width="150"
+            ><template #default="scope"
+              ><el-button
+                v-if="scope.row.state !== 'closed'"
+                :disabled="!signedIn || pending"
+                @click="resume(scope.row)"
+                >查询 / 继续支付</el-button
+              ></template
+            ></el-table-column
           >
         </el-table>
       </div>
@@ -363,6 +562,13 @@ p {
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+.plan-price del {
+  margin-left: 10px;
+  color: #98a3b2;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
 .plan-details {
   display: grid;
   gap: 12px;
@@ -391,6 +597,41 @@ p {
 }
 .section-note {
   font-size: 12px;
+}
+.cashier {
+  display: grid;
+  gap: 14px;
+}
+.cashier > .el-button {
+  justify-self: start;
+}
+.billing-channels {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+.billing-channels legend {
+  padding: 0 6px;
+  color: #738196;
+  font-size: 12px;
+}
+.billing-channels label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.billing-channels small {
+  color: #98a3b2;
+}
+.billing-qr {
+  display: block;
+  width: 240px;
+  height: 240px;
+  margin: 0 auto;
 }
 .orders-head {
   margin-bottom: 20px;

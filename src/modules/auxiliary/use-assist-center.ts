@@ -1,10 +1,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getDesktop } from '@/shared/platform/desktop'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import {
+  assistOpenTargetSchema,
   defaultAssistPreferences,
+  type AssistOpenTarget,
   type AssistPreferencesPatch,
   type AssistWindowState,
 } from '@/shared/contracts/assist'
@@ -28,7 +30,8 @@ export function useAssistCenter() {
   const runtime = useRuntimeStore(),
     desktop = getDesktop(),
     task = useTask(),
-    router = useRouter()
+    router = useRouter(),
+    route = useRoute()
   const tab = ref<AssistTab>('consult'),
     consultStatus = ref('pending'),
     ticketMode = ref('platform')
@@ -63,6 +66,7 @@ export function useAssistCenter() {
   let epoch = 0,
     disposed = false,
     offState: (() => void) | undefined,
+    offNavigate: (() => void) | undefined,
     offClose: (() => void) | undefined,
     timer: ReturnType<typeof setInterval> | undefined
   const scoped = computed(() =>
@@ -277,6 +281,17 @@ export function useAssistCenter() {
     tab.value = value
     task.error.value = ''
     task.message.value = ''
+  }
+  function navigateAssist(target: AssistOpenTarget) {
+    if (target.tab === 'consult') consultStatus.value = 'pending'
+    if (target.tab === 'ticket') ticketMode.value = target.ticketMode ?? 'platform'
+    selectTab(target.tab)
+  }
+  function initialRouteTarget() {
+    const tab = typeof route.query.assistTab === 'string' ? route.query.assistTab : undefined
+    const ticketMode =
+      typeof route.query.assistTicketMode === 'string' ? route.query.assistTicketMode : undefined
+    return assistOpenTargetSchema.safeParse({ tab, ...(ticketMode ? { ticketMode } : {}) })
   }
   async function focusCurrent() {
     const row = current.value
@@ -626,6 +641,9 @@ export function useAssistCenter() {
       offState = desktop.onAssistState((state) => {
         if (state.workspaceId === runtime.snapshot.workspaceId) preferences.value = state
       })
+    if (desktop.onAssistNavigate) offNavigate = desktop.onAssistNavigate(navigateAssist)
+    const routedTarget = initialRouteTarget()
+    if (routedTarget.success) navigateAssist(routedTarget.data)
     if (desktop.onAssistCloseRequest)
       offClose = desktop.onAssistCloseRequest(() => {
         closeOpen.value = true
@@ -648,6 +666,7 @@ export function useAssistCenter() {
     disposed = true
     epoch++
     offState?.()
+    offNavigate?.()
     offClose?.()
     if (timer) clearInterval(timer)
   })

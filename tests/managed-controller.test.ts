@@ -56,6 +56,8 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
   let chatError = ''
   let remaining = 19
   let vision = false
+  let summaryAborted = false
+  let summaryHangs = false
   const expiry = Math.floor(Date.now() / 1000) + 3600
   const calls: { url: string; body: Record<string, unknown> | null; bearer: string | null }[] = []
   const submitted = vi.fn()
@@ -100,6 +102,15 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
         ? { error: chatError }
         : { choices: [{ message: { content: '{"reply":"托管夹具回答"}' } }] }
       if (chatError) status = 409
+    } else if (endpoint.endsWith('/chat/summaries')) {
+      result = { choices: [{ message: { content: '服务端受限摘要' } }] }
+      if (summaryHangs)
+        await new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            summaryAborted = true
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+          })
+        })
     } else if (endpoint.endsWith('/auth/logout')) result = { revoked: true }
     else if (endpoint === '/api/client/billing') result = { plans: [] }
     else throw new Error('Unexpected fixture request')
@@ -142,6 +153,10 @@ function fixture(mode: 'local' | 'managed' = 'managed') {
     setRemaining: (value: number) => {
       remaining = value
     },
+    setSummaryHang: (value: boolean) => {
+      summaryHangs = value
+    },
+    summaryAborted: () => summaryAborted,
   }
 }
 
@@ -302,6 +317,65 @@ describe('托管账号和模式隔离', () => {
       controller.chat({ ...payload, client_request_id: 'fixture-request-2' }, {}),
     ).rejects.toMatchObject({ code: 'request_uncertain' })
     expect(f.calls.filter((call) => call.url.endsWith('/chat/completions'))).toHaveLength(2)
+  })
+
+  it('内部摘要只走独立认证端点，携带真实提交证据且不触碰回复接口', async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    const login = f.make()
+    await login.execute('managed-login', {})
+    await vi.advanceTimersByTimeAsync(1100)
+    login.dispose()
+    const controller = f.make()
+    await controller.init()
+    const input = {
+      parent_request_id: '12345678-1234-4234-8234-123456789abc',
+      history: JSON.stringify({ earlierMessages: [{ from: 'buyer', content: '合成历史' }] }),
+      max_tokens: 200,
+    }
+    await expect(controller.summarize(input, 'summary-trace')).resolves.toBe('服务端受限摘要')
+    const summaries = f.calls.filter((call) => call.url.endsWith('/chat/summaries'))
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]?.body).toEqual(input)
+    expect(summaries[0]?.bearer).toBe('Bearer fixture-access-secret')
+    expect(f.calls.filter((call) => call.url.endsWith('/chat/completions'))).toHaveLength(0)
+    expect(f.submitted).toHaveBeenCalledWith('summary-trace')
+    expect(JSON.stringify(summaries[0]?.body)).not.toContain('summary-trace')
+  })
+
+  it('内部摘要受预算、父请求标识与登录状态约束，登出即取消进行中的摘要', async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    const login = f.make()
+    await login.execute('managed-login', {})
+    await vi.advanceTimersByTimeAsync(1100)
+    login.dispose()
+    const controller = f.make()
+    await controller.init()
+    const base = {
+      parent_request_id: '12345678-1234-4234-8234-123456789abc',
+      history: JSON.stringify({ earlierMessages: [{ from: 'buyer', content: '合成历史' }] }),
+      max_tokens: 200,
+    }
+    const before = f.calls.length
+    for (const invalid of [
+      { ...base, parent_request_id: '../summary' },
+      { ...base, parent_request_id: '1234' },
+      { ...base, history: 'x'.repeat(96 * 1024 + 1) },
+      { ...base, max_tokens: 8000 },
+      { ...base, max_tokens: 0 },
+      { ...base, system_prompt: '伪造规则' },
+    ])
+      await expect(controller.summarize(invalid as never)).rejects.toThrow()
+    expect(f.calls).toHaveLength(before)
+
+    f.setSummaryHang(true)
+    const pending = controller.summarize(base, 'summary-trace')
+    await vi.advanceTimersByTimeAsync(1)
+    await controller.execute('managed-logout', {})
+    await expect(pending).rejects.toThrow()
+    expect(f.summaryAborted()).toBe(true)
+    await expect(controller.summarize(base)).rejects.toThrow('登录')
   })
 
   it('切换账号后共用本机工作区，AI 需重启但旧数据保留', async () => {

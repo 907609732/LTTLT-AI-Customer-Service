@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VER = 9;
+  var VER = 10;
   var reviewPageId=Date.now().toString(36)+Math.random().toString(36).slice(2);
   window.__PDD_WEB_VER = VER;
 
@@ -155,7 +155,7 @@
     return max ? s.slice(0, max) : s;
   }
   function emptyRow() {
-    return { uid: '', username: '', goodsTitle: '', orderId: '', orderStatus: '', messages: [] };
+    return { uid: '', username: '', goodsId: '', goodsTitle: '', orderId: '', orderStatus: '', messages: [] };
   }
   function addTimer(fn, ms) {
     var t = setInterval(fn, ms);
@@ -401,6 +401,7 @@
         orderId: trimStr(node.order_id || node.orderId || ''),
       },
       username: trimStr(node.username || node.user_name || node.nickname || node.buyer_name || ''),
+      goodsId: trimStr(node.goods_id || node.goodsId || ''),
       goodsTitle: trimStr(node.goods_name || node.goodsName || node.goods_title || ''),
       orderId: trimStr(node.order_id || node.orderId || ''),
       orderStatus: trimStr(node.order_status || node.orderStatus || ''),
@@ -464,7 +465,7 @@
    *  - 只读出口，不清 pending、不影响 claim/sent。
    * 页面 reload 后由新注入的 state 从 seq=1 重新开始。
    */
-  function pushEvent(uid, username, m, goodsTitle) {
+  function pushEvent(uid, username, m, goodsTitle, goodsId) {
     if (!uid || !m) return null;
     state.eventSeq += 1;
     var content = m.content == null ? '' : String(m.content);
@@ -477,6 +478,7 @@
       content: content.length > 2000 ? content.slice(0, 2000) : content,
       msgId: m.msgId || '',
       ts: Number(m.ts) || Date.now(),
+      goodsId: trimStr(goodsId || m.goodsId),
       goodsTitle: trimStr(goodsTitle || m.goodsTitle),
     };
     state.events.push(ev);
@@ -553,23 +555,25 @@
       row = state.pendingByUid.get(uid);
       if (row) row.selfRepliedAt = Date.now();
       noteWatermark(uid, m);
-      pushEvent(uid, norm.username, m, norm.goodsTitle);
+      pushEvent(uid, norm.username, m, norm.goodsTitle, norm.goodsId);
       emit('message', { uid: uid, message: m });
       return;
     }
 
     row = rowFor(uid);
     if (norm.username) row.username = norm.username;
+    if (norm.goodsId) row.goodsId = norm.goodsId;
     if (norm.goodsTitle) row.goodsTitle = norm.goodsTitle;
     if (norm.orderId) row.orderId = norm.orderId;
     if (norm.orderStatus) row.orderStatus = norm.orderStatus;
+    if (m.goodsId && !row.goodsId) row.goodsId = m.goodsId;
     if (m.goodsTitle && !row.goodsTitle) row.goodsTitle = m.goodsTitle;
     if (m.orderId && !row.orderId) row.orderId = m.orderId;
     row.messages.push(m);
     if (row.messages.length > CONF.pendingTailMax) row.messages = row.messages.slice(-CONF.pendingTailMax);
     row.lastAt = Date.now();
     noteWatermark(uid, m);
-    pushEvent(uid, row.username, m, row.goodsTitle);
+    pushEvent(uid, row.username, m, row.goodsTitle, row.goodsId);
     emit('message', { uid: uid, message: m, username: row.username });
   }
 
@@ -598,7 +602,7 @@
     state.csReplies.set(u, Date.now());
     noteWatermark(u, message);
     var row = state.pendingByUid.get(u);
-    pushEvent(u, row ? row.username : '', message, row ? row.goodsTitle : '');
+    pushEvent(u, row ? row.username : '', message, row ? row.goodsTitle : '', row ? row.goodsId : '');
   }
 
   /* ------------------------------------------------------------------ *
@@ -1523,6 +1527,7 @@
         out[uid] = {
           uid: uid,
           username: row.username,
+          goodsId: row.goodsId,
           goodsTitle: row.goodsTitle,
           orderId: row.orderId,
           orderStatus: row.orderStatus,
@@ -1543,6 +1548,7 @@
       return {
         uid: best.uid,
         username: best.username || '',
+        goodsId: best.goodsId || '',
         goodsTitle: best.goodsTitle || '',
         orderId: best.orderId || '',
         orderStatus: best.orderStatus || '',
@@ -1717,8 +1723,8 @@
     },
     goodsContext: function (uid) {
       var row = state.pendingByUid.get(String(uid || '')) || state.claimedRows.get(String(uid || ''));
-      if (!row) return { goodsTitle: '', orderId: '', orderStatus: '' };
-      return { goodsTitle: row.goodsTitle || '', orderId: row.orderId || '', orderStatus: row.orderStatus || '' };
+      if (!row) return { goodsId: '', goodsTitle: '', orderId: '', orderStatus: '' };
+      return { goodsId: row.goodsId || '', goodsTitle: row.goodsTitle || '', orderId: row.orderId || '', orderStatus: row.orderStatus || '' };
     },
     focusConversation: async function (uid) {
       var key = normUid(uid);

@@ -99,19 +99,41 @@ app
     const check = async (name: string, route: string, run: () => Promise<void>) => {
       // 日常只执行明确选择的受影响流程；未设置时保留Release全量验收。
       if (selectedChecks.length && !selectedChecks.includes(name)) return
+      console.log(`[smoke] start ${name}`)
+      const watchdog = setTimeout(() => {
+        report.push({ name, route, pass: false, error: '单项桌面验收超过60秒' })
+        fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2))
+        console.error(`[smoke] timeout ${name}`)
+        app.exit(1)
+      }, 60000)
       try {
         await run()
         report.push({ name, route, pass: true })
+        console.log(`[smoke] pass ${name}`)
       } catch (error) {
         report.push({ name, route, pass: false, error: String(error) })
+        console.log(`[smoke] fail ${name}: ${String(error)}`)
+      } finally {
+        clearTimeout(watchdog)
       }
+      fs.writeFileSync(path.join(output, 'report-progress.json'), JSON.stringify(report, null, 2))
     }
     const ready = () =>
       win.webContents.executeJavaScript(
-        `new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
+        // 遮挡窗口可能停止合成帧；内容就绪仍由下方 DOM 和错误断言验证。
+        `new Promise(resolve => {
+          const timer = setTimeout(resolve, 250);
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            clearTimeout(timer);
+            resolve();
+          }));
+        })`,
       )
     const load = async (route: string) => {
       consoleErrors = []
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
       // 相同 file URL 只改变 hash 时不会重载；每个用例使用独立文档，隔离弹窗和提示状态。
       await win.loadFile(rendererPath, { hash: route, query: { smoke: String(++pageSequence) } })
       await ready()

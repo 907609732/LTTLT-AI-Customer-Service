@@ -12,10 +12,12 @@ export const managedBusinessPayloadSchema = z
     const read =
       value.method === 'GET' &&
       (['/billing', '/billing/orders', '/teams'].includes(value.endpoint) ||
+        /^\/billing\/orders\/[a-zA-Z0-9_-]{1,128}$/.test(value.endpoint) ||
         /^\/teams\/[1-9]\d{0,9}$/.test(value.endpoint))
     const write =
       value.method === 'POST' &&
       (['/billing/orders', '/teams'].includes(value.endpoint) ||
+        /^\/billing\/orders\/[a-zA-Z0-9_-]{1,128}\/close$/.test(value.endpoint) ||
         /^\/teams\/[1-9]\d{0,9}\/(?:accept|actions)$/.test(value.endpoint))
     if (!read && !write) ctx.addIssue({ code: 'custom', message: '不允许的团队或计费操作' })
     if (value.method === 'GET' && value.body !== undefined)

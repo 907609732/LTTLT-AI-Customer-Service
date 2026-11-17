@@ -48,11 +48,18 @@ import {
   type BackendEvent,
   type BackendResult,
 } from '../src/shared/contracts/backend'
-import { isTrustedRenderer, isAppWebContents, createWindow, loadRenderer } from './windows'
+import {
+  isTrustedRenderer,
+  isAppWebContents,
+  createWindow,
+  loadRenderer,
+  appIconPath,
+} from './windows'
 import { localVisionCapability } from './model-capabilities'
 import { ReviewConsole, type SendProposal } from './review-console'
 import { configureDomTextAdapter } from './dom-text-adapter'
 import { createAssistedContext } from './generic-phrases'
+import { createManagedContextBridge } from './managed-context'
 import { createConversationThread } from './conversation-context'
 import type { WorkerObservation } from './message-diagnostics'
 import {
@@ -174,6 +181,11 @@ export function createLocalRuntime(options: {
   let suspendKnowledge = () => {}
   // 上游工厂可能在装配期间产生回调，引用就绪前不读取其快照。
   const backendRef: { current?: UpstreamBackend } = {}
+  // 免费摘要绑定只属于当前托管身份；身份变化时由 changed 回调清空。
+  const managedContextRef: { current?: ReturnType<typeof createManagedContextBridge> } = {}
+  let managedContextIdentity = ''
+  // 工厂可能在装配期间就回调 onChange，此时控制器尚未赋值，先返回空标识。
+  let managedIdentity: () => string = () => ''
   const managed = createManagedController({
     rootDir: options.dataDir,
     factory: loadFactory<ManagedSessionFactory>(
@@ -187,6 +199,11 @@ export function createLocalRuntime(options: {
       backendRef.current?.stopAi()
     },
     changed: () => {
+      const identity = managedIdentity()
+      if (identity !== managedContextIdentity) {
+        managedContextIdentity = identity
+        managedContextRef.current?.clear()
+      }
       aiRestoreRef.current?.accessChanged()
       if (runtimeStarted) void aiRestoreRef.current?.start()
       suspendKnowledge()
@@ -197,6 +214,17 @@ export function createLocalRuntime(options: {
     submitted: (traceId) => review.trace({ type: 'submitted', traceId }),
     transport: options.managedTransport,
   })
+  managedIdentity = () => {
+    const snapshot = managed.snapshot()
+    return `${snapshot.active.mode}\n${snapshot.active.apiOrigin}\n${
+      snapshot.session.status === 'signed_in' ? String(snapshot.session.account?.userId ?? '') : ''
+    }`
+  }
+  managedContextIdentity = managedIdentity()
+  const managedContext = createManagedContextBridge((payload, traceId, signal) =>
+    managed.summarize(payload, traceId, signal),
+  )
+  managedContextRef.current = managedContext
   const dataDir = managed.dataDir
   const { Config } = loadFactory<{
     Config: new (options: { file: string }) => {
@@ -286,6 +314,7 @@ export function createLocalRuntime(options: {
       new BrowserWindow({
         width: 1200,
         height: 850,
+        icon: appIconPath,
         show: false,
         autoHideMenuBar: true,
         webPreferences: {
@@ -399,6 +428,8 @@ export function createLocalRuntime(options: {
       })
     return traceWithKnowledge(event)
   }
+  // 压缩/改写器只构造一次，摘要与通用话术注入都经同一条 trace 记录。
+  const assistedContext = createAssistedContext(traceModel)
   async function openLogs() {
     if (logWindow && !logWindow.isDestroyed()) {
       logWindow.show()
@@ -543,6 +574,9 @@ export function createLocalRuntime(options: {
       payload: { client_request_id: string; messages: unknown },
       requestOptions: { signal?: AbortSignal; traceId?: string },
     ) => managed.chat(payload, requestOptions),
+    // 在后端记录诊断前确定请求号，使摘要父ID、HTTP正文与失败提示保持一致。
+    resolveManagedRequestId: (messages: unknown, requestId: string) =>
+      managedContext.bind({ client_request_id: requestId, messages }).client_request_id,
     managedReady: () => managed.ready(),
     managedCapabilities: () => managed.capabilities(),
     localVisionSupport: localVisionCapability,
@@ -575,7 +609,12 @@ export function createLocalRuntime(options: {
               }
             : port.vision(),
       }),
-    prepareModelContext: createAssistedContext(traceModel),
+    prepareModelContext: (input: Parameters<typeof assistedContext>[0]) => {
+      // 托管模式把摘要交给服务端免费内部接口；本机 Key 模式仍走当前模型完成器。
+      return managed.active.mode === 'managed'
+        ? managedContext.prepare(assistedContext, input)
+        : assistedContext(input)
+    },
     resolveConversationThread: createConversationThread(() => read().conversations),
     beforeSend: (proposal: SendProposal) => {
       knowledge.guardProposal(proposal)
@@ -987,6 +1026,7 @@ export function createLocalRuntime(options: {
   review.sync()
   scheduleReporting()
   const disposer = new RuntimeResourceDisposer([
+    () => managedContext.clear(),
     () => knowledgeDaily.dispose(),
     () => storeSync.dispose(),
     () => operations.dispose(),

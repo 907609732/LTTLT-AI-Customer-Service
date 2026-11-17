@@ -86,6 +86,7 @@ function sanitizeRow(raw) {
       .map(toMessage)
       .sort((a, b) => a.ts - b.ts),
     ...(row.username ? { username: String(row.username) } : {}),
+    ...(row.goodsId ? { goodsId: String(row.goodsId) } : {}),
     ...(row.goodsTitle ? { goodsTitle: String(row.goodsTitle) } : {}),
     ...(row.orderId ? { orderId: String(row.orderId) } : {}),
     claimedAt: Number(row.claimedAt) || Date.now(),

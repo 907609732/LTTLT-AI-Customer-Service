@@ -237,6 +237,17 @@ test('正常链路：消费 pending → AI → 发送 → discard，并写入自
   assert.equal(worker.selfSend.size(), 1);
 });
 
+test('回复引擎把平台商品 ID 传给知识检索上下文', async () => {
+  const ai = makeAi({ reply: '按商品资料答复' });
+  const row = { ...buyerRow('u1', 'm1', '这款怎么保修'), goodsId: '1004116120118', goodsTitle: '平台展示标题' };
+  const { worker } = workerFor({ rows: [row], ai, config: baseConfig({ reply: { perUidMinIntervalMs: 0, sendJitterMinMs: 0, sendJitterMaxMs: 0 } }) });
+  await worker.tick();
+  await worker.settle();
+
+  assert.equal(ai.last.reviewContext.productId, '1004116120118');
+  assert.equal(ai.last.goodsTitle, '平台展示标题');
+});
+
 test('同一 uid 不并发：第二次认领立即归还，只回复一次', async () => {
   const g = gate();
   const ai = makeAi({ gate: g });

@@ -123,6 +123,23 @@ test('product knowledge reaches managed reception and training only for its stor
  await assert.rejects(backend.execute({action:'list-products',storeId:'missing'}),/有效店铺/);
 });
 
+test('product knowledge lookup prefers platform product ID, then title, then buyer question',async t=>{
+ const calls=[];const {backend}=await setup(t,{managedChat:async payload=>{calls.push(payload.messages);return {choices:[{message:{content:'{"reply":"测试"}'}}]};}});
+ await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'商品命中店'}});const store=backend.snapshot().stores[0];
+ await backend.execute({action:'save-product',storeId:store.id,values:{productId:'1004116120118',title:'知识库目标商品',description:'ID优先资料：这一款是深灰色专用款'}});
+ await backend.execute({action:'save-product',storeId:store.id,values:{productId:'title-sku',title:'平台展示标题',description:'标题命中资料：这是标题对应资料'}});
+ await backend.execute({action:'save-product',storeId:store.id,values:{productId:'question-sku',title:'保修服务',description:'问题命中资料：保修按店铺通用规则处理'}});
+ const thread=[{from:'buyer',type:'text',content:'保修服务怎么处理'}];
+ await backend.engine.aiClient.reply({systemPrompt:'规则',thread,goodsTitle:'平台展示标题',reviewContext:{storeId:store.id,productId:'1004116120118'}});
+ const content=calls.at(-1)[1].content;
+ const idAt=content.indexOf('ID优先资料');
+ const titleAt=content.indexOf('标题命中资料');
+ const questionAt=content.indexOf('问题命中资料');
+ assert.ok(idAt>=0,'应先通过平台商品 ID 命中商品资料');
+ assert.ok(titleAt>idAt,'标题命中资料应排在商品 ID 之后');
+ assert.ok(questionAt>titleAt,'买家问题命中资料应排在标题之后');
+});
+
 test('intent binding reaches managed replies and training without leaking other stores',async t=>{
  let messages;const {backend}=await setup(t,{managedChat:async payload=>{messages=payload.messages;return {choices:[{message:{content:'{"reply":"测试"}'}}]};}});
  await backend.execute({action:'add-store',values:{platform:'pdd-web',storeName:'意图测试'}});const id=backend.snapshot().stores[0].id;

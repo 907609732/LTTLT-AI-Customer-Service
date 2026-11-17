@@ -103,6 +103,101 @@ describe('辅助中心独立浮窗', () => {
     expect(opened).toHaveBeenCalledTimes(1)
     manager.dispose()
   })
+  it('打开或唤起时把目标标签发送给辅助窗口', async () => {
+    const { manager, instances } = fixture()
+    await manager.open({ tab: 'ticket', ticketMode: 'local' })
+    expect(instances[0].webContents.send).not.toHaveBeenCalledWith('assist:navigate', {
+      tab: 'ticket',
+      ticketMode: 'local',
+    })
+    manager.state(instances[0] as unknown as BrowserWindow)
+    expect(instances[0].webContents.send).toHaveBeenCalledWith('assist:navigate', {
+      tab: 'ticket',
+      ticketMode: 'local',
+    })
+    instances[0].webContents.send.mockClear()
+    await manager.open({ tab: 'aftersale' })
+    expect(instances).toHaveLength(1)
+    expect(instances[0].webContents.send).toHaveBeenCalledWith('assist:navigate', {
+      tab: 'aftersale',
+    })
+    manager.dispose()
+  })
+  it('首次打开期间连续指定目标时只消费最后一次目标', async () => {
+    let finishLoad!: () => void
+    const { rootDir, primary, instances, opened } = fixture()
+    const manager = createAssistWindowManager({
+      rootDir,
+      getPrimary: () => primary as unknown as BrowserWindow,
+      getWorkspace: () => ({ id: 'local-run-1', identity: 'local' }),
+      create: () => {
+        const win = new FakeWindow()
+        instances.push(win)
+        return win as unknown as BrowserWindow
+      },
+      load: () =>
+        new Promise<void>((resolve) => {
+          finishLoad = resolve
+        }),
+      workArea: () => ({ x: 0, y: 0, width: 1920, height: 1040 }),
+      opened,
+      closed: vi.fn(),
+    })
+    const first = manager.open({ tab: 'consult' })
+    const second = manager.open({ tab: 'handoff' })
+    expect(instances).toHaveLength(1)
+    manager.state(instances[0] as unknown as BrowserWindow)
+    expect(instances[0].webContents.send).toHaveBeenCalledWith('assist:navigate', {
+      tab: 'handoff',
+    })
+    expect(instances[0].webContents.send).not.toHaveBeenCalledWith('assist:navigate', {
+      tab: 'consult',
+    })
+    finishLoad()
+    await Promise.all([first, second])
+    expect(opened).toHaveBeenCalledOnce()
+    manager.dispose()
+  })
+  it('渲染器已就绪但加载尚未结束时，新目标立即送达', async () => {
+    let finishLoad!: () => void
+    const { rootDir, primary, instances } = fixture()
+    const manager = createAssistWindowManager({
+      rootDir,
+      getPrimary: () => primary as unknown as BrowserWindow,
+      getWorkspace: () => ({ id: 'local', identity: 'local' }),
+      create: () => {
+        const win = new FakeWindow()
+        instances.push(win)
+        return win as unknown as BrowserWindow
+      },
+      load: () =>
+        new Promise<void>((resolve) => {
+          finishLoad = resolve
+        }),
+      workArea: () => ({ x: 0, y: 0, width: 1920, height: 1040 }),
+    })
+    const first = manager.open({ tab: 'consult' })
+    manager.state(instances[0] as unknown as BrowserWindow)
+    instances[0].webContents.send.mockClear()
+    const second = manager.open({ tab: 'handoff' })
+    expect(instances[0].webContents.send).toHaveBeenCalledWith('assist:navigate', {
+      tab: 'handoff',
+    })
+    finishLoad()
+    await Promise.all([first, second])
+    manager.dispose()
+  })
+  it('加载完成但渲染器尚未就绪时，只消费最新目标', async () => {
+    const { manager, instances } = fixture()
+    await manager.open({ tab: 'consult' })
+    await manager.open({ tab: 'handoff' })
+    manager.state(instances[0] as unknown as BrowserWindow)
+    const calls = instances[0].webContents.send.mock.calls.filter(
+      ([channel]) => channel === 'assist:navigate',
+    )
+    expect(calls.map(([, target]) => target)).toEqual([{ tab: 'handoff' }])
+    manager.dispose()
+  })
   it('吸附跟随主窗，用户拖动解除吸附，受限修改拒绝主窗', async () => {
     const { manager, primary, instances } = fixture()
     await manager.open()

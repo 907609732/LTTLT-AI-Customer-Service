@@ -1,6 +1,6 @@
 {
   "name": "lingtu-ai",
-  "version": "1.0.44",
+  "version": "1.0.45",
   "private": true,
   "description": "灵兔AI电商客服 · 本机模型 Key 与可选托管服务的电商客服桌面端",
   "main": "dist-electron/main.cjs",
@@ -41,6 +41,7 @@
     "papaparse": "5.7.1",
     "pdfjs-dist": "6.5.438",
     "pinia": "2.2.8",
+    "qrcode": "1.5.4",
     "read-excel-file": "9.3.17",
     "vue": "3.5.11",
     "vue-router": "4.4.5",
@@ -50,6 +51,7 @@
     "@eslint/js": "9.17.0",
     "@modelcontextprotocol/client": "2.4.0",
     "@types/node": "22.10.5",
+    "@types/qrcode": "1.5.6",
     "@vitejs/plugin-vue": "5.2.4",
     "@vue/test-utils": "2.4.6",
     "concurrently": "9.2.5",

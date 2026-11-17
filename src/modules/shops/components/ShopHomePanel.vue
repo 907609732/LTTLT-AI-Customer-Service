@@ -4,10 +4,14 @@ import PlatformOrderPanel from './PlatformOrderPanel.vue'
 import { useRouter } from 'vue-router'
 import { dashboardPeriods, dashboardScope } from '../dashboard'
 import { useDashboard } from '../use-dashboard'
+import { getDesktop } from '@/shared/platform/desktop'
+import type { AssistOpenTarget } from '@/shared/contracts/assist'
 import '../dashboard.css'
 
 const router = useRouter()
 const showingOrders = ref(false)
+const desktop = getDesktop()
+const assistError = ref('')
 const {
   runtime,
   period,
@@ -49,7 +53,17 @@ const updated = computed(() =>
     ? new Date(snapshotReadAt.value).toLocaleTimeString('zh-CN', { hour12: false })
     : '尚未更新',
 )
-const metrics = computed(() => [
+interface DashboardMetric {
+  key: string
+  label: string
+  icon: string
+  value: string
+  note: string
+  tone: string
+  panel?: string
+  assist?: AssistOpenTarget
+}
+const metrics = computed<DashboardMetric[]>(() => [
   {
     key: 'pending',
     label: '待回复',
@@ -57,7 +71,7 @@ const metrics = computed(() => [
     value: display(summary.value.pending),
     note: '已采集待回会话 · 去处理',
     tone: 'green',
-    panel: 'assist',
+    assist: { tab: 'consult' },
   },
   {
     key: 'overdue',
@@ -66,7 +80,7 @@ const metrics = computed(() => [
     value: display(summary.value.overdue),
     note: '最新买家消息超过 3 分钟',
     tone: 'gold',
-    panel: 'assist',
+    assist: { tab: 'consult' },
   },
   {
     key: 'handoff',
@@ -75,7 +89,7 @@ const metrics = computed(() => [
     value: display(summary.value.handoff),
     note: '本机待人工处理 · 非平台转接',
     tone: 'gold',
-    panel: 'assist',
+    assist: { tab: 'handoff' },
   },
   {
     key: 'workorder',
@@ -84,7 +98,7 @@ const metrics = computed(() => [
     value: display(summary.value.workOrders),
     note: '未完成本机工单 · 去处理',
     tone: 'blue',
-    panel: 'workorder',
+    assist: { tab: 'ticket', ticketMode: 'local' },
   },
   {
     key: 'aftersale',
@@ -100,7 +114,7 @@ const metrics = computed(() => [
         ? '部分店铺采集不完整 · 请查看辅助中心'
         : '未接入平台售后数据',
     tone: 'cyan',
-    panel: '',
+    assist: { tab: 'aftersale' },
   },
 ])
 const risks = computed(() => [
@@ -126,18 +140,37 @@ const risks = computed(() => [
     panel: 'welcome',
   },
 ])
-function navigate(panel: string) {
-  if (panel === 'assist') void router.push('/float/assist')
+async function openAssist(target: AssistOpenTarget = { tab: 'consult' }) {
+  assistError.value = ''
+  try {
+    if (!desktop.isElectron) {
+      await router.push({
+        path: '/float/assist',
+        query: {
+          assistTab: target.tab,
+          ...(target.ticketMode ? { assistTicketMode: target.ticketMode } : {}),
+        },
+      })
+      return
+    }
+    if (!desktop.openAssist) throw new Error('辅助中心窗口尚未接入，请更新桌面程序')
+    await desktop.openAssist(target)
+  } catch (error) {
+    assistError.value = error instanceof Error ? error.message : '辅助中心打开失败'
+  }
+}
+function navigate(panel?: string, assist?: AssistOpenTarget) {
+  if (assist) void openAssist(assist)
   else if (panel) void router.push({ path: '/shop/manage', query: { panel } })
 }
 function processStore(storeId: string) {
   runtime.selectedStoreId = storeId
-  navigate('assist')
+  navigate(undefined, { tab: 'consult' })
 }
-function navigateMetric(key: string, panel: string) {
+function navigateMetric(key: string, panel?: string, assist?: AssistOpenTarget) {
   const storeId = summary.value.targets[key as keyof typeof summary.value.targets]
   if (storeId) runtime.selectedStoreId = storeId
-  navigate(panel)
+  navigate(panel, assist)
 }
 </script>
 
@@ -190,7 +223,11 @@ function navigateMetric(key: string, panel: string) {
         >
           导出
         </button>
-        <button type="button" class="shop-dashboard__assist" @click="navigate('assist')">
+        <button
+          type="button"
+          class="shop-dashboard__assist"
+          @click="navigate(undefined, { tab: 'consult' })"
+        >
           辅助中心
         </button>
       </div>
@@ -203,6 +240,9 @@ function navigateMetric(key: string, panel: string) {
     </div>
     <div v-if="errors" class="shop-dashboard__notice is-error" role="alert">
       部分数据读取失败：{{ errors }}。已读取的值可能为上次数据，请刷新重试。
+    </div>
+    <div v-if="assistError" class="shop-dashboard__notice is-error" role="alert">
+      辅助中心打开失败：{{ assistError }}
     </div>
     <div class="shop-dashboard__body">
       <section aria-label="实时值守">
@@ -218,8 +258,8 @@ function navigateMetric(key: string, panel: string) {
             :data-metric="metric.key"
             class="shop-dashboard__metric"
             :class="`tone-${metric.tone}`"
-            :disabled="!metric.panel || !ready"
-            @click="navigateMetric(metric.key, metric.panel)"
+            :disabled="(!metric.panel && !metric.assist) || !ready"
+            @click="navigateMetric(metric.key, metric.panel, metric.assist)"
           >
             <span class="shop-dashboard__metric-icon" aria-hidden="true">{{ metric.icon }}</span>
             <span class="shop-dashboard__metric-main"

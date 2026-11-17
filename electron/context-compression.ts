@@ -39,6 +39,11 @@ export interface CompressionInput {
   model?: string
   timeoutMs?: number
   isCurrent?: () => boolean
+  /**
+   * 托管模式用服务端内部摘要接口替代本机模型：摘要请求免费且不经过回复接口，
+   * 只接收已组装的不可信历史 JSON。未注入时仍用当前完整器（本机 Key 模式）。
+   */
+  summarize?(options: { history: string; maxTokens: number; traceId?: string }): Promise<string>
   complete(options: {
     messages: ModelMessages
     maxTokens: number
@@ -144,6 +149,10 @@ export function createContextCompressor(trace: (event: unknown) => string | unde
     }
     compression.keptMessages = recent.length
     const older = thread.filter((m) => !recent.includes(m))
+    // 托管接口要求1～100个历史记录；批次只包装原文，不删减角色、时间或内容。
+    // 仅资料超限时用明确的空批次，近期消息仍保留在正式回复上下文。
+    const summaryHistory =
+      input.summarize && (older.length === 0 || older.length > 100) ? [{ messages: older }] : older
     const budget = Math.min(7000, CONTEXT_TARGET - baseTokens - 128)
     const summaryMessages: ModelMessages = [
       {
@@ -153,7 +162,7 @@ export function createContextCompressor(trace: (event: unknown) => string | unde
       {
         role: 'user',
         content: JSON.stringify({
-          earlierMessages: older,
+          earlierMessages: summaryHistory,
           knowledge: input.knowledge ?? [],
           goodsTitle: input.goodsTitle,
           orderId: input.orderId,
@@ -172,12 +181,18 @@ export function createContextCompressor(trace: (event: unknown) => string | unde
     let summary: string
     try {
       summary = (
-        await input.complete({
-          messages: summaryMessages,
-          maxTokens: budget,
-          timeoutMs: input.timeoutMs,
-          traceId,
-        })
+        await (input.summarize
+          ? input.summarize({
+              history: String(summaryMessages[1].content),
+              maxTokens: budget,
+              traceId,
+            })
+          : input.complete({
+              messages: summaryMessages,
+              maxTokens: budget,
+              timeoutMs: input.timeoutMs,
+              traceId,
+            }))
       ).trim()
       if (input.isCurrent && !input.isCurrent()) throw canceled()
       if (!summary) throw compressionError('压缩模型没有返回摘要')

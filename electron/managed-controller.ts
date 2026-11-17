@@ -8,6 +8,7 @@ import {
   managedContextPolicySchema,
   type ManagedContextPolicy,
 } from './managed-context-policy'
+import type { ManagedSummaryInput } from './managed-context'
 import {
   defaultModelSource,
   emptyManagedSession,
@@ -26,6 +27,8 @@ export interface ManagedSession {
     endpoint: string,
     options: { method: string; body?: unknown; signal?: AbortSignal },
   ): Promise<unknown>
+  /** Fixed authenticated POST /api/client/chat/summaries; free auxiliary request bound to one reply. */
+  summarize?(payload: ManagedSummaryInput, options: { signal?: AbortSignal }): Promise<unknown>
   /** Fixed authenticated GET /api/client/config; never a caller-selected URL. */
   config(options?: { signal?: AbortSignal }): Promise<unknown>
   init(): Promise<unknown>
@@ -115,6 +118,22 @@ const managedChatPayloadSchema = z
     if (value.policy_version !== undefined && value.purpose === undefined)
       ctx.addIssue({ code: 'custom', message: '策略版本必须随用途一起发送' })
   })
+// 摘要正文只允许不可信历史 JSON；父请求 ID 与 token 预算按服务端口径预先核对。
+const managedSummarySchema = z
+  .object({
+    parent_request_id: z
+      .string()
+      .regex(/^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$/),
+    history: z
+      .string()
+      .min(1)
+      .refine((value) => Buffer.byteLength(value) <= 96 * 1024, '摘要资料超过上限'),
+    max_tokens: z.number().int().min(1).max(7000),
+  })
+  .strict()
+const managedSummaryResponseSchema = z.object({
+  choices: z.array(z.object({ message: z.object({ content: z.string().min(1) }) }).strict()).min(1),
+})
 
 /** Reuse the pinned encrypted device/session protocol. No bearer or refresh token enters the DTO. */
 export function createManagedController(options: {
@@ -142,6 +161,12 @@ export function createManagedController(options: {
   let identityError = ''
   let closed = false
   const submissions = new Map<string, string>()
+  // 摘要属于当前账号的生成流程：登出、换账号、改来源或换店时立刻取消。
+  const summaries = new Set<AbortController>()
+  const cancelSummaries = () => {
+    for (const controller of summaries) controller.abort()
+    summaries.clear()
+  }
   const requiresRestart = () =>
     JSON.stringify(active) !== JSON.stringify(configured) ||
     (active.mode === 'managed' && state.account !== null && state.account.userId !== workspaceUser)
@@ -156,6 +181,18 @@ export function createManagedController(options: {
     if (identityError || requiresRestart()) return null
     return active.apiOrigin + '\n' + String(state.account.userId)
   }
+  // 摘要与策略同属账号/来源：身份一变就取消进行中的摘要，不把旧账号摘要交给新账号。
+  const summaryIdentity = () =>
+    `${active.mode}\n${active.apiOrigin}\n${
+      state.status === 'signed_in' && state.account ? String(state.account.userId) : ''
+    }`
+  let summaryKey = summaryIdentity()
+  const syncSummaryIdentity = () => {
+    const next = summaryIdentity()
+    if (next === summaryKey) return
+    summaryKey = next
+    cancelSummaries()
+  }
   const session = options.factory.createManagedSession({
     origin: active.apiOrigin,
     portalOrigin: active.portalOrigin,
@@ -165,13 +202,17 @@ export function createManagedController(options: {
     fetchImpl: (url: string | URL | Request, init?: RequestInit) => {
       // Emit submission evidence only immediately before the real chat fetch, not token refresh.
       if (
-        String(url) === active.apiOrigin + '/api/client/chat/completions' &&
+        ['/api/client/chat/completions', '/api/client/chat/summaries'].some(
+          (path) => String(url) === active.apiOrigin + path,
+        ) &&
         typeof init?.body === 'string'
       ) {
-        const request = JSON.parse(init.body) as { client_request_id?: string }
-        const traceId = request.client_request_id
-          ? submissions.get(request.client_request_id)
-          : undefined
+        const request = JSON.parse(init.body) as {
+          client_request_id?: string
+          parent_request_id?: string
+        }
+        const requestId = request.client_request_id ?? request.parent_request_id
+        const traceId = requestId ? submissions.get(requestId) : undefined
         if (traceId) options.submitted?.(traceId)
       }
       return (options.transport?.fetchImpl ?? globalThis.fetch)(url, init)
@@ -190,6 +231,7 @@ export function createManagedController(options: {
         }
       }
       if (policyCache && policyCache.key !== policyIdentity()) clearPolicyCache()
+      syncSummaryIdentity()
       if (
         active.mode === 'managed' &&
         (state.status !== 'signed_in' || requiresRestart() || identityError)
@@ -235,6 +277,13 @@ export function createManagedController(options: {
     },
     async execute(action: string, values: unknown) {
       if (closed) throw new Error('托管连接已关闭')
+      // 登录/登出/改来源都会改变免费摘要的归属，先取消进行中的摘要请求。
+      if (
+        ['save-model-source', 'managed-login', 'managed-logout', 'managed-cancel-login'].includes(
+          action,
+        )
+      )
+        cancelSummaries()
       if (action === 'save-model-source') {
         const next = validateModelSource(values)
         options.stopAi()
@@ -292,6 +341,35 @@ export function createManagedController(options: {
     capabilities() {
       return state.account?.capabilities ?? {}
     },
+    /**
+     * 免费托管摘要：仅转发不可信历史 JSON 与 token 预算，不携带系统规则或客户端 max_tokens
+     * 之外的声明。请求受 60 秒上限、外部取消信号与账号/来源变化约束。
+     */
+    async summarize(
+      payload: ManagedSummaryInput,
+      traceId?: string,
+      signal?: AbortSignal,
+    ): Promise<string> {
+      ready()
+      if (!session.summarize) throw new Error('托管服务暂不支持内部摘要，请更新服务端和客户端')
+      const request = managedSummarySchema.parse(payload)
+      const controller = new AbortController()
+      summaries.add(controller)
+      const timer = setTimeout(() => controller.abort(), 60000)
+      if (traceId) submissions.set(request.parent_request_id, traceId)
+      try {
+        const raw = await session.summarize(request, {
+          signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
+        })
+        // 账号或来源可能在请求期间变化：迟到的摘要不再交给压缩器复用。
+        requireAccount()
+        return managedSummaryResponseSchema.parse(raw).choices[0]!.message.content
+      } finally {
+        clearTimeout(timer)
+        summaries.delete(controller)
+        submissions.delete(request.parent_request_id)
+      }
+    },
     async contextPolicy(): Promise<ManagedContextPolicy | null> {
       if (closed) return null
       const key = policyIdentity()
@@ -346,6 +424,7 @@ export function createManagedController(options: {
     },
     dispose() {
       closed = true
+      cancelSummaries()
       clearPolicyCache()
       session.dispose()
     },

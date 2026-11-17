@@ -1,6 +1,7 @@
 import type { Conversation } from '@/shared/contracts/backend'
+import type { AssistTab } from '@/shared/contracts/assist'
 
-export type AssistTab = 'consult' | 'handoff' | 'ticket' | 'aftersale'
+export type { AssistTab }
 export const conversationKey = (row: Pick<Conversation, 'storeId' | 'uid'>) =>
   JSON.stringify([row.storeId, row.uid])
 export const conversationVersion = (row: Conversation) =>

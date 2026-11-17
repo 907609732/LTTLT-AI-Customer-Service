@@ -8,6 +8,7 @@ import IconIphone from '@/shared/icons/IconIphone.vue'
 import IconLock from '@/shared/icons/IconLock.vue'
 import Local4021cc from '@/shared/icons/IconVerified.vue'
 import loginPromo from '@/assets/lingtu-ai-login-promo.png'
+import BrandMark from '@/shared/ui/BrandMark.vue'
 import { ref, computed } from 'vue'
 import { createLoginViewDemo } from '@/modules/account/demo/LoginView'
 const demo = createLoginViewDemo()
@@ -38,6 +39,7 @@ const brandInfo = { name: PRODUCT_NAME }
             :src="loginPromo"
             :alt="brandInfo?.['name'] + ' 电商AI客服能力'"
           />
+          <div class="login-promo-brand"><BrandMark /></div>
           <div class="login-promo-platform-bar" aria-hidden="true"></div>
         </aside>
         <section class="login-form-panel">
@@ -134,3 +136,28 @@ const brandInfo = { name: PRODUCT_NAME }
     </section>
   </main>
 </template>
+
+<style scoped>
+.login-promo-brand {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 18.5%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #c5e1ff;
+}
+.login-promo-brand :deep(.brand-mark-icon) {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  border-radius: 0;
+  box-shadow: none;
+}
+.login-promo-brand :deep(.brand-mark-copy strong) {
+  font-size: 36px;
+}
+</style>

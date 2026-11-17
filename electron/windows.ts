@@ -5,6 +5,7 @@ import { isRendererFileUrl } from './renderer-origin'
 import { PRODUCT_NAME } from '../src/shared/brand'
 
 export const rendererPath = path.join(__dirname, '..', 'dist', 'index.html')
+export const appIconPath = path.join(__dirname, '..', 'dist', 'lingtu-ai.ico')
 const appWebContents = new Set<number>()
 export const isAppWebContents = (id: number): boolean => appWebContents.has(id)
 
@@ -54,6 +55,7 @@ export function createWindow(
     show: false,
     backgroundColor: options.knowledge ? '#ffffff' : '#f4f6fb',
     title: PRODUCT_NAME,
+    icon: appIconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

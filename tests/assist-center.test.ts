@@ -15,6 +15,9 @@ const mockDesktop = vi.hoisted(() => ({
   minimize: vi.fn(async () => {}),
   assistState: vi.fn<() => Promise<AssistWindowState>>(),
   onAssistState: vi.fn((_listener: (state: AssistWindowState) => void) => () => {}),
+  onAssistNavigate: vi.fn(
+    (_listener: (target: { tab: string; ticketMode?: string }) => void) => () => {},
+  ),
   onAssistCloseRequest: vi.fn((_listener: () => void) => () => {}),
   updateAssistPreferences: vi.fn(),
   assistPlatformSnapshot: vi.fn<() => Promise<PlatformItemsSnapshot>>(),
@@ -30,7 +33,12 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 async function fixture(
-  options: { native?: boolean; sound?: boolean; platform?: PlatformItemsSnapshot } = {},
+  options: {
+    native?: boolean
+    sound?: boolean
+    platform?: PlatformItemsSnapshot
+    query?: Record<string, string>
+  } = {},
 ) {
   vi.clearAllMocks()
   mockDesktop.assistState.mockResolvedValue({
@@ -96,7 +104,7 @@ async function fixture(
     history: createMemoryHistory(),
     routes: [{ path: '/', component: { template: '<div />' } }],
   })
-  await router.push('/')
+  await router.push({ path: '/', query: options.query ?? {} })
   const wrapper = mount(AiAssistCenterView, {
     global: {
       plugins: [ElementPlus, router],
@@ -120,6 +128,31 @@ it('四标签使用真实状态分流，平台事项没有数据时不伪装已�
   expect(wrapper.find('[data-conversation]').text()).toContain('丙顾客')
   await wrapper.find('[data-assist-tab="aftersale"]').trigger('click')
   expect(wrapper.text()).toContain('同步')
+  wrapper.unmount()
+})
+it('辅助浮窗导航事件切到目标标签和工单子页', async () => {
+  const { wrapper } = await fixture({ native: true })
+  const listener = mockDesktop.onAssistNavigate.mock.calls[0]![0]
+  listener({ tab: 'ticket', ticketMode: 'local' })
+  await flushPromises()
+  expect(wrapper.find('[data-assist-tab="ticket"]').classes()).toContain('active')
+  expect(wrapper.findAll('.assist-ticket-modes button')[1]!.classes()).toContain('active')
+  listener({ tab: 'aftersale' })
+  await flushPromises()
+  expect(wrapper.find('[data-assist-tab="aftersale"]').classes()).toContain('active')
+  await wrapper.find('[data-assist-tab="consult"]').trigger('click')
+  await wrapper.find('[data-consult-status="replied"]').trigger('click')
+  expect(wrapper.find('[data-consult-status="replied"]').classes()).toContain('active')
+  listener({ tab: 'consult' })
+  await flushPromises()
+  expect(wrapper.find('[data-consult-status="pending"]').classes()).toContain('active')
+  expect(wrapper.find('[data-conversation]').text()).toContain('甲顾客')
+  wrapper.unmount()
+})
+it('浏览器预览 query 能直接落到辅助中心目标页', async () => {
+  const { wrapper } = await fixture({ query: { assistTab: 'ticket', assistTicketMode: 'local' } })
+  expect(wrapper.find('[data-assist-tab="ticket"]').classes()).toContain('active')
+  expect(wrapper.findAll('.assist-ticket-modes button')[1]!.classes()).toContain('active')
   wrapper.unmount()
 })
 it('已回复清除只影响显示，更新后重新出现', async () => {

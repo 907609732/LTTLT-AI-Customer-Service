@@ -9,6 +9,7 @@ const assert = require('node:assert/strict');
 
 const contract = require('../src/shared/adapter-contract');
 const platform = require('../src/adapters');
+const { PddWebAdapter } = require('../src/adapters/pdd-web');
 const { DoudianAdapter } = require('../src/adapters/doudian');
 const { XianyuAdapter, ENTRY_URL } = require('../src/adapters/xianyu');
 
@@ -142,6 +143,23 @@ test('抖店：注入 fake bridge 后队列 / 发送 / 枚举全部走契约', a
 
   await assert.rejects(dd.sendText('', 'x'), TypeError);
   await assert.rejects(dd.sendImage('u1', {}), TypeError);
+});
+
+test('拼多多：popPending 保留商品 ID 供知识库精确命中', async () => {
+  const pdd = new PddWebAdapter({ store: { platform: 'pdd-web' }, logger: silent, config: {} });
+  pdd._callHook = async (method) => {
+    assert.equal(method, 'popPending');
+    return {
+      uid: 'buyer',
+      goodsId: '1004116120118',
+      goodsTitle: '平台展示标题',
+      messages: [{ msgId: 'm1', from: 'buyer', type: 'text', content: '怎么保修', ts: 1000 }],
+    };
+  };
+
+  const row = await pdd.popPending();
+  assert.equal(row.goodsId, '1004116120118');
+  assert.equal(row.goodsTitle, '平台展示标题');
 });
 
 function fakeContainerWc() {

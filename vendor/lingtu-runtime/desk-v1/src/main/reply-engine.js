@@ -649,7 +649,7 @@ class StoreWorker {
         systemPrompt,
         thread,
         isCurrent:()=>this.#active(generation)&&!this.manualSuppressed.has(String(row.uid)),
-        reviewContext:{purpose:'reply',storeId:this.store.id,uid:row.uid,productId:row.productId,skuId:row.skuId,buyerName:row.username||row.name||'',buyerMessage:latest.content,buyers:buyerTexts(row.messages)},
+        reviewContext:{purpose:'reply',storeId:this.store.id,uid:row.uid,productId:row.goodsId||row.productId||'',skuId:row.skuId,buyerName:row.username||row.name||'',buyerMessage:latest.content,buyers:buyerTexts(row.messages)},
         goodsTitle: row.goodsTitle,
         orderId: row.orderId,
         timeoutMs: this.getConfig()?.ai?.timeoutMs ?? 60000,
@@ -662,7 +662,7 @@ class StoreWorker {
       if(/^vision_/.test(err?.code||''))this.takeOver(row.uid,'vision');
       const message = String(err?.message || err);
       this.onEvent?.({type:'reply:decision',storeId:this.store.id,uid:String(row.uid),buyers:buyerTexts(row.messages),stage:'failed',code:String(err?.code||'generation_failed'),reason:'AI 生成未完成，请检查上下文调试中的模型/识图/压缩错误；没有正式请求记录时表示调用前已被拦截。'});
-      this.aiClient.onGenerationFailure?.(err,{storeId:this.store.id,uid:row.uid,productId:row.productId,skuId:row.skuId,buyerName:row.username||row.name||'',buyerMessage:latest.content});
+      this.aiClient.onGenerationFailure?.(err,{storeId:this.store.id,uid:row.uid,productId:row.goodsId||row.productId||'',skuId:row.skuId,buyerName:row.username||row.name||'',buyerMessage:latest.content});
       this.logger?.warn(`AI 生成失败：${message}`);
       this.onEvent?.({ type: 'reply:error', storeId: this.store.id, uid: row.uid, error: message });
       return { ok: false, fatal: FATAL_AI_ERROR.test(message) };

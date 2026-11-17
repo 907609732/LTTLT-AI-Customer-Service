@@ -6,6 +6,7 @@ import {
   assistPreferencesPatchSchema,
   assistPreferencesSchema,
   defaultAssistPreferences,
+  type AssistOpenTarget,
   type AssistWindowState,
 } from '../src/shared/contracts/assist'
 
@@ -45,6 +46,8 @@ export function createAssistWindowManager(options: {
   let applyingBounds = false
   let workspace = options.getWorkspace()
   let preferences = defaultAssistPreferences()
+  let pendingTarget: AssistOpenTarget | undefined
+  let rendererReady = false
   let loaded = false
   let disposed = false
   const listeners = new Set<() => void>()
@@ -83,6 +86,24 @@ export function createAssistWindowManager(options: {
     if (win && !win.isDestroyed()) win.webContents.send('assist:state-changed', state(win))
     options.changed?.(state())
   }
+  function navigate(target: AssistOpenTarget | undefined) {
+    if (target && win && !win.isDestroyed()) win.webContents.send('assist:navigate', target)
+  }
+  function queueNavigation(target: AssistOpenTarget | undefined) {
+    if (!target) return
+    if (rendererReady) {
+      pendingTarget = undefined
+      navigate(target)
+    } else pendingTarget = target
+  }
+  function flushNavigation(caller: BrowserWindow | undefined) {
+    if (!caller || caller !== win) return
+    rendererReady = true
+    if (!pendingTarget) return
+    const target = pendingTarget
+    pendingTarget = undefined
+    navigate(target)
+  }
   function detachPrimary() {
     for (const off of listeners) off()
     listeners.clear()
@@ -107,6 +128,8 @@ export function createAssistWindowManager(options: {
     const previous = win
     win = undefined
     opening = undefined
+    rendererReady = false
+    pendingTarget = undefined
     detachPrimary()
     if (previous && !previous.isDestroyed()) previous.destroy()
     if (previous) {
@@ -125,6 +148,7 @@ export function createAssistWindowManager(options: {
     }
     workspace = next
     loaded = false
+    pendingTarget = undefined
     readPreferences()
     loaded = true
     if (win && !win.isDestroyed()) win.setAlwaysOnTop(preferences.pinned)
@@ -138,21 +162,27 @@ export function createAssistWindowManager(options: {
   return {
     state(caller?: BrowserWindow) {
       syncWorkspace()
-      return state(caller)
+      const current = state(caller)
+      flushNavigation(caller)
+      return current
     },
     get window() {
       return win
     },
     syncWorkspace,
-    async open() {
+    async open(target?: AssistOpenTarget) {
       if (disposed) throw new Error('辅助中心服务已关闭')
       syncWorkspace()
-      if (opening) return opening
+      if (opening) {
+        queueNavigation(target)
+        return opening
+      }
       if (win && !win.isDestroyed()) {
         if (win.isMinimized()) win.restore()
         win.show()
         win.focus()
         position()
+        queueNavigation(target)
         return
       }
       primary = options.getPrimary()
@@ -160,6 +190,8 @@ export function createAssistWindowManager(options: {
       const parent = primary
       const next = options.create()
       win = next
+      rendererReady = false
+      queueNavigation(target)
       next.setAlwaysOnTop(preferences.pinned)
       next.on('close', (event) => {
         event.preventDefault()
@@ -169,6 +201,8 @@ export function createAssistWindowManager(options: {
         if (win !== next) return
         win = undefined
         opening = undefined
+        rendererReady = false
+        pendingTarget = undefined
         detachPrimary()
         options.closed?.()
         broadcast()

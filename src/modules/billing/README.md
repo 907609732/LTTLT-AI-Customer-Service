@@ -12,7 +12,9 @@
 
 `contracts.ts` 校验服务端套餐/订单/checkout DTO；`services.ts` 定义 BillingTransport 并限制固定端点及 Stripe HTTPS checkout 来源；`use-billing.ts` 处理刷新、幂等checkout及账号切换迟到响应隔离；BillingDashboard 被充值/订单/额度三个页面复用。UI 内不访问网络、Electron 或凭据。服务端实现与准确公共装配要求见 `docs/parallel/billing-handoff.md`。
 
-当前仅实现单次购买调用额度，不是微信/支付宝/对公或自动续订服务；没有按店铺小时消费明细。支付返回不会标记成功，只有服务端签名校验和事务入账才能显示paid。部署、真实商户沙箱及退款/拒付流程仍需独立验收。
+当前仅实现单次购买调用额度，不是对公转账或自动续订服务；没有按店铺小时消费明细。支付返回不会标记成功，只有服务端签名校验和事务入账才能显示paid。部署、真实商户沙箱及退款/拒付流程仍需独立验收。
+
+2026-11-17 原生扫码渠道客户端接入：`contracts.ts` 增加官方微信/支付宝渠道、试用/付费额度池、划线原价、订单 `closed`/`reconciling` 状态、`qr_code` 与 `expires_at` 字段（均可缺省，旧服务端继续按 stripe 与账号快照展示）。`services.ts` 增加固定端点的单笔查单 `GET /api/client/billing/orders/<id>` 与关单 `POST .../close`，订单号和请求号先按 `[a-zA-Z0-9_-]{1,128}` 核对再拼接；历史 `checkout.stripe.com` 网页支付白名单与 openCheckout 保持不变。`use-billing.ts` 保留套餐/订单/账本各自独立的加载、错误与重试状态，新增收银台：按服务端 channels.ready 选择渠道、3 秒一次查单（最多 15 分钟，可手动重试）、先确认关单再换渠道、从最近订单恢复，切账号/来源/工作区或卸载时停止轮询并丢弃迟到结果。`BillingDashboard.vue` 沿用充值页卡片布局，只在套餐卡片加选择入口，并新增收银台卡片与订单的支付方式/状态/继续支付列；compact 模式（主页登录弹窗）保持只读，不出现收银台、支付入口或操作列。二维码使用 MIT [node-qrcode](https://github.com/soldair/node-qrcode) 1.5.4 在本机把渠道文本转成 data URL（`payment-code.ts` 懒加载），不调用远程二维码服务、不打开二维码内容。托管内部摘要免费与充值渠道无关，客户端不会把摘要请求计费或伪装入账。
 
 2026-11-14 修复：独立充值页复用 `shared/ui/AppWindowBar.vue`，固定返回工作台 `/` 和配置中心 `/shop/manage`，不依赖浏览历史；仅桌面显示原生窗口按钮。套餐、充值订单和账本保留各自错误/加载与重试，404 未部署、401 登录过期、未配置商户、网络及订单冲突不会合成成功空态。切账号/来源/工作区或离开页面会丢弃迟到结果；支付返回只核对账本。共享错误 DTO 位于 `shared/contracts/managed-service-error.ts`，公共 IPC 的解包由平台适配层负责。服务版本、管理员加密沙箱配置及候选部署说明见 `server/BILLING_DEPLOYMENT.md`。
 

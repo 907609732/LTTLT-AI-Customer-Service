@@ -2,6 +2,22 @@ import { describe, expect, it } from 'vitest'
 import { validateManagedServiceRequest } from '../electron/managed-service-request'
 
 describe('托管业务请求边界', () => {
+  it('允许当前账号查单和关闭订单，拒绝相邻、转义与摘要端点', () => {
+    expect(() => validateManagedServiceRequest('/billing/orders/order_1')).not.toThrow()
+    expect(() =>
+      validateManagedServiceRequest('/billing/orders/order_1/close', { method: 'POST' }),
+    ).not.toThrow()
+    for (const path of [
+      '/billing/orders/order_1/close',
+      '/billing/orders/%2f',
+      '/billing/orders/a/admin',
+      '/billing/orders/',
+      '/billing/orders/order_1/close?x=1',
+    ])
+      expect(() => validateManagedServiceRequest(path)).toThrow()
+    // 摘要走主进程专用协议，不能经业务代理调用。
+    expect(() => validateManagedServiceRequest('/chat/summaries', { method: 'POST' })).toThrow()
+  })
   it('仅接受团队和计费的已实现路由及相应读写方法', () => {
     expect(() =>
       validateManagedServiceRequest('/teams/1/actions', {

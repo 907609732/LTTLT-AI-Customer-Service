@@ -1,6 +1,15 @@
 import { z } from 'zod'
 
-export const assistAlertKinds = ['consult', 'handoff', 'ticket', 'aftersale'] as const
+export const assistTabs = ['consult', 'handoff', 'ticket', 'aftersale'] as const
+export type AssistTab = (typeof assistTabs)[number]
+export const assistAlertKinds = assistTabs
+export const assistOpenTargetSchema = z
+  .object({
+    tab: z.enum(assistTabs),
+    ticketMode: z.enum(['platform', 'local']).optional(),
+  })
+  .strict()
+export type AssistOpenTarget = z.infer<typeof assistOpenTargetSchema>
 export const assistPreferencesSchema = z
   .object({
     pinned: z.boolean(),
