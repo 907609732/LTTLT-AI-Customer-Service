@@ -158,3 +158,5 @@ server:verify 已通过全部 10 个编排步骤（SQLite 的 9 个目标 Go 包
 - 隔离桌面验收：`LINGTU_DESKTOP_CHECKS=business:reply-pacing-settings npm run test:desktop` 1/1 通过（exit 0）。用例先加载应用页面以启用 preload，再验证默认 1～3 秒、保存自定义 5～9 秒、旧固定值未被改写、反序与 3601 被拒绝、自定义输入按条件出现；截图 `artifacts/desktop/reply-pacing-settings.png` 已查看，1440 宽下无溢出。
 
 未运行全量 `npm run check`、全量桌面检查、真实买家发送、安装包或发布；未改动店铺/账号/Key/AI 开关/发送审批。首次并行 Vitest 出现 Windows 临时目录 EBUSY，随后按要求用单 worker 重跑，全部通过。
+
+整合复验（1.0.51）：保留主线 Apache 许可范围及知识库缺口反馈修改；8 个相关 Vitest 文件 90 项通过，含店铺向导 30 项（四选项、自定义、固定 1 秒、非法范围提交、冲突保留草稿）。非法范围回车提交已做红绿验证。合并后 typecheck、build 和隔离原生节奏检查 1/1 通过。

@@ -575,3 +575,5 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 迁移与错误边界：首次没有 `reply-pacing.json` 的旧账号（含旧 60 秒或其他固定值）迁移为 1～3 秒随机并记录迁移来源；旧值继续留在 `config.json` 的 `perUidMinIntervalMs` 供审计/回退，保存新模式不改写它，已有新配置不会被启动流程覆盖。坏 JSON、反序/越界配置、首次迁移写失败都会明确报错并保留原文件，不静默回默认。未改动店铺、账号、Key、AI 开启状态、旧批准或发送审批。
 
 验证（均为本机实际执行）：Vitest 7 个相关文件 60 项通过（含审查者新增 `tests/reply-pacing-factory.test.ts` 7 项真实工厂链路）；相关上游 89 项通过；`npm run typecheck`、变更文件 ESLint/Prettier、`npm run check:vendor`、`npm run build` 通过；`LINGTU_DESKTOP_CHECKS=business:reply-pacing-settings npm run test:desktop` 1/1 通过并查看截图。未运行全量 `npm run check`、全量桌面检查、真实买家发送、安装包发布或生产部署；未提交推送。未重启/打开真实资料实例：本轮为独立 worktree 的源码修改与隔离桌面验收，是否切换运行实例由整合方按版本规则决定（运行中的实例仍显示其原构建版本）。
+
+整合方补充（1.0.51）：合并 de3cd79 主线，保留知识库反馈与许可更新；8 文件 90 项专项测试、typecheck、build、原生节奏专项 1/1 通过。提交入口额外校验非法范围，防止回车绕过禁用按钮，回归已验证。最终集成及本机运行验收记录随后补充。
