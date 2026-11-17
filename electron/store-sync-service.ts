@@ -19,6 +19,7 @@ import {
   type SyncResult,
   type SyncSection,
 } from '../src/shared/contracts/store-sync'
+import { normalizeWelcomeSetting } from '../src/shared/contracts/welcome'
 
 /** Port must use the current account's backend, and reject inactive/restart-required workspaces. */
 export interface StoreSyncPort {
@@ -69,7 +70,24 @@ const productFields = (p: Product): Record<string, unknown> => ({
 const businessFields = (section: SyncSection, value: Record<string, unknown> | null) => {
   if (!value) return null
   if (section === 'products') return productFields(value as Product)
-  if (section === 'welcome') return { text: value.text, enabled: value.enabled }
+  if (section === 'welcome') {
+    // 旧记录没有延迟字段时按默认 1～3 秒比较和复制，避免把“未声明”误判成 0 秒。
+    const welcome = normalizeWelcomeSetting({
+      text: typeof value.text === 'string' ? value.text : '',
+      enabled: value.enabled === true,
+      version: typeof value.version === 'number' ? value.version : 0,
+      delayMinSeconds:
+        typeof value.delayMinSeconds === 'number' ? value.delayMinSeconds : undefined,
+      delayMaxSeconds:
+        typeof value.delayMaxSeconds === 'number' ? value.delayMaxSeconds : undefined,
+    })
+    return {
+      text: welcome.text,
+      enabled: welcome.enabled,
+      delayMinSeconds: welcome.delayMinSeconds,
+      delayMaxSeconds: welcome.delayMaxSeconds,
+    }
+  }
   if (section === 'vision') return { enabled: value.enabled }
   return value
 }
@@ -151,7 +169,7 @@ export function createStoreSync({ directory, port }: { directory: string; port: 
     }
     return {
       products,
-      welcome: { ...(snap.welcomeByStore[storeId] || { text: '', enabled: false, version: 0 }) },
+      welcome: normalizeWelcomeSetting(snap.welcomeByStore[storeId]),
       vision: { ...(snap.visionByStore[storeId] || { enabled: false, version: 0 }) },
       handoff: snap.handoffByStore[storeId]
         ? { mode: 'custom', keywords: [...snap.handoffByStore[storeId].keywords] }

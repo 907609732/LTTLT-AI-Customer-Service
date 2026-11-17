@@ -1,3 +1,17 @@
+## 2026-11-17 进店欢迎开关布局与随机延迟（1.0.52，本机源码）
+
+按用户最新要求，进店欢迎标题右侧只保留一个启用开关（active-text 启用，aria-label 启用本店新会话欢迎，data-no-drag），删除原说明段落和欢迎面板的 RuntimePanel 说明；文字欢迎语下方新增“欢迎延迟 [下限] ～ [上限] 秒随机”，默认 1～3 秒，可保存 1～3600 整数秒有序范围（相等即固定）。欢迎面板移除普通“载入最新配置”，只在版本冲突时显示“重新载入”，草稿保留到用户显式点击；保存仍只有一个“保存配置”，把文字、启用和延迟随同一版本 CAS 原子保存。Enter 提交在入口再次校验范围与冲突，不能靠按钮 disabled 绕过。
+
+文字欢迎仍由 vendor claim/decorate 合并在首次符合条件的 AI 正文中，不拆成独立消息，独立访客及图片/视频规则未改。store-welcome.cjs 只在原严格记录中增加可选 delayMinSeconds/delayMaxSeconds（默认 1/3、同一条原子记录和版本 CAS、旧 v1 迁移补默认），新增 claimEntry 返回实际认领文字与版本；reply-engine 的 decorate 只在欢迎文字确实位于最终正文开头时写入 meta.welcome，候选经原 beforeSend 携带该可选元数据，绝不按任意正文前缀猜测。抽样、等待、取消全部在本工程 TypeScript（electron/welcome-delay.ts、local-runtime.ts）。
+
+统一确认门放行后才进入欢迎延迟；普通回复无 welcome 元数据直接放行。延迟期间复核候选当前性、店铺在线/AI、欢迎启用与版本、本机归档新消息，并以每档≤100ms 同步检查取消；异步网页消息复核沿用既有 hook 超时，取消可能晚于 100ms，但失败关闭不发送。复核通过后把同一检查保留到 worker focus/read 与适配器填写/点击阶段，最终放行前再核对。取消会结束“正在发送”显示并释放 PDD 一次性发送租约；停店、停 AI、人工接管、新消息、欢迎停用/改版、本地服务关闭均不发送。欢迎认领在装饰时已消费，延迟取消不会把本次欢迎重新排队，这是既有 claim 语义，避免重复欢迎；需要重发由用户显式处理。
+
+DTO/快照/草稿/同步边界补齐延迟字段：解析后的快照一定带默认值，类型仍允许旧夹具省略；store-sync 的 welcome businessFields 含延迟并按 1～3 秒解释旧记录，保存命令不携带运行时 enabledAt。
+
+验证：定向 vitest 12 文件 106 项通过（含真实厂商装饰、确认门取消、PDD 租约、同步、Vue 布局/冲突/Enter 校验、异步竞态 2 项）；vendor store-welcome 7/7、reply-engine+managed-backend 82/82、backend-integration 7/7；`npm run typecheck`、`npm run lint`、`npm run format:check`、`npm run check:vendor`（runtime 80/server 94）与 `npm run build` 退出 0。原生仅运行 `LINGTU_DESKTOP_CHECKS=business:welcome-timing-settings`：1/1 通过，报告 `artifacts/desktop-selected-1794926409120/report.json`，截图 `artifacts/desktop/welcome-timing-settings.png`，使用临时 userData、本机模拟店铺和合成文字，没有打开真实店铺或发送消息。未运行全量桌面/上游套件，未打包、部署、提交或推送。
+
+后续：真实拼多多页面仍需用新买家样本核对延迟后实际送达与取消时机；UI 视觉由独立复核确认。版本 1.0.52，package.json 与 package-lock.json 同一批只递增一次。
+
 ## 2026-11-17 待学问题处理反馈与历史（1.0.50）
 
 修复标记解决后无反馈、记录仍混在待学列表及无历史入口。默认待处理，新增已解决/已忽略分类与重新打开；中文状态、处理中禁用、成功/失败反馈。标记只记录状态，不生成或发布知识；补充答案仍走草稿审核。按状态在仓储过滤后分页，支持搜索和超过100条，顶栏只计open；末页移除最后项自动回退。旧查询不指定status仍返回全部。更新按ID读取并校验店铺，修复首100项之外跳过校验的边界。无新依赖、IPC或数据库迁移，不改真实业务数据。

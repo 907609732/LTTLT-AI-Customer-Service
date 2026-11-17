@@ -1,5 +1,13 @@
 # 上游来源与维护边界
 
+## 2026-11-17：欢迎延迟声明与附加元数据（1.0.52）
+
+用户要求进店欢迎在批准后等待随机延迟再实际发送，默认 1～3 秒，可按店铺配置 1～3600 整数秒且下限不大于上限。store-welcome.cjs 只在既有严格欢迎记录中增加可选的 delayMinSeconds/delayMaxSeconds：默认 1/3，随文字、开关、版本和 enabledAt 写入同一条原子记录并共用版本 CAS，旧 version 1 迁移补默认值；显式越界、反序或非整数继续报错且不改写原文件，不增加旁路文件或两步提交。claim() 返回值保持原文字；新增 claimEntry() 同时返回已认领文字与版本。backend.cjs 的 welcomePolicy 在既有 observe 后提供 claimEntry。reply-engine 的 decorate 回调接收可变元数据对象，仅当欢迎文字确实位于最终正文开头时写入 meta.welcome={version}；候选通过既有 beforeSend 携带该可选字段，未注入 claimEntry 或普通回复不带任何欢迎信号，绝不按任意正文前缀猜测。
+
+抽样、分块等待、取消复核和发送授权释放全部在本工程 TypeScript（electron/welcome-delay.ts、electron/local-runtime.ts）；vendor 不保存延迟业务规则。批准、PDD 发送租约、发送前频率/定位复核、逐条确认和图片/视频独立规则均未改动。source-files.json 保留 upstreamGitBlob/upstreamSha256，更新上述文件及欢迎回归测试的实际 sha256 与 localPatch。
+
+针对性验证：node --test vendor/lingtu-runtime/tests/store-welcome.test.mjs 7/7；桌面欢迎延迟、真实厂商装饰、店铺同步与界面定向 vitest 通过；未运行全量上游套件。
+
 ## 2026-11-17：免费托管内部摘要
 
 managed-session.cjs 新增主进程专用 summarize()，仅以现有鉴权会话 POST 固定 /api/client/chat/summaries；正文只包含 UUID 父回复 ID、已组装的不可信历史 JSON（上限 96KiB）与 1–7000 的 token 预算，不接受系统规则、模型或任意 URL，未知字段不进入正文。错误沿用现有 failure/epoch 语义，取消信号、20 秒请求上限与既有响应大小边界不变；config() 与 chat 的强类型策略透传、团队/计费白名单保持原样。该请求是服务端标记的 auxiliary（免费）请求，仍需登录与有效账号；客户端把摘要父 ID 绑定到紧接着的一次回复，服务端据此每笔回复只记一次内部摘要。source-files.json 保留 upstreamGitBlob/upstreamSha256，仅更新该文件的实际 sha256 与补丁说明。backend.cjs 未改动，回复侧的父 ID 复用由 electron/local-runtime.ts 在 managedChat 注入点完成。

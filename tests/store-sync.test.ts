@@ -22,7 +22,13 @@ function fixture() {
     aiEnabled: false,
     runtime: { open: false, online: false },
   }))
-  snap.welcomeByStore.source = { text: '源店欢迎', enabled: true, version: 1 }
+  snap.welcomeByStore.source = {
+    text: '源店欢迎',
+    enabled: true,
+    version: 1,
+    delayMinSeconds: 5,
+    delayMaxSeconds: 9,
+  }
   snap.welcomeByStore.target = { text: '目标原文', enabled: false, version: 1 }
   let products: Product[] = [
     {
@@ -83,6 +89,8 @@ function fixture() {
             text: String(v.text),
             enabled: Boolean(v.enabled),
             version: Number(v.version) + 1,
+            delayMinSeconds: Number(v.delayMinSeconds ?? 1),
+            delayMaxSeconds: Number(v.delayMaxSeconds ?? 3),
           }
         else throw Error(`unexpected ${command.action}`)
       }
@@ -120,11 +128,47 @@ describe('store sync safety', () => {
       expect(result.status).toBe('completed')
       expect(f.products().filter((p) => p.storeId === 'target')).toHaveLength(1)
       expect(f.snap.welcomeByStore.target.text).toBe('源店欢迎')
+      expect(f.snap.welcomeByStore.target.delayMinSeconds).toBe(5)
+      expect(f.snap.welcomeByStore.target.delayMaxSeconds).toBe(9)
       expect(f.writes.every((c) => c.storeId === 'target')).toBe(true)
+      const savedWelcome = f.writes.find((c) => c.action === 'save-welcome')
+      expect(savedWelcome?.values).toMatchObject({
+        text: '源店欢迎',
+        enabled: true,
+        delayMinSeconds: 5,
+        delayMaxSeconds: 9,
+        version: 1,
+      })
+      expect(savedWelcome?.values).not.toHaveProperty('enabledAt')
       const restarted = createStoreSync({ directory: f.dir, port: f.port })
       await restarted.rollback({ backupId: result.backupId, confirmed: true })
       expect(f.products().filter((p) => p.storeId === 'target')).toHaveLength(0)
       expect(f.snap.welcomeByStore.target.text).toBe('目标原文')
+      expect(f.snap.welcomeByStore.target.delayMinSeconds).toBe(1)
+      expect(f.snap.welcomeByStore.target.delayMaxSeconds).toBe(3)
+    } finally {
+      f.cleanup()
+    }
+  })
+  it('legacy welcome records without delay fields compare as 1～3 defaults and stay compatible', async () => {
+    const f = fixture()
+    try {
+      f.snap.welcomeByStore.source = { text: '默认节奏', enabled: true, version: 1 }
+      f.snap.welcomeByStore.target = { text: '默认节奏', enabled: true, version: 2 }
+      const preview = await f.service.preview({ ...request, sections: ['welcome'] })
+      expect(preview.rows[0].action).toBe('unchanged')
+      f.snap.welcomeByStore.source = {
+        text: '默认节奏',
+        enabled: true,
+        version: 1,
+        delayMinSeconds: 2,
+        delayMaxSeconds: 8,
+      }
+      const changed = await f.service.preview({ ...request, sections: ['welcome'] })
+      expect(changed.rows[0].action).toBe('replace')
+      await f.service.apply({ planId: changed.planId, confirmed: true })
+      expect(f.snap.welcomeByStore.target.delayMinSeconds).toBe(2)
+      expect(f.snap.welcomeByStore.target.delayMaxSeconds).toBe(8)
     } finally {
       f.cleanup()
     }

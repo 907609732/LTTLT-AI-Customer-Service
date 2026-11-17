@@ -468,8 +468,12 @@ class StoreWorker {
       }
       this.logger?.debug(`会话 ${uid} [回复阶段] 生成完成，准备发送`);
       let sent;
-      try{sent=await this.#sendText(uid,text,{generation,decorate:body=>{
-        try{const greeting=filterBannedWords(generated.historyKnown?(this.welcomePolicy?.claim({storeId:this.store.id,uid,thread:generated.thread})||''):'',this.safety.bannedWords).trim();text=greeting&&!body.startsWith(greeting)?`${greeting}\n${body}`.slice(0,2000):body;return text;}
+      try{sent=await this.#sendText(uid,text,{generation,decorate:(body,meta)=>{
+        try{const claimed=generated.historyKnown?(this.welcomePolicy?.claimEntry?this.welcomePolicy.claimEntry({storeId:this.store.id,uid,thread:generated.thread})||{text:'',version:0}:{text:this.welcomePolicy?.claim({storeId:this.store.id,uid,thread:generated.thread})||'',version:0}):{text:'',version:0};const greeting=filterBannedWords(claimed.text||'',this.safety.bannedWords).trim();text=greeting&&!body.startsWith(greeting)?`${greeting}\n${body}`.slice(0,2000):body;
+          // 仅当欢迎文字确实位于本次正文开头时才附带版本元数据（正文原本已含同一欢迎也如实计入），
+          // 不按任意前缀猜测；版本只用于 TypeScript 延迟期间核对配置是否被改写。
+          if(meta&&greeting&&Number.isInteger(claimed.version)&&claimed.version>0&&text.startsWith(greeting))meta.welcome={version:claimed.version};
+          return text;}
         catch{this.logger?.warn('欢迎记录保存失败，本条仅发送正文');return body;}
       }});if(sent.actualText)text=sent.actualText;}
       catch(error){if(typeof this.aiClient.onDeliveryFailure!=='function')throw error;sent={ok:false,reason:'send_unconfirmed'};}
@@ -623,11 +627,14 @@ class StoreWorker {
       }
     }
     if (!this.#active(generation)||this.manualSuppressed.has(String(uid))) return {ok:false,throttled:true,reason:"cancelled"};
-    if(decorate)text=decorate(String(text));
+    // 装饰回调可把“实际附加了欢迎文字及版本”写入该对象，随后作为候选元数据交给确认门；
+    // 未设置时普通回复不带任何欢迎信号，也不进入 TypeScript 延迟。
+    const decorated={};
+    if(decorate)text=decorate(String(text),decorated);
     // 云朵：统一拦截最终正文（包含欢迎语）；拒绝后暂停本会话，防止队列自动重发。
     let reviewedCurrent=()=>true;
     if(this.aiClient.beforeSend){
-      const proposal={traceId:generation?.traceId,storeId:this.store.id,uid:String(uid),text:String(text),thread:generation?.thread||[],isCurrent:()=>this.#active(generation)&&!this.manualSuppressed.has(String(uid)),getHistory:()=>this.#history(uid),pageReview:generation?.pageReview,getPageReview:this.adapter.reviewHistory?focus=>this.adapter.reviewHistory(String(uid),focus):undefined};
+      const proposal={traceId:generation?.traceId,storeId:this.store.id,uid:String(uid),text:String(text),thread:generation?.thread||[],isCurrent:()=>this.#active(generation)&&!this.manualSuppressed.has(String(uid)),getHistory:()=>this.#history(uid),pageReview:generation?.pageReview,getPageReview:this.adapter.reviewHistory?focus=>this.adapter.reviewHistory(String(uid),focus):undefined,...(decorated.welcome?{welcome:decorated.welcome}:{})};
       this.awaitingReview.add(String(uid));
       this.inflight -= 1;
       let approved;

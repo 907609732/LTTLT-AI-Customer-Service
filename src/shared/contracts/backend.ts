@@ -3,7 +3,9 @@ import { reviewSnapshotSchema, emptyReview } from './review'
 import { managedStateSchema, emptyManagedState } from './managed'
 import { reportingSnapshotSchema } from './reporting'
 import { storeSendModeSchema } from './review'
+import { welcomeSettingSchema, type WelcomeSetting } from './welcome'
 export { storeSendModeSchema, type StoreSendMode } from './review'
+export type { WelcomeSetting } from './welcome'
 
 export const actions = [
   'save-model-source',
@@ -321,10 +323,7 @@ export const snapshotSchema = z.object({
   ),
   bannedWords: z.array(z.object({ word: z.string(), replacement: z.string() })),
   handoffByStore: z.record(z.string(), z.object({ keywords: z.array(z.string()) })),
-  welcomeByStore: z.record(
-    z.string(),
-    z.object({ text: z.string(), enabled: z.boolean(), version: z.number() }),
-  ),
+  welcomeByStore: z.record(z.string(), welcomeSettingSchema),
   visionByStore: z.record(z.string(), z.object({ enabled: z.boolean(), version: z.number() })),
   products: z.object({
     revision: z.number(),
@@ -337,7 +336,14 @@ export const snapshotSchema = z.object({
       .default([]),
   }),
 })
-export type BackendSnapshot = z.infer<typeof snapshotSchema>
+export type ParsedBackendSnapshot = z.infer<typeof snapshotSchema>
+/**
+ * 解析后的快照一定带欢迎延迟默认值；类型上仍允许旧夹具省略两个字段，
+ * 界面和存储边界统一用 normalizeWelcomeSetting 补齐，避免旧数据编译失败或被误读为 0 秒。
+ */
+export type BackendSnapshot = Omit<ParsedBackendSnapshot, 'welcomeByStore'> & {
+  welcomeByStore: Record<string, WelcomeSetting>
+}
 export const resultSchema = z.object({
   status: z.literal('ok'),
   message: z.string(),

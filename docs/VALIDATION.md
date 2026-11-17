@@ -1,5 +1,17 @@
 # 客户端与独立服务端验证
 
+## 2026-11-17：进店欢迎随机延迟与开关布局（1.0.52）
+
+独立 worktree 内只使用临时数据、本机模拟店铺和合成文字；未打开真实店铺、未调用真实付费模型、未向买家发送消息，也未修改真实 userData。日常定向验证，不表述为全量通过。
+
+- 定向 vitest（单 worker，12 文件/106 项）通过：欢迎延迟校验/抽样/等待/取消、真实厂商 claim/decorate 元数据与普通回复直通、批准拒绝、停店与人工接管取消、PDD 租约释放、异步最终复核竞态与发送前 guard 保持、店铺同步延迟字段与旧记录默认、Vue 标题开关/默认 1～3/冲突重新载入/Enter 非法范围。
+- vendor `node --test tests/store-welcome.test.mjs`：7/7；`desk-v1/test/reply-engine.test.js` + `tests/managed-backend.test.mjs`：82/82；`tests/backend-integration.test.mjs`：7/7。未运行全量上游套件。
+- `npm run typecheck`、`npm run lint`（含模块边界检查）、`npm run format:check`、`npm run check:vendor`（vendor 80、server 94）、`npm run build` 均退出 0。
+- 原生仅运行 `LINGTU_DESKTOP_CHECKS=business:welcome-timing-settings`：1/1 通过，报告 `artifacts/desktop-selected-1794926409120/report.json`，截图 `artifacts/desktop/welcome-timing-settings.png`；复用 Wizard 接待设置，断言标题右侧启用开关、无冗余说明/普通载入按钮、默认 1～3、保存后同一记录、外部更新保留草稿并仅经“重新载入”替换、延迟 5～9 回读。临时 store 在 finally 删除。
+- 限制：取消的同步状态检查每档≤100ms；网页消息异步复核沿用既有 hook 超时，不能声称包含异步读取在内的硬 100ms。延迟只作用于实际附加欢迎文字的首次 AI 正文，且欢迎认领已在装饰时消费，取消后不会自动重发欢迎。未运行完整桌面或上游套件，未打包发布、部署、提交或推送。
+
+版本 package.json/package-lock.json=1.0.52。来源清单保留上游原始摘要并刷新 store-welcome/backend/reply-engine 与欢迎测试的实际 sha256；vendor 业务逻辑仍只做声明与元数据，抽样和等待在自有 TypeScript。
+
 ## 2026-11-17：文字 DeepSeek / 图片 Qwen3-VL（1.0.48，生产未部署）
 
 隔离 SQLite、合成渠道、假 relay；不调用付费模型，不发送买家消息。固定上游提交 48a6c87f9e7757fdc58e5be9bcb4f8281ad0dfd0，复用已有库和账本。陈旧回环代理造成的 GitHub 连接问题通过仅本次进程移除代理变量解决，系统配置未改。

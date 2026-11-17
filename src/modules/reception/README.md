@@ -12,6 +12,12 @@
 
 修改前阅读根目录 AGENTS.md 和 docs/CONSTRAINTS.md。修改后运行相关类型、构建、单元与桌面检查，并更新 docs/HANDOFF.md。
 
+## 2026-11-17 欢迎开关与随机延迟（1.0.52）
+
+欢迎面板把启用开关放到标题右侧（data-no-drag、aria-label 启用本店新会话欢迎），移除冗余说明段落和普通“载入最新配置”；文字欢迎语下方为“欢迎延迟 [下限] ～ [上限] 秒随机”，默认 1～3 秒，整数 1～3600 且下限不大于上限（相等固定）。保存仍是单个“保存配置”，同时提交文字、启用、延迟和版本；冲突只在警告内提供“重新载入”，点击前保留当前草稿，Enter 提交同样校验冲突和范围。
+
+延迟字段随欢迎记录进入快照、草稿和店铺同步；旧记录缺字段按 1～3 秒解释，保存命令不携带运行时 enabledAt。文字欢迎仍合并在首次符合条件的 AI 正文，独立访客与图片/视频规则不变；延迟抽样、等待、取消在 electron/welcome-delay.ts，界面只负责校验和展示。相关定向测试与临时夹具原生检查见 docs/VALIDATION.md。
+
 ## 2026-11-14 接待事件与审批调度
 
 `electron/reception-automation-runtime.ts` 只接收主进程 `PlatformOperationsPort.observe` 的可信事件。催付规则为模板，订单号在事件匹配时绑定；规则拒绝固定订单号。欢迎最多一条文字及四项媒体，每项独立批准。规则保存含版本冲突校验，修改或停用使旧事项失效。`createFileReceptionAutomation({ directory, scheduler, encryption: safeStorage })` 在当前账号目录原子保存系统加密封装；系统加密不可用或文件损坏时拒绝降级、拒绝覆盖。

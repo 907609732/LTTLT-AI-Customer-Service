@@ -9,6 +9,11 @@ import { useReceptionOperations } from '../services/operations'
 import OperationApprovalPanel from './OperationApprovalPanel.vue'
 import ReceptionRulesPanel from './ReceptionRulesPanel.vue'
 import { useReceptionDraftCache, type ReceptionSettingsDraft } from '../draft-cache'
+import {
+  normalizeWelcomeSetting,
+  welcomeDelayIssue,
+  type NormalizedWelcomeSetting,
+} from '@/shared/contracts/welcome'
 const props = withDefaults(
   defineProps<{ viewKey?: string; storeId?: string; embedded?: boolean }>(),
   { viewKey: 'transfer', storeId: '', embedded: false },
@@ -72,7 +77,7 @@ const historyRuns = computed(() =>
     (run) => !['pending', 'uncertain', 'blocked', 'executing'].includes(run.state),
   ),
 )
-const welcome = ref({ text: '', enabled: false, version: 0 }),
+const welcome = ref<NormalizedWelcomeSetting>(normalizeWelcomeSetting()),
   vision = ref({ enabled: false, version: 0 })
 const inherited = ref(true),
   keywords = ref(''),
@@ -82,7 +87,7 @@ const inherited = ref(true),
   fallbackEnabled = ref(false),
   fallbackSeconds = ref(15),
   fallbackText = ref('')
-const cached = new Map<string, { text: string; enabled: boolean; version: number }>()
+const cached = new Map<string, NormalizedWelcomeSetting>()
 watch(
   welcome,
   (value) => {
@@ -97,9 +102,9 @@ function load(restoreDraft = false) {
   const id = selectedStoreId.value,
     snap = runtime.snapshot
   const latestManualKeywords = [...snap.config.safety.manualReplyKeywords]
-  welcome.value = {
-    ...(cached.get(id) || snap.welcomeByStore[id] || { text: '', enabled: false, version: 0 }),
-  }
+  welcome.value = normalizeWelcomeSetting(
+    cached.get(id) || snap.welcomeByStore[id] || { text: '', enabled: false, version: 0 },
+  )
   vision.value = { ...(snap.visionByStore[id] || { enabled: false, version: 0 }) }
   inherited.value = !snap.handoffByStore[id]
   keywords.value = snap.handoffByStore[id]?.keywords.join('\n') || ''
@@ -121,7 +126,7 @@ function load(restoreDraft = false) {
     ? drafts?.getSettings(snap.workspaceId, id, props.viewKey)
     : undefined
   if (previous) {
-    if (previous.welcome) welcome.value = { ...previous.welcome }
+    if (previous.welcome) welcome.value = normalizeWelcomeSetting(previous.welcome)
     if (previous.inherited !== undefined) inherited.value = previous.inherited
     if (previous.keywords !== undefined) keywords.value = previous.keywords
     if (previous.globalKeywords !== undefined) globalKeywords.value = previous.globalKeywords
@@ -159,6 +164,16 @@ const welcomeConflict = computed(
     welcome.value.version !==
     (runtime.snapshot.welcomeByStore[selectedStoreId.value]?.version || 0),
 )
+// 回车提交也必须先通过范围校验；不能依赖保存按钮的 disabled。
+const welcomeDelayInvalid = computed(() =>
+  welcomeDelayIssue(welcome.value.delayMinSeconds, welcome.value.delayMaxSeconds),
+)
+function reloadWelcome() {
+  cached.delete(selectedStoreId.value)
+  load()
+  task.error.value = ''
+  task.message.value = ''
+}
 const visionConflict = computed(
   () =>
     vision.value.version !== (runtime.snapshot.visionByStore[selectedStoreId.value]?.version || 0),
@@ -189,6 +204,17 @@ const lines = (text: string) => [
 async function save() {
   const storeId = selectedStoreId.value,
     key = props.viewKey
+  if (key === 'welcome') {
+    // 冲突与非法范围在提交入口再次拦截；按钮禁用不覆盖 Enter 提交。
+    if (welcomeConflict.value) {
+      task.error.value = '配置已更新，当前草稿仍保留；请重新载入后再保存。'
+      return
+    }
+    if (welcomeDelayInvalid.value) {
+      task.error.value = welcomeDelayInvalid.value
+      return
+    }
+  }
   await task.run(async () => {
     let result
     if (key === 'welcome')
@@ -271,29 +297,41 @@ async function saveManualKeywords() {
   <RuntimePanel
     :title="viewKey === 'transfer' ? '' : title"
     :aria-label="title"
-    :class="{ 'embedded-reception': embedded }"
+    :class="{ 'embedded-reception': embedded, 'welcome-panel': viewKey === 'welcome' }"
     :description="
-      embedded || viewKey === 'transfer' ? '' : '配置独立保存；保存不会自动开启店铺 AI 接待。'
+      embedded || viewKey === 'transfer' || viewKey === 'welcome'
+        ? ''
+        : '配置独立保存；保存不会自动开启店铺 AI 接待。'
     "
     :error="task.error.value"
     :message="task.message.value"
   >
+    <template v-if="viewKey === 'welcome'" #actions>
+      <span class="welcome-toggle" data-no-drag>
+        <el-switch
+          v-model="welcome.enabled"
+          active-text="启用"
+          aria-label="启用本店新会话欢迎"
+          :disabled="task.pending.value || welcomeConflict"
+        />
+      </span>
+    </template>
     <StoreSelect v-if="!embedded" :disabled="task.pending.value" />
     <p v-if="viewKey !== 'auto' && !selectedStoreId">请先在店铺与商品中添加店铺。</p>
     <form v-if="selectedStoreId || viewKey === 'auto'" class="runtime-form" @submit.prevent="save">
       <template v-if="viewKey === 'welcome'"
-        ><p>
-          此配置在新会话首次 AI
-          正文中附加文字欢迎，与正文合并批准。下方独立规则处理可信无消息访客及图片、视频，各项分别批准。
-        </p>
-        <el-alert
+        ><el-alert
           v-if="welcomeConflict"
-          title="配置已更新，当前草稿仍保留。请载入最新配置后再保存。"
+          title="配置已更新，当前草稿仍保留；请重新载入最新配置后再保存。"
           type="warning"
-          :closable="false" /><el-switch
-          v-model="welcome.enabled"
-          active-text="启用本店新会话欢迎"
-          :disabled="task.pending.value || welcomeConflict" /><label
+          :closable="false"
+        >
+          <template #default>
+            <el-button native-type="button" :disabled="task.pending.value" @click="reloadWelcome"
+              >重新载入</el-button
+            >
+          </template></el-alert
+        ><label
           >文字欢迎语<el-input
             v-model="welcome.text"
             type="textarea"
@@ -301,8 +339,32 @@ async function saveManualKeywords() {
             maxlength="200"
             show-word-limit
             aria-label="文字欢迎语"
-            :disabled="task.pending.value" /></label
-      ></template>
+            :disabled="task.pending.value"
+        /></label>
+        <div class="welcome-delay">
+          <span class="welcome-delay-label">欢迎延迟</span>
+          <span class="welcome-range">
+            <el-input-number
+              v-model="welcome.delayMinSeconds"
+              aria-label="欢迎延迟下限（秒）"
+              :min="1"
+              :max="3600"
+              :step="1"
+              :precision="0"
+              :disabled="task.pending.value"
+            /><span class="welcome-sep">～</span
+            ><el-input-number
+              v-model="welcome.delayMaxSeconds"
+              aria-label="欢迎延迟上限（秒）"
+              :min="1"
+              :max="3600"
+              :step="1"
+              :precision="0"
+              :disabled="task.pending.value"
+            /><span class="welcome-unit">秒随机</span>
+          </span>
+        </div></template
+      >
       <template v-else-if="viewKey === 'image'"
         ><p>{{ runtime.snapshot.capabilities.vision.reason }}</p>
         <p>
@@ -363,12 +425,12 @@ async function saveManualKeywords() {
           :loading="task.pending.value"
           :disabled="
             !runtime.available ||
-            (viewKey === 'welcome' && welcomeConflict) ||
+            (viewKey === 'welcome' && (welcomeConflict || Boolean(welcomeDelayInvalid))) ||
             (viewKey === 'image' && visionConflict)
           "
           >保存配置</el-button
         ><el-button
-          v-if="viewKey !== 'transfer'"
+          v-if="viewKey !== 'transfer' && viewKey !== 'welcome'"
           :disabled="task.pending.value"
           @click="
             () => {
@@ -492,6 +554,44 @@ async function saveManualKeywords() {
 }
 .embedded-reception :deep(.runtime-page__head) {
   margin-bottom: 12px;
+}
+/* 标题、文字区和启用开关在同一行基线上垂直居中。 */
+.welcome-panel :deep(.runtime-page__head) {
+  align-items: center;
+  gap: 12px;
+}
+/* 标题右侧的启用开关作为一个不换行的操作单元；header 内保持 12px 间距。 */
+.welcome-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.welcome-delay {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  font-size: 14px;
+}
+.welcome-delay-label {
+  white-space: nowrap;
+}
+/* 起止输入、波浪号与“秒随机”整体换行，窄容器里不拆散范围组。 */
+.welcome-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex-wrap: nowrap;
+}
+.welcome-range :deep(.el-input-number) {
+  width: 100px;
+  flex: 0 0 100px;
+}
+.welcome-sep,
+.welcome-unit {
+  font-size: 13px;
 }
 .embedded-reception :deep(.runtime-page__head h1) {
   margin: 0;

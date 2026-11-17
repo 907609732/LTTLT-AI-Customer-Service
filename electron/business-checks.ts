@@ -699,6 +699,128 @@ export async function businessChecks(options: {
         traces.some((trace) => JSON.stringify(trace.messages).includes('[通用客服表达参考]')),
       )
     })
+    await check('business:welcome-timing-settings', '/shop/manage', async () => {
+      // 仅使用临时工作区的本机模拟店铺；不打开真实店铺，也不发送任何消息。
+      // A selected standalone check has no previous route to initialize the preload bridge.
+      await load('/')
+      const previousStoreId = (await snapshot()).selection.storeId
+      const fixture = await execute({
+        action: 'add-store',
+        values: { platform: 'sim-local', storeName: '欢迎延迟验证店' },
+      })
+      const storeId = String(fixture.data.id)
+      try {
+        await execute({ action: 'select-store', storeId })
+        await load('/shop/manage?panel=shops')
+        await wait(`Boolean(document.querySelector('[data-action="basic-settings"]'))`)
+        await win.webContents.executeJavaScript(
+          `document.querySelector(${JSON.stringify(`.shop-card[data-store="${storeId}"] [data-action="basic-settings"]`)}).click()`,
+        )
+        await wait(`Boolean(document.querySelector('button.wizard-step:not(:disabled)'))`)
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.wizard-step')[3].click()`,
+        )
+        await wait(
+          `Boolean(document.querySelector('.welcome-toggle input[aria-label="启用本店新会话欢迎"]'))`,
+        )
+        assert.ok(
+          await win.webContents.executeJavaScript(
+            `Array.from(document.querySelectorAll('.reception-settings h1')).some((el) => el.textContent === '进店欢迎')`,
+          ),
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.body.innerText.includes('此配置在新会话首次 AI')`,
+          ),
+          false,
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Array.from(document.querySelectorAll('.reception-settings button')).some((button) => button.textContent === '载入最新配置')`,
+          ),
+          false,
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Boolean(document.querySelector('.welcome-toggle[data-no-drag]'))`,
+          ),
+          true,
+        )
+        assert.deepEqual(
+          await win.webContents.executeJavaScript(
+            `['欢迎延迟下限（秒）','欢迎延迟上限（秒）'].map((label) => document.querySelector('input[aria-label="' + label + '"]').value)`,
+          ),
+          ['1', '3'],
+        )
+        await setInput('文字欢迎语', '欢迎延迟夹具')
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.welcome-toggle input[aria-label="启用本店新会话欢迎"]').click()`,
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.reception-settings .runtime-page')[1].querySelector('.runtime-form').requestSubmit()`,
+        )
+        await wait(
+          `window.yunduoDesktop.backendSnapshot().then((s) => s.welcomeByStore[${JSON.stringify(storeId)}]?.text === '欢迎延迟夹具')`,
+        )
+        const saved = await snapshot()
+        const welcome = saved.welcomeByStore[storeId]
+        assert.equal(welcome?.enabled, true)
+        assert.equal(welcome?.delayMinSeconds, 1)
+        assert.equal(welcome?.delayMaxSeconds, 3)
+        // 外部更新模拟另一窗口保存：当前草稿必须保留，只能点“重新载入”才替换。
+        await execute({
+          action: 'save-welcome',
+          storeId,
+          values: {
+            text: '外部更新欢迎',
+            enabled: true,
+            version: welcome!.version,
+            delayMinSeconds: 5,
+            delayMaxSeconds: 9,
+          },
+        })
+        const panel = `document.querySelectorAll('.reception-settings .runtime-page')[1]`
+        await wait(`${panel}.innerText.includes('配置已更新')`)
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `${panel}.querySelector('textarea[aria-label="文字欢迎语"]').value`,
+          ),
+          '欢迎延迟夹具',
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Array.from(${panel}.querySelectorAll('button')).some((button) => button.textContent === '重新载入')`,
+          ),
+          true,
+        )
+        await win.webContents.executeJavaScript(
+          `Array.from(${panel}.querySelectorAll('button')).find((button) => button.textContent === '重新载入').click()`,
+        )
+        await wait(
+          `${panel}.querySelector('textarea[aria-label="文字欢迎语"]').value === '外部更新欢迎'`,
+        )
+        assert.deepEqual(
+          await win.webContents.executeJavaScript(
+            `['欢迎延迟下限（秒）','欢迎延迟上限（秒）'].map((label) => ${panel}.querySelector('input[aria-label="' + label + '"]').value)`,
+          ),
+          ['5', '9'],
+        )
+        await win.webContents.executeJavaScript(
+          `${panel}.scrollIntoView({block:'center'}); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
+        )
+        fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/welcome-timing-settings.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+      } finally {
+        await execute({ action: 'remove-store', storeId, values: { confirmed: true } })
+        const after = await snapshot()
+        assert.ok(!after.stores.some((store) => store.id === storeId))
+        if (previousStoreId && after.stores.some((store) => store.id === previousStoreId))
+          await execute({ action: 'select-store', storeId: previousStoreId })
+      }
+    })
     await check('business:knowledge-profiles-welcome-vision', '/shop/manage', async () => {
       const pack = await execute({
         action: 'save-intent-pack',

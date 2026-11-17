@@ -34,6 +34,11 @@ export interface SendProposal {
   pageReview?: unknown
   getPageReview?: (focus?: boolean) => Promise<unknown>
   retryNewMessage?: boolean
+  /**
+   * 厂商在装饰最终正文时确认“欢迎文字确实出现在本次发送开头”才附加；
+   * 版本用于延迟期间核对欢迎配置未被改写。普通回复没有该字段。
+   */
+  welcome?: { version: number }
 }
 type Pending = {
   sendMode: StoreSendModeState
@@ -676,6 +681,21 @@ export class ReviewConsole {
       return
     }
     item.resolve(true)
+  }
+  /** 批准后的欢迎延迟被取消时结束“正在发送”显示；不产生发送结果，也不重发。 */
+  cancelSending(storeId: string, uid: string, reason: string) {
+    for (const row of this.replies)
+      if (row.storeId === storeId && row.uid === uid && row.status === 'sending') {
+        row.status = 'failed'
+        row.reason = reason
+        if (row.traceId)
+          this.messageDiagnostics.byTrace(
+            row.traceId,
+            aiState('canceled', 'welcome_delay_cancelled', reason, null, row.traceId),
+          )
+        this.log('欢迎延迟取消', reason, storeId, uid)
+      }
+    this.changed()
   }
   dispose() {
     this.closed = true

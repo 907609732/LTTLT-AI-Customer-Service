@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { watch } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
+import type { WelcomeSetting } from '@/shared/contracts/backend'
 
 export interface ReceptionSettingsDraft {
-  welcome?: { text: string; enabled: boolean; version: number }
+  welcome?: WelcomeSetting
   inherited?: boolean
   keywords?: string
   globalKeywords?: string

@@ -20,6 +20,8 @@ import { StoreSendModes } from './store-send-modes'
 import { SendModeAuthorizations } from './send-mode-authorizations'
 import { createRequire } from 'node:module'
 import { ReplyPacingStore, createUidIntervalResolver } from './reply-pacing'
+import { createWelcomeDelayGate } from './welcome-delay'
+import { normalizeWelcomeSetting } from '../src/shared/contracts/welcome'
 import { describeReplyPacing } from '../src/shared/reply-pacing'
 import { MANUAL_REPLY_KEYWORDS_SCREEN, normalizeManualReplyKeywords } from './manual-reply-keywords'
 import path from 'node:path'
@@ -422,6 +424,45 @@ export function createLocalRuntime(options: {
     (id) => backendRef.current?.engine?.worker(id) ?? undefined,
     { readMode: (id) => sendModes.read(id) },
   )
+  // 关闭本地服务时让欢迎延迟在下一档（≤100ms）结束，不能继续等待或发送。
+  const welcomeDelayAbort = new AbortController()
+  // Share one full snapshot only within a synchronous guard check, never across timer ticks.
+  let welcomeCheckSnapshot: ReturnType<typeof read> | undefined
+  const readWelcomeCheck = () => welcomeCheckSnapshot ?? read()
+  const welcomeDelayGate = createWelcomeDelayGate({
+    beginRead: () => {
+      welcomeCheckSnapshot = read()
+    },
+    readWelcome: (storeId) => {
+      const setting = readWelcomeCheck().welcomeByStore[storeId]
+      return setting ? normalizeWelcomeSetting(setting) : undefined
+    },
+    readStore: (storeId) => {
+      const store = readWelcomeCheck().stores.find((row) => row.id === storeId)
+      return store
+        ? { online: store.runtime.online === true, aiEnabled: store.aiEnabled }
+        : undefined
+    },
+    conversation: (storeId, uid) => {
+      const messages =
+        readWelcomeCheck().conversations.find((row) => row.storeId === storeId && row.uid === uid)
+          ?.messages ?? []
+      return {
+        // 与复核窗口相同的正文口径；只比较这位买家的归档消息，不混用其他会话。
+        fingerprint: JSON.stringify(
+          messages.map((message) => ({
+            from: message.from,
+            type: message.type,
+            content: message.content.replace(/\r\n?/g, '\n').normalize('NFC'),
+          })),
+        ),
+        lastFrom: messages.at(-1)?.from ?? '',
+      }
+    },
+    cancel: (proposal, reason) => review.cancelSending(proposal.storeId, proposal.uid, reason),
+    releaseSendAuthorization: (storeId, uid) => sendAuthorizations.release(storeId, uid),
+    signal: welcomeDelayAbort.signal,
+  })
   const traceWithKnowledge = (event: unknown) => {
     const id = review.trace(event)
     if (id && event && typeof event === 'object' && Reflect.get(event, 'type') === 'request')
@@ -628,10 +669,15 @@ export function createLocalRuntime(options: {
     resolveConversationThread: createConversationThread(() => read().conversations),
     beforeSend: (proposal: SendProposal) => {
       knowledge.guardProposal(proposal)
+      // 统一确认门放行后才进入欢迎延迟；普通回复没有 welcome 元数据，立即返回。
+      const decide = async () => {
+        const approved = await review.propose(proposal)
+        return approved ? welcomeDelayGate(proposal, true) : false
+      }
       const decision =
         read().stores.find((store) => store.id === proposal.storeId)?.platform === 'pdd-web'
-          ? sendAuthorizations.authorize(proposal, () => review.propose(proposal))
-          : review.propose(proposal)
+          ? sendAuthorizations.authorize(proposal, decide)
+          : decide()
       // 新候选只显示不抢焦点的小监控窗，批准及自动模式均由统一发送门复核。
       void replyMonitor.open().catch(() => notifyReview())
       return decision
@@ -1391,6 +1437,7 @@ export function createLocalRuntime(options: {
     },
     async dispose() {
       closed = true
+      welcomeDelayAbort.abort()
       aiRestoreRef.current?.dispose()
       await disposer.dispose()
     },
