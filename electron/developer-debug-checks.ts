@@ -146,6 +146,26 @@ export async function developerDebugChecks(options: CheckOptions) {
         (value) => value === 'connected',
         'CMD 连接',
       )
+      // Exercise xterm's actual input -> renderer bridge -> ConPTY path, not only direct IPC.
+      await monitor!.webContents.executeJavaScript(`(() => {
+        window.__lingtuKeyboardText = '';
+        window.__lingtuKeyboardOff = window.yunduoDesktop.developerDebug.onPtyData(
+          (event) => { window.__lingtuKeyboardText += event.data; },
+        );
+        document.querySelector('.xterm-helper-textarea').focus();
+      })()`)
+      await monitor!.webContents.insertText('echo LINGTU_KEYBOARD_OK')
+      monitor!.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+      monitor!.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+      await waitFor(
+        () =>
+          monitor!.webContents.executeJavaScript(
+            "window.__lingtuKeyboardText.split('LINGTU_KEYBOARD_OK').length",
+          ),
+        (value) => value >= 3,
+        'xterm 键盘输入与真实 CMD 回显',
+      )
+      await monitor!.webContents.executeJavaScript('void window.__lingtuKeyboardOff()')
       const result = await monitor!.webContents.executeJavaScript(`(async () => {
         const api = window.yunduoDesktop.developerDebug;
         const snapshot = await window.yunduoDesktop.backendSnapshot();
