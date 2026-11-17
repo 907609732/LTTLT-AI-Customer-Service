@@ -6,7 +6,7 @@
 
 ## 一、开源许可
 
-除相关文件或第三方声明另有说明外，本项目中权利人有权许可的原创软件代码及随附项目文档，采用 **GNU Affero General Public License, version 3 only（AGPL-3.0-only）**。完整、未改写的标准条款见 [LICENSE](LICENSE)。
+除相关文件或第三方声明另有说明外，本项目中权利人有权许可的原创软件代码及随附项目文档，采用 **GNU Affero General Public License, version 3 only（AGPL-3.0-only）**。完整、未改写的标准条款见 [LICENSE](../../LICENSE)。
 
 本项目选择第 3 版，不自动授权使用后续版本。`LICENSE` 末尾“如何将许可应用于程序”是官方示例，其中的 “or any later version” 不改变本项目明确选择的 `AGPL-3.0-only`。
 
@@ -45,7 +45,7 @@ AGPL 不等于要求公开企业所有代码，也不要求一定上传 GitHub�
 - 第三方依赖、复制的代码、字体、图片及其他素材继续受其自身条款约束；本项目不能授予其无权授予的例外。见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 - 商业许可不得把仅按 AGPL 获得的外部贡献自动改为闭源许可；须有相应权利人另行授予的权利，或将该贡献排除在商业授权交付范围外。
 - 项目名称、标识及第三方商标不因软件许可而获得商标授权；本说明不限制法律允许的合理使用，也不要求在派生软件中保留项目商标作为营销标识。
-- 后续变更许可证不撤销既有合规许可，不改变第三方既有权利。新贡献规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+- 后续变更许可证不撤销既有合规许可，不改变第三方既有权利。新贡献规则见 CONTRIBUTING.md。
 
 ## 四、条款关系与权威来源
 

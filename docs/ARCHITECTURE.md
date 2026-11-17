@@ -33,27 +33,29 @@ E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独�
 
 ## 目录与职责
 
-| 目录                      | 职责                                            |
-| ------------------------- | ----------------------------------------------- |
-| .github                   | 独立主项目的云端检查与 Windows 构建，只上传产物 |
-| electron                  | Electron 主进程、preload、业务运行时与平台接入  |
-| server                    | 独立托管 API、原生管理网页覆盖层与运维说明      |
-| vendor/lingtu-runtime     | 固定来源的客户端运行依赖与许可                  |
-| src/app                   | 入口、布局、路由、菜单注册和演示服务装配        |
-| src/modules/workbench     | 工作台、快捷回复和定时任务界面                  |
-| src/modules/account       | 登录、账号、团队和店铺登录弹窗                  |
-| src/modules/shops         | 店铺、商品及相关弹窗                            |
-| src/modules/reception     | 转人工、欢迎语、自动操作、图片识别              |
-| src/modules/knowledge     | 意图、知识、模型定制和训练                      |
-| src/modules/quality       | 工单、质检和售后预警                            |
-| src/modules/billing       | 充值、订单、算力与账户聚合界面                  |
-| src/modules/settings      | 软件偏好和设置                                  |
-| src/modules/auxiliary     | 辅助中心、聚合后台、助手及弹层                  |
-| src/modules/simulation    | 本机模拟店铺客服台与会话回复界面                |
-| src/shared                | 类型契约、桌面适配、图标、公共 UI               |
-| src/styles/legacy         | 还原样式兼容层，不直接重生成                    |
-| tests / electron/smoke.ts | 逻辑测试 / 真实桌面冒烟                         |
-| artifacts                 | 忽略的源码备份、截图和测试报告                  |
+| 目录                      | 职责                                                  |
+| ------------------------- | ----------------------------------------------------- |
+| .github                   | 独立主项目的云端检查与 Windows 构建，只上传产物       |
+| config                    | TypeScript、ESLint、Prettier 与 electron-builder 配置 |
+| docs/legal                | AGPL、商业授权与第三方权利说明                        |
+| electron                  | Electron 主进程、preload、业务运行时与平台接入        |
+| server                    | 独立托管 API、原生管理网页覆盖层与运维说明            |
+| vendor/lingtu-runtime     | 固定来源的客户端运行依赖与许可                        |
+| src/app                   | 入口、布局、路由、菜单注册和演示服务装配              |
+| src/modules/workbench     | 工作台、快捷回复和定时任务界面                        |
+| src/modules/account       | 登录、账号、团队和店铺登录弹窗                        |
+| src/modules/shops         | 店铺、商品及相关弹窗                                  |
+| src/modules/reception     | 转人工、欢迎语、自动操作、图片识别                    |
+| src/modules/knowledge     | 意图、知识、模型定制和训练                            |
+| src/modules/quality       | 工单、质检和售后预警                                  |
+| src/modules/billing       | 充值、订单、算力与账户聚合界面                        |
+| src/modules/settings      | 软件偏好和设置                                        |
+| src/modules/auxiliary     | 辅助中心、聚合后台、助手及弹层                        |
+| src/modules/simulation    | 本机模拟店铺客服台与会话回复界面                      |
+| src/shared                | 类型契约、桌面适配、图标、公共 UI                     |
+| src/styles/legacy         | 还原样式兼容层，不直接重生成                          |
+| tests / electron/smoke.ts | 逻辑测试 / 真实桌面冒烟                               |
+| artifacts                 | 忽略的源码备份、截图和测试报告                        |
 
 跨模块只经公开入口导入组件。账户聚合依赖账号与设置属于现有界面组合；后续新增业务逻辑应放回各自模块，避免将 billing 扩展为全局业务中心。
 

@@ -1,3 +1,11 @@
+## 2026-11-17 根目录文档与配置整理（维护性，版本仍 1.0.39）
+
+按用户要求继续整理根目录，不删除源码、运行数据或工作目录，不修改业务功能、版本和依赖，也不执行发布。根文件从 20 个减少到 10 个（若不计 Git 元数据 `.gitattributes`，为 19 个到 9 个）：`LICENSING.md`、`COMMERCIAL_LICENSE.md`、`THIRD_PARTY_NOTICES.md` 移入 `docs/legal/`；三个 TypeScript 项目配置及 `electron-builder.json`、`eslint.config.mjs`、`.prettierrc.json`、`.prettierignore` 移入 `config/`，新文件名为 `tsconfig.*.json`、`electron-builder.json`、`eslint.config.mjs`、`prettier.json`、`prettier.ignore`。保留根 `LICENSE`、`AGENTS.md`、`package.json`、`package-lock.json`、入口页、根 `tsconfig.json` 与 Vite 自动发现配置。
+
+同步更新了 `package.json` 的 `typecheck`、`lint`、`format`、`format:check`、`pack:win`、`dist:win` 命令及 Prettier 包字段，`electron-builder` 白名单改为 `docs/legal/` 路径并保留全部许可与第三方声明；云端桌面构建显式传入 `config/electron-builder.json`。活动文档中的当前路径已更新，历史验证命令与历史日志保留原文。技术栈与依赖未变化，`package-lock.json` 未改。
+
+验证：`npm run typecheck`、`npm run lint`、`npm run format:check`、`npm run build` 均通过；三个 TypeScript 项目在移动前后 `--listFilesOnly` 均为 1475、159、253 个文件且集合一致；`Packager.validateConfig()` 成功加载 `config/electron-builder.json`，`appDir` 仍为仓库根，16 个显式 `files` 条目和 `extraResources` 路径均存在；`prettier.resolveConfig` 返回新位置配置。未运行全量测试、打包发布或真实应用操作。
+
 ## 2026-11-17 闲鱼切换买家、上下文时间与店名识别（1.0.27）
 
 针对用户反馈的闲鱼切换人、无法识别上下文、识别不了店铺名字：`xianyuTimestamp` 现解析“昨天/前天 + 时间”“MM-DD HH:MM”“YYYY-MM-DD HH:MM”和“N分钟/小时前”，配合 bridge 的 `isTimeLabel` 补丁，跨天消息不再全部落到当前时间；`sendText` 在切换前、写入后各核对一次当前买家，商家切走后不抢回旧会话也不点击发送；打开店铺后从登录 cookie `tracknick`/`unb` 回填店名和卖家 id，仅在占位名、空名或登录账号变化时更新，换账号会停 AI。桥接补丁和来源记录见 `vendor/xianyu-bridge/PROVENANCE.md`。

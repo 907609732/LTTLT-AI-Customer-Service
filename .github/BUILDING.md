@@ -18,7 +18,7 @@
 2. `npm run check` 检查类型、格式、依赖边界、供应商摘要、单元测试、上游回归和源码构建。
 3. `npm run test:desktop` 运行真实 Electron 桌面验收。
 4. 运行知识库管理与资料学习专项验收。
-5. 使用 `electron-builder --win nsis zip --x64 --publish never` 构建 NSIS 安装程序和 ZIP。
+5. 使用 `electron-builder --config config/electron-builder.json --win nsis zip --x64 --publish never` 构建 NSIS 安装程序和 ZIP。
 6. 启动打包后的真实程序执行成品验收。
 7. 从 `package.json` 读取版本，生成 `RELEASE-MANIFEST.json` 与 `SHA256SUMS.txt`，记录确切源码提交和本次构建地址。
 

@@ -37,9 +37,9 @@
     "package.json",
     "README.md",
     "LICENSE",
-    "LICENSING.md",
-    "COMMERCIAL_LICENSE.md",
-    "THIRD_PARTY_NOTICES.md",
+    "docs/legal/LICENSING.md",
+    "docs/legal/COMMERCIAL_LICENSE.md",
+    "docs/legal/THIRD_PARTY_NOTICES.md",
     "docs/PACKAGING.md",
     "!**/*.map"
   ],

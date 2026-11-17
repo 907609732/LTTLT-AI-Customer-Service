@@ -45,7 +45,7 @@ jobs:
       - name: Package NSIS installer and ZIP in the cloud
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --win nsis zip --x64 --publish never --config.electronDist=node_modules/electron/dist
+        run: npx electron-builder --config config/electron-builder.json --win nsis zip --x64 --publish never --config.electronDist=node_modules/electron/dist
       - name: Inspect archive and launch the real packaged application
         run: npm run test:packaged
       - name: Record exact source and checksums

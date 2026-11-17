@@ -91,12 +91,12 @@ npm.cmd start
 
 开发模式使用 `npm.cmd run electron:dev`；浏览器预览使用 `npm.cmd run dev`。日常修改只验证直接影响的流程，Release 打包时执行全量检查和成品验收。
 
-更多说明见 [当前状态](docs/HANDOFF.md)、[版本说明](docs/VERSIONING.md)、[架构](docs/ARCHITECTURE.md)、[AI 状态恢复](docs/AI_STATE_RESTORE.md)、[本地接入](docs/LOCAL_INTEGRATION.md)、[托管服务](docs/MANAGED_SERVICE.md)和[云端构建](.github/README.md)。
+更多说明见 [当前状态](docs/HANDOFF.md)、[目录说明](docs/PROJECT_LAYOUT.md)、[版本说明](docs/VERSIONING.md)、[架构](docs/ARCHITECTURE.md)、[AI 状态恢复](docs/AI_STATE_RESTORE.md)、[本地接入](docs/LOCAL_INTEGRATION.md)、[托管服务](docs/MANAGED_SERVICE.md)和[云端构建](.github/BUILDING.md)。
 
 ## 许可与第三方来源
 
-项目原创代码采用 [AGPL-3.0-only](LICENSE)。适用范围及单独商业授权说明见 [LICENSING.md](LICENSING.md)；AGPL 已授予的权利不因商用或再分发而被额外限制。
+项目原创代码采用 [AGPL-3.0-only](LICENSE)。适用范围及单独商业授权说明见 [LICENSING.md](docs/legal/LICENSING.md)；AGPL 已授予的权利不因商用或再分发而被额外限制。
 
-第三方依赖、平台名称与图标、引用素材遵循各自的许可证或权利声明；闲鱼桥接脚本的来源与本地补丁见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目的软件许可不改变这些权利，也不表示获得相关平台的官方认可。
+第三方依赖、平台名称与图标、引用素材遵循各自的许可证或权利声明；闲鱼桥接脚本的来源与本地补丁见 [THIRD_PARTY_NOTICES.md](docs/legal/THIRD_PARTY_NOTICES.md)。本项目的软件许可不改变这些权利，也不表示获得相关平台的官方认可。
 
 BY 五成
