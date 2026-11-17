@@ -9,7 +9,9 @@
 - 类型检查、变更文件 ESLint/Prettier、模块边界、构建通过；知识库原生主专项 18 项、待学问题 2 项、内嵌进度 5 项通过。只使用临时数据和本机模拟模型，未触发真实平台/付费模型/买家发送。
 - 后置 Knip 6.39.0 的文件候选为空（按明确 entry 排除 preload、MCP、fixture 误报），日志 knip-files-after.json；不等于对全部动态行为的证明。
 
-云端标准 CI、下载产物校验和正常主目录版本核对待最终回执，不预写成功。未公开发布或部署。
+最终独立分支验收基线 1.0.60 / f89f186，[CI 44148308838](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44148308838) 全部成功：169 文件/1268 项、原生桌面 91/91、知识库与来源学习、真实打包程序 10 项通过。release/ci-f89f186 的版本/源码清单和三份 SHA256 匹配；同一便携 ZIP 本机首次验收 10 项退出 0（9124 ASAR 成员、解析 8 部分），报告 artifacts/packaged/report.json，日志 artifacts/maintenance-round2/local-packaged.log。最终源码构建后旧首页1/1通过，已目视核对隔离截图 v1.0.60。
+
+尚未合入主目录/远端 main、未重启日常应用：主目录另有 PDD 修复的 1.0.59 实店验收现场，未提交改动与运行实例均保留；当前成果位于 codex/maintenance-cleanup-20261117。用户尚未选择结束该现场时，不把独立验收写成主目录整合成功。未发布 GitHub Release、未部署生产。
 
 ## 2026-11-18：1.0.58 最终回归与产物验收
 

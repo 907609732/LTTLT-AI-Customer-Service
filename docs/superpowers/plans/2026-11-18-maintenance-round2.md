@@ -58,15 +58,18 @@
 
 - [x] Codex 核对每个删除项和新职责边界、公开返回契约及生命周期；独立审查发现的问题回交原 DeepSeek 会话修正。
 - [x] Codex 独立复跑受影响测试与原生知识/导航/监控；独立 56 项通过、旧首页/监控/CMD 3 项通过，退出 0/completed 与产出已核对；后置 Knip 文件候选为空。核对 DeepSeek 退出 0、final.reason.kind=completed 和实际产出。
-- [ ] 更新 HANDOFF/VALIDATION 和本计划，统一 patch 后整合最新 main；不覆盖其他任务。
-- [ ] 核对精确 CI 提交及标准产物；本次无公开发布。重开正常主目录实例，实测版本、可见窗口和原 userData。
+- [x] 更新 HANDOFF/VALIDATION 和本计划，最终版本 1.0.60；成果已提交并推送独立分支，未覆盖其他任务。
+- [x] 核对精确 CI 提交 f89f186 与标准产物、下载清单/三份 SHA256 和本机便携包 10 项检查；本次无 GitHub Release 或生产部署。
+- [ ] 主目录 PDD 实店测试结束或用户明确选择后，整合双方最新成果并验证组合影响，再重开正常主目录实例，核对版本和原 userData。当前保留原现场，不将隔离实例当作切版完成。
 
 ## 实际结果
 
 - Task 2：按 `deletion-candidates.json` 删除 63/63 项（19 个旧 demo、39 个共享图标、ShopPanelShell、shops/contracts.ts 与 GoodsRow 导出、sync 两个空转导文件、developer-debug/index.ts）；引用、模板、字符串入口和构建入口复核无外部消费者，仍使用中的资源保留。当前说明已按实际删除/职责更新，历史验收未改写。
 - Task 3：新增 `product-family-controller.ts`、`miss-controller.ts`；manager 保留唯一草稿/审核/租约/client 守卫/销毁 owner。公开返回对象 126 项及顺序与 before 快照完全一致；manager 1463 → 1323 行，新控制器 192 + 76 行。
 - 验证：6 文件 81 项在 `--no-file-parallelism` 重跑通过；删除领域 4 文件 27 项通过；typecheck、ESLint、Prettier、build、boundaries、diff-check 通过；知识主专项 18 项、misses 2 项、inline progress 5 项原生通过。首次 Vitest 临时 EBUSY 与独立 `--maxWorkers=1` 参数冲突的原始日志分别为 `vitest-first-ebusy-raw.log`、`vitest-maxWorkers-option-failure.log`；未改断言，serial 6 文件 81 项重跑通过。
-- Codex 独立复核已完成：56 项独立测试、旧首页/监控/CMD 3 项原生检查通过，退出 0/completed 与产出已核对；后置 Knip 文件候选为空。版本、HANDOFF/VALIDATION、整合、CI 和重启仍 pending，由 Codex 完成。
-- 未运行全量 check/desktop/upstream、未打包；未进行真实平台/付费模型/买家发送验收。
+- Codex 独立复核已完成：56 项独立测试、旧首页/监控/CMD 3 项原生检查通过，退出 0/completed 与产出已核对；后置 Knip 文件候选为空。最终 1.0.60 构建后旧首页再验1/1通过并目视核对版本。
+- [CI 44148308838](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44148308838) 对 f89f186 全部通过：源码169文件/1268项、原生桌面91/91、知识库与来源学习、NSIS/ZIP打包及真实打包程序10项。下载 release/ci-f89f186 的版本/提交和三份SHA256匹配，同ZIP本机首次10项通过。
+- 本机未重复全量 check/desktop/upstream；全量和打包由标准CI执行。未进行真实平台/付费模型/买家发送验收，未发布GitHub Release或部署生产。
+- 当前只在独立分支交付，尚未合入主目录/远端main和重启日常应用。主目录在整合检查时存在另一任务的未提交PDD会话修复并运行1.0.59等待实店验收；为保留现场，本轮改用1.0.60独立验收并提供选择，未收到选择时不结束测试或覆盖改动。
 
 完整清单、行数、退出码、失败原因和未验证项见 `artifacts/maintenance-round2/worker-summary.md`；证据统一存放 `artifacts/maintenance-round2/`。
