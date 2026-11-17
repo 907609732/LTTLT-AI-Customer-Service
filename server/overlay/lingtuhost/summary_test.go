@@ -56,6 +56,11 @@ func TestBillingSummaryReusesLimitsAndDoesNotChargeReply(t *testing.T) {
 	if err := h.migrateChat(); err != nil {
 		t.Fatal(err)
 	}
+	const hidden = "summary-must-not-inherit-reply-policy"
+	saveContextPolicyForTest(t, db, 0, func(input *lingtu.ContextPolicyInput) {
+		input.RuntimeContext.Enabled = true
+		input.RuntimeContext.SystemPrompt = hidden
+	})
 	if err := db.AutoMigrate(&model.Channel{}, &lingtu.ManagedSession{}); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +89,7 @@ func TestBillingSummaryReusesLimitsAndDoesNotChargeReply(t *testing.T) {
 			Messages  []chatMessage `json:"messages"`
 			MaxTokens int           `json:"max_tokens"`
 		}
-		if json.Unmarshal(raw, &body) != nil || len(body.Messages) != 2 || !strings.Contains(body.Messages[0].Content.(string), "只整理客服历史") || body.MaxTokens > 2048 {
+		if json.Unmarshal(raw, &body) != nil || len(body.Messages) != 2 || !strings.Contains(body.Messages[0].Content.(string), "只整理客服历史") || body.MaxTokens > 2048 || strings.Contains(string(raw), hidden) {
 			t.Error(string(raw))
 		}
 		c.Set("lingtu_upstream_started", true)
@@ -114,7 +119,7 @@ func TestBillingSummaryReusesLimitsAndDoesNotChargeReply(t *testing.T) {
 	}
 	var usage managedUsage
 	var count int64
-	if err := db.First(&usage, "user_id = ?", 99).Error; err != nil || !usage.CostSnapshot || usage.CostInputCNY != "2" || usage.CostOutputCNY != "8" || usage.InputTokens != 2 || usage.OutputTokens != 3 {
+	if err := db.First(&usage, "user_id = ?", 99).Error; err != nil || usage.Purpose != "summary" || !usage.CostSnapshot || usage.CostInputCNY != "2" || usage.CostOutputCNY != "8" || usage.InputTokens != 2 || usage.OutputTokens != 3 {
 		t.Fatal("summary lost provider cost", err, usage)
 	}
 	// A free summary still records the real provider cost exactly once, with the

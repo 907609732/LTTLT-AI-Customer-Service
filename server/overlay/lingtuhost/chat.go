@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/tokenkit"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -33,6 +35,10 @@ import (
 
 const internalTokenName = "lingtu-managed-internal"
 const internalModelLimits = "deepseek-flash,qwen-plus,qwen3-vl-plus"
+
+// 16384 is the managed text context ceiling before reservation. Base64 image
+// data is never counted as text; images keep their separate bounded checks.
+const managedChatTextLimit = 16384
 
 var internalTokenMu sync.Mutex
 var chatCleanupMu sync.Mutex
@@ -105,6 +111,7 @@ type managedUsage struct {
 
 	UserID        int    `gorm:"primaryKey;autoIncrement:false"`
 	RequestID     string `gorm:"type:varchar(128);primaryKey"`
+	Purpose       string `gorm:"type:varchar(16)"`
 	Model         string `gorm:"type:varchar(128)"`
 	ChannelID     int    `gorm:"not null;default:0;index"`
 	ChannelName   string `gorm:"type:varchar(128)"`
@@ -182,9 +189,14 @@ type chatMessage struct {
 	Content any    `json:"content"`
 }
 type chatInput struct {
-	RequestID string        `json:"client_request_id"`
-	Model     string        `json:"model,omitempty"`
-	Messages  []chatMessage `json:"messages"`
+	RequestID string `json:"client_request_id"`
+	Model     string `json:"model,omitempty"`
+	// Purpose and PolicyVersion are optional for backward compatibility. Old
+	// calls omitting both keep their historical digest and reply behavior.
+	Purpose        string        `json:"purpose,omitempty"`
+	PolicyVersion  *int          `json:"policy_version,omitempty"`
+	LearningSource string        `json:"learning_source,omitempty"`
+	Messages       []chatMessage `json:"messages"`
 }
 
 func parseChat(r io.Reader) (chatInput, string, error) {
@@ -198,6 +210,48 @@ func parseChat(r io.Reader) (chatInput, string, error) {
 	}
 	if in.Model != "" && !modelIdentifier(in.Model) {
 		return in, "", errors.New("invalid model")
+	}
+	// Optional policy fields are decoded separately so JSON null, strings,
+	// floats and other non-integer types cannot silently become zero values.
+	var optional struct {
+		Purpose        json.RawMessage `json:"purpose"`
+		PolicyVersion  json.RawMessage `json:"policy_version"`
+		LearningSource json.RawMessage `json:"learning_source"`
+	}
+	if json.Unmarshal(raw, &optional) != nil {
+		return in, "", errors.New("invalid request")
+	}
+	if len(optional.Purpose) > 0 {
+		value := bytes.TrimSpace(optional.Purpose)
+		var purpose string
+		if len(value) == 0 || value[0] != '"' || json.Unmarshal(value, &purpose) != nil || (purpose != "reply" && purpose != "learning") {
+			return in, "", errors.New("invalid purpose")
+		}
+		in.Purpose = purpose
+	}
+	if len(optional.PolicyVersion) > 0 {
+		value := bytes.TrimSpace(optional.PolicyVersion)
+		var version int
+		// A JSON number must start with a digit here; this rejects null, quoted
+		// strings and negative values before the integer decode.
+		if len(value) == 0 || value[0] < '0' || value[0] > '9' || json.Unmarshal(value, &version) != nil || version < 0 {
+			return in, "", errors.New("invalid policy version")
+		}
+		in.PolicyVersion = &version
+	}
+	if len(optional.LearningSource) > 0 {
+		value := bytes.TrimSpace(optional.LearningSource)
+		var source string
+		if len(value) == 0 || value[0] != '"' || json.Unmarshal(value, &source) != nil || (source != "pdd_detail_text" && source != "pdd_detail_image") {
+			return in, "", errors.New("invalid learning source")
+		}
+		in.LearningSource = source
+	}
+	if in.LearningSource != "" && in.Purpose != "learning" {
+		return in, "", errors.New("learning source requires learning purpose")
+	}
+	if in.Purpose == "learning" && in.LearningSource == "" {
+		return in, "", errors.New("learning requires a typed source")
 	}
 	images := 0
 	textBytes := len(raw)
@@ -224,6 +278,30 @@ func parseChat(r io.Reader) (chatInput, string, error) {
 	}
 	return in, chatDigest(in), nil
 }
+
+// Estimated text input uses the existing tokenkit weights for the admitted
+// upstream model. Only text parts count: base64 image data is excluded.
+func countManagedTextTokens(upstreamModel string, messages []chatMessage) int {
+	total := 0
+	for _, message := range messages {
+		switch content := message.Content.(type) {
+		case string:
+			total += tokenkit.Estimate(upstreamModel, content)
+		case []any:
+			for _, value := range content {
+				part, ok := value.(map[string]any)
+				if !ok || part["type"] != "text" {
+					continue
+				}
+				if text, ok := part["text"].(string); ok {
+					total += tokenkit.Estimate(upstreamModel, text)
+				}
+			}
+		}
+	}
+	return total
+}
+
 func selectedChannel(selected string) (model.Channel, error) {
 	channel, _, err := selectedChannelSnapshot(selected)
 	return channel, err
@@ -436,6 +514,25 @@ func (h *Host) prepareChat(c *gin.Context) {
 		clientFailure(c, 503, "configuration_unavailable")
 		return
 	}
+	// A single context-policy snapshot governs this request. A missing row
+	// returns disabled defaults, while a present but unreadable row cannot be
+	// treated as disabled: doing so would bypass an administrator's reply rule.
+	contextPolicy, contextErr := lingtu.LoadContextPolicy(model.DB)
+	policyAware := in.Purpose != "" || in.PolicyVersion != nil || in.LearningSource != ""
+	if contextErr != nil {
+		clientFailure(c, 503, "configuration_unavailable")
+		return
+	}
+	if in.Purpose == "learning" && in.PolicyVersion == nil {
+		clientFailure(c, 400, "policy_version_required")
+		return
+	}
+	// A stale or future version is a conflict before any reservation. A stored
+	// success is replayed above by its original digest even after policy change.
+	if in.PolicyVersion != nil && *in.PolicyVersion != contextPolicy.Revision {
+		clientFailure(c, 409, "policy_version_stale")
+		return
+	}
 	var account lingtu.ManagedAccount
 	uid := identityOf(c).UserID
 	if model.DB.First(&account, "user_id = ?", uid).Error != nil || account.Status != "enabled" {
@@ -460,8 +557,57 @@ func (h *Host) prepareChat(c *gin.Context) {
 		clientFailure(c, 503, "model_not_ready")
 		return
 	}
-	if containsImages(in.Messages) && channel.Models != visionModel {
+	images := containsImages(in.Messages)
+	if images && channel.Models != visionModel {
 		clientFailure(c, 400, "vision_unavailable")
+		return
+	}
+	// The policy decides the purpose, output budget and whether the hidden
+	// reply prompt is present. The client cannot raise either budget.
+	hiddenPrompt := ""
+	maxTokens := policy.MaxTokens
+	purpose := "reply"
+	if in.Purpose == "learning" {
+		purpose = "learning"
+		if !contextPolicy.Learning.Enabled {
+			clientFailure(c, 403, "learning_disabled")
+			return
+		}
+		if !slices.Contains(contextPolicy.Learning.AllowedSources, in.LearningSource) {
+			clientFailure(c, 403, "learning_source_not_allowed")
+			return
+		}
+		// A text-only source cannot smuggle image parts through an allowed text
+		// label, and an image source must actually carry image evidence.
+		if images != (in.LearningSource == "pdd_detail_image") {
+			clientFailure(c, 400, "learning_source_mismatch")
+			return
+		}
+		if images && !contextPolicy.Learning.VisionEnabled {
+			clientFailure(c, 403, "vision_disabled")
+			return
+		}
+		maxTokens = contextPolicy.Learning.MaxOutputTokens
+	} else if !auxiliary && contextPolicy.RuntimeContext.Enabled {
+		hiddenPrompt = contextPolicy.RuntimeContext.SystemPrompt
+	}
+	if auxiliary {
+		purpose = "summary"
+	}
+	// The hidden server rule is a system message prepended to the upstream
+	// request only. Client-supplied system messages follow it as untrusted input.
+	upstreamMessages := in.Messages
+	if hiddenPrompt != "" {
+		upstreamMessages = make([]chatMessage, 0, len(in.Messages)+1)
+		upstreamMessages = append(upstreamMessages, chatMessage{Role: "system", Content: hiddenPrompt})
+		upstreamMessages = append(upstreamMessages, in.Messages...)
+	}
+	// Count text only, using the actual admitted upstream model. Base64 image
+	// payloads never enter tokenkit; the existing PNG/image bounds still apply.
+	// Legacy calls keep their previous cap when the new rule is disabled. Once
+	// enabled, the hidden prompt and every caller's text share the 16384 ceiling.
+	if (policyAware || hiddenPrompt != "") && countManagedTextTokens(channel.Models, upstreamMessages) > managedChatTextLimit {
+		clientFailure(c, 400, "context_too_large")
 		return
 	}
 	// The same admitted config supplies native dispatch, usage and sanitization,
@@ -492,7 +638,7 @@ func (h *Host) prepareChat(c *gin.Context) {
 	if binding.ChannelID != 0 {
 		channelName = binding.Name
 	}
-	usage := managedUsage{UserID: uid, RequestID: in.RequestID, Model: selected, ChannelID: channel.Id, ChannelName: channelName, UpstreamModel: channel.Models, Diagnostic: "pending", CreatedAt: time.Now().Unix()}
+	usage := managedUsage{UserID: uid, RequestID: in.RequestID, Purpose: purpose, Model: selected, ChannelID: channel.Id, ChannelName: channelName, UpstreamModel: channel.Models, Diagnostic: "pending", CreatedAt: time.Now().Unix()}
 
 	// Every new request pins even an unpriced admission: later rate edits cannot
 	// invent historical prices. Only actual reported tokens are costed.
@@ -519,11 +665,10 @@ func (h *Host) prepareChat(c *gin.Context) {
 	c.Request.URL.Path = "/v1/chat/completions"
 	c.Request.URL.RawQuery = ""
 	c.Request.RequestURI = "/v1/chat/completions"
-	maxTokens := policy.MaxTokens
 	if auxiliary {
 		maxTokens = min(maxTokens, c.GetInt("lingtu_summary_budget"))
 	}
-	requestBody, _ := json.Marshal(gin.H{"model": channel.Models, "messages": in.Messages, "stream": false, "max_tokens": maxTokens})
+	requestBody, _ := json.Marshal(gin.H{"model": channel.Models, "messages": upstreamMessages, "stream": false, "max_tokens": maxTokens})
 	c.Request.Body = io.NopCloser(bytes.NewReader(requestBody))
 	c.Request.ContentLength = int64(len(requestBody))
 	c.Set("lingtu_internal", true)
@@ -559,8 +704,14 @@ func (h *Host) prepareChat(c *gin.Context) {
 		var plain []byte
 		if panicValue == nil && started && upstreamStatus >= 200 && upstreamStatus < 300 && capture.Status() == 200 && !capture.tooLarge {
 			outcome, diagnostic = "failed", "invalid_model_reply"
-			plain, _, _, _ = sanitizeManagedResponse(capture.body.Bytes(), selected, providerUsage, append(channel.GetKeys(), c.GetString("lingtu_internal_key"))...)
-			if len(plain) > 0 && !auxiliary {
+			secrets := append(channel.GetKeys(), c.GetString("lingtu_internal_key"))
+			if hiddenPrompt != "" {
+				// Reject the full rule and substantial copied excerpts. A prompt
+				// remains guidance, never a place to store credentials or secrets.
+				secrets = append(secrets, managedPromptEchoChecks(hiddenPrompt)...)
+			}
+			plain, _, _, _ = sanitizeManagedResponse(capture.body.Bytes(), selected, providerUsage, secrets...)
+			if len(plain) > 0 && !auxiliary && purpose == "reply" {
 				var response struct {
 					Choices []struct {
 						Message struct {
@@ -633,6 +784,22 @@ type managedTokenUsage struct {
 func sanitizeResponse(raw []byte, selected string, secrets ...string) ([]byte, int, int) {
 	clean, input, output, _ := sanitizeManagedResponse(raw, selected, nil, secrets...)
 	return clean, input, output
+}
+// Directly copied prompt text can appear as only a paragraph or sentence in a
+// model response. Overlapping 24-rune checks catch substantial verbatim excerpts
+// without turning every common short instruction word into a rejection rule.
+func managedPromptEchoChecks(prompt string) []string {
+	const excerptRunes = 24
+	runes := []rune(prompt)
+	checks := []string{prompt}
+	if len(runes) < excerptRunes {
+		return checks
+	}
+	for start := 0; start+excerptRunes <= len(runes); start += excerptRunes / 2 {
+		checks = append(checks, string(runes[start:start+excerptRunes]))
+	}
+	checks = append(checks, string(runes[len(runes)-excerptRunes:]))
+	return checks
 }
 func sanitizeManagedResponse(raw []byte, selected string, providerUsage *managedTokenUsage, secrets ...string) ([]byte, int, int, bool) {
 	var response struct {

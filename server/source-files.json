@@ -110,7 +110,7 @@
       "upstreamPath": "managed-server/overlay/lingtu/limits.go",
       "sha256": "9a13d4564e40afe11279b27f5c0b0522bf46c3eaffdda698180ea0a533803bc7",
       "upstreamSha256": "da0a5f14b896e73479a582824661885442cf6fa70f73b436047a628887e32bb9",
-      "localPatch": "2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs"
+      "localPatch": "2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
     {
       "path": "overlay/lingtu/limits_test.go",
@@ -177,14 +177,14 @@
       "upstreamPath": "managed-server/overlay/lingtu/trial.go",
       "sha256": "ac403e1a8466700b66656a23cf1a3643e2c5202347aeb3c055633d63ab3d0786",
       "upstreamSha256": "0b6035bacc7645f2d44b4b011b6fed9c39d69506017a9d1c44dfee45d9a88f24",
-      "localPatch": "2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs"
+      "localPatch": "2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
     {
       "path": "overlay/lingtu/trial_test.go",
       "upstreamPath": "managed-server/overlay/lingtu/trial_test.go",
       "sha256": "965ee778eae646d4ba74429b6f8fe5bde8a77d3872c963e40770c62939b76e63",
       "upstreamSha256": "601d8f4b40ee0c81b7838e86acee5a539fd62e17065e39db84dd84bbb6f24736",
-      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs"
+      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
     {
       "path": "overlay/lingtuhost/admin.go",
@@ -228,7 +228,7 @@
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_test.go",
       "sha256": "db0127fdb7e16122b6d702cd8c6515aac73d84d98f12b700a38a10bd01026f42",
       "upstreamSha256": "449bcdc0686398980572603b969a6365ece81412578ab79e6131dd9fbf375bf4",
-      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs"
+      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
     {
       "path": "overlay/lingtuhost/admin_usage.go",
@@ -264,23 +264,23 @@
     {
       "path": "overlay/lingtuhost/chat.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat.go",
-      "sha256": "be50db5846eb5783d98aaa57ecde3449ef791c9cfa65b8128923da51ee3472d6",
+      "sha256": "5ba3a18df6d3f603d4f89ea6feabe6764ba03182eda7d5c7ae6b21e444479d53",
       "upstreamSha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650",
-      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs"
+      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
     {
       "path": "overlay/lingtuhost/chat_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat_test.go",
       "sha256": "077f7d18a33705ac61f1b8b226a0259f227aa840a2cbe754ac634cea5cd7f75c",
       "upstreamSha256": "68d971b36114e9bb06682511db70b011cac71b784037b1dd161446e2195d768f",
-      "localPatch": " Add configured CNY estimates and frozen admission rates without changing balances.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs"
+      "localPatch": " Add configured CNY estimates and frozen admission rates without changing balances.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
     {
       "path": "overlay/lingtuhost/chat_usage_rejection_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat_usage_rejection_test.go",
       "sha256": "731b8939ad8482f2b63ec918319473eb90b7d7b88b2355292c960d8da5c47c82",
       "upstreamSha256": "a98b09ee57c783c2aab1700cab689f4248354bc67815285c21e18230b038e7a8",
-      "localPatch": "2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs"
+      "localPatch": "2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
     {
       "path": "overlay/lingtuhost/device_approval_test.go",
@@ -477,7 +477,7 @@
       "upstreamPath": "managed-server/patches.json",
       "sha256": "9c6e2f98527b21cbb2a3fcf0bfa4ab94e0b6940d1df00c882730604814c4f7c8",
       "upstreamSha256": "edbf75acd4311588cf91b84e0377f76cd879d8c5c7a84a35ef88117d3b8120e8",
-      "localPatch": "Explicit local HTTP uses same-origin loopback guard; remote HTTPS CORS unchanged.; Rename native page title and default display system name to 灵兔 AI, retaining source license and protocol.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs"
+      "localPatch": "Explicit local HTTP uses same-origin loopback guard; remote HTTPS CORS unchanged.; Rename native page title and default display system name to 灵兔 AI, retaining source license and protocol.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
     {
       "path": "portal-site/.openai/hosting.json",
