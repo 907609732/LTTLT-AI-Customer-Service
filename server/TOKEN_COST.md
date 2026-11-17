@@ -25,6 +25,6 @@
 
 保留 main 的 cost_rates、estimated_cny、cost_basis 兼容接口，均从同一微元金额派生。历史 CostSnapshot=true 的记录只使用自身历史单价兼容读取；原快照字段在没有历史快照时保持未知。历史按当前价格回算只出现在独立的 `historical_*` 字段和明确标注的报表合计中，原快照金额、`cost_status`、数据库行和 `cache_usage_known` 均不改变。
 
-本轮 `2026.11.17-cost.3` 只执行了聚焦 Go 费用/日周月接口测试、聚焦管理网页费用测试与页面回归测试，以及聚焦前端类型检查；未运行完整数据库矩阵、完整服务验证或正式部署，不能表述为全量通过。父任务负责完整矩阵、部署和正式页面验收。历史验证命令为 npm run server:verify:databases，报告见 artifacts/verification.json 和 artifacts/database-matrix/verification.json。CI 工作流运行完整 service 三引擎、托管双引擎及原生管理网页检查/构建，并输出带提交号和 SHA256 的 Windows 本机预览产物。仅使用隔离数据库和模拟模型，未调用付费服务商。
+本轮 `2026.11.17-cost.3` 已完成标准服务验证、原生后台 52 项测试及完整双数据库矩阵（MySQL 210 通过、PostgreSQL 209 通过及 1 项设计跳过、service 三引擎 512 通过）。同提交服务端 GitHub CI 成功，正式 HTTPS 日/月金额页面已实际验收。源码提交、备份、程序摘要及独立桌面工作流未解决项见 DEPLOYMENT-20261117-COST.md；不能把服务端成功扩大为整个桌面仓库所有检查成功。
 
 实际正式页面验收补充：旧版本可能保存 `cost_snapshot=true` 但输入／输出价为空的标记。这类标记不构成有效的价格证据，允许在独立历史回算字段使用当前匹配单价；原始标记、空价格、状态与金额仍不写回。价格齐全的历史快照（包括免费零价）保持优先，不因当前价变化而重估。
