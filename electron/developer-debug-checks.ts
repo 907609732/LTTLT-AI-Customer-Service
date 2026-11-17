@@ -175,7 +175,11 @@ export async function developerDebugChecks(options: CheckOptions) {
       assert.ok(result.text.includes('中文测试'), '中文输出缺失')
       assert.ok(result.text.split('arrow-one').length >= 3, '方向键历史未回放')
       assert.ok(result.text.includes('CTRL_C_OK'), 'Ctrl+C 后命令未继续')
-      assert.ok(result.cwd.toLowerCase().includes('client'), 'CMD 默认目录不是源码项目根')
+      assert.equal(
+        path.resolve(result.cwd).toLowerCase(),
+        path.resolve(__dirname, '..').toLowerCase(),
+        'CMD 默认目录不是源码项目根',
+      )
       assert.equal(
         result.cwd.toLowerCase().includes('dist-electron'),
         false,
