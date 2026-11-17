@@ -14,6 +14,9 @@ export const sourceRefSchema = z.object({ sourceId: id, revision }).strict()
 export type KnowledgeSourceRef = z.infer<typeof sourceRefSchema>
 export const knowledgeFieldSchema = z.enum(['fact', 'price', 'stock', 'activity'])
 export type KnowledgeField = z.infer<typeof knowledgeFieldSchema>
+/** Miss disposition is a processing state only; it never creates or publishes an answer. */
+export const knowledgeMissStatusSchema = z.enum(['open', 'resolved', 'ignored'])
+export type KnowledgeMissStatus = z.infer<typeof knowledgeMissStatusSchema>
 export const knowledgeDraftSchema = z
   .object({
     id: id.optional(),
@@ -190,6 +193,11 @@ export const knowledgePageSchema = z
   })
   .strict()
 export type KnowledgePageInput = z.input<typeof knowledgePageSchema>
+/** Optional status keeps old callers (and runtime history lookup) seeing every miss. */
+export const knowledgeMissPageSchema = knowledgePageSchema.extend({
+  status: knowledgeMissStatusSchema.optional(),
+})
+export type KnowledgeMissPageInput = z.input<typeof knowledgeMissPageSchema>
 export interface KnowledgePage<T> {
   total: number
   items: T[]
@@ -260,7 +268,7 @@ export interface KnowledgeMiss {
   context?: { from: string; content: string }[]
   count: number
   conversationIds: string[]
-  status: 'open' | 'resolved' | 'ignored'
+  status: KnowledgeMissStatus
   firstSeenAt: number
   lastSeenAt: number
 }
@@ -299,7 +307,7 @@ export const knowledgeCommandSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('update-miss'),
       missId: id,
-      status: z.enum(['open', 'resolved', 'ignored']),
+      status: knowledgeMissStatusSchema,
     })
     .strict(),
 ])
@@ -320,7 +328,7 @@ export const knowledgeQuerySchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('resolve'), input: knowledgeResolveSchema }).strict(),
   z.object({ type: z.literal('jobs'), page: knowledgePageSchema }).strict(),
-  z.object({ type: z.literal('misses'), page: knowledgePageSchema }).strict(),
+  z.object({ type: z.literal('misses'), page: knowledgeMissPageSchema }).strict(),
   z.object({ type: z.literal('settings') }).strict(),
 ])
 export type KnowledgeQuery = z.input<typeof knowledgeQuerySchema>

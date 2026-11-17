@@ -35,3 +35,5 @@ Task4 review: `KnowledgeVisualEvidence.vue` renders persisted `modelEvidence` an
 最终审查修正：商品编辑器保留完整家族绑定供影响/关联预览，但可编辑条目与scope选项仅为共享canonical及当前店铺当前商品/SKU；来源按可编辑条目的依赖投影并标记原店铺。历史载入受entry/session约束，部分collect/daily-check任务的“继续”与付费学习不确定重试分开。主进程恢复意图、历史长键兼容及维护步骤见KNOWLEDGE_LIBRARY；不新增IPC或依赖。
 
 2026-11-16：知识库已删除独立任务入口/页面。商品学习进度由 KnowledgeJobProgress 内嵌商品卡，按店铺及根绑定精确关联，资料步数明确区别商品数量；暂停/取消/付费重试和不确定调用确认仍可在卡片处理。采集/通用资料的未完成状态留在原页面，后台持久任务和审核门保持原样。专项原生验收使用 `node scripts/verify-knowledge-manager.mjs --inline-progress-only`，隔离合成数据，不调用付费模型。
+
+2026-11-17：待学问题默认进入“待处理（open）”，页面提供待处理/已解决/已忽略三个查询入口；状态、搜索、店铺和页码都在仓储查询层组合，仍按20项分页，不再只读取前100项。顶栏“待学问题”计数只算 open。标记解决/忽略只更新处理状态并给出成功或失败反馈，成功后从当前状态列表消失；已解决/已忽略历史可查看中文状态并重新打开。“补充答案”仍走原有草稿自动保存与人工审核发布，标记解决不会生成或发布答案。换店或换账号会清理状态筛选和旧反馈，异步响应按账号/店铺租约丢弃。`misses` 查询的 `status` 为可选字段，旧调用不指定状态时仍返回全部，运行时按问题 ID 查历史不受分页影响。相关测试见 `tests/knowledge-miss-feedback.test.ts`、`tests/knowledge-runtime.test.ts`。

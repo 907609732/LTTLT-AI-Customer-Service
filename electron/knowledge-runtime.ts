@@ -786,8 +786,9 @@ export function createKnowledgeRuntime(options: {
           store(job.storeId)
         }
         if (command.type === 'update-miss') {
-          const miss = repo.listMisses({ limit: 100 }).items.find((m) => m.id === command.missId)
-          if (miss) store(miss.storeId)
+          const miss = repo.getMiss(command.missId)
+          if (!miss) throw Error('问题不存在')
+          store(miss.storeId)
         }
         const result = repo.execute(request.command)
         options.changed()

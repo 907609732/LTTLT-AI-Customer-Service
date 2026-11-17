@@ -45,7 +45,11 @@ const model = createServer(async (req, res) => {
 })
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 async function evaluate<T>(script: string): Promise<T> {
-  return win!.webContents.executeJavaScript(script, true)
+  try {
+    return await win!.webContents.executeJavaScript(script, true)
+  } catch (cause) {
+    throw new Error(`Native evaluation failed: ${script}`, { cause })
+  }
 }
 async function until(script: string) {
   for (let i = 0; i < 150; i++) {
@@ -215,6 +219,68 @@ app
     await manager.open({ workspaceId: w, storeId: a })
     await until(`document.querySelectorAll('.knowledge-card').length===8`)
     checks.push('real route/preload/trusted IPC/SQLite cards loaded')
+
+    if (process.argv.includes('--misses-only')) {
+      const miss = repo.recordMiss({ storeId: a, question: '隔离验收：售后如何处理？' })
+      const ignored = repo.recordMiss({ storeId: a, question: '隔离验收：已忽略的问题' })
+      repo.updateMiss(ignored.id, 'ignored')
+      repo.recordMiss({ storeId: b, question: '乙店问题不得出现在甲店' })
+      await evaluate(
+        `(()=>{const n=[...document.querySelectorAll('button')].find(n=>n.textContent.includes('待学问题'));n.click()})()`,
+      )
+      await until(`document.body.innerText.includes('隔离验收：售后如何处理？')`)
+      assert(
+        !(await evaluate<string>('document.body.innerText')).includes('乙店问题不得出现在甲店'),
+      )
+      await click('标记解决')
+      await until(
+        `!document.querySelector('.knowledge-card') && document.body.innerText.includes('已解决')`,
+      )
+      assert.equal(
+        repo.listMisses({ storeId: a }).items.find((item) => item.id === miss.id)?.status,
+        'resolved',
+      )
+      await screenshot('miss-resolved-feedback.png')
+      await click('已解决')
+      await until(
+        `document.querySelector('.knowledge-card')?.textContent.includes('隔离验收：售后如何处理？')`,
+      )
+      assert((await evaluate<string>('document.body.innerText')).includes('已解决'))
+      await screenshot('miss-resolved-history.png')
+      await click('重新打开')
+      await until(`!document.querySelector('.knowledge-card')`)
+      assert.equal(
+        repo.listMisses({ storeId: a }).items.find((item) => item.id === miss.id)?.status,
+        'open',
+      )
+      await click('待处理')
+      await until(
+        `document.querySelector('.knowledge-card')?.textContent.includes('隔离验收：售后如何处理？')`,
+      )
+      await click('忽略')
+      await until(`!document.querySelector('.knowledge-card')`)
+      await click('已忽略')
+      await until(`document.querySelectorAll('.knowledge-card').length === 2`)
+      await screenshot('miss-ignored-history.png')
+      checks.push(
+        'native miss resolution persists through real IPC, gives feedback, removes open record, exposes resolved/ignored history, and reopens without leaking another shop',
+      )
+      fs.writeFileSync(
+        path.join(output, 'misses-report.json'),
+        JSON.stringify(
+          {
+            checkedAt: new Date().toISOString(),
+            checks,
+            modelRequests: calls.length,
+            visibleWindows: false,
+          },
+          null,
+          2,
+        ),
+      )
+      manager.dispose()
+      return
+    }
 
     if (process.argv.includes('--inline-progress-only')) {
       const binding = repo

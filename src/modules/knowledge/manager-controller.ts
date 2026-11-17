@@ -12,6 +12,7 @@ import type {
   KnowledgeEntry,
   KnowledgeJob,
   KnowledgeMiss,
+  KnowledgeMissStatus,
   KnowledgeProductCard,
   KnowledgeScope,
   KnowledgeSettings,
@@ -73,6 +74,8 @@ export function useKnowledgeManager() {
     summary = ref<KnowledgeSummary>(),
     jobs = ref<KnowledgeJob[]>([]),
     misses = ref<KnowledgeMiss[]>([]),
+    missStatus = ref<KnowledgeMissStatus>('open'),
+    missUpdating = ref(''),
     settings = ref<KnowledgeSettings>()
   const capabilities = ref<KnowledgePipelineCapabilities>(),
     selection = ref<string[]>([]),
@@ -159,6 +162,10 @@ export function useKnowledgeManager() {
     clearRestorePreview()
     clearTimeout(progressTimer)
     jobs.value = []
+    misses.value = []
+    missStatus.value = 'open'
+    missUpdating.value = ''
+    total.value = 0
     ocrPreview.value = undefined
     clearPreview.value = undefined
     clearConfirmation.value = ''
@@ -325,10 +332,20 @@ export function useKnowledgeManager() {
         notice.value = '通用资料学习已结束，请到“待审核”核对草稿。'
       jobs.value = nextJobs.items
       if (view.value === 'misses') {
-        const result = await service.query({ type: 'misses', page: { storeId: s, limit: 100 } })
+        const result = await service.query({
+          type: 'misses',
+          page: {
+            storeId: s,
+            search: search.value,
+            offset: page.value * 20,
+            limit: 20,
+            status: missStatus.value,
+          },
+        })
         assertLease(w, s)
         if (id !== ticket) return
         misses.value = result.items
+        total.value = result.total
       } else if (view.value === 'settings') {
         const result = await service.query({ type: 'settings' })
         assertLease(w, s)
@@ -529,6 +546,12 @@ export function useKnowledgeManager() {
       allScope.value = false
       page.value = 0
       trial.value = undefined
+      notice.value = ''
+      error.value = ''
+      missStatus.value = 'open'
+      missUpdating.value = ''
+      misses.value = []
+      total.value = 0
       await refresh()
     })
   }
@@ -545,10 +568,61 @@ export function useKnowledgeManager() {
   }
   async function setView(next: typeof view.value) {
     await closeEditor()
+    if (next === 'misses') {
+      missStatus.value = 'open'
+      missUpdating.value = ''
+      notice.value = ''
+      error.value = ''
+    }
     view.value = next
     selection.value = []
     page.value = 0
     await refresh()
+  }
+  async function changeMissStatus(next: KnowledgeMissStatus) {
+    if (next === missStatus.value) return
+    missStatus.value = next
+    missUpdating.value = ''
+    notice.value = ''
+    error.value = ''
+    // Status is part of the server query; never paginate an already-fetched open-page slice.
+    page.value = 0
+    await refresh()
+  }
+  async function updateMissDisposition(miss: KnowledgeMiss, status: KnowledgeMissStatus) {
+    if (missUpdating.value) return
+    const w = workspace.value,
+      s = storeId.value,
+      revision = leaseRevision,
+      sameLease = () =>
+        !disposed &&
+        workspace.value === w &&
+        storeId.value === s &&
+        leaseRevision === revision &&
+        runtime.snapshot.workspaceId === w
+    missUpdating.value = miss.id
+    notice.value = ''
+    error.value = ''
+    try {
+      await client().command({ type: 'update-miss', missId: miss.id, status })
+      if (!sameLease()) return
+      misses.value = misses.value.filter((row) => row.id !== miss.id)
+      total.value = Math.max(0, total.value - 1)
+      page.value = Math.min(page.value, Math.max(0, Math.ceil(total.value / 20) - 1))
+      await refresh()
+      if (!sameLease()) return
+      notice.value =
+        status === 'resolved'
+          ? '已标记为已解决，仅记录处理状态，不会生成或发布答案；补充答案请另存草稿并审核。'
+          : status === 'ignored'
+            ? '已忽略该待学问题，仅记录处理状态，不会生成或发布答案。'
+            : '已重新打开，问题回到待处理列表。'
+    } catch (cause) {
+      // A store/account switch during the write must not paint its old failure onto the new shop.
+      if (sameLease()) throw cause
+    } finally {
+      if (sameLease()) missUpdating.value = ''
+    }
   }
   async function showView(next: typeof view.value) {
     await run(() => setView(next))
@@ -1395,6 +1469,8 @@ export function useKnowledgeManager() {
         entries.value = []
         jobs.value = []
         misses.value = []
+        missStatus.value = 'open'
+        missUpdating.value = ''
         settings.value = undefined
         summary.value = undefined
         capabilities.value = undefined
@@ -1448,7 +1524,13 @@ export function useKnowledgeManager() {
       if (workspace.value === runtime.snapshot.workspaceId && storeId.value) void refresh()
     },
   )
-  watch([search, page], () => {
+  watch(search, () => {
+    selection.value = []
+    allScope.value = false
+    if (page.value !== 0) page.value = 0
+    else void refresh()
+  })
+  watch(page, () => {
     selection.value = []
     allScope.value = false
     void refresh()
@@ -1481,6 +1563,10 @@ export function useKnowledgeManager() {
     backgroundJobs,
     jobAction,
     misses,
+    missStatus,
+    missUpdating,
+    changeMissStatus,
+    updateMissDisposition,
     settings,
     capabilities,
     selection,
