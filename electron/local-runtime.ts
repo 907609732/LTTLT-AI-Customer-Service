@@ -229,6 +229,10 @@ export function createLocalRuntime(options: {
     changed: () => {
       if (!closed) for (const listener of listeners) listener({ type: 'knowledge:changed' })
     },
+    // Only a signed-in managed session returns a projection; local mode, logout
+    // and config failures resolve null so the reviewed legacy path stays intact.
+    managedContextPolicy: () =>
+      managed.active.mode === 'managed' ? managed.contextPolicy() : Promise.resolve(null),
     resolveSku: (storeId, productId, question) => {
       const detail = platformProducts.get(storeId, productId)
       if (!detail) return ''

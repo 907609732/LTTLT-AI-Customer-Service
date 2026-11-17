@@ -59,3 +59,5 @@
 - `ManagedController.contextPolicy()` 只在主进程读取；vendor `managed-session.cjs` 的 `config()` 仅执行固定鉴权 `GET /api/client/config`，不接受调用方 URL。缓存最多 60 秒并绑定当前 `apiOrigin` + 已登录 `userId`，账号变化、来源保存、注销、过期/需重启状态立即清除；等待响应前后复核账号，晚到结果直接丢弃。
 - 聊天正文只允许类型化 `purpose=reply|learning`、非负整数 `policy_version` 和 `learning_source=pdd_detail_text|pdd_detail_image`。vendor 按白名单重建正文，客户端 `max_tokens` 或其他任意字段不会发出；旧正文保持原语义并省略新字段。`backend.cjs` 仅从显式标记的 `KnowledgeModelPort.complete` 输入转发用途/版本/来源，现有回复和试问调用保持省略。
 - 旧服务端缺少策略字段或配置读取失败时，新学习显示未开通，既有聊天继续由服务端约束；不会停用或伪造本机 Key 路径。`serviceRequest` 仍只允许既有团队/计费端点。当前没有获批的直接详情页学习调用方，因此只交付可选透传能力，不宣称页面学习已经启用。
+- 接待知识预算只在当前托管账号安全投影的 `runtime_context.enabled=true` 时生效：先由本机已审核 resolver 以 50 条 / 60,000 字符候选窗口确定冲突胜出、范围和有效期，再按 `retrieval_order` 用 `retrieval_budget` 选取完整 citation；binding 固定最前、template 固定最后，store/canonical 仅交换预算填充顺序。超预算条目整条省略并累计 omitted，不裁剪问题/答案/来源引用。
+- 预算按现有 cl100k_base tokenizer 对完整序列化 citation（含元数据）在独立 worker 中批量计量，不按字符估算，也不在主线程逐条长文本分词。最终引用继续走 resolutionId→trace 与 `validateCitations` 发送前复核；撤回、过期、跨店或范围变化会阻止发送。本机 Key、策略停用、旧服务端缺字段或配置读取失败回退既有 10 条 / 24,000 字符路径，不中断已允许的旧回复流程；16K/8K 压缩与人工确认门不变。

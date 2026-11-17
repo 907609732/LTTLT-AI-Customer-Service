@@ -53,3 +53,64 @@ export function estimateKnowledgeTokens(
     })
   })
 }
+/**
+ * Batched per-citation token measurement. Managed reception resolves up to 50 whole
+ * citations; spawning one worker per item would repeat codec startup and block the
+ * reply path. Each payload is the complete serialized citation, so metadata, scope,
+ * revisions and source references are all charged to the budget.
+ */
+export function estimateKnowledgeCitationTokens(
+  payloads: readonly string[],
+  signal?: AbortSignal,
+): Promise<number[]> {
+  if (!payloads.length) return Promise.resolve([])
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(Error('知识任务已取消'))
+      return
+    }
+    const worker = new Worker(
+      `const {parentPort,workerData}=require('node:worker_threads');
+      const {Tiktoken}=require(workerData.codec); const rank=require(workerData.rank);
+      const encoder=new Tiktoken(rank);
+      parentPort.postMessage(workerData.payloads.map(text=>encoder.encode(text,[],[]).length));`,
+      {
+        eval: true,
+        workerData: {
+          payloads: [...payloads],
+          codec: knowledgeRequire.resolve('js-tiktoken/lite'),
+          rank: knowledgeRequire.resolve('js-tiktoken/ranks/cl100k_base'),
+        },
+      },
+    )
+    let done = false
+    const finish = (error?: Error, value?: number[]) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+      void worker.terminate()
+      if (error) reject(error)
+      else resolve(value!)
+    }
+    const abort = () => finish(Error('知识任务已取消'))
+    const timer = setTimeout(
+      () => finish(Error('资料预算计算超时，请缩小资料范围；未调用模型')),
+      60000,
+    )
+    signal?.addEventListener('abort', abort, { once: true })
+    worker.once('message', (value: unknown) => {
+      if (
+        Array.isArray(value) &&
+        value.length === payloads.length &&
+        value.every((count) => typeof count === 'number' && Number.isFinite(count))
+      )
+        finish(undefined, value as number[])
+      else finish(Error('预算计量失败'))
+    })
+    worker.once('error', (error) => finish(error))
+    worker.once('exit', (code) => {
+      if (!done) finish(Error(`预算计量进程退出：${code}`))
+    })
+  })
+}
