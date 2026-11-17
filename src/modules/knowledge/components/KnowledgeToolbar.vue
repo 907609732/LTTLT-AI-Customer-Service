@@ -3,6 +3,7 @@ import { onBeforeUnmount, ref, watch } from 'vue'
 import { ElDropdown, ElDropdownMenu, ElDropdownItem, type DropdownInstance } from 'element-plus'
 const props = defineProps<{
   busy: boolean
+  storeName?: string
   storeId: string
   tab: string
   contextKey: string
@@ -12,7 +13,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   catalog: []
   archive: []
-  learn: []
   sources: []
   write: []
   exportJson: []
@@ -34,17 +34,18 @@ function visible(index: number, open: boolean) {
     })
 }
 function importCommand(command: string) {
-  if (props.busy) return
+  if (props.busy || !props.storeId) return
   if (command === 'catalog' && props.capabilities?.catalog) emit('catalog')
   else if (command === 'archive' && props.capabilities?.import) emit('archive')
-  else if (command === 'learn' && props.capabilities?.learn) emit('learn')
   else if (command === 'sources' && props.capabilities?.import) emit('sources')
 }
 function exportCommand(command: string) {
+  if (props.busy || !props.storeId) return
   if (command === 'json') emit('exportJson')
   else if (command === 'csv') emit('exportCsv')
 }
 function backupCommand(command: string) {
+  if (props.busy || !props.storeId) return
   if (command === 'backup') emit('backup')
   else if (command === 'restore') emit('restore')
 }
@@ -61,23 +62,20 @@ onBeforeUnmount(closeMenus)
       @visible-change="visible(0, $event)"
       @command="importCommand"
     >
-      <button type="button" class="primary">
-        {{ tab === 'products' ? '导入商品' : '导入资料' }} <span aria-hidden="true">⌄</span>
+      <button type="button" class="primary" :disabled="busy || !storeId">
+        导入 <span aria-hidden="true">⌄</span>
       </button>
       <template #dropdown
         ><ElDropdownMenu @keydown.esc="closeMenus">
-          <ElDropdownItem command="catalog" :disabled="busy || !capabilities?.catalog"
+          <ElDropdownItem command="catalog" :disabled="busy || !storeId || !capabilities?.catalog"
             >导入平台商品</ElDropdownItem
           >
-          <ElDropdownItem command="archive" :disabled="busy || !capabilities?.import"
+          <ElDropdownItem command="archive" :disabled="busy || !storeId || !capabilities?.import"
             >导入本机归档聊天</ElDropdownItem
           >
-          <ElDropdownItem command="learn" :disabled="busy || !capabilities?.learn"
-            >学习本店通用资料</ElDropdownItem
+          <ElDropdownItem command="sources" :disabled="busy || !storeId || !capabilities?.import"
+            >导入资料文件</ElDropdownItem
           >
-          <ElDropdownItem command="sources" :disabled="busy || !capabilities?.import">{{
-            tab === 'products' ? '导入商品CSV / 通用资料' : '导入本店通用资料'
-          }}</ElDropdownItem>
         </ElDropdownMenu></template
       >
     </ElDropdown>
@@ -97,11 +95,19 @@ onBeforeUnmount(closeMenus)
       @visible-change="visible(1, $event)"
       @command="exportCommand"
     >
-      <button type="button">导出 <span aria-hidden="true">⌄</span></button>
+      <button type="button" :disabled="busy || !storeId">
+        导出 <span aria-hidden="true">⌄</span>
+      </button>
       <template #dropdown
         ><ElDropdownMenu @keydown.esc="closeMenus">
-          <ElDropdownItem command="json">导出JSON</ElDropdownItem>
-          <ElDropdownItem command="csv">导出CSV</ElDropdownItem>
+          <ElDropdownItem
+            disabled
+            class="knowledge-menu-scope"
+            :title="`当前店铺：${storeName || storeId || '未选择'}`"
+            >当前店铺：{{ storeName || storeId || '未选择' }}</ElDropdownItem
+          >
+          <ElDropdownItem command="json" :disabled="busy || !storeId">导出JSON</ElDropdownItem>
+          <ElDropdownItem command="csv" :disabled="busy || !storeId">导出CSV</ElDropdownItem>
         </ElDropdownMenu></template
       >
     </ElDropdown>
@@ -113,11 +119,19 @@ onBeforeUnmount(closeMenus)
       @visible-change="visible(2, $event)"
       @command="backupCommand"
     >
-      <button type="button">备份 <span aria-hidden="true">⌄</span></button>
+      <button type="button" :disabled="busy || !storeId">
+        备份 <span aria-hidden="true">⌄</span>
+      </button>
       <template #dropdown
         ><ElDropdownMenu @keydown.esc="closeMenus">
-          <ElDropdownItem command="backup">全库备份</ElDropdownItem>
-          <ElDropdownItem command="restore">恢复全库备份</ElDropdownItem>
+          <ElDropdownItem
+            disabled
+            class="knowledge-menu-scope"
+            :title="`当前店铺：${storeName || storeId || '未选择'}`"
+            >当前店铺：{{ storeName || storeId || '未选择' }}</ElDropdownItem
+          >
+          <ElDropdownItem command="backup" :disabled="busy || !storeId">备份本店</ElDropdownItem>
+          <ElDropdownItem command="restore" :disabled="busy || !storeId">恢复本店</ElDropdownItem>
         </ElDropdownMenu></template
       >
     </ElDropdown>

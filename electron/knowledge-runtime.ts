@@ -75,6 +75,7 @@ export function createKnowledgeRuntime(options: {
       revision: number
       fingerprint: string
       expires: number
+      targetStoreId?: string
       impact: ReturnType<typeof knowledgeRestoreImpact>
     }
   >()
@@ -200,6 +201,7 @@ export function createKnowledgeRuntime(options: {
         backupFingerprint(preview.directory) !== preview.fingerprint
       )
         throw Error('恢复预览已过期或资料变化，请重新预览')
+      if (preview.targetStoreId) store(preview.targetStoreId)
       knowledgeBackupScope(preview.directory).activeStores.forEach(store)
       const recovery = repo.createBackup(path.join(repo.directory, 'knowledge-recovery'))
       return {
@@ -462,12 +464,23 @@ export function createKnowledgeRuntime(options: {
         active()
         if (!directory) return null
         const manifest = inspectKnowledgeBackup(directory)
+        const storeScope = manifest.scope?.kind === 'store' ? manifest.scope : undefined
+        const targetStoreId = storeScope?.storeId
+        if (request.storeId) {
+          store(request.storeId)
+          if (!manifest.scope || manifest.scope.kind !== 'store')
+            throw Error('请选择当前店铺的本店备份；不支持全库或共享商品备份')
+          if (manifest.scope.storeId !== request.storeId)
+            throw Error('所选备份属于其他店铺，未修改当前知识库')
+        }
+        if (targetStoreId) store(targetStoreId)
         const scope = knowledgeBackupScope(directory)
         scope.activeStores.forEach(store)
         const impact = knowledgeRestoreImpact(
           directory,
           repo.directory,
-          manifest.scope?.canonicalId,
+          manifest.scope?.kind === 'family' ? manifest.scope.canonicalId : undefined,
+          targetStoreId,
         )
         const token = randomUUID()
         restorePreviews.clear()
@@ -477,12 +490,18 @@ export function createKnowledgeRuntime(options: {
           revision: repo.revision,
           fingerprint: backupFingerprint(directory),
           expires: Date.now() + 600000,
+          ...(targetStoreId ? { targetStoreId } : {}),
         })
+        const scopeLabel =
+          manifest.scope?.kind === 'family'
+            ? `共享商品 ${manifest.scope.canonicalId} 的全部店铺与SKU`
+            : storeScope
+              ? `本店备份：${options.stores().find((s) => s.id === storeScope.storeId)?.storeName || storeScope.storeId}`
+              : '完整知识库（覆盖当前库）'
         return {
           token,
-          scope: manifest.scope
-            ? `共享商品 ${manifest.scope.canonicalId} 的全部店铺与SKU`
-            : '完整知识库（覆盖当前库）',
+          ...(targetStoreId ? { targetStoreId } : {}),
+          scope: scopeLabel,
           stores: impact.stores.map(
             (id) => options.stores().find((s) => s.id === id)?.storeName || id,
           ),
@@ -501,6 +520,9 @@ export function createKnowledgeRuntime(options: {
           originalFiles: scope.originalFiles,
           message:
             `涉及${impact.stores.length}个店铺；恢复${impact.restoredBindings.length}个商品/SKU关联、${impact.restoredEntries}条知识、${impact.restoredSources}份来源；停用${impact.deactivatedBindings.length}个关联（保留历史）；移除${impact.removedBindings.length}个关联、移除${impact.removedEntries}条知识、${impact.removedSources}份来源。` +
+            (targetStoreId
+              ? '仅重建当前店铺知识；共享商品、模板与来源采用隔离身份，其他店铺资料不改写。'
+              : '') +
             '将停止当前账号运行服务与任务，保留恢复点，再重建服务；AI按原启动规则保持关闭，店铺发送模式不变。学习中已提交或已收到响应不会自动重发。原件可能含其他商品行，按完整原件保存。',
         }
       }
@@ -701,11 +723,17 @@ export function createKnowledgeRuntime(options: {
           throw Error('仅支持预览已登记的安全图片（20MB以内）')
         return `data:${mime};base64,${bytes.toString('base64')}`
       }
-      if (request.operation === 'backup')
+      if (request.operation === 'backup') {
+        if (request.storeId) store(request.storeId)
         return repo.createBackup(
           path.join(repo.directory, 'knowledge-backups', randomUUID()),
-          request.canonicalId ? { canonicalId: request.canonicalId } : undefined,
+          request.canonicalId
+            ? { canonicalId: request.canonicalId }
+            : request.storeId
+              ? { storeId: request.storeId }
+              : undefined,
         )
+      }
       store(request.input.storeId)
       if (repo.readOnly) throw Error('知识迁移失败，试问已暂停，请核对迁移诊断')
       const resolution = repo.resolveKnowledge({

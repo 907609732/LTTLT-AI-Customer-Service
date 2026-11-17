@@ -12,6 +12,7 @@ function fixture() {
     props: {
       busy: false,
       storeId: 'a',
+      storeName: '店铺甲',
       tab: 'products',
       contextKey: 'w:a:products:library',
       readOnly: false,
@@ -36,7 +37,7 @@ async function open(wrapper: ReturnType<typeof fixture>, label: string) {
   await vi.waitFor(() => {
     expect(visibleMenus()).toHaveLength(1)
     expect(visibleMenus()[0]!.textContent).toContain(
-      label === '导出' ? '导出JSON' : label === '备份' ? '全库备份' : '导入平台商品',
+      label === '导出' ? '导出JSON' : label === '备份' ? '备份本店' : '导入平台商品',
     )
   })
   return visibleMenus()[0]!
@@ -44,7 +45,7 @@ async function open(wrapper: ReturnType<typeof fixture>, label: string) {
 it('shows exactly four entries and opens import only on click with all four original actions', async () => {
   const wrapper = fixture()
   expect(wrapper.findAll('button').map((b) => b.text().replace('⌄', '').trim())).toEqual([
-    '导入商品',
+    '导入',
     '＋ 自己写一件',
     '导出',
     '备份',
@@ -53,10 +54,10 @@ it('shows exactly four entries and opens import only on click with all four orig
   await wrapper.findAll('button')[0]!.trigger('mouseenter')
   await flushPromises()
   expect(visibleMenus()).toHaveLength(0)
-  const menu = await open(wrapper, '导入商品')
+  const menu = await open(wrapper, '导入')
   expect(
     Array.from(menu.querySelectorAll('[role="menuitem"]'), (n) => n.textContent?.trim()),
-  ).toEqual(['导入平台商品', '导入本机归档聊天', '学习本店通用资料', '导入商品CSV / 通用资料'])
+  ).toEqual(['导入平台商品', '导入本机归档聊天', '导入资料文件'])
   const items = menu.querySelectorAll<HTMLElement>('[role="menuitem"]')
   items[0]!.click()
   await flushPromises()
@@ -72,7 +73,10 @@ it('routes grouped export and backup commands, and keeps manual write independen
     ['备份', 1, 'restore'],
   ] as const) {
     const menu = await open(wrapper, label)
-    menu.querySelectorAll<HTMLElement>('[role="menuitem"]')[index]!.click()
+    const items = menu.querySelectorAll<HTMLElement>(
+      '[role="menuitem"]:not([aria-disabled="true"])',
+    )
+    items[index]!.click()
     await flushPromises()
     await vi.waitFor(() => expect(wrapper.emitted(event)).toHaveLength(1))
     await vi.waitFor(() => expect(visibleMenus()).toHaveLength(0))
@@ -86,7 +90,7 @@ it('disables only original unavailable import operations and manual write restri
     capabilities: { catalog: false, import: false, learn: false },
     readOnly: true,
   })
-  const menu = await open(wrapper, '导入商品')
+  const menu = await open(wrapper, '导入')
   for (const item of menu.querySelectorAll<HTMLElement>('[role="menuitem"]')) {
     expect(item.getAttribute('aria-disabled')).toBe('true')
     item.click()
@@ -99,14 +103,16 @@ it('disables only original unavailable import operations and manual write restri
   expect(wrapper.get('[data-testid="write-one"]').attributes('disabled')).toBeDefined()
   await wrapper.setProps({ busy: true, readOnly: false })
   expect(wrapper.get('[data-testid="write-one"]').attributes('disabled')).toBeDefined()
-  // Export/backup historically remain available while busy: preserve their original gating.
   expect(
-    (await open(wrapper, '导出')).querySelector('[role="menuitem"]')?.getAttribute('aria-disabled'),
-  ).not.toBe('true')
+    wrapper
+      .findAll('button')
+      .find((b) => b.text().startsWith('导出'))!
+      .attributes('disabled'),
+  ).toBeDefined()
 })
 it('menus are exclusive and close for context change, Escape and outside click', async () => {
   const wrapper = fixture()
-  await open(wrapper, '导入商品')
+  await open(wrapper, '导入')
   const exportMenu = await open(wrapper, '导出')
   expect(exportMenu.textContent).toContain('导出JSON')
   expect(visibleMenus()).toHaveLength(1)
@@ -119,7 +125,7 @@ it('menus are exclusive and close for context change, Escape and outside click',
   )
   await flushPromises()
   await vi.waitFor(() => expect(visibleMenus()).toHaveLength(0))
-  await open(wrapper, '导入商品')
+  await open(wrapper, '导入')
   // Tooltip installs the outside-click listener after its entrance transition.
   await new Promise((resolve) => setTimeout(resolve, 60))
   document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
@@ -127,7 +133,7 @@ it('menus are exclusive and close for context change, Escape and outside click',
   await flushPromises()
   await vi.waitFor(() => expect(visibleMenus()).toHaveLength(0))
   await wrapper.setProps({ tab: 'general', contextKey: 'other' })
-  expect(wrapper.findAll('button')[0]!.text()).toContain('导入资料')
+  expect(wrapper.findAll('button')[0]!.text()).toContain('导入')
 })
 
 it('all import items route to their distinct original operations and general tab keeps contextual label', async () => {
@@ -135,16 +141,18 @@ it('all import items route to their distinct original operations and general tab
   for (const [index, event] of [
     [0, 'catalog'],
     [1, 'archive'],
-    [2, 'learn'],
-    [3, 'sources'],
+    [2, 'sources'],
   ] as const) {
-    const menu = await open(wrapper, '导入商品')
-    menu.querySelectorAll<HTMLElement>('[role="menuitem"]')[index]!.click()
+    const menu = await open(wrapper, '导入')
+    const items = menu.querySelectorAll<HTMLElement>(
+      '[role="menuitem"]:not([aria-disabled="true"])',
+    )
+    items[index]!.click()
     await vi.waitFor(() => expect(wrapper.emitted(event)).toHaveLength(1))
     await vi.waitFor(() => expect(visibleMenus()).toHaveLength(0))
   }
   await wrapper.setProps({ tab: 'general', contextKey: 'w:a:general:library' })
-  expect((await open(wrapper, '导入资料')).textContent).toContain('导入本店通用资料')
+  expect((await open(wrapper, '导入')).textContent).toContain('导入资料文件')
 })
 it('keyboard ArrowDown opens the dropdown and Escape dismisses its focused menu', async () => {
   const wrapper = fixture(),
@@ -155,4 +163,16 @@ it('keyboard ArrowDown opens the dropdown and Escape dismisses its focused menu'
     new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }),
   )
   await vi.waitFor(() => expect(visibleMenus()).toHaveLength(0))
+})
+
+it('shows the current shop scope in both read-only menu headings', async () => {
+  const wrapper = fixture()
+  for (const label of ['导出', '备份']) {
+    const menu = await open(wrapper, label)
+    const heading = menu.querySelector('[title="当前店铺：店铺甲"]')!
+    expect(heading.textContent).toContain('当前店铺：店铺甲')
+    expect(heading.closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true')
+  }
+  await wrapper.setProps({ storeId: '' })
+  expect(wrapper.findAll('button').every((b) => b.attributes('disabled') !== undefined)).toBe(true)
 })

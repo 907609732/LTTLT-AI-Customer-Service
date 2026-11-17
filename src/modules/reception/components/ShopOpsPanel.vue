@@ -44,7 +44,6 @@ const ruleTrigger = computed(() =>
       ? ('transfer-request' as const)
       : ('unpaid-order' as const),
 )
-const rulesExpanded = ref(false)
 const operationError = computed(() =>
   [
     ...new Set(
@@ -78,6 +77,8 @@ const welcome = ref({ text: '', enabled: false, version: 0 }),
 const inherited = ref(true),
   keywords = ref(''),
   globalKeywords = ref(''),
+  manualKeywords = ref(''),
+  manualExpected = ref<string[]>([]),
   fallbackEnabled = ref(false),
   fallbackSeconds = ref(15),
   fallbackText = ref('')
@@ -90,9 +91,12 @@ watch(
   { deep: true },
 )
 let baseline: ReceptionSettingsDraft = {}
+let loadRevision = 0
 function load(restoreDraft = false) {
+  loadRevision += 1
   const id = selectedStoreId.value,
     snap = runtime.snapshot
+  const latestManualKeywords = [...snap.config.safety.manualReplyKeywords]
   welcome.value = {
     ...(cached.get(id) || snap.welcomeByStore[id] || { text: '', enabled: false, version: 0 }),
   }
@@ -100,6 +104,8 @@ function load(restoreDraft = false) {
   inherited.value = !snap.handoffByStore[id]
   keywords.value = snap.handoffByStore[id]?.keywords.join('\n') || ''
   globalKeywords.value = snap.config.safety.handoffKeywords.join('\n')
+  manualKeywords.value = latestManualKeywords.join('\n')
+  manualExpected.value = latestManualKeywords
   fallbackEnabled.value = snap.config.reply.fallbackAfterMs > 0
   fallbackSeconds.value = Math.max(1, snap.config.reply.fallbackAfterMs / 1000 || 15)
   fallbackText.value = snap.config.reply.fallbackText
@@ -109,6 +115,7 @@ function load(restoreDraft = false) {
     inherited: inherited.value,
     keywords: keywords.value,
     globalKeywords: globalKeywords.value,
+    manualKeywords: manualKeywords.value,
   }
   const previous = restoreDraft
     ? drafts?.getSettings(snap.workspaceId, id, props.viewKey)
@@ -118,6 +125,10 @@ function load(restoreDraft = false) {
     if (previous.inherited !== undefined) inherited.value = previous.inherited
     if (previous.keywords !== undefined) keywords.value = previous.keywords
     if (previous.globalKeywords !== undefined) globalKeywords.value = previous.globalKeywords
+    if (previous.manualKeywords !== undefined) {
+      manualKeywords.value = previous.manualKeywords
+      manualExpected.value = [...(previous.manualExpectedKeywords ?? latestManualKeywords)]
+    }
   }
 }
 onBeforeUnmount(() => {
@@ -129,6 +140,12 @@ onBeforeUnmount(() => {
     ...(keywords.value !== baseline.keywords ? { keywords: keywords.value } : {}),
     ...(globalKeywords.value !== baseline.globalKeywords
       ? { globalKeywords: globalKeywords.value }
+      : {}),
+    ...(manualKeywords.value !== baseline.manualKeywords
+      ? {
+          manualKeywords: manualKeywords.value,
+          manualExpectedKeywords: [...manualExpected.value],
+        }
       : {}),
   })
 })
@@ -146,6 +163,21 @@ const visionConflict = computed(
   () =>
     vision.value.version !== (runtime.snapshot.visionByStore[selectedStoreId.value]?.version || 0),
 )
+const manualConflict = computed(() => {
+  const latest = runtime.snapshot.config.safety.manualReplyKeywords
+  return (
+    manualExpected.value.length !== latest.length ||
+    manualExpected.value.some((word, index) => word !== latest[index])
+  )
+})
+function loadLatestManualKeywords() {
+  const latest = [...runtime.snapshot.config.safety.manualReplyKeywords]
+  manualKeywords.value = latest.join('\n')
+  manualExpected.value = latest
+  baseline.manualKeywords = manualKeywords.value
+  task.error.value = ''
+  task.message.value = ''
+}
 const lines = (text: string) => [
   ...new Set(
     text
@@ -199,6 +231,38 @@ async function saveGlobal() {
       values: { handoffKeywords: lines(globalKeywords.value) },
     })
     baseline.globalKeywords = globalKeywords.value
+    task.message.value = result.message
+  })
+}
+async function saveManualKeywords() {
+  const submittedKeywords = lines(manualKeywords.value)
+  const submittedText = submittedKeywords.join('\n')
+  const expectedKeywords = [...manualExpected.value]
+  const lease = {
+    workspaceId: runtime.snapshot.workspaceId,
+    storeId: selectedStoreId.value,
+    view: props.viewKey,
+  }
+  const revision = loadRevision
+  await task.run(async () => {
+    const result = await runtime.run({
+      action: 'save-config',
+      screenId: 'MANUAL_REPLY_KEYWORDS',
+      values: { keywords: submittedKeywords, expectedKeywords },
+    })
+    // 切店/切换账号/重新载入后的迟到结果只丢弃，不回填新页面。
+    if (
+      runtime.snapshot.workspaceId !== lease.workspaceId ||
+      selectedStoreId.value !== lease.storeId ||
+      props.viewKey !== lease.view ||
+      revision !== loadRevision
+    )
+      return
+    // 成功保存的是提交时的 X；等待期间的新输入 Y 相对 X 仍是未保存草稿。
+    manualExpected.value = [...submittedKeywords]
+    baseline.manualKeywords = submittedText
+    if (lines(manualKeywords.value).join('\n') === submittedText)
+      manualKeywords.value = submittedText
     task.message.value = result.message
   })
 }
@@ -316,14 +380,12 @@ async function saveGlobal() {
         >
       </div>
     </form>
-    <component
-      :is="embedded ? 'details' : 'div'"
-      v-if="viewKey === 'transfer'"
-      class="reception-advanced"
-    >
-      <summary v-if="embedded">全局人工关键词 <span>影响所有继承全局配置的店铺</span></summary>
+    <section v-if="viewKey === 'transfer'" class="reception-advanced">
+      <h2 v-if="!embedded">全局人工处理关键词</h2>
+      <h3 v-else class="reception-section-title">
+        全局人工关键词 <span>影响所有继承全局配置的店铺</span>
+      </h3>
       <form class="runtime-form" @submit.prevent="saveGlobal">
-        <h2 v-if="!embedded">全局人工处理关键词</h2>
         <el-input
           v-model="globalKeywords"
           type="textarea"
@@ -333,7 +395,33 @@ async function saveGlobal() {
           >保存全局关键词</el-button
         >
       </form>
-    </component>
+    </section>
+    <section v-if="viewKey === 'transfer'" class="reception-advanced reception-manual">
+      <form class="runtime-form" @submit.prevent="saveManualKeywords">
+        <h3>客服接管关键词 <span>全局 · 作用所有店</span></h3>
+        <p>每行一个；客服发出后暂停当前会话 AI。</p>
+        <div v-if="manualConflict" class="manual-conflict" role="status">
+          <span>关键词已更新，当前草稿仍保留。</span>
+          <el-button
+            native-type="button"
+            :disabled="task.pending.value"
+            @click="loadLatestManualKeywords"
+            >载入最新关键词</el-button
+          >
+        </div>
+        <el-input
+          v-model="manualKeywords"
+          type="textarea"
+          :rows="embedded ? 2 : 4"
+          aria-label="客服接管关键词"
+        />
+        <div class="runtime-actions">
+          <el-button :disabled="!runtime.available || task.pending.value" native-type="submit"
+            >保存客服接管关键词</el-button
+          >
+        </div>
+      </form>
+    </section>
     <p v-if="embedded && operationError" class="reception-visible-error" role="alert">
       {{ operationError }}
     </p>
@@ -344,15 +432,10 @@ async function saveGlobal() {
     >
       平台接待服务尚未接入，当前不能保存平台规则或执行平台操作。
     </p>
-    <component
-      :is="embedded && viewKey !== 'welcome' ? 'details' : 'div'"
-      v-if="viewKey !== 'image' && selectedStoreId"
-      class="reception-advanced"
-      :open="embedded && rulesExpanded"
-    >
-      <summary v-if="embedded && viewKey !== 'welcome'">
+    <section v-if="viewKey !== 'image' && selectedStoreId" class="reception-advanced">
+      <h3 v-if="embedded && viewKey !== 'welcome'" class="reception-section-title">
         平台接待规则与能力 <span>高级设置 · 逐项批准</span>
-      </summary>
+      </h3>
       <ReceptionRulesPanel
         v-if="viewKey !== 'image' && selectedStoreId"
         :workspace-id="runtime.snapshot.workspaceId"
@@ -362,13 +445,12 @@ async function saveGlobal() {
         :media-only="embedded && viewKey === 'welcome'"
         :snapshot="operations.snapshot.value"
         :busy="operations.busy.value"
-        @alert="rulesExpanded = true"
         @command="operations.execute"
         @refresh="
           operations.execute({ type: 'refresh', workspaceId: runtime.snapshot.workspaceId })
         "
       />
-    </component>
+    </section>
     <p v-if="!embedded && operations.error.value" role="alert">{{ operations.error.value }}</p>
     <OperationApprovalPanel
       v-if="viewKey !== 'image' && operations.snapshot.value && (!embedded || activeRuns.length)"
@@ -435,6 +517,26 @@ async function saveGlobal() {
   margin-top: 12px;
   border-top: 1px solid #edf0f5;
 }
+.embedded-reception .reception-manual h3 {
+  margin: 0;
+  color: #4a5d76;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.embedded-reception .reception-manual h3 span {
+  margin-left: 8px;
+  color: #94a0b1;
+  font-size: 12px;
+  font-weight: 400;
+}
+.embedded-reception .reception-manual .manual-conflict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #a26b00;
+  font-size: 12px;
+}
 .embedded-reception summary {
   box-sizing: border-box;
   min-height: 38px;
@@ -451,6 +553,19 @@ async function saveGlobal() {
 .embedded-reception summary:focus-visible {
   outline: 2px solid #3779ed;
   outline-offset: 2px;
+}
+.embedded-reception .reception-section-title {
+  margin: 10px 0 6px;
+  color: #4a5d76;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.embedded-reception .reception-section-title span {
+  margin-left: 8px;
+  color: #94a0b1;
+  font-size: 12px;
+  font-weight: 400;
 }
 .embedded-reception :deep(.reception-rules) {
   margin-top: 0;

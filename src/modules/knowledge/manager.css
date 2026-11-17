@@ -719,3 +719,32 @@
     width: 100%;
   }
 }
+
+.knowledge-toolbar-menu .knowledge-menu-scope {
+  max-width: 260px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #64748b;
+  background: #f1f6fc;
+  cursor: default;
+}
+.knowledge-general-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0;
+}
+.knowledge-general-heading h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.knowledge-advanced-settings {
+  margin-top: 18px;
+}
+.knowledge-advanced-settings summary {
+  cursor: pointer;
+  margin-bottom: 10px;
+}
