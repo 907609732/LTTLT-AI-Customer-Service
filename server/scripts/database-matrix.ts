@@ -155,8 +155,10 @@ function cleanup() {
         '-m',
         'fast',
         '-w',
+        // DDL-heavy fixtures may need more than 20s to flush a Windows checkpoint.
+        // PID and listener checks below still independently require actual exit.
         '-t',
-        '20',
+        '120',
         'stop',
       ]).status !== 0
     )

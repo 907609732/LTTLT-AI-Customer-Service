@@ -26,9 +26,12 @@ type dailyUsageTestItem struct {
 type dailyUsageTestResponse struct {
 	Timezone     string               `json:"timezone"`
 	Scope        string               `json:"scope"`
+	Period       string               `json:"period"`
 	Days         int                  `json:"days"`
+	Months       int                  `json:"months"`
 	Model        string               `json:"model"`
 	Today        UsageSummaryTotals   `json:"today"`
+	ThisMonth    UsageSummaryTotals   `json:"this_month"`
 	Totals       UsageSummaryTotals   `json:"totals"`
 	Items        []dailyUsageTestItem `json:"items"`
 	ModelOptions []string             `json:"model_options"`
@@ -49,11 +52,16 @@ func dailyUsageTestDB(t *testing.T) *gorm.DB {
 
 func dailyUsageTestCall(t *testing.T, path string) (*httptest.ResponseRecorder, dailyUsageTestResponse) {
 	t.Helper()
+	// Exactly Beijing midnight, independent of the host's local timezone.
+	return dailyUsageTestCallAt(t, path, time.Date(2026, 11, 13, 16, 0, 0, 0, time.UTC))
+}
+
+func dailyUsageTestCallAt(t *testing.T, path string, now time.Time) (*httptest.ResponseRecorder, dailyUsageTestResponse) {
+	t.Helper()
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest("GET", path, nil)
-	// Exactly Beijing midnight, independent of the host's local timezone.
-	(&Host{}).adminUsageDailyAt(c, time.Date(2026, 11, 13, 16, 0, 0, 0, time.UTC))
+	(&Host{}).adminUsageDailyAt(c, now)
 	var body dailyUsageTestResponse
 	if recorder.Code == 200 {
 		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
@@ -108,7 +116,7 @@ func TestLingtuAdminUsageDailyBeijingRangeSnapshotsAndKnownCounters(t *testing.T
 	if body.Timezone != "Asia/Shanghai" || body.Scope != "clients_only" || body.Days != 7 || body.Model != "" || !reflect.DeepEqual(body.ModelOptions, []string{"alpha", "beta"}) {
 		t.Fatal(response.Body.String())
 	}
-	if body.Totals != (UsageSummaryTotals{CostTotals: CostTotals{UnpricedRequests: 7, UnknownCostRequests: 7}, Requests: 7, Successes: 5, Failed: 1, Uncertain: 1, InputTokens: 18, OutputTokens: 32, TotalTokens: 50, UnknownUsage: 2}) || body.Today != (UsageSummaryTotals{CostTotals: CostTotals{UnpricedRequests: 5, UnknownCostRequests: 5}, Requests: 5, Successes: 3, Failed: 1, Uncertain: 1, InputTokens: 11, OutputTokens: 22, TotalTokens: 33, UnknownUsage: 2}) {
+	if body.Totals != (UsageSummaryTotals{CostTotals: CostTotals{UnpricedRequests: 7, UnknownCostRequests: 7, HistoricalUnpricedRequests: 7, ReportUnpricedRequests: 7}, Requests: 7, Successes: 5, Failed: 1, Uncertain: 1, InputTokens: 18, OutputTokens: 32, TotalTokens: 50, UnknownUsage: 2}) || body.Today != (UsageSummaryTotals{CostTotals: CostTotals{UnpricedRequests: 5, UnknownCostRequests: 5, HistoricalUnpricedRequests: 5, ReportUnpricedRequests: 5}, Requests: 5, Successes: 3, Failed: 1, Uncertain: 1, InputTokens: 11, OutputTokens: 22, TotalTokens: 33, UnknownUsage: 2}) {
 		t.Fatal(response.Body.String())
 	}
 	dates := map[string]int64{}
@@ -179,6 +187,104 @@ func TestLingtuAdminUsageDailyRejectsInvalidOrDuplicateParameters(t *testing.T) 
 	}
 }
 
+func TestLingtuAdminUsageDailyMonthlyBeijingBoundariesAndIndependentTotals(t *testing.T) {
+	db := dailyUsageTestDB(t)
+	for i, utc := range []string{
+		"2025-11-30T15:59:59Z",
+		"2025-11-30T16:00:00Z",
+		"2026-01-31T15:59:59Z",
+		"2026-01-31T16:00:00Z",
+		"2026-10-31T16:00:00Z",
+		"2026-11-13T16:00:00Z",
+	} {
+		at, err := time.Parse(time.RFC3339, utc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		requestID := fmt.Sprintf("month-%d", i)
+		if err := db.Create(&lingtu.TrialRequest{UserID: 1, RequestID: requestID, Digest: "hash", State: "success", CreatedAt: at.Unix()}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&managedUsage{UserID: 1, RequestID: requestID, Model: "monthly-model", ChannelID: 1, UpstreamModel: "monthly-model", InputTokens: 1, UsageKnown: true}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	response, body := dailyUsageTestCallAt(t, "/usage-daily?period=month", time.Date(2026, 11, 13, 16, 0, 0, 0, time.UTC))
+	if response.Code != 200 || body.Period != "month" || body.Months != 12 || body.Days != 0 || body.Totals.Requests != 5 || body.Today.Requests != 1 || body.ThisMonth.Requests != 2 {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	if len(body.Items) != 12 || body.Items[0].Date != "2025-12" || body.Items[11].Date != "2026-11" {
+		t.Fatal(response.Body.String())
+	}
+	byMonth := map[string]int64{}
+	for _, item := range body.Items {
+		byMonth[item.Date] = item.Requests
+	}
+	if !reflect.DeepEqual(byMonth, map[string]int64{"2025-12": 1, "2026-01": 1, "2026-02": 1, "2026-03": 0, "2026-04": 0, "2026-05": 0, "2026-06": 0, "2026-07": 0, "2026-08": 0, "2026-09": 0, "2026-10": 0, "2026-11": 2}) {
+		t.Fatal(response.Body.String())
+	}
+	if body.Timezone != "Asia/Shanghai" || body.Scope != "clients_only" {
+		t.Fatal(response.Body.String())
+	}
+
+	// The true today/this-month totals do not shrink to the selected 7-day range.
+	response, daily := dailyUsageTestCallAt(t, "/usage-daily?days=7", time.Date(2026, 11, 13, 16, 0, 0, 0, time.UTC))
+	if response.Code != 200 || daily.Period != "day" || daily.Days != 7 || daily.Totals.Requests != 1 || daily.Today.Requests != 1 || daily.ThisMonth.Requests != 2 {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response, monthly := dailyUsageTestCallAt(t, "/usage-daily?period=month&model=monthly-model", time.Date(2026, 11, 13, 16, 0, 0, 0, time.UTC))
+	if response.Code != 200 || monthly.Totals.Requests != 5 || monthly.Model != "monthly-model" {
+		t.Fatal(response.Code, response.Body.String())
+	}
+}
+
+func TestLingtuAdminUsageDailyMonthlyLeapFebruary(t *testing.T) {
+	db := dailyUsageTestDB(t)
+	for i, utc := range []string{
+		"2028-02-28T15:59:59Z",
+		"2028-02-28T16:00:00Z",
+		"2028-02-29T15:59:59Z",
+		"2028-02-29T16:00:00Z",
+	} {
+		at, err := time.Parse(time.RFC3339, utc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		requestID := fmt.Sprintf("leap-%d", i)
+		if err := db.Create(&lingtu.TrialRequest{UserID: 1, RequestID: requestID, Digest: "hash", State: "success", CreatedAt: at.Unix()}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&managedUsage{UserID: 1, RequestID: requestID, Model: "leap-model", UsageKnown: true, InputTokens: 1}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	response, body := dailyUsageTestCallAt(t, "/usage-daily?period=month", time.Date(2028, 2, 29, 16, 0, 0, 0, time.UTC))
+	if response.Code != 200 || len(body.Items) != 12 || body.Items[0].Date != "2027-04" || body.Items[11].Date != "2028-03" {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	byMonth := map[string]int64{}
+	for _, item := range body.Items {
+		byMonth[item.Date] = item.Requests
+	}
+	if byMonth["2028-02"] != 3 || byMonth["2028-03"] != 1 || body.Today.Requests != 1 || body.ThisMonth.Requests != 1 {
+		t.Fatal(response.Body.String())
+	}
+}
+
+func TestLingtuAdminUsageDailyRejectsInvalidMonthlyParameters(t *testing.T) {
+	dailyUsageTestDB(t)
+	for _, query := range []string{"period=", "period=week", "period=month&days=7", "period=day&days=7&days=7", "period=month&period=month", "period=month&unknown=1"} {
+		response, _ := dailyUsageTestCall(t, "/usage-daily?"+query)
+		if response.Code != 400 {
+			t.Fatalf("%s: %d %s", query, response.Code, response.Body.String())
+		}
+	}
+	response, body := dailyUsageTestCall(t, "/usage-daily?period=day")
+	if response.Code != 200 || body.Period != "day" || body.Days != 7 {
+		t.Fatal(response.Code, response.Body.String())
+	}
+}
+
 func TestLingtuAdminUsageDailyRequiresAdmin(t *testing.T) {
 	engine := gin.New()
 	(&Host{}).registerAdmin(engine)
@@ -187,4 +293,16 @@ func TestLingtuAdminUsageDailyRequiresAdmin(t *testing.T) {
 	if response.Code != 401 && response.Code != 403 {
 		t.Fatalf("daily usage must retain native admin authorization: %d %s", response.Code, response.Body.String())
 	}
+}
+
+func TestLingtuAdminUsageMonthlyExcludesFutureDates(t *testing.T) {
+ db := dailyUsageTestDB(t)
+ now := time.Date(2026, 11, 14, 4, 0, 0, 0, time.UTC)
+ for i, at := range []time.Time{now, now.AddDate(0, 0, 2)} {
+  id := fmt.Sprintf("future-boundary-%d", i)
+  if err := db.Create(&lingtu.TrialRequest{UserID: 1, RequestID: id, Digest: "fixture", State: "success", CreatedAt: at.Unix()}).Error; err != nil { t.Fatal(err) }
+  if err := db.Create(&managedUsage{UserID: 1, RequestID: id, Model: "fixture", UsageKnown: true, InputTokens: 1, CostSnapshot: true, CostKnown: true, CostStatus: "estimated", CostMicros: 100}).Error; err != nil { t.Fatal(err) }
+ }
+ response, body := dailyUsageTestCallAt(t, "/usage-daily?period=month", now)
+ if response.Code != 200 || body.Totals.Requests != 1 || body.Totals.ReportCostMicros != 100 || body.ThisMonth.Requests != 1 || body.Today.ReportCostMicros != 100 { t.Fatal(response.Code, response.Body.String()) }
 }

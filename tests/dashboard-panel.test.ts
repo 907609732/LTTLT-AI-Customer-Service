@@ -61,8 +61,12 @@ it('marks observed report scope and keeps buyer details out of the actual export
   runtime.snapshot.managed.active.mode = 'managed'
   runtime.snapshot.managed.restartRequired = true
   await flushPromises()
-  expect(wrapper.text()).not.toContain('777')
-  expect(wrapper.get('[data-action="export"]').attributes('disabled')).toBeDefined()
+  // 共用本机工作区：托管模式或待重启提示不再隐藏报表，导出保持可用。
+  expect(wrapper.text()).toContain('模拟 777 条另计')
+  expect(wrapper.get('[data-action="export"]').attributes('disabled')).toBeUndefined()
+  await wrapper.get('[data-action="export"]').trigger('click')
+  const managedPayload = JSON.parse(vi.mocked(downloadText).mock.calls.at(-1)?.[1] || '{}')
+  expect(managedPayload.observedEvents.simulated['ai-sent']).toBe(777)
   wrapper.unmount()
 })
 afterEach(() => {
@@ -230,14 +234,14 @@ it('aggregate cards select the store with the matching problem instead of an unr
   expect(runtime.selectedStoreId).toBe('b')
   wrapper.unmount()
 })
-it('masked managed workspace never appears as true zero and recovers with the same workspace id', async () => {
-  const { wrapper, runtime, run } = await fixture()
+it('托管模式与待重启提示不隐藏共用工作区的真实数据', async () => {
+  const { wrapper, runtime } = await fixture()
   runtime.snapshot.managed.active.mode = 'managed'
   runtime.snapshot.capabilities.modelMode = 'managed'
   await flushPromises()
-  expect(wrapper.get('[data-metric="pending"]').text()).toContain('—')
-  expect(wrapper.get('[data-action="export"]').attributes('disabled')).toBeDefined()
-  expect(wrapper.text()).toContain('托管工作区尚不可用')
+  expect(wrapper.get('[data-metric="pending"]').text()).toContain('0')
+  expect(wrapper.get('[data-action="export"]').attributes('disabled')).toBeUndefined()
+  expect(wrapper.text()).not.toContain('托管工作区尚不可用')
   runtime.snapshot.managed.session.account = {
     userId: 1,
     displayName: '测试',
@@ -247,11 +251,11 @@ it('masked managed workspace never appears as true zero and recovers with the sa
   await flushPromises()
   expect(wrapper.get('[data-metric="pending"]').text()).toContain('0')
   expect(wrapper.get('[data-metric="quota"]').text()).toContain('—')
-  expect(run.mock.calls.length).toBe(2)
   runtime.snapshot.managed.restartRequired = true
   await flushPromises()
-  expect(wrapper.get('[data-metric="pending"]').text()).toContain('—')
-  expect(wrapper.text()).toContain('请重启客户端')
+  expect(wrapper.get('[data-metric="pending"]').text()).toContain('0')
+  expect(wrapper.get('[data-metric="quota"]').text()).toContain('模型来源切换待重启')
+  expect(wrapper.text()).not.toContain('请重启客户端后读取当前工作区')
   wrapper.unmount()
 })
 it('snapshot replacement after each command does not create an intent refresh loop', async () => {

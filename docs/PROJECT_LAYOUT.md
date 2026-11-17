@@ -6,7 +6,8 @@
 
 ```text
 client/
-├─ .github/                 云端工作流与说明
+├─ .github/                 云端工作流与构建说明
+├─ config/                  TypeScript、ESLint、Prettier 与 electron-builder 配置
 ├─ src/                     Vue 页面、模块、共享契约、样式
 ├─ public/                  前端静态资源
 ├─ electron/                主进程、preload、本地服务与平台适配
@@ -15,12 +16,16 @@ client/
 ├─ scripts/                 构建、边界检查与验收工具
 ├─ tests/                   客户端单元与交互测试
 ├─ docs/                    项目约束、架构、运维、交接和历史记录
+│  └─ legal/                AGPL、商业授权与第三方权利说明
 ├─ AGENTS.md                AI 维护入口
 ├─ README.md                项目入口与启动命令
+├─ LICENSE                  AGPL-3.0-only 标准条款
 ├─ package.json             命令和依赖声明
 ├─ package-lock.json        固定依赖版本
-└─ 其余根配置               TypeScript、Vite、ESLint、格式、打包、忽略规则
+└─ 其余根配置               TypeScript 基础配置、Vite、入口页、Git 忽略规则
 ```
+
+根 `tsconfig.json` 是共享基础配置；`config/` 内三个项目配置通过相对路径继承它，并由 `npm run typecheck` 调用。迁移配置只改变路径，不改变编译文件范围。`npm run lint`、`npm run format` 与 `npm run format:check` 分别显式使用 `config/eslint.config.mjs`、`config/prettier.json` 和 `config/prettier.ignore`；`npm run pack:win`、`npm run dist:win` 与云端构建使用 `config/electron-builder.json`，路径参数仍以仓库根解析。
 
 server 内的 overlay、patches.json、upstream.lock.json、scripts、tests、来源和许可文件属于可维护源码。vendor 是实际运行依赖，不能当作缓存删除。客户端与服务端独立构建，桌面安装包不内嵌 Go 服务或管理员账户。
 

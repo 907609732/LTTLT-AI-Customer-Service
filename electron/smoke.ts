@@ -304,6 +304,7 @@ app
             return dialog && dialog.querySelectorAll('[data-platform]').length === 11
               && card('pdd-web').textContent.includes('已开通') && !card('pdd-web').disabled
               && card('doudian-client').textContent.includes('已开通') && !card('doudian-client').disabled
+              && card('xianyu').textContent.includes('已开通') && !card('xianyu').disabled
               && card('qianniu').textContent.includes('开发中') && card('qianniu').disabled
               && card('doudian-web').textContent.includes('未开通') && card('doudian-web').disabled
               && dialog.querySelector('button[type="submit"]').disabled

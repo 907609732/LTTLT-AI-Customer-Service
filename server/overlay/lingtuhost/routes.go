@@ -76,6 +76,7 @@ func Register(router *gin.Engine) error {
 		return err
 	}
 	authenticated.POST("/chat/completions", h.prepareChat, h.injectInternalToken, middleware.TokenAuth(), h.restrictManagedModelLimit, middleware.Distribute(), h.nativeChat)
+	authenticated.POST("/chat/summaries", h.prepareSummary, h.injectInternalToken, middleware.TokenAuth(), h.restrictManagedModelLimit, middleware.Distribute(), h.nativeChat)
 	authenticated.GET("/me", h.me)
 	authenticated.GET("/config", h.config)
 	authenticated.POST("/auth/logout", h.logout)
@@ -213,7 +214,14 @@ func (h *Host) accountResponse(c *gin.Context, uid int) {
 		return
 	}
 	selected := selection.DefaultModel
-	c.JSON(200, gin.H{"capabilities": visionCapability(selected), "user_id": uid, "display_name": user.DisplayName, "status": account.Status, "trial": gin.H{"limit": grant.Limit, "used": grant.Used, "reserved": grant.Reserved, "remaining": max(0, grant.Limit-grant.Used-grant.Reserved), "expires_at": grant.ExpiresAt}})
+	quota, err := lingtu.NewBillingStore(model.DB).Quota(uid, time.Now())
+	if err != nil {
+		clientFailure(c, 503, "billing_unavailable")
+		return
+	}
+	// Keep the historical account field as an aggregate admission snapshot for old
+	// desktop sessions; the billing catalog exposes the independent source pools.
+	c.JSON(200, gin.H{"capabilities": visionCapability(selected), "user_id": uid, "display_name": user.DisplayName, "status": account.Status, "quota": quota, "trial": gin.H{"limit": quota.Trial.Limit + quota.Paid.Limit, "used": quota.Trial.Used + quota.Paid.Used, "reserved": quota.Trial.Reserved + quota.Paid.Reserved, "remaining": quota.Remaining, "expires_at": max(quota.Trial.ExpiresAt, quota.Paid.ExpiresAt)}})
 }
 func (h *Host) config(c *gin.Context) {
 	policy, err := lingtu.LoadTrialPolicy(model.DB)

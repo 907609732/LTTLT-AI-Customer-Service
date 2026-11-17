@@ -60,6 +60,24 @@ it('真实平台按实际能力展示状态，默认未选且未接入不可添�
   expect(run).not.toHaveBeenCalled()
   wrapper.unmount()
 })
+it('闲鱼店铺必须填写名称并随添加提交', async () => {
+  const { wrapper, run, runtime } = await fixture()
+  runtime.snapshot.capabilities.platforms.push({ id: 'xianyu', label: '闲鱼' })
+  await flushPromises()
+  await wrapper.find('[data-platform="xianyu"]').trigger('click')
+  await flushPromises()
+  const input = wrapper.find('input[aria-label="店铺名称"]')
+  expect(input.exists()).toBe(true)
+  expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+  await input.setValue('我的闲鱼店')
+  await wrapper.find('form').trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'add-store',
+    values: { platform: 'xianyu', storeName: '我的闲鱼店' },
+  })
+  wrapper.unmount()
+})
 it('添加后直接打开登录，失败重试只打开已建记录', async () => {
   const { wrapper, run, runtime, added } = await fixture()
   run.mockImplementationOnce(async () => added()).mockRejectedValueOnce(new Error('客户端未启动'))

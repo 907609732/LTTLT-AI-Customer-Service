@@ -53,8 +53,9 @@ func trialDB(t *testing.T) *gorm.DB {
 		if err := db.Raw(query).Scan(&database).Error; err != nil || database != "lingtu_test" {
 			t.Fatal("refusing to modify a non-test database")
 		}
-		// CI-only database, never a production connection. Tests run sequentially.
-		if err := db.Migrator().DropTable(&BillingCredit{}, &BillingOrder{}, &trialLimitedRequest{}, &trialDailyBudget{}, &trialLimitGate{}, &TrialRequest{}, &TrialGrant{}, &ManagedSession{}, &DeviceGrant{}); err != nil {
+		// Match SQLite's per-test database: paid grants and immutable receipts must
+		// not survive into another test's trial/quota accounting.
+		if err := db.Migrator().DropTable(&BillingCredit{}, &BillingOrder{}, &PaidGrant{}, &trialLimitedRequest{}, &trialDailyBudget{}, &trialLimitGate{}, &TrialRequest{}, &TrialGrant{}, &ManagedSession{}, &DeviceGrant{}); err != nil {
 			t.Fatal(err)
 		}
 	}
