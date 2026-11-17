@@ -1,5 +1,7 @@
 # 架构导航
 
+自定义模型目录沿 `LoginDialog → list-custom-models 业务命令 → local-runtime → electron/list-custom-models.ts → 用户提供的 /models` 查询；Bearer Key 仅由主进程临时使用，不记录日志或持久化，组件不直接联网。模型返回只接受 `data[].id` 或 `models[].id`，去重并限制最多 5000 项；用户仍可手动输入模型名。查询失败不更改已保存的模型配置。该能力面向兼容 OpenAI Models API 的服务，不保证所有自定义 API 都提供相同目录端点。
+
 1.0.13 图片识别：`local-runtime → knowledge/image-ocr → windows-ocr → Windows.Media.Ocr`，复用既有图片分块、来源资产和元数据缓存。source-pipeline 在学习估算前识别，learning 将缓存 OCR 作为不可信辅助材料与实际像素一同提交；预览沿原 knowledge/pipeline 增加 recognize-images 动作，无新增 IPC 或外部 MCP 工具。取消、店铺/来源版本和账号租约保护延续至异步完成。
 
 模型批量节奏沿 `KnowledgeModelPort.minimumIntervalMs → knowledge.modelMinimumIntervalMs → source-pipeline → learner` 转发，托管默认 13000 毫秒、本机 0。等待在付费提交检查点之前，取消会结束等待。失败已收到响应的片段可用同一内部 pipeline 的 retry-received 动作归档并重新生成，不能用于未知提交/已取消/已完成任务，不向外部 AI MCP 开放。

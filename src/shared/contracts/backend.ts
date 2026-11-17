@@ -35,6 +35,7 @@ export const actions = [
   'batch',
   'refresh',
   'save-model-settings',
+  'list-custom-models',
   'save-config',
   'list-products',
   'set-product-codes',
