@@ -23,7 +23,9 @@
 
 整合复验：保留 1.0.55 自定义模型 API 后，登录/导航等 4 文件 31 项、typecheck、构建、变更文件 ESLint 与边界检查通过；主进程公开返回方法用 AST 核对为 22 项且顺序不变。1.0.56 原生桌面定向 15/15、知识库主专项 18 项、待学问题 2 项、内嵌学习进度 5 项通过。待学问题原生脚本首次遇到刷新 loading 卸载筛选按钮的时序窗口；核对拆分前相同逻辑并做对照，仅在验收脚本增加按钮已挂载且可交互的有界等待，保留全部原断言，Codex 独立重跑通过，未修改产品逻辑。首次失败及后续日志保存在 artifacts/maintenance-20261118/。
 
-后续：1.0.56 主目录最终版本重启和 GitHub CI/下载产物仍待 Codex 完成。版本 package.json/package-lock.json=1.0.56；未发布公开 Release、未部署生产、未向真实买家发送。原始任务日志保留在系统 TEMP/lingtu-maintenance-cleanup-20261117。
+最终验收基线为 1.0.57（beddc49，包含本次 1.0.56 整理及并行 README 更新）：[GitHub 构建 44128396327](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44128396327) 全部通过，包含全量源码/上游检查、完整原生桌面、知识学习、打包及真实打包程序验收。产物已下载到 release/ci-beddc49/，清单版本/提交与三份 SHA256 均匹配；本机同一便携包 8 项验收通过，ASAR 9119 成员、文档解析 8 部分、无私有数据/开发文件，许可原文字节匹配。首次隐藏 capturePage 出现 UnknownVizError，原脚本同包复测通过，未修改图形或产品代码；首次失败记录与复测日志保留。主目录源码已构建并打开，进程与界面均实测 v1.0.57，userData 保持原路径，临时 inspector 已关闭。
+
+收尾时另一任务已合入 1.0.58 开发调试功能（c9a71fa）；其改动保留，其后续验收由对应任务负责，不将本条 1.0.57 结果冒充 1.0.58 验收。完整本轮回执在 artifacts/maintenance-20261118/acceptance.json，打包回执在 artifacts/packaged/report.json。未发布公开 Release、未部署生产、未向真实买家发送；原始 DeepSeek 事件和诊断保留于系统 TEMP/lingtu-maintenance-cleanup-20261117。
 
 ## 2026-11-17 进店欢迎开关布局与随机延迟（1.0.52，本机源码）
 

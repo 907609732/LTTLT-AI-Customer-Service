@@ -2,7 +2,7 @@
 
 ## 2026-11-18 维护性清理与职责拆分（1.0.56，分阶段验证）
 
-本批由本机 DeepSeek 在两个独立工作树分别完成清理/知识拆分和主进程装配拆分，Codex 独立复验并整合；以下为各阶段实际执行证据，合计 26 文件 229 项，不表示整合后全量回归通过。未运行全量 `npm run check`、全量桌面或上游套件，未启动真实店铺、未调用真实付费模型、未向买家发送。
+本批由本机 DeepSeek 在两个独立工作树分别完成清理/知识拆分和主进程装配拆分，Codex 独立复验并整合；以下为各阶段实际执行证据，合计 26 文件 229 项，不表示整合后全量回归通过。本机未运行全量 `npm run check`、全量桌面或上游套件；云端全量结果见下方最终回执。自动验收未启动真实店铺、未调用真实付费模型、未向买家发送。
 
 - 第一批（清理与文档）：基线三文件 10 项、修改后 3 文件 15 项通过；`npm run typecheck`、`npm run build:desktop`、`node scripts/check-boundaries.mjs`、`git diff --check` 退出 0。原生仅运行旧 `/shop/home` 兼容检查 1/1 通过，报告与截图在 `artifacts/desktop-selected-1794931660094/shop-home.png`，Codex 已目视核对跳转后的数据看板面板。首次并发 Vitest 遇 Windows 临时文件 EBUSY，单 worker 重跑通过；一次漏 `.mjs` 导出声明导致 TS 失败，补充 `checkVueSource` 声明后 typecheck 通过。
 - 第二批（知识控制器）：`tests/knowledge-manager.test.ts` 等 6 文件 72 项通过（`--maxWorkers=1 --minWorkers=1`）；知识拆分前基线 6 文件 80 项为改前证据，不叠加为最终回归项数。Codex 用 TS AST 核对 `useKnowledgeManager()` 公开返回对象 126 项、顺序一致；typecheck、边界检查与变更文件 ESLint/Prettier 通过。
@@ -13,7 +13,9 @@
 
 待学问题原生脚本首次因 loading 期间筛选区卸载而过早点击失败。同版本重跑及未拆控制器对照、模板与刷新逻辑核对定位为既存验收时序窗口；只增加目标筛选按钮已挂载且可交互的有界等待，原状态持久化、记录消失、跨店隔离和重新打开/忽略断言全部保留。修复后 DeepSeek 多次验证及 Codex 独立重跑通过；首次失败证据保存在 artifacts/maintenance-20261118/misses-first-failure/，不把初次失败记为通过。
 
-尚未执行：1.0.56 主目录最终版本重启、GitHub CI 与下载产物核对。版本 package.json/package-lock.json=1.0.56，未发布公开 Release、未部署生产。
+最终回执：整理版本 1.0.56 随并行 README 更新进入 1.0.57，验收提交 beddc49。[CI 44128396327](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44128396327) 全绿，完成源码全量检查、完整桌面、知识学习、云端打包和打包程序检查。下载后的 release/ci-beddc49/ 清单版本/提交、安装器/便携 ZIP/清单三份 SHA256 均匹配；本机便携包验收 8 项通过（9119 个 ASAR 成员、8 个解析部分），详见 artifacts/packaged/report.json。首轮隐藏截图 UnknownVizError 后，同包原脚本复测通过，未改产品或图形参数；记录在 artifacts/maintenance-20261118/packaged-first-failure.txt 与 packaged-rerun.log。
+
+主目录源码构建并打开，运行元数据与界面均为 1.0.57，原 userData 路径保留，临时调试端口关闭，回执见 artifacts/maintenance-20261118/source-runtime.json。其后另一个任务合入 1.0.58 开发调试功能，本条只证明 1.0.57 验收基线，不覆盖该任务的后续结果。未发布公开 Release、未部署生产。
 
 ## 2026-11-17：进店欢迎随机延迟与开关布局（1.0.52）
 
