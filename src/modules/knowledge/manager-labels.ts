@@ -57,6 +57,9 @@ export const jobKindLabel = (value: string) =>
       string
     >
   )[value] || value
+export const missStatusLabel = (value: string) =>
+  (({ open: '待处理', resolved: '已解决', ignored: '已忽略' }) as Record<string, string>)[value] ||
+  value
 export function sourceLocationLabel(
   locator: import('@/shared/contracts/knowledge').KnowledgeSourceLocator,
 ) {

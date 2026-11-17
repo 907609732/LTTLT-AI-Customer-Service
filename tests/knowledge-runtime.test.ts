@@ -46,6 +46,28 @@ function fixture(
   }
 }
 describe('knowledge runtime boundary and exact request evidence', () => {
+  it('checks miss ownership by ID beyond the first page and rejects removed shops', async () => {
+    const { runtime, repository } = fixture()
+    const foreign = repository.recordMiss({
+      storeId: 'removed-shop',
+      question: 'oldest unavailable shop',
+    })
+    for (let index = 0; index < 105; index++)
+      repository.recordMiss({ storeId: 's', question: `newer question ${index}` })
+    await expect(
+      runtime.request({
+        workspaceId: 'workspace',
+        operation: 'command',
+        command: {
+          type: 'update-miss',
+          missId: foreign.id,
+          status: 'resolved',
+        },
+      }),
+    ).rejects.toThrow()
+    expect(repository.listMisses({ storeId: 'removed-shop' }).items[0]?.status).toBe('open')
+  })
+
   it('registers the main-only pipeline before account initialization without allowing inactive requests', async () => {
     const { runtime, deactivate } = fixture()
     let disposed = false

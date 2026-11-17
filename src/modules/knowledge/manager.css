@@ -149,6 +149,27 @@
 .knowledge-manager .spacer {
   flex: 1;
 }
+.knowledge-miss-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0 2px 12px;
+  flex: none;
+}
+.knowledge-miss-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.knowledge-miss-filters button {
+  padding: 5px 14px;
+}
+.knowledge-miss-filters button.active {
+  border-color: #2864e8;
+  background: #ecf5ff;
+  color: #2453e8;
+  font-weight: 700;
+}
 .knowledge-toolbar {
   display: flex;
   flex-wrap: wrap;
