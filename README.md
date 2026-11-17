@@ -8,14 +8,14 @@
 
 面向电商客服的 Windows 桌面工作台，集中管理店铺、商品知识、AI 回复与接待记录。
 
-[![Release v1.0.37](https://img.shields.io/badge/Release-v1.0.37-0071e3)](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.37)
+[![Release v1.0.48](https://img.shields.io/badge/Release-v1.0.48-0071e3)](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.48)
 [![Windows build](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml/badge.svg?branch=main)](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml)
 ![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)
 ![Electron](https://img.shields.io/badge/Electron-43-47848f)
 [![License: Apache-2.0 (owner code)](<https://img.shields.io/badge/License-Apache--2.0%20(owner%20code)-blue>)](LICENSE)
 ![License: mixed](https://img.shields.io/badge/License-Mixed-lightgrey)
 
-**[下载 Windows 安装包](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/LingtuAI-Setup-1.0.37-win-x64.exe)** · [下载 ZIP 便携版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/LingtuAI-1.0.37-win-x64.zip) · [v1.0.37 发布页](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.37) · [问题反馈](https://github.com/907609732/LTTLT-AI-Customer-Service/issues)
+**[下载 Windows 安装包](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/LingtuAI-Setup-1.0.48-win-x64.exe)** · [下载 ZIP 便携版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/LingtuAI-1.0.48-win-x64.zip) · [v1.0.48 发布页](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.48) · [问题反馈](https://github.com/907609732/LTTLT-AI-Customer-Service/issues)
 
 </div>
 
@@ -31,15 +31,15 @@
 
 ## 下载安装
 
-当前公开版本：**v1.0.37**。Windows x64 可直接下载[安装程序](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/LingtuAI-Setup-1.0.37-win-x64.exe)或 [ZIP 便携版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/LingtuAI-1.0.37-win-x64.zip)，并使用同一发布页的 [SHA256SUMS.txt](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/SHA256SUMS.txt) 校验。
+当前公开版本：**v1.0.48**。Windows x64 可直接下载[安装程序](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/LingtuAI-Setup-1.0.48-win-x64.exe)或 [ZIP 便携版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/LingtuAI-1.0.48-win-x64.zip)，并使用同一发布页的 [SHA256SUMS.txt](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/SHA256SUMS.txt) 校验。
 
-安装包未做代码签名，需要手动下载安装。当前 `main` 源码为 **1.0.39**，新增闲鱼接入、共用本机工作区和 1.0.38 起的知识库工具栏分组；尚未发布新的公开安装包。下载请使用上方明确的 v1.0.37 地址，源码运行请按 `main` 说明。GitHub 的 Source code ZIP 是源码，不是安装包。
+安装包未做代码签名，需要手动下载安装。v1.0.48 对应确切源码 `12b31cae66e6d9d1b4e0db3cfa7b3ac0448b546f`，已包含闲鱼接入、共用本机工作区及知识库工具栏分组。托管双模型路由属于独立服务端功能，需单独部署并保存管理员策略；本次 Windows 发布不部署生产服务端。GitHub 的 Source code ZIP 是源码，不是安装包。
 
-发布范围、确切源码和验证边界见 [v1.0.37 发布验收](docs/RELEASE_V1.0.37.md)。
+发布范围、确切源码和验证边界见 [v1.0.48 发布验收](docs/RELEASE_V1.0.48.md)。
 
 ## 主要功能
 
-以下按维护中的 `main` 1.0.39 说明；v1.0.37 安装包不包含闲鱼接入、共用本机工作区和 1.0.38 起的工具栏分组。
+以下按 v1.0.48 说明；独立托管服务端不包含在 Windows 安装包内。
 
 | 能力              | 你可以做什么                                                                                |
 | ----------------- | ------------------------------------------------------------------------------------------- |
@@ -55,17 +55,17 @@
 
 ## 平台与接入方式
 
-| 平台         | 当前接入                                                                                                                 |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| 拼多多       | 平台商品、历史会话和指定日期订单已做部分实店只读核对；商品详情、聊天学习和订单采集已接线。                               |
-| 闲鱼网页版   | `main` 1.0.39 新增。只采样当前打开/待回复会话，不监听未打开会话、不采集商品、不发送视频；文字/图片发送仍待真实买家验收。 |
-| 本机模拟店铺 | 在本机模拟店铺、客服台和顾客页验证消息、模型请求与发送确认流程，不连接真实平台，也不代表平台已送达。                     |
+| 平台         | 当前接入                                                                                                                                     |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 拼多多       | 平台商品、历史会话和指定日期订单已做部分实店只读核对；商品详情、聊天学习和订单采集已接线。                                                   |
+| 闲鱼网页版   | 自 1.0.39 起接入，已包含在当前安装包中。只采样当前打开/待回复会话，不监听未打开会话、不采集商品、不发送视频；文字/图片发送仍待真实买家验收。 |
+| 本机模拟店铺 | 在本机模拟店铺、客服台和顾客页验证消息、模型请求与发送确认流程，不连接真实平台，也不代表平台已送达。                                         |
 
-拼多多的真实欢迎、发送、转接、催付及支付仍待业务样本验收；订单来源缺少的退款或时间字段保持未知，不将实收合计视为净营收。闲鱼和共用本机工作区是 `main` 1.0.39 的源码增量，尚未进入 v1.0.37 安装包。侧栏“导入知识”会打开知识库，“店铺设置”仍是未接入提示。
+拼多多的真实欢迎、发送、转接、催付及支付仍待业务样本验收；订单来源缺少的退款或时间字段保持未知，不将实收合计视为净营收。当前安装包已包含闲鱼接入和共用本机工作区。侧栏“导入知识”会打开知识库，“店铺设置”仍是未接入提示。
 
 ## 快速使用
 
-1. 按[下载安装](#下载安装)取得 v1.0.37，或按[从源码运行](#从源码运行)启动当前 `main`。
+1. 按[下载安装](#下载安装)取得 v1.0.48，或按[从源码运行](#从源码运行)启动当前 `main`。
 2. 通过顶部“登录”入口选择本机 Key 或托管账号，并在配置中心完成模型接口、凭证与回复规则配置；保存前先测试连接。
 3. 添加店铺，按自动弹出的基础设置引导完成平台登录、资料配置和接待试答；也可右键店铺重新打开引导。
 4. 在知识库导入或维护商品与问答资料，完成学习后显式审核、启用；需要演练时使用训练场或本机模拟店铺。
@@ -75,7 +75,7 @@
 
 ## 数据与网络连接
 
-当前 `main` 1.0.39 把本机模式与所有托管账号统一到同一个本机 `local-runtime` 业务目录和 `yunduo-local` 平台分区。旧 `managed-workspaces/` 目录保留在磁盘上，但不再读取或自动合并，没有自动迁移；同一台机器上的不同托管账号会看到同一份本机店铺、会话、知识、工单和平台登录态。
+当前版本把本机模式与所有托管账号统一到同一个本机 `local-runtime` 业务目录和 `yunduo-local` 平台分区。旧 `managed-workspaces/` 目录保留在磁盘上，但不再读取或自动合并，没有自动迁移；同一台机器上的不同托管账号会看到同一份本机店铺、会话、知识、工单和平台登录态。
 
 模型 Key 由 Electron 主进程通过系统加密保存。生成回复和图片识别时，相关上下文会发送至所选模型服务；平台接入需要连接对应电商平台，托管模式还会连接配置的托管后端。日志只保留本次运行的有界内存记录，不记录 HTTP 头、API Key 或服务商完整错误响应。
 
