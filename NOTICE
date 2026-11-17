@@ -1,0 +1,40 @@
+灵兔AI电商客服（Lingtu AI E-commerce Customer Service）
+Copyright 2026 灵兔AI电商客服项目的各自权利人。各部分版权归其合法权利人所有。
+
+本仓库是混合许可项目，不是整体 Apache-2.0 软件。根目录 LICENSE 是未经改写的 Apache License 2.0 标准文本，仅适用于 docs/legal/LICENSE_SCOPE.md 明确列入“Apache-2.0 覆盖范围”的、由项目权利人拥有且有权重新许可的原创代码和文档。根许可证不重新许可下列组件、第三方材料或权属未确认的贡献，也不表示整个组合程序可以闭源交付。
+
+单独许可或第三方组件
+====================
+
+1. server/：导入并修改的托管服务端，包含 QuantumNous/New API 派生代码。
+   适用许可：AGPL-3.0-or-later；不适用根目录 Apache-2.0。
+   上游：https://github.com/QuantumNous/new-api
+   固定上游版本：v1.0.0-rc.49
+   固定上游提交：48a6c87f9e7757fdc58e5be9bcb4f8281ad0dfd0
+   本仓库对应源码与修改记录：
+   https://github.com/907609732/LTTLT-AI-Customer-Service
+   server/PROVENANCE.md、server/upstream.lock.json、server/LICENSE-LTTLT
+
+2. vendor/lingtu-runtime/：固定来源的客户端运行时，保持原有 AGPL-3.0-only 声明和文件。
+   上游来源：https://github.com/907609732/LTTLT-AI-Customer-Service/pull/18
+   固定上游提交：5b6293cc9c75e6e25fdaa16d6187effb0a9d1a5e
+   本仓库对应源码与修改记录：
+   https://github.com/907609732/LTTLT-AI-Customer-Service
+   vendor/lingtu-runtime/LICENSE、LICENSING.md、PROVENANCE.md
+
+3. vendor/xianyu-bridge/：来源工程 kb-port 的 package.json 曾标注 UNLICENSED；来源权利人在 2026-11-17 确认该代码由其本人所有并授权公开分发。该历史标注保留在 PROVENANCE.md 中，不追认来源工程过去的许可状态。本维护副本按同目录 LICENSE 的 Apache-2.0 提供；bridge.js 字节未改动。
+   来源与哈希：vendor/xianyu-bridge/PROVENANCE.md
+   本地许可：vendor/xianyu-bridge/LICENSE
+
+4. npm 依赖、随附字体、MCP SDK、测试夹具及其他第三方材料适用各自许可证或权利声明，详见 docs/legal/THIRD_PARTY_NOTICES.md 和实际依赖包随附的许可。平台名称、图标、商标和界面素材不因本仓库的软件许可而获得授权。
+
+权利边界
+========
+
+- 根目录 Apache-2.0 不覆盖 server/、vendor/lingtu-runtime/、第三方依赖、第三方素材、商标，以及任何没有书面权利依据的外部贡献。
+- 对 AGPL 组件，适用许可证要求的版权、许可、源码、安装信息及其他义务仍由该许可证决定；本 NOTICE 的摘要不替代、不扩大也不减少这些义务。
+- 客户聊天记录、账号凭据、支付密钥、数据库和私有运行配置应与程序源码分离，公开仓库与交付包应排除这些资料；数据分离不替代任何许可证要求的源码或安装材料义务。
+- 本 NOTICE 不构成对 Apache-2.0 已授予权利的额外限制，也不构成法律合规认证。
+- 本次许可证变更不撤回此前版本中已经有效授予的许可，也不改变第三方权利。
+
+完整许可与范围见 LICENSE、docs/legal/LICENSE_SCOPE.md、docs/legal/LICENSING.md 和 docs/legal/THIRD_PARTY_NOTICES.md。

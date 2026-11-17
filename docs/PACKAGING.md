@@ -22,9 +22,11 @@ ZIP 解压后运行 LingtuAI.exe；NSIS 为当前用户安装，可选择目录�
 
 ## 打包边界
 
-使用显式文件白名单，仅收录 Vue 产物、main/preload、所需固定运行时、生产依赖和来源许可。禁止把 server、.upstream、开发/测试脚本、smoke、源码映射、测试截图、真实聊天、管理员密码、数据库、主密钥、本机配置或浏览器资料打进安装包。server/runtime 和 release 都被 Git 忽略；前者永久保持本机私有。
+使用显式文件白名单，仅收录 Vue 产物、main/preload、所需固定运行时、生产依赖和来源许可。当前许可白名单必须包含根 `LICENSE`、`NOTICE`、`docs/legal/LICENSE_SCOPE.md`、`docs/legal/LICENSING.md`、`docs/legal/COMMERCIAL_LICENSE.md`、`docs/legal/THIRD_PARTY_NOTICES.md`、`vendor/xianyu-bridge/LICENSE`、`vendor/xianyu-bridge/PROVENANCE.md`，以及 `vendor/lingtu-runtime/` 的 `LICENSE*`、`LICENSING.md`、来源记录和第三方声明。`server/` 不随桌面安装包分发，其 AGPL 材料不得被根 Apache-2.0 文案替代。
 
-运行时第三方 LICENSE、来源清单与 PROVENANCE 必须保留。发布前检查 app.asar 的实际成员，并使用真实解包后的程序、隔离 user-data-dir 验证窗口、preload、业务快照、话术和默认 AI 关闭。只看到 EXE 生成不能视为安装包验收。
+禁止把 `server/`、`.upstream`、`server/runtime`、开发/测试脚本、smoke、源码映射、测试截图、真实聊天、管理员密码、数据库、主密钥、本机配置或浏览器资料打进安装包。`server/runtime` 和 `release` 都被 Git 忽略；前者永久保持本机私有。数据隔离不替代任何许可证要求的源码或安装材料义务。
+
+打包后必须检查 app.asar/extraResources 的实际成员，确认上述 Apache 与 AGPL 许可材料、第三方声明和闲鱼本地许可存在；同时确认未带入私有运行数据。发布前使用真实解包后的程序、隔离 user-data-dir 验证窗口、preload、业务快照、话术和默认 AI 关闭。只看到 EXE 生成不能视为安装包验收；本文件的清单也不等于已完成法律合规认证。
 
 ## 推送与下载
 
