@@ -12,14 +12,17 @@ client/
 ├─ public/                  前端静态资源
 ├─ electron/                主进程、preload、本地服务与平台适配
 ├─ server/                  独立 Go 服务端、原生管理网页覆盖层与运维入口
-├─ vendor/lingtu-runtime/   客户端实际依赖的固定运行时与许可
+├─ vendor/lingtu-runtime/   客户端实际依赖的固定运行时与 AGPL 许可
+├─ vendor/xianyu-bridge/    闲鱼页面桥接维护副本、来源记录与本地 Apache 许可
 ├─ scripts/                 构建、边界检查与验收工具
 ├─ tests/                   客户端单元与交互测试
 ├─ docs/                    项目约束、架构、运维、交接和历史记录
-│  └─ legal/                AGPL、商业授权与第三方权利说明
+│  └─ legal/                Apache 范围矩阵、混合许可、企业服务与第三方权利说明
 ├─ AGENTS.md                AI 维护入口
-├─ README.md                项目入口与启动命令
-├─ LICENSE                  AGPL-3.0-only 标准条款
+├─ README.md                项目入口、启动命令与许可边界
+├─ CONTRIBUTING.md          贡献来源与入库许可规则
+├─ LICENSE                  Apache-2.0 标准条款（仅限范围矩阵列明的原创材料）
+├─ NOTICE                   混合许可、AGPL 组件来源与权利边界
 ├─ package.json             命令和依赖声明
 ├─ package-lock.json        固定依赖版本
 └─ 其余根配置               TypeScript 基础配置、Vite、入口页、Git 忽略规则
@@ -27,7 +30,7 @@ client/
 
 根 `tsconfig.json` 是共享基础配置；`config/` 内三个项目配置通过相对路径继承它，并由 `npm run typecheck` 调用。迁移配置只改变路径，不改变编译文件范围。`npm run lint`、`npm run format` 与 `npm run format:check` 分别显式使用 `config/eslint.config.mjs`、`config/prettier.json` 和 `config/prettier.ignore`；`npm run pack:win`、`npm run dist:win` 与云端构建使用 `config/electron-builder.json`，路径参数仍以仓库根解析。
 
-server 内的 overlay、patches.json、upstream.lock.json、scripts、tests、来源和许可文件属于可维护源码。vendor 是实际运行依赖，不能当作缓存删除。客户端与服务端独立构建，桌面安装包不内嵌 Go 服务或管理员账户。
+server 内的 overlay、patches.json、upstream.lock.json、scripts、tests、来源和许可文件属于可维护源码，并继续适用其 AGPL/上游声明；不得把根 Apache-2.0 套用于该目录。`vendor/lingtu-runtime/` 是实际运行依赖，不能当作缓存删除；`vendor/xianyu-bridge/` 保存未改动字节的桥接脚本、来源哈希和本地 Apache-2.0 许可。客户端与服务端独立构建，桌面安装包不内嵌 Go 服务、管理员账户、server/runtime 或任何私有运行数据。
 
 ## 生成文件与私有数据
 

@@ -1,3 +1,11 @@
+## 2026-11-17 自有代码 Apache-2.0 与第三方许可保留（1.0.49）
+
+按用户明确授权，根 LICENSE 使用 Apache-2.0 官方标准原文，自有原创范围见 docs/legal/LICENSE_SCOPE.md；第三方运行时、server 导入及其派生代码仍适用各自 AGPL，不将组合应用宣称为可任意闭源。添加 NOTICE、贡献规则，并同步 README、商业服务模板与桥接来源记录。复用现有 electron-builder 和 @electron/asar，不新增依赖。
+
+验证：独立 worktree 的 Windows 目录打包成功；实际 ASAR 的 Apache/AGPL 关键许可原文与源码逐字节一致，包内私有文件排除及真实应用启动、IPC、8 部分文档解析通过。tools TypeScript、改动脚本 ESLint、vendor 完整性（runtime 80/server 94）、diff 检查通过；只读独立审查无剩余 P1/P2。server/**、vendor/lingtu-runtime/**、bridge.js 未修改。Windows ASAR 提取使用平台规范化路径。未运行本地全量回归，云端状态以对应 Actions 为准；未发布 Release 或部署生产。
+
+后续：保持第三方原声明与来源证据；任何组合分发按实际组件履行许可义务，不能以业务数据隔离替代代码许可。后续引入外部贡献须核实其许可范围。
+
 ## 2026-11-17 托管文字/图片分流（1.0.48，生产未部署）
 
 已实现：无显式模型的文字请求按账号/全局默认处理，图片请求自动使用授权且就绪的 Qwen3-VL。新库无试用策略行时默认 100 次，仅允许 deepseek-flash 与 qwen3-vl-plus，文字默认 DeepSeek。该精确双模型策略下 DeepSeek 不可用时文字/免费摘要明确失败，不静默改走视觉模型。显式 model 仍须授权且具备图片能力；缺失视觉路由在预留前拒绝。

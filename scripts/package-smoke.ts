@@ -20,6 +20,7 @@ const archive = path.join(path.dirname(executable), 'resources', 'app.asar')
 // This API comes from the locked electron-builder toolchain, never the app runtime.
 const asar = createRequire(import.meta.url)('@electron/asar') as {
   listPackage(file: string): string[]
+  extractFile(file: string, member: string): Buffer
 }
 const members = asar.listPackage(archive).map((name) => name.replaceAll('\\', '/'))
 for (const required of [
@@ -29,8 +30,27 @@ for (const required of [
   '/vendor/lingtu-runtime/electron/backend.cjs',
   '/vendor/lingtu-runtime/desk-v1/src/main/reply-engine.js',
   '/vendor/lingtu-runtime/LICENSE',
+  '/LICENSE',
+  '/NOTICE',
+  '/docs/legal/LICENSE_SCOPE.md',
+  '/vendor/xianyu-bridge/LICENSE',
 ]) {
   if (!members.includes(required)) throw new Error('Missing packaged file: ' + required)
+}
+// 混合许可交付必须保留各组件原文，不能只检查根Apache声明而漏掉AGPL运行时。
+for (const member of [
+  'LICENSE',
+  'NOTICE',
+  'docs/legal/LICENSING.md',
+  'docs/legal/LICENSE_SCOPE.md',
+  'docs/legal/THIRD_PARTY_NOTICES.md',
+  'vendor/lingtu-runtime/LICENSE',
+  'vendor/xianyu-bridge/LICENSE',
+]) {
+  if (
+    !asar.extractFile(archive, path.normalize(member)).equals(fs.readFileSync(path.resolve(member)))
+  )
+    throw new Error('Packaged licensing material differs from source: ' + member)
 }
 const excluded = members.filter(
   (name) =>
@@ -374,6 +394,7 @@ try {
     archiveMembers: members.length,
     checks: [
       'ASAR required runtime/license',
+      'ASAR Apache/AGPL license texts and scope match source bytes',
       'ASAR private/development exclusion',
       'real packaged window/preload',
       'real business IPC, empty isolated stores and no Key',
