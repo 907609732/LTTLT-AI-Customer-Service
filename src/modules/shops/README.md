@@ -8,9 +8,9 @@
 
 公开入口：index.ts。跨模块必须从该入口引用，禁止访问 components 或 demo 的内部路径。
 
-界面入口：ShopGoodsPanel、ShopsListPanel、GoodsListPanel、ShopDeskPanel、GoodsDetailDialog、GoodsEditDialog、GoodsLearnDialog、ShopSyncConfigDialog、ShopPicker、ShopHomeView、ShopHomePanel。
+界面入口：ShopGoodsPanel、ShopsListPanel、GoodsDetailDialog、GoodsEditDialog、GoodsLearnDialog、ShopPicker、ShopHomePanel。`/shop/home` 仅为兼容跳转到 `/shop/manage?panel=home`，原 ShopHomeView 营销假数据组件及其独占样式已删除；GoodsListPanel、ShopDeskPanel、ShopSyncConfigDialog 三个未接线还原子组件也已删除（2026-11-17 维护清理）。
 
-当前业务状态：ShopGoodsPanel、AddShopDialog 和 ShopHomePanel 已接本机店铺/商品知识与真实计数。旧 GoodsListPanel 等还原子组件未承担新的领域服务；真实 DTO 以共享 backend 契约为准。平台能力仍需实际店铺验收。
+当前业务状态：ShopGoodsPanel、AddShopDialog 和 ShopHomePanel 已接本机店铺/商品知识与真实计数。旧 GoodsDetailDialog 等还原子组件仍只保留还原结构、未承担新的领域服务；真实 DTO 以共享 backend 契约为准。平台能力仍需实际店铺验收。
 
 接入流程见根目录 docs/LOCAL_INTEGRATION.md。demo 是旧视图数据，不是 API DTO；新增能力在所属模块建立服务与类型，经过本地运行时契约，不直接访问 IPC、网络或文件系统。
 

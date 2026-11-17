@@ -14,7 +14,7 @@ Windows本机构建环境：主目录曾因可执行文件继承Low完整性标�
 
 当前工作区的实际独立项目根为 `E:\~1awucheng\Plastic SCM\AI电商客服软件\client`；先读 `docs/PROJECT_LAYOUT.md`。`.github`、package.json、src、electron、server、vendor 属于同一个独立工程。不要再将整个 F:\Setupgod 或旧 React 仓库当作本工程，也不要把主工程嵌到旧推送工作区。本轮允许本机维护、品牌改名及已授权的独立根目录交付；后续其他仓库、生产部署和公开发布仍须另行指令。兄弟目录保持原样。
 
-修改前依次阅读 `docs/CONSTRAINTS.md`、`docs/ARCHITECTURE.md`、`docs/HANDOFF.md`、`docs/LOCAL_INTEGRATION.md` 和相关模块 README；搜索已有实现，检查工作区改动。桌面支持默认本机 Key 和显式托管模式；托管改动先读 MANAGED_SERVICE.md，server 导入例外与原生检查见该目录 AGENTS/CONSTRAINTS。浏览器保持业务只读预览。
+修改前依次阅读 `docs/CONSTRAINTS.md`、`docs/ARCHITECTURE.md`、`docs/HANDOFF.md`、`docs/LOCAL_INTEGRATION.md` 和相关模块 README；搜索已有实现，检查工作区改动。桌面支持默认本机 Key 和显式托管模式，本机与所有托管账号共用 `local-runtime` 业务目录和 `yunduo-local` 平台分区；托管改动先读 MANAGED_SERVICE.md，server 导入例外与原生检查见该目录 AGENTS/CONSTRAINTS。浏览器保持业务只读预览。
 
 - 依赖方向：app → modules → shared。跨模块只引用 index.ts；禁止 shared 引用上层。
 - Vue 使用 script setup lang="ts"；不得用 any、ts-ignore、跳过类型检查解决错误。
@@ -33,6 +33,6 @@ Windows本机构建环境：主目录曾因可执行文件继承Low完整性标�
 
 ## 店铺AI状态记忆（用户于2026-11-16指定）
 
-正常软件启动/账号登录后，按当前账号与模型来源目录内保存的每店AI开关恢复；仅对有明确开启记录且当前平台登录身份重新验证一致的店铺启用，其他保持关闭。上次审核/自动发送模式沿用原规则，旧批准/候选不恢复。主动关闭/全部关闭取消恢复；退出、断线等临时停机不覆盖用户意愿。知识库清除/恢复维护重建不自动恢复AI。本条替代旧的正常新会话一律关闭AI约束，细节见docs/AI_STATE_RESTORE.md。
+正常软件启动/账号登录后，按共用本机业务目录（所有模式与账号同一 `local-runtime` 目录）内保存的每店AI开关恢复；仅对有明确开启记录且当前平台登录身份重新验证一致的店铺启用，其他保持关闭。上次审核/自动发送模式沿用原规则，旧批准/候选不恢复。主动关闭/全部关闭取消恢复；退出、断线等临时停机不覆盖用户意愿。知识库清除/恢复维护重建不自动恢复AI。本条替代旧的正常新会话一律关闭AI约束，细节见docs/AI_STATE_RESTORE.md。
 
 2026-11-17 共用工作区整合：按用户新要求，本机/托管模式和账号共用本机 local-runtime 业务目录与 yunduo-local 平台分区，AI 开关记忆也随该本机目录保存。账号改变仍停止当前 AI 并要求重启；恢复仍核对当前平台身份，旧候选/批准不恢复。旧 managed-workspaces 保留、不自动合并。此条更新早先按账号/来源分别保存业务目录的描述；托管认证、计费和团队资格仍由当前账号校验。

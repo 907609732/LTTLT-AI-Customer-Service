@@ -82,10 +82,9 @@ export const routes: RouteRecordRaw[] = [
     meta: { public: true, title: '忘记密码', shop: true },
   },
   {
+    // 旧营销首页已废弃；保留 URL 兼容，数据看板由配置中心 home 面板提供。
     path: '/shop/home',
-    name: 'shop-home',
-    component: /* lazy module entry */ () => import('@/modules/shops').then((m) => m.ShopHomeView),
-    meta: { public: true, title: '店铺首页', shop: true },
+    redirect: '/shop/manage?panel=home',
   },
   {
     path: '/shop/aftersale-warning',

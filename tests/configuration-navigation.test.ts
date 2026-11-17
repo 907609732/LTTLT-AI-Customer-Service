@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
 import { navGroups, panelRegistry, resolvePanelKey } from '../src/app/navigation'
+import { routes } from '../src/app/router'
 
 it('配置中心只保留AI训练场，不再显示模拟客服台或模型定制', () => {
   const titles = navGroups.flatMap((group) => group.items.map((item) => item.title))
@@ -30,4 +31,21 @@ it('删除跨店同步菜单和页面注册，旧查询回到店铺列表', () =
   ).toBe(false)
   expect(Object.keys(panelRegistry)).not.toContain('sync')
   expect(resolvePanelKey('sync')).toBe('shops')
+})
+
+it('删除占位开发中面板，旧地址回到店铺列表', () => {
+  for (const key of ['learn', 'supervise', 'drill']) {
+    expect(Object.keys(panelRegistry)).not.toContain(key)
+    expect(resolvePanelKey(key)).toBe('shops')
+  }
+  // 真实训练与学习入口仍保留自己的面板键。
+  expect(resolvePanelKey('training')).toBe('training')
+  expect(resolvePanelKey('intent-doc')).toBe('intent-doc')
+})
+
+it('旧店铺首页只保留兼容跳转到配置中心数据看板', () => {
+  const legacy = routes.find((route) => route.path === '/shop/home')
+  expect(legacy?.redirect).toBe('/shop/manage?panel=home')
+  expect(legacy?.component).toBeUndefined()
+  expect(Object.keys(panelRegistry)).toContain('home')
 })

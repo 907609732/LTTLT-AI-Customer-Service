@@ -75,13 +75,13 @@ message-diagnostics.ts 将采集消息与引擎 decision、正式请求 submitte
 
 上下文在 AiClient 完整组装 messages 后交给注入的 electron/context-compression.ts：16K 估算触发，原系统及近期消息保护，使用当前模型摘要旧资料，正式请求目标 8K。摘要与正式请求各自 trace，review 契约携带计量与摘要元数据；待发送候选只关联正式回复 trace。全程不新增 IPC 或跨会话摘要缓存。细节见 CONTEXT_COMPRESSION.md。
 
-桌面由 electron/local-runtime.ts 装配固定运行时，默认 local，可按公开来源配置显式选择 managed。managed-controller 复用受限设备会话协议，按服务/已验证账号定位独立数据与平台分区；模式/账号切换需停 AI 并重启。server/ 独立保留 Go 与原生管理网页，不替换 Vue。business-ipc 继续提供白名单 snapshot/execute/event，契约过滤凭据；见 MANAGED_SERVICE.md。
+桌面由 electron/local-runtime.ts 装配固定运行时，默认 local，可按公开来源配置显式选择 managed。managed-controller 复用受限设备会话协议；本机与所有托管账号共用同一本机 `local-runtime` 业务目录和 `yunduo-local` 平台分区，登录只决定托管 AI、团队与计费资格，模式/账号切换需停 AI 并重启。旧 `managed-workspaces` 目录保留但不读取、不自动合并。server/ 独立保留 Go 与原生管理网页，不替换 Vue。business-ipc 继续提供白名单 snapshot/execute/event，契约过滤凭据；见 MANAGED_SERVICE.md。
 
 渲染层由 shared/platform/backend.ts 适配桌面桥，shared/state/runtime.ts 的 Pinia store 共享快照、店铺选择及平台展示。模块组件保留自己的编辑草稿；商品服务在模块内转换分页和校验响应。真实保存使用后端版本检查，不将页面显示或夹具结果视为真实买家操作成功。
 
 app/services.ts 兼容原有页面查询及浏览器预览，新增真实业务以 backend 契约为准，不继续向旧演示接口增加网络操作。未接线的 demo 工厂仅用于旧视图，不能用作真实 DTO。
 
-local 模式资料与服务商密钥留在本机独立目录，模型请求交给用户配置的服务商；managed 模式使用显式配置的账号/额度服务，只加密保存受限会话。调用所需上下文发往选定托管服务，不额外上传调试快照；原始本机资料不迁移进托管账号。完整能力和步骤见 LOCAL_INTEGRATION.md、MANAGED_SERVICE.md。
+local 模式资料与服务商密钥留在本机独立目录，模型请求交给用户配置的服务商；managed 模式使用显式配置的账号/额度服务，只加密保存受限会话。业务资料本机与托管共用同一 `local-runtime` 目录，不向托管账号复制、迁移或额外上传本机原始资料；调用所需上下文发往选定托管服务，不额外上传调试快照。完整能力和步骤见 LOCAL_INTEGRATION.md、MANAGED_SERVICE.md。
 
 ## 平台采集、订单与操作审批
 
@@ -136,7 +136,7 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 
 ## 导航与兼容
 
-路由仍用 hash，兼容 Electron 的 file 加载。既有路由和重定向保留；配置中心的 `?panel=` 参数选择注册面板，非法值回到店铺页。
+路由仍用 hash，兼容 Electron 的 file 加载。既有路由和重定向保留：旧 `/shop/home` 兼容跳转到 `/shop/manage?panel=home`（不再有独立营销首页组件），`/store-sync` 回到店铺列表；配置中心的 `?panel=` 参数选择注册面板，`transfer`/`welcome` 旧键打开接待向导对应步骤，已删除的 `sync`、`learn`、`supervise`、`drill` 回落到店铺列表，其他非法值也回到店铺页。
 
 菜单、标题与组件由 `app/navigation.ts` 注册。新增面板时在此登记，并为模块公开入口添加导出。当前不做真实鉴权守卫；接入登录时需一起设计会话恢复与失效行为。
 
