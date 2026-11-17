@@ -5,6 +5,7 @@ import ElementPlus from 'element-plus'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import SettingsView from '../src/modules/settings/components/SettingsView.vue'
 import { useRuntimeStore } from '../src/shared/state/runtime'
+import { listCustomModels } from '../electron/list-custom-models'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -117,6 +118,90 @@ it('Key连接失败保留输入，成功才关闭且必须验证连接', async (
   })
   expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([false])
   wrapper.unmount()
+})
+it('自定义 API 收集地址与模型名并用保存命令验证连接', async () => {
+  const { run, wrapper } = loginFixture()
+  wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'custom')
+  await flushPromises()
+  await wrapper.get('[aria-label="自定义 API 地址"]').setValue('https://llm.example.com/v1/')
+  wrapper.findAllComponents({ name: 'ElSelect' })[1]!.vm.$emit('update:modelValue', 'support-model')
+  await wrapper.get('[aria-label="登录 API Key"]').setValue('temporary-test-key')
+  await wrapper.find('form').trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-model-settings',
+    values: {
+      baseUrl: 'https://llm.example.com/v1',
+      model: 'support-model',
+      apiKey: 'temporary-test-key',
+      testConnection: true,
+    },
+  })
+  expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([false])
+  wrapper.unmount()
+})
+it('自定义 API 地址无效时不保存配置', async () => {
+  const { run, wrapper } = loginFixture()
+  wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'custom')
+  await flushPromises()
+  await wrapper.get('[aria-label="自定义 API 地址"]').setValue('not-a-url')
+  wrapper.findAllComponents({ name: 'ElSelect' })[1]!.vm.$emit('update:modelValue', 'support-model')
+  await wrapper.get('[aria-label="登录 API Key"]').setValue('temporary-test-key')
+  await wrapper.find('form').trigger('submit')
+  await flushPromises()
+  expect(wrapper.text()).toContain('API 地址格式无效')
+  expect(run).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'save-model-settings' }))
+  expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  wrapper.unmount()
+})
+it('获取模型图标加载可用模型并可选择', async () => {
+  const { run, wrapper } = loginFixture()
+  run.mockResolvedValueOnce({
+    status: 'ok',
+    message: '模型列表已获取',
+    data: { models: ['model-a', 'model-b'] },
+  })
+  wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'custom')
+  await flushPromises()
+  await wrapper.get('[aria-label="自定义 API 地址"]').setValue('https://llm.example.com/v1')
+  await wrapper.get('[aria-label="登录 API Key"]').setValue('temporary-test-key')
+  await wrapper.get('[aria-label="获取模型列表"]').trigger('click')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'list-custom-models',
+    values: { baseUrl: 'https://llm.example.com/v1', apiKey: 'temporary-test-key' },
+  })
+  wrapper.findAllComponents({ name: 'ElSelect' })[1]!.vm.$emit('update:modelValue', 'model-a')
+  await wrapper.find('form').trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-model-settings',
+    values: {
+      baseUrl: 'https://llm.example.com/v1',
+      model: 'model-a',
+      apiKey: 'temporary-test-key',
+      testConnection: true,
+    },
+  })
+  wrapper.unmount()
+})
+it('模型列表查询从主进程发起并去重响应中的模型 ID', async () => {
+  const request = vi.fn().mockResolvedValue(
+    new Response(JSON.stringify({ data: [{ id: 'alpha' }, { id: 'beta' }, { id: 'alpha' }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+  )
+  await expect(
+    listCustomModels({ baseUrl: 'https://llm.example.com/v1/', apiKey: 'secret' }, request),
+  ).resolves.toEqual(['alpha', 'beta'])
+  expect(request).toHaveBeenCalledWith(
+    new URL('https://llm.example.com/v1/models'),
+    expect.objectContaining({
+      headers: { Authorization: 'Bearer secret', Accept: 'application/json' },
+      redirect: 'error',
+    }),
+  )
 })
 it('关闭清空Key但保留授权，授权完成切工作区后关闭', async () => {
   const { runtime, run, wrapper } = loginFixture()

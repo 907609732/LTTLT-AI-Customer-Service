@@ -58,6 +58,7 @@ import {
   appIconPath,
 } from './windows'
 import { localVisionCapability } from './model-capabilities'
+import { listCustomModels } from './list-custom-models'
 import { ReviewConsole, type SendProposal } from './review-console'
 import { configureDomTextAdapter } from './dom-text-adapter'
 import { createAssistedContext } from './generic-phrases'
@@ -1263,6 +1264,10 @@ export function createLocalRuntime(options: {
         }
       }
       if (command.action === 'open-store-backend') return openStoreBackend(command.storeId)
+      if (command.action === 'list-custom-models') {
+        const models = await listCustomModels(command.values)
+        return { status: 'ok', message: '模型列表已获取', data: { models } }
+      }
       if (command.action === 'review-reply') {
         await review.decide(command.values)
         return { status: 'ok' as const, message: '确认操作已处理；以平台发送结果为准。', data: {} }
