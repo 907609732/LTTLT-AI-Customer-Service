@@ -261,27 +261,34 @@ app
         },
       })
       await load('/store-sync')
-      await evaluate(
-        `(()=>{const n=document.querySelector('select[aria-label="源店铺"]');n.value=${JSON.stringify(a)};n.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+      await wait(
+        'location.hash.includes("/shop/manage") && Boolean(document.querySelector(".shops-restored"))',
       )
-      await evaluate(
-        `document.querySelector('input[type=checkbox][value=${JSON.stringify(b)}]').click()`,
-      )
-      await input('textarea[aria-label="源店商品编号"]', 'parallel-sku')
-      await click('预览变更')
-      await wait('Boolean(document.querySelector("[aria-label=同步预览]"))')
-      await evaluate(
-        `document.querySelector('[aria-label="同步预览"] input[type=checkbox]').click()`,
-      )
-      await click('备份并执行同步')
-      await wait('document.body.innerText.includes("同步完成")')
-      assert.equal(
-        (await execute({ action: 'list-products', storeId: b, values: { offset: 0, limit: 10 } }))
-          .data.total,
-        1,
-      )
-      checks.push('跨店同步真实页面预览、确认、上游持久化')
-      await screenshot('store-sync-complete')
+      assert.equal(await evaluate('Boolean(document.querySelector(".store-sync"))'), false)
+      checks.push('已删除的跨店同步路由回到店铺列表')
+      await screenshot('store-sync-removed')
+      await execute({
+        action: 'save-welcome',
+        storeId: a,
+        values: {
+          text: '隔离同步欢迎',
+          enabled: false,
+          version: runtime.snapshot().welcomeByStore[a]?.version ?? 0,
+        },
+      })
+      const syncPlan = await runtime.storeSync().preview({
+        sourceStoreId: a,
+        targetStoreIds: [b],
+        sections: ['welcome'],
+        productIds: [],
+        conflict: 'replace',
+      })
+      const syncResult = await runtime
+        .storeSync()
+        .apply({ planId: syncPlan.planId, confirmed: true })
+      assert.equal(syncResult.status, 'completed')
+      assert.equal(runtime.snapshot().welcomeByStore[b]?.text, '隔离同步欢迎')
+      checks.push('保留同步服务与备份契约，隔离资料验证')
     } else if (phase === 'restart') {
       const meta = JSON.parse(fs.readFileSync(path.join(root, 'fixture.json'), 'utf8')) as {
         a: string
@@ -307,13 +314,16 @@ app
       )
       checks.push('旧工作区ID请求被拒绝')
       await load('/store-sync')
-      await wait('document.body.innerText.includes("同步完成")')
+      await wait(
+        'location.hash.includes("/shop/manage") && Boolean(document.querySelector(".shops-restored"))',
+      )
       const backups = runtime.storeSync().backups()
       assert.equal(backups.length, 1)
       const rollback = await runtime
         .storeSync()
         .rollback({ backupId: backups[0].backupId, confirmed: true })
       assert.equal(rollback.status, 'rolled-back')
+      assert.notEqual(runtime.snapshot().welcomeByStore[meta.b]?.text, '隔离同步欢迎')
       assert.equal(
         (
           await execute({

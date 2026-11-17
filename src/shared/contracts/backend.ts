@@ -16,6 +16,7 @@ export const actions = [
   'acknowledge-model-issue',
   'add-store',
   'open-runtime-logs',
+  'clear-runtime-logs',
   'open-reply-monitor',
   'set-store-send-mode',
   'review-reply',
@@ -93,6 +94,13 @@ export const storeSchema = z.object({
   group: z.string().default(''),
   aiEnabled: z.boolean(),
   sendMode: storeSendModeSchema.optional(),
+  aiRestore: z
+    .object({
+      desiredEnabled: z.boolean(),
+      status: z.enum(['waiting', 'restoring', 'restored', 'failed']),
+      message: z.string().max(200),
+    })
+    .optional(),
   runtime: z.object({
     open: z.boolean().default(false),
     online: z.boolean().default(false),

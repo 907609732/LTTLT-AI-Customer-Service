@@ -152,3 +152,26 @@ it('发送模式仅由明确菜单点击发出，当前模式由真实快照展�
   await flushPromises()
   expect(wrapper.emitted('sendMode')).toEqual([['auto'], ['review']])
 })
+
+it('等待恢复仅显示状态与悬停说明，开关仍为实际关闭且可取消', async () => {
+  const wrapper = fixture()
+  await wrapper.setProps({
+    shop: {
+      ...shop,
+      aiRestore: { desiredEnabled: true, status: 'waiting', message: '等待登录后恢复 AI' },
+    },
+  })
+  expect(wrapper.text()).toContain('等待恢复 AI')
+  expect(wrapper.find('.store-error').exists()).toBe(false)
+  expect(wrapper.get('[role="switch"]').attributes('aria-checked')).toBe('false')
+  expect(wrapper.get('[role="switch"]').attributes('aria-label')).toContain('取消恢复')
+  await wrapper.get('[role="switch"]').trigger('click')
+  expect(wrapper.emitted('toggleAi')).toHaveLength(1)
+  await wrapper.setProps({
+    shop: {
+      ...shop,
+      aiRestore: { desiredEnabled: true, status: 'failed', message: '身份无法核实' },
+    },
+  })
+  expect(wrapper.get('.store-error').text()).toBe('身份无法核实')
+})

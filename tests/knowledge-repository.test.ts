@@ -630,3 +630,21 @@ it('includes shared entry source dependencies even when their origin belongs out
   expect(repository.detail(canonical.id, 'a').sources.map((s) => s.id)).toContain(source.id)
   expect(repository.detail(canonical.id, 'a').sources.map((s) => s.id)).not.toContain(unrelated.id)
 })
+it.each(['paused', 'failed'] as const)(
+  'keeps an older %s job recoverable before more than one page of completed history',
+  (status) => {
+    const { repository: repo, advance } = fixture()
+    const pending = repo.createJob({
+      kind: 'learn',
+      storeId: 's',
+      payload: { bindingIds: ['one'] },
+    })
+    repo.updateJob(pending.id, { expectedRevision: pending.revision, status })
+    for (let i = 0; i < 101; i++) {
+      advance(1)
+      const j = repo.createJob({ kind: 'learn', storeId: 's', payload: {} })
+      repo.updateJob(j.id, { expectedRevision: j.revision, status: 'succeeded' })
+    }
+    expect(repo.listJobs({ storeId: 's', limit: 100 }).items[0]!.id).toBe(pending.id)
+  },
+)

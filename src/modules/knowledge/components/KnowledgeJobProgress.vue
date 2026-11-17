@@ -15,6 +15,11 @@ const canResume = computed(
     (['paused', 'failed'].includes(props.job.status) ||
       (props.job.status === 'needs-confirmation' &&
         ['collect', 'daily-check'].includes(props.job.kind))) &&
+    !(
+      props.job.kind === 'learn' &&
+      props.job.progress.total !== null &&
+      props.job.progress.completed >= props.job.progress.total
+    ) &&
     props.job.checkpoint.state !== 'submitted' &&
     !(
       props.job.kind === 'learn' &&
@@ -50,6 +55,17 @@ function resolve(decision: 'retry' | 'skip') {
     :aria-busy="active"
     :data-status="job.status"
   >
+    <p
+      v-if="
+        job.kind === 'learn' &&
+        job.status === 'failed' &&
+        job.progress.total !== null &&
+        job.progress.completed >= job.progress.total
+      "
+      class="progress-note"
+    >
+      资料已处理完但没有有效候选，请重新点击本商品的“开始学习”预览后再试。
+    </p>
     <div class="progress-heading" role="status">
       <span v-if="active" class="progress-spinner" aria-hidden="true" />
       <strong

@@ -44,6 +44,35 @@ const ruleTrigger = computed(() =>
       ? ('transfer-request' as const)
       : ('unpaid-order' as const),
 )
+const rulesExpanded = ref(false)
+const operationError = computed(() =>
+  [
+    ...new Set(
+      [
+        operations.error.value,
+        operations.snapshot.value?.error,
+        operations.snapshot.value?.facts.find((row) => row.storeId === selectedStoreId.value)
+          ?.error,
+      ].filter(
+        (message) => message && message !== '读取真实平台能力失败，请打开平台并重新只读采集',
+      ),
+    ),
+  ].join('；'),
+)
+const selectedRuns = computed(
+  () =>
+    operations.snapshot.value?.runs.filter((run) => run.storeId === selectedStoreId.value) ?? [],
+)
+const activeRuns = computed(() =>
+  selectedRuns.value.filter((run) =>
+    ['pending', 'uncertain', 'blocked', 'executing'].includes(run.state),
+  ),
+)
+const historyRuns = computed(() =>
+  selectedRuns.value.filter(
+    (run) => !['pending', 'uncertain', 'blocked', 'executing'].includes(run.state),
+  ),
+)
 const welcome = ref({ text: '', enabled: false, version: 0 }),
   vision = ref({ enabled: false, version: 0 })
 const inherited = ref(true),
@@ -176,8 +205,12 @@ async function saveGlobal() {
 </script>
 <template>
   <RuntimePanel
-    :title="title"
-    description="配置独立保存；保存不会自动开启店铺 AI 接待。"
+    :title="viewKey === 'transfer' ? '' : title"
+    :aria-label="title"
+    :class="{ 'embedded-reception': embedded }"
+    :description="
+      embedded || viewKey === 'transfer' ? '' : '配置独立保存；保存不会自动开启店铺 AI 接待。'
+    "
     :error="task.error.value"
     :message="task.message.value"
   >
@@ -200,7 +233,7 @@ async function saveGlobal() {
           >文字欢迎语<el-input
             v-model="welcome.text"
             type="textarea"
-            :rows="5"
+            :rows="embedded ? 3 : 5"
             maxlength="200"
             show-word-limit
             aria-label="文字欢迎语"
@@ -249,15 +282,15 @@ async function saveGlobal() {
             maxlength="500"
             :rows="4" /></label
       ></template>
-      <template v-else
-        ><p>
-          关键词命中后标记并暂停本会话 AI。下方可选择真实平台目标客服并配置逐项批准的转接规则。
-        </p>
+      <template v-else>
         <el-switch
           v-model="inherited"
           active-text="继承全局关键词"
           :disabled="task.pending.value" /><label v-if="!inherited"
-          >本店关键词（每行一个）<el-input v-model="keywords" type="textarea" :rows="6" /></label
+          >本店关键词（每行一个）<el-input
+            v-model="keywords"
+            type="textarea"
+            :rows="embedded ? 3 : 6" /></label
       ></template>
       <div class="runtime-actions">
         <el-button
@@ -271,6 +304,7 @@ async function saveGlobal() {
           "
           >保存配置</el-button
         ><el-button
+          v-if="viewKey !== 'transfer'"
           :disabled="task.pending.value"
           @click="
             () => {
@@ -282,36 +316,160 @@ async function saveGlobal() {
         >
       </div>
     </form>
-    <form v-if="viewKey === 'transfer'" class="runtime-form" @submit.prevent="saveGlobal">
-      <h2>全局人工处理关键词</h2>
-      <el-input
-        v-model="globalKeywords"
-        type="textarea"
-        :rows="5"
-        aria-label="全局人工处理关键词"
-      /><el-button :disabled="!runtime.available || task.pending.value" native-type="submit"
-        >保存全局关键词</el-button
-      >
-    </form>
-    <ReceptionRulesPanel
+    <component
+      :is="embedded ? 'details' : 'div'"
+      v-if="viewKey === 'transfer'"
+      class="reception-advanced"
+    >
+      <summary v-if="embedded">全局人工关键词 <span>影响所有继承全局配置的店铺</span></summary>
+      <form class="runtime-form" @submit.prevent="saveGlobal">
+        <h2 v-if="!embedded">全局人工处理关键词</h2>
+        <el-input
+          v-model="globalKeywords"
+          type="textarea"
+          :rows="5"
+          aria-label="全局人工处理关键词"
+        /><el-button :disabled="!runtime.available || task.pending.value" native-type="submit"
+          >保存全局关键词</el-button
+        >
+      </form>
+    </component>
+    <p v-if="embedded && operationError" class="reception-visible-error" role="alert">
+      {{ operationError }}
+    </p>
+    <p
+      v-if="embedded && viewKey !== 'image' && !operations.snapshot.value"
+      class="reception-empty"
+      role="status"
+    >
+      平台接待服务尚未接入，当前不能保存平台规则或执行平台操作。
+    </p>
+    <component
+      :is="embedded && viewKey !== 'welcome' ? 'details' : 'div'"
       v-if="viewKey !== 'image' && selectedStoreId"
-      :workspace-id="runtime.snapshot.workspaceId"
-      :store-id="selectedStoreId"
-      :trigger="ruleTrigger"
-      :preserve-draft="embedded"
-      :snapshot="operations.snapshot.value"
-      :busy="operations.busy.value"
-      @command="operations.execute"
-      @refresh="operations.execute({ type: 'refresh', workspaceId: runtime.snapshot.workspaceId })"
-    />
-    <p v-if="operations.error.value" role="alert">{{ operations.error.value }}</p>
+      class="reception-advanced"
+      :open="embedded && rulesExpanded"
+    >
+      <summary v-if="embedded && viewKey !== 'welcome'">
+        平台接待规则与能力 <span>高级设置 · 逐项批准</span>
+      </summary>
+      <ReceptionRulesPanel
+        v-if="viewKey !== 'image' && selectedStoreId"
+        :workspace-id="runtime.snapshot.workspaceId"
+        :store-id="selectedStoreId"
+        :trigger="ruleTrigger"
+        :preserve-draft="embedded"
+        :media-only="embedded && viewKey === 'welcome'"
+        :snapshot="operations.snapshot.value"
+        :busy="operations.busy.value"
+        @alert="rulesExpanded = true"
+        @command="operations.execute"
+        @refresh="
+          operations.execute({ type: 'refresh', workspaceId: runtime.snapshot.workspaceId })
+        "
+      />
+    </component>
+    <p v-if="!embedded && operations.error.value" role="alert">{{ operations.error.value }}</p>
     <OperationApprovalPanel
-      v-if="viewKey !== 'image' && operations.snapshot.value"
+      v-if="viewKey !== 'image' && operations.snapshot.value && (!embedded || activeRuns.length)"
       :workspace-id="runtime.snapshot.workspaceId"
       :store-id="selectedStoreId"
-      :runs="operations.snapshot.value.runs"
+      :runs="embedded ? activeRuns : operations.snapshot.value.runs"
       :busy="operations.busy.value"
       @command="operations.execute"
     />
+    <details
+      v-if="embedded && viewKey !== 'image' && historyRuns.length"
+      class="reception-advanced"
+    >
+      <summary>
+        历史平台操作 <span>{{ historyRuns.length }} 项</span>
+      </summary>
+      <OperationApprovalPanel
+        :workspace-id="runtime.snapshot.workspaceId"
+        :store-id="selectedStoreId"
+        :runs="historyRuns"
+        :busy="operations.busy.value"
+        @command="operations.execute"
+      />
+    </details>
+    <p v-if="embedded && viewKey !== 'image' && !selectedRuns.length" class="reception-empty">
+      暂无平台操作事项
+    </p>
   </RuntimePanel>
 </template>
+
+<style scoped>
+.embedded-reception {
+  padding: 16px;
+  min-height: 0;
+  height: auto;
+  overflow: visible;
+  border: 1px solid #e5e9f0;
+  border-radius: 8px;
+}
+.embedded-reception :deep(.runtime-page__head) {
+  margin-bottom: 12px;
+}
+.embedded-reception :deep(.runtime-page__head h1) {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.embedded-reception .runtime-form {
+  max-width: none;
+  gap: 12px;
+  margin: 0;
+}
+.embedded-reception .runtime-form > p {
+  margin: 0;
+  color: #78869a;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.embedded-reception .runtime-actions {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.embedded-reception .reception-advanced {
+  margin-top: 12px;
+  border-top: 1px solid #edf0f5;
+}
+.embedded-reception summary {
+  box-sizing: border-box;
+  min-height: 38px;
+  padding: 9px 0;
+  color: #4a5d76;
+  font-size: 13px;
+  cursor: pointer;
+}
+.embedded-reception summary span {
+  margin-left: 8px;
+  color: #94a0b1;
+  font-size: 12px;
+}
+.embedded-reception summary:focus-visible {
+  outline: 2px solid #3779ed;
+  outline-offset: 2px;
+}
+.embedded-reception :deep(.reception-rules) {
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: 0;
+}
+.embedded-reception :deep(.reception-rules h2),
+.embedded-reception :deep(.approval-head h2) {
+  font-size: 16px;
+}
+.embedded-reception .reception-empty {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #98a3b2;
+}
+.embedded-reception .reception-visible-error {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: #c45656;
+  overflow-wrap: anywhere;
+}
+</style>

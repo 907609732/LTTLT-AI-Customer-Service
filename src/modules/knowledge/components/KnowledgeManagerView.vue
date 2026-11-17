@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import KnowledgeToolbar from './KnowledgeToolbar.vue'
+import { useRuntimeStore } from '@/shared/state/runtime'
 import KnowledgeSourceImage from './KnowledgeSourceImage.vue'
 import KnowledgeImportPreview from './KnowledgeImportPreview.vue'
 import KnowledgeBatchResult from './KnowledgeBatchResult.vue'
@@ -18,6 +20,7 @@ import {
   productStatusLabel,
 } from '../manager-labels'
 import { useKnowledgeManager } from '../manager-controller'
+const runtime = useRuntimeStore()
 const {
   desktop,
   storeId,
@@ -235,29 +238,24 @@ const {
       知识迁移失败，当前只读：{{ summary.migration.error }}。原文件已保留，请核对迁移备份。
     </p>
     <div class="knowledge-toolbar">
-      <input
-        v-model="search"
-        aria-label="搜索商品或问答"
-        placeholder="搜索商品名称、编号或问答"
-      /><button :disabled="busy || !capabilities?.catalog" @click="run(() => loadCatalog())">
-        导入平台商品</button
-      ><button :disabled="busy || !capabilities?.import" @click="run(archiveChats)">
-        导入本机归档聊天</button
-      ><button :disabled="busy || !capabilities?.learn" @click="run(learnStore)">
-        学习本店通用资料</button
-      ><button :disabled="busy || !capabilities?.import" @click="run(chooseSources)">
-        {{ tab === 'products' ? '导入商品CSV / 通用资料' : '导入本店通用资料' }}</button
-      ><button
-        data-testid="write-one"
-        class="primary"
-        :disabled="busy || summary?.readOnly || !storeId"
-        @click="run(writeOne)"
-      >
-        ＋ 自己写一件</button
-      ><button @click="run(() => exportEntries('json'))">导出JSON</button
-      ><button @click="run(() => exportEntries('csv'))">导出CSV</button
-      ><button @click="run(() => backup())">全库备份</button
-      ><button @click="run(chooseRestore)">恢复备份</button>
+      <input v-model="search" aria-label="搜索商品或问答" placeholder="搜索商品名称、编号或问答" />
+      <KnowledgeToolbar
+        :busy="busy"
+        :store-id="storeId"
+        :tab="tab"
+        :context-key="`${runtime.snapshot.workspaceId}:${storeId}:${tab}:${view}`"
+        :read-only="summary?.readOnly"
+        :capabilities="capabilities"
+        @catalog="run(() => loadCatalog())"
+        @archive="run(archiveChats)"
+        @learn="run(learnStore)"
+        @sources="run(chooseSources)"
+        @write="run(writeOne)"
+        @export-json="run(() => exportEntries('json'))"
+        @export-csv="run(() => exportEntries('csv'))"
+        @backup="run(() => backup())"
+        @restore="run(chooseRestore)"
+      />
     </div>
     <p v-if="capabilities?.reason" class="knowledge-muted capability">{{ capabilities.reason }}</p>
     <div v-if="view === 'library' || view === 'review'" class="knowledge-selection">

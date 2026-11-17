@@ -33,27 +33,29 @@ E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独�
 
 ## 目录与职责
 
-| 目录                      | 职责                                            |
-| ------------------------- | ----------------------------------------------- |
-| .github                   | 独立主项目的云端检查与 Windows 构建，只上传产物 |
-| electron                  | Electron 主进程、preload、业务运行时与平台接入  |
-| server                    | 独立托管 API、原生管理网页覆盖层与运维说明      |
-| vendor/lingtu-runtime     | 固定来源的客户端运行依赖与许可                  |
-| src/app                   | 入口、布局、路由、菜单注册和演示服务装配        |
-| src/modules/workbench     | 工作台、快捷回复和定时任务界面                  |
-| src/modules/account       | 登录、账号、团队和店铺登录弹窗                  |
-| src/modules/shops         | 店铺、商品及相关弹窗                            |
-| src/modules/reception     | 转人工、欢迎语、自动操作、图片识别              |
-| src/modules/knowledge     | 意图、知识、模型定制和训练                      |
-| src/modules/quality       | 工单、质检和售后预警                            |
-| src/modules/billing       | 充值、订单、算力与账户聚合界面                  |
-| src/modules/settings      | 软件偏好和设置                                  |
-| src/modules/auxiliary     | 辅助中心、聚合后台、助手及弹层                  |
-| src/modules/simulation    | 本机模拟店铺客服台与会话回复界面                |
-| src/shared                | 类型契约、桌面适配、图标、公共 UI               |
-| src/styles/legacy         | 还原样式兼容层，不直接重生成                    |
-| tests / electron/smoke.ts | 逻辑测试 / 真实桌面冒烟                         |
-| artifacts                 | 忽略的源码备份、截图和测试报告                  |
+| 目录                      | 职责                                                  |
+| ------------------------- | ----------------------------------------------------- |
+| .github                   | 独立主项目的云端检查与 Windows 构建，只上传产物       |
+| config                    | TypeScript、ESLint、Prettier 与 electron-builder 配置 |
+| docs/legal                | AGPL、商业授权与第三方权利说明                        |
+| electron                  | Electron 主进程、preload、业务运行时与平台接入        |
+| server                    | 独立托管 API、原生管理网页覆盖层与运维说明            |
+| vendor/lingtu-runtime     | 固定来源的客户端运行依赖与许可                        |
+| src/app                   | 入口、布局、路由、菜单注册和演示服务装配              |
+| src/modules/workbench     | 工作台、快捷回复和定时任务界面                        |
+| src/modules/account       | 登录、账号、团队和店铺登录弹窗                        |
+| src/modules/shops         | 店铺、商品及相关弹窗                                  |
+| src/modules/reception     | 转人工、欢迎语、自动操作、图片识别                    |
+| src/modules/knowledge     | 意图、知识、模型定制和训练                            |
+| src/modules/quality       | 工单、质检和售后预警                                  |
+| src/modules/billing       | 充值、订单、算力与账户聚合界面                        |
+| src/modules/settings      | 软件偏好和设置                                        |
+| src/modules/auxiliary     | 辅助中心、聚合后台、助手及弹层                        |
+| src/modules/simulation    | 本机模拟店铺客服台与会话回复界面                      |
+| src/shared                | 类型契约、桌面适配、图标、公共 UI                     |
+| src/styles/legacy         | 还原样式兼容层，不直接重生成                          |
+| tests / electron/smoke.ts | 逻辑测试 / 真实桌面冒烟                               |
+| artifacts                 | 忽略的源码备份、截图和测试报告                        |
 
 跨模块只经公开入口导入组件。账户聚合依赖账号与设置属于现有界面组合；后续新增业务逻辑应放回各自模块，避免将 billing 扩展为全局业务中心。
 
@@ -121,6 +123,17 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 
 诚实边界：模拟店铺的消息只写在本机记录里，不连接真实平台、不产生真实买家，也不代表平台已送达；界面与页面都必须写明这一点。
 
+## 闲鱼网页版店铺
+
+闲鱼通过同一个 `extraPlatforms` 注入点进入平台白名单（`xianyu`），页面仍由厂商 `ShopWindowManager` 按 desk-v1 的入口 `https://www.goofish.com/im` 建 `WebContentsView`，不另开独立窗口；`electron/local-runtime.ts` 用 `vendorManager.webContentsOf(storeId)` 把同一页面交给本工程适配器。
+
+- `vendor/xianyu-bridge/bridge.js` 是从用户提供的 kb-port 原样复制的桥接脚本（版本 v59，来源与哈希见同目录 PROVENANCE），只向 goofish 页面注入；不修改 `vendor/lingtu-runtime` 的哈希清单。
+- `electron/xianyu/bridge-client.ts` 提供 Electron 传输层：给页面补 `window.ipc.postMessage` 最小 shim，请求与回包按 id 配对，事件（如商品清单捕获）经有界收件箱交给宿主；页面导航后重新注入，非 goofish 页面拒绝注入。
+- `electron/xianyu/adapter.ts` 实现适配器契约 v2：readiness 登录/验证判断、待回复会话发现、会话切换、历史读取、文字/图片发送与重读核对、当前会话事件采样。闲鱼没有平台 msgId 与绝对时间，消息身份用「时间标签 + 组内序号」合成，按 HH:MM 换算当天时间仅用于排序；不碰 WebSocket，也不自行实现 MTop 签名。
+- “待回复”以会话里最后一条是我方消息之后的新买家消息为准；`discard` 按 msgId 记住已处理批次，避免同一批消息重复生成。同名「买家 × 商品」多会话由页面 `activateChat` 按未读/当前项挑选，判不定就报 ambiguous，不猜。
+- 登录态只来自页面 readiness：未登录、验证滑块、连接断开分别返回 `hook_not_ready` 并保留内嵌页面；未检查时为 `null`，不显示为已登录。登录完成后需要重新点开店铺触发一次健康检查。
+- 诚实边界：商品采集/学习、视频发送、未打开会话的全局消息监听尚未接入；`drainEvents` 只采样当前打开的会话，AI 轮询 `popPending` 时会顺带激活待回复会话。
+
 ## 导航与兼容
 
 路由仍用 hash，兼容 Electron 的 file 加载。既有路由和重定向保留；配置中心的 `?panel=` 参数选择注册面板，非法值回到店铺页。
@@ -135,9 +148,9 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 
 ## 商品目录查询与本地商家编码
 
-主进程createProductCatalog复用原商品知识分页，公共execute对list-products及set-product-codes作受限装配；编码独立JSON按账号/店铺隔离，写锁+revision CAS+商品版本检查后原子提交。前端商品服务解析严格目录契约，组件只用领域服务。原产品结构、模型检索及CSV格式不变，无新依赖或vendor补丁。
+主进程createProductCatalog复用原商品知识分页，公共execute对list-products及set-product-codes作受限装配；编码独立JSON按店铺隔离（共用本机工作区，不再按软件账号拆分），写锁+revision CAS+商品版本检查后原子提交。前端商品服务解析严格目录契约，组件只用领域服务。原产品结构、模型检索及CSV格式不变，无新依赖或vendor补丁。
 
-后续平台编码修正：目录merchantCode和platformDetail来自platform-product-store账号/店铺隔离侧档，旧本机编码不再显示为平台编码，旧set-product-codes明确拒绝且保留旧文件。pdd-learning-provider通过原生商品编辑入口只读导航，platform-product-dom及platform-product-observer分别读取表单与固定原生详情响应，platform-product-merge按规格组合核验后保存。没有新IPC或vendor修改；平台页面仍无应用preload，未知字段不补造。
+后续平台编码修正：目录merchantCode和platformDetail来自platform-product-store店铺隔离侧档，旧本机编码不再显示为平台编码，旧set-product-codes明确拒绝且保留旧文件。pdd-learning-provider通过原生商品编辑入口只读导航，platform-product-dom及platform-product-observer分别读取表单与固定原生详情响应，platform-product-merge按规格组合核验后保存。没有新IPC或vendor修改；平台页面仍无应用preload，未知字段不补造。
 
 createProductSpecContext装配于正式AiClient及训练共用prepareModelContext，在既有通用表达和token计量之前选择本店enabled商品的匹配SKU；来源仅作user数据块，静态约束保留系统优先级。旧商品全文命中被受核验规格替换，意图资料及图片仍保留；未指定/未知/歧义规格要求澄清。工作区变化或取消后不继续发模型请求，发送确认门不变。
 
@@ -146,3 +159,7 @@ Task4 review round1: source replacement now uses stable logical positions and re
 2026-11-15 final integration: `local-runtime → knowledge/daily → existing collector` persists per-shop Beijing day claims and quiet jobs in the same SQLite. `WorkspaceRuntime.restoreKnowledge → prepareRestore → full runtime disposal → stopped-writer restore → same-account factory` owns reopen/recovery; ordinary knowledge IPC cannot replace files. Explicit restore returns/rebinds a new lease without changing configured model source or persisted send mode, respecting startup AI-off defaults. `knowledge/budget` uses Node worker_threads with the existing js-tiktoken codec and context count function; full low-level requests are rejected at16K before model I/O. No new dependency or renderer filesystem/network access.
 
 2026-11-15：shops基础设置通过settings公开ReplyPacingSettings控件复用REPLY_PACING。主进程加载Config时修正低于1秒旧值，新配置1秒且保留已有合法间隔。生产调度timedTasksEnabled:false仅禁用独立定时任务，保留接待事件调度。
+
+店铺AI恢复由electron/store-ai-preferences.ts与ai-state-restore.ts在主进程协调，接入local-runtime普通启动、平台身份事件及显式开关命令；共享店铺快照仅暴露可选恢复状态，不公开存储身份。知识库维护重建抑制恢复，规则与验证边界见AI_STATE_RESTORE.md。
+
+2026-11-16（1.0.35）：详细日志通过现有 runtime 命令 clear-runtime-logs 清除有界内存中的已完成记录；不会删除持久化会话、批准候选或取消在途请求。Desktop 新增可选 isAlwaysOnTop/setAlwaysOnTop，preload 对应受信来源窗口 IPC win:is-always-on-top/win:set-always-on-top，布尔输入校验。日志窗以原生 app-region 拖动，工具栏 no-drag；无新增生产依赖。

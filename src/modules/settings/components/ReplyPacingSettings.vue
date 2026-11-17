@@ -40,38 +40,75 @@ watch(
 )
 </script>
 <template>
-  <section aria-label="AI 回复间隔">
-    <h3>AI 回复间隔</h3>
+  <section class="reply-pacing-settings" aria-label="AI 回复间隔">
     <form class="runtime-form reply-pacing" @submit.prevent="savePacing">
       <label
-        >AI 回复最少间隔（秒）<el-input-number
+        >回复间隔<el-input-number
           v-model="pacingSeconds"
           aria-label="同一买家回复间隔（秒）"
+          size="small"
           :min="1"
           :max="3600"
           :step="1"
           :precision="0"
           :disabled="pacingTask.pending.value"
           @change="pacingDirty = true"
-      /></label>
-      <p>
-        当前：{{ runtime.snapshot.config.reply.perUidMinIntervalMs / 1000 }} 秒；最少 1
-        秒，全局生效（所有店铺）。
-      </p>
+        /><span>秒</span></label
+      >
       <div class="runtime-actions">
         <el-button
           type="primary"
           native-type="submit"
           :loading="pacingTask.pending.value"
           :disabled="!runtime.available || pacingSeconds === null"
-          >保存回复间隔</el-button
-        ><el-button :disabled="pacingTask.pending.value" @click="reloadPacing"
-          >载入已保存间隔</el-button
+          size="small"
+          aria-label="保存回复间隔"
+          >保存</el-button
         >
       </div>
+      <p class="pacing-current" title="最少 1 秒，全局生效（所有店铺）">
+        当前 {{ runtime.snapshot.config.reply.perUidMinIntervalMs / 1000 }} 秒 · 全局生效
+      </p>
     </form>
     <p v-if="pacingTask.error.value" role="alert">{{ pacingTask.error.value }}</p>
     <p v-if="pacingTask.message.value" role="status">{{ pacingTask.message.value }}</p>
-    <p>间隔单独保存，保存不会开启 AI 或发送消息。</p>
   </section>
 </template>
+
+<style scoped>
+.reply-pacing-settings {
+  margin: 12px 0;
+}
+.reply-pacing {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin: 0;
+}
+.reply-pacing > label {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.reply-pacing :deep(.el-input-number) {
+  width: 96px;
+}
+.reply-pacing .runtime-actions {
+  gap: 0;
+}
+.pacing-current {
+  margin: 0;
+  font-size: 12px;
+  color: #71819a;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.reply-pacing-settings > p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+</style>

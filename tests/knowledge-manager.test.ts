@@ -12,6 +12,7 @@ import type {
 } from '../src/shared/contracts/knowledge'
 import KnowledgeCatalogDialog from '../src/modules/knowledge/components/KnowledgeCatalogDialog.vue'
 import KnowledgeProductCards from '../src/modules/knowledge/components/KnowledgeProductCards.vue'
+import KnowledgeToolbar from '../src/modules/knowledge/components/KnowledgeToolbar.vue'
 import KnowledgeManagerView from '../src/modules/knowledge/components/KnowledgeManagerView.vue'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -33,6 +34,8 @@ const fake = vi.hoisted(() => ({
   sourceHistory: vi.fn(),
   entryHistory: vi.fn(),
   backup: vi.fn(),
+  export: vi.fn(),
+  restorePreview: vi.fn(),
   clearPreview: vi.fn(),
   clear: vi.fn(),
   restore: vi.fn(),
@@ -1539,6 +1542,13 @@ it('shows loading and progress only on the owning product and preserves recovery
     })
     expect(wrapper.find('.progress-spinner').exists()).toBe(false)
     expect(wrapper.text()).toContain('待审核')
+    await wrapper.setProps({
+      jobs: [
+        { ...job, id: 'newer-completed', status: 'succeeded', createdAt: 2 },
+        { ...job, status: 'failed', checkpoint: { state: 'received' } },
+      ],
+    })
+    expect(wrapper.findAll('button').some((button) => button.text().includes('计费'))).toBe(true)
     await wrapper.setProps({ jobs: [{ ...job, storeId: 'other' }] })
     expect(wrapper.find('progress').exists()).toBe(false)
     wrapper.unmount()
@@ -1584,4 +1594,67 @@ it('refreshes inline running progress and stops polling after unmount', async ()
   } finally {
     vi.useRealTimers()
   }
+})
+it('loads every page of unfinished progress rather than losing older recovery controls', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  const original = fake.query.getMockImplementation()!
+  const jobs = Array.from({ length: 101 }, (_, i) => ({
+    id: `paused-${i}`,
+    storeId: 'a',
+    kind: 'learn',
+    status: 'paused',
+    payload: { bindingIds: ['one'] },
+    checkpoint: {},
+    progress: { completed: 0, total: 2 },
+  }))
+  fake.query.mockImplementation(async (input) =>
+    input.type === 'jobs'
+      ? {
+          items: jobs.slice(input.page.offset || 0, (input.page.offset || 0) + 100),
+          total: 101,
+          revision: 1,
+        }
+      : original(input),
+  )
+  await manager.refresh()
+  expect(manager.jobs.value).toHaveLength(101)
+  wrapper.unmount()
+})
+
+it('toolbar events preserve original controller routes, export formats and full-library backup/restore preview scope', async () => {
+  const { wrapper } = await setup(),
+    toolbar = wrapper.findComponent(KnowledgeToolbar)
+  // These fixtures verify routing only, and intentionally stop before real collection/export.
+  fake.pipeline.mockRejectedValue(new Error('fixture stops before external operation'))
+  for (const [event, action] of [
+    ['catalog', 'catalog'],
+    ['learn', 'store-materials'],
+    ['sources', 'choose-sources'],
+  ] as const) {
+    toolbar.vm.$emit(event)
+    await flushPromises()
+    expect(fake.pipeline).toHaveBeenCalledWith(expect.objectContaining({ action, storeId: 'a' }))
+  }
+  toolbar.vm.$emit('archive')
+  await flushPromises()
+  expect(wrapper.find('[aria-label="选择归档聊天范围"]').exists()).toBe(true)
+  fake.export.mockRejectedValue(new Error('fixture stops before file download'))
+  for (const [event, format] of [
+    ['exportJson', 'json'],
+    ['exportCsv', 'csv'],
+  ] as const) {
+    toolbar.vm.$emit(event)
+    await flushPromises()
+    expect(fake.export).toHaveBeenCalledWith('a', format, undefined)
+  }
+  toolbar.vm.$emit('backup')
+  await flushPromises()
+  expect(fake.backup).toHaveBeenLastCalledWith(undefined)
+  fake.restorePreview.mockResolvedValue(undefined)
+  toolbar.vm.$emit('restore')
+  await flushPromises()
+  expect(fake.restorePreview).toHaveBeenCalledWith()
+  expect(fake.restore).not.toHaveBeenCalled()
+  wrapper.unmount()
 })

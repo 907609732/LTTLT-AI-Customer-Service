@@ -1,0 +1,93 @@
+name: Upload verified Windows release assets
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft release tag
+        required: true
+        type: string
+      run_id:
+        description: Successful desktop build run ID
+        required: true
+        type: string
+      source_sha:
+        description: Exact application source commit
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: release-assets-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  upload:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}
+      SOURCE_RUN_ID: ${{ inputs.run_id }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate existing tag, successful source run and draft release
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" > build.json
+          gh release view "$TAG" --json isDraft,tagName > draft.json
+          gh api "repos/$GH_REPO/git/ref/tags/$TAG" > tag.json
+          if [[ $(jq -r '.object.type' tag.json) == tag ]]; then
+            tag_object=$(jq -r '.object.sha' tag.json)
+            gh api "repos/$GH_REPO/git/tags/$tag_object" > tag.json
+          fi
+          node <<'NODE'
+          const fs = require('node:fs');
+          const build = JSON.parse(fs.readFileSync('build.json'));
+          const draft = JSON.parse(fs.readFileSync('draft.json'));
+          const tag = JSON.parse(fs.readFileSync('tag.json'));
+          if (build.status !== 'completed' || build.path !== '.github/workflows/lingtu-ai-desktop.yml' || build.head_repository.full_name !== process.env.GH_REPO || build.conclusion !== 'success' || build.head_sha !== process.env.SOURCE_SHA || tag.object.sha !== process.env.SOURCE_SHA || draft.isDraft !== true || draft.tagName !== process.env.TAG) throw Error('Source/tag/draft validation failed');
+          NODE
+      - uses: actions/download-artifact@v4
+        with:
+          name: lingtu-ai-windows-${{ inputs.source_sha }}
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id }}
+          path: release
+      - name: Verify package manifest and every checksum
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const version = process.env.TAG.slice(1);
+          const expected = [`LingtuAI-Setup-${version}-win-x64.exe`, `LingtuAI-${version}-win-x64.zip`, 'RELEASE-MANIFEST.json'];
+          const files = fs.readdirSync('release').sort();
+          if (JSON.stringify(files) !== JSON.stringify([...expected, 'SHA256SUMS.txt'].sort())) throw Error('Unexpected artifact file set');
+          const manifest = JSON.parse(fs.readFileSync('release/RELEASE-MANIFEST.json', 'utf8').replace(/^\uFEFF/, ''));
+          if (manifest.version !== version || manifest.sourceCommit !== process.env.SOURCE_SHA || manifest.workflow !== `https://github.com/${process.env.GH_REPO}/actions/runs/${process.env.SOURCE_RUN_ID}`) throw Error('Manifest source mismatch');
+          const lines = fs.readFileSync('release/SHA256SUMS.txt', 'utf8').trim().split(/\r?\n/);
+          if (lines.length !== expected.length) throw Error('Incomplete checksums');
+          const seen = new Set();
+          for (const line of lines) {
+            const match = /^([a-f0-9]{64})  (.+)$/.exec(line);
+            if (!match || !expected.includes(match[2]) || seen.has(match[2])) throw Error('Unexpected checksum entry');
+            seen.add(match[2]);
+            const actual = crypto.createHash('sha256').update(fs.readFileSync(`release/${match[2]}`)).digest('hex');
+            if (actual !== match[1]) throw Error(`Checksum mismatch: ${match[2]}`);
+          }
+          NODE
+      - name: Upload only to the existing draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ $(gh release view "$TAG" --json isDraft --jq '.isDraft') == true ]]
+          gh release upload "$TAG" release/* --clobber

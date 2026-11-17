@@ -27,15 +27,11 @@ app.on('window-all-closed', () => {})
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
 const origin = 'https://reporting-fixture.invalid'
 const userId = stage === 'b' ? 902 : 901
-const expected = stage === 'b' ? 2 : 1
+// 本机与所有托管账号共用同一工作区，账号 B 只验证不会改写账号 A 的事件证据。
+const expected = 1
 const dataRoot = path.join(root, 'runtime')
 const auth = path.join(dataRoot, 'managed-auth', hash(origin))
-const dataDir = path.join(
-  dataRoot,
-  'managed-workspaces',
-  hash(origin),
-  hash(JSON.stringify(userId)),
-)
+const dataDir = dataRoot
 const checks: string[] = []
 let runtime: LocalRuntime | undefined, win: BrowserWindow | undefined, off: (() => void) | undefined
 let networkAttempts = 0
@@ -88,7 +84,8 @@ void app
         }),
       ),
     )
-    if (stage !== 'a-restart') {
+    // 只在首阶段建立共用资料；后续账号和重启必须读取同一份本机数据，不能覆盖。
+    if (stage === 'a-first') {
       const now = Date.now()
       fs.writeFileSync(
         path.join(dataDir, 'stores.json'),
@@ -97,7 +94,7 @@ void app
             {
               id: 'fixture-store',
               platform: 'pdd-web',
-              storeName: '隔离验证，非实店',
+              storeName: '共用工作区验证，非实店',
               createdAt: now,
               aiEnabled: false,
             },
@@ -195,7 +192,7 @@ void app
     checks.push('real runtime observes archive after managed session initialization')
     assert.equal(runtime.dataDirectory(), dataDir)
     assert.equal(runtime.snapshot().managed.session.account?.userId, userId)
-    checks.push('actual managed account selects its stable isolated directory')
+    checks.push('actual managed account reads the shared local directory')
     win = createWindow({ smoke: true })
     off = registerBusinessIpc(runtime)
     await loadRenderer(win, '/shop/manage?panel=home')
@@ -259,9 +256,13 @@ void app
       action: 'managed-logout',
       values: {},
     })
-    assert.equal(runtime.snapshot().reporting, null)
-    checks.push('logout masks old account reporting immediately')
-    assert.equal(schedulerBeforeLogout.snapshot().running, false, 'logout must pause scheduler')
+    assert.equal(runtime.snapshot().reporting?.today.real['buyer-message'], expected)
+    checks.push('logout keeps shared local reporting visible')
+    assert.equal(
+      schedulerBeforeLogout.snapshot().running,
+      true,
+      'logout keeps shared local scheduler',
+    )
     await runtime.execute({
       workspaceId: snapshot.workspaceId,
       action: 'managed-login',

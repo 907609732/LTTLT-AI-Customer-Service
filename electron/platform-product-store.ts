@@ -19,7 +19,7 @@ const storedSchema = z
     (value) => new Set(value.items.map((row) => row.productId)).size === value.items.length,
     '商品来源重复',
   )
-/** Source snapshots are separate from edited knowledge; directory is already account-scoped. */
+/** Source snapshots are separate from edited knowledge and scoped by the platform store id. */
 export function createPlatformProductStore(options: Options) {
   const cache = new Map<
     string,

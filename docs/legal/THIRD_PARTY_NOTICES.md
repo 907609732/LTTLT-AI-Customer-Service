@@ -32,7 +32,7 @@
 
 ## 外部贡献与商业交付
 
-商业许可只能覆盖授权方拥有或取得有效再许可权的材料。贡献者保留其合法权利；仅按 AGPL 获得的贡献不得直接推定为可闭源再许可。维护者须按 [CONTRIBUTING.md](CONTRIBUTING.md) 核实相应授权。
+商业许可只能覆盖授权方拥有或取得有效再许可权的材料。贡献者保留其合法权利；仅按 AGPL 获得的贡献不得直接推定为可闭源再许可。维护者须按 CONTRIBUTING.md 核实相应授权。
 
 若具体文件含有更具体的第三方许可或权利声明，应保留并遵守该声明。发现缺失或错误的来源信息时，可在本仓库提交仅包含必要公开信息的 Issue，由维护者核实更正；不要公开上传未授权的私密材料。
 
@@ -58,3 +58,9 @@ Copyright (c) 2020-2026 by Jos de Jong
 Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
 
 THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL ISC BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+## 闲鱼页面桥接脚本（vendor/xianyu-bridge）
+
+`vendor/xianyu-bridge/bridge.js` 来源为用户提供的本地参考工程 `F:\shanhui-app\kb-port\bridge\bridge.js`（上游桥版本 v59，原始副本 SHA-256 `97ddde7ba171f75b5d3953f5aea281f8aa3be0150f995cde5e4d9a68a796335b`）。当前文件不是未经修改的上游原件：本地先加入时间标签兼容（该阶段 SHA-256 `487319969713a133484c13b7d7807f599119ff7245a867fb80ba8a554c85b220`，447941 字节），再加入 `write` / `commit` / `pasteImage` / `confirmImageSend` 的最小同步校验（精确买家键、写入/粘贴前原有草稿、提交前正文）；当前副本 SHA-256 为 `24202b955203a89573084cd7d349a8ecd98c21725f6eba8c30a7e1d00371fb03`，452373 字节。来源、补丁和用途见 `vendor/xianyu-bridge/PROVENANCE.md`。
+
+2026-11-17 用户确认：该参考工程代码由用户本人所有，用户可以公开分发。此处只记录这一事实与来源，保留来源工程 `package.json` 的 `"license": "UNLICENSED"` 标注，不另行创设新的许可证条款；如需明确的再分发许可文本，应由权利人另行提供。本项目的软件许可文本不覆盖该文件。

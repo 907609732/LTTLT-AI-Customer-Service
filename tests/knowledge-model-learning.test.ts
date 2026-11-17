@@ -694,3 +694,31 @@ it('accepts image OCR with owned provenance but rejects extra answers and dynami
   for (mode of ['extra', 'dynamic']) expect((await run()).status).toBe('failed')
   expect(repo.listEntries({ storeId: 's' }).total).toBe(2)
 })
+it('continues later sources after rejecting every candidate in one response and preserves rejected evidence', async () => {
+  let calls = 0
+  const { repo, b, learner } = setup(async () => {
+    calls++
+    return JSON.stringify({
+      candidates: [
+        {
+          question: '等级',
+          answer: calls === 1 ? '不存在' : '纯棉',
+          evidence: calls === 1 ? '编造原文' : '纯棉',
+          field: 'fact',
+        },
+      ],
+    })
+  })
+  const ids = ['第一份', '第二份纯棉'].map(
+    (text) =>
+      repo.saveSource({ storeId: 's', bindingId: b.id, kind: 'document', label: text, text }).id,
+  )
+  const e = await learner.estimate('s', [b.id], ids)
+  const j = await learner.start('s', [b.id], ids, e.estimateId)
+  const result = await settled(repo, j.jobId)
+  expect(result.progress.completed).toBe(2)
+  expect(calls).toBe(2)
+  expect(result.error).toContain('1条无有效依据')
+  expect(repo.listEntries({ storeId: 's' }).items.map((x) => x.draft.answer)).toEqual(['纯棉'])
+  expect(repo.getMetadata(`learning-rejected-evidence:${j.jobId}:0`)).toContain('编造原文')
+})

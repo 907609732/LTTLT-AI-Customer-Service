@@ -1,3 +1,4 @@
+import { isRecoverableKnowledgeJob } from '@/shared/knowledge-progress'
 import { publishKnowledgeBatch, type BatchReviewResult } from './batch-review'
 import { useKnowledgeIngestion } from './ingestion-controller'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -257,6 +258,23 @@ export function useKnowledgeManager() {
     await client().pipeline(input)
     await refresh()
   }
+  async function progressJobs(service: ReturnType<typeof client>, shop: string) {
+    const first = await service.query({ type: 'jobs', page: { storeId: shop, limit: 100 } })
+    let last = first.items,
+      offset = last.length
+    const items = new Map(first.items.map((job) => [job.id, job]))
+    // The repository puts unfinished work first; fetch further pages only while recovery work continues.
+    while (offset < first.total && last.length && last.every(isRecoverableKnowledgeJob)) {
+      const next = await service.query({
+        type: 'jobs',
+        page: { storeId: shop, offset, limit: 100 },
+      })
+      last = next.items
+      offset += last.length
+      for (const job of last) items.set(job.id, job)
+    }
+    return { ...first, items: [...items.values()] }
+  }
   async function refresh() {
     if (!storeId.value || !workspace.value) return
     const id = ++ticket,
@@ -274,7 +292,7 @@ export function useKnowledgeManager() {
       const [nextSummary, nextCapabilities, nextJobs] = await Promise.all([
         service.query({ type: 'summary', storeId: s }),
         service.pipeline({ action: 'capabilities', storeId: s }),
-        service.query({ type: 'jobs', page: { storeId: s, limit: 100 } }),
+        progressJobs(service, s),
       ])
       assertLease(w, s)
       if (id !== ticket) return

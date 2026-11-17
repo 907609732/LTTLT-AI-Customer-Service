@@ -18,6 +18,8 @@ npm run test:desktop
 
 第一次对接前请先读 CONSTRAINTS 和 HANDOFF。环境、下载与故障排查见 OPERATIONS。
 
+根 `tsconfig.json` 是共享基础配置；Electron、服务端工具与脚本检查使用 `config/` 内对应项目配置，统一由 `npm run typecheck` 调用。Lint、格式与桌面打包配置同样位于 `config/`；使用 `npm run lint`、`npm run format` 和 `npm run format:check`，不要直接运行未指定 ignore 的 `npx prettier --write .`，以免格式化 vendor 或法律文本。
+
 ## 当前功能接入基线
 
 默认自带模型密钥模式，桌面本地后端已接线；用户可在设置中显式选择托管服务。先读 LOCAL_INTEGRATION.md、MANAGED_SERVICE.md 和 HANDOFF，不要把托管账号登录变成本机模式的使用前置条件。下一项业务验收由用户使用测试店铺和自己的模型凭证完成。

@@ -16,6 +16,7 @@ const router = useRouter()
 <style scoped>
 .recharge-page {
   min-height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   background: #f5f8fc;
 }
 button {

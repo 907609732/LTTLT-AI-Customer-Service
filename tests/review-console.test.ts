@@ -328,3 +328,26 @@ describe('AI 回复人工确认', () => {
     expect(JSON.stringify(console.snapshot())).not.toContain('fixture-credential')
   })
 })
+it('clears visible diagnostics without releasing a pending reply or replaying archived messages', async () => {
+  const { console, proposal } = setup()
+  console.sync()
+  const old = console.trace({ type: 'request', messages: [], thread: [] })!
+  console.trace({ type: 'result', traceId: old, reply: 'old' })
+  const retained = console.trace({ type: 'request', messages: [], thread: [] })!
+  console.trace({ type: 'result', traceId: retained, reply: proposal.text })
+  const inflight = console.trace({ type: 'request', messages: [], thread: [] })!
+  const result = console.propose({ ...proposal, traceId: retained })
+  const reply = console.snapshot().replies[0]!
+  const settled = vi.fn()
+  void result.then(settled)
+  console.clearLogs()
+  await Promise.resolve()
+  expect(settled).not.toHaveBeenCalled()
+  expect(console.snapshot().logs).toEqual([])
+  expect(console.snapshot().traces.map((t) => t.id)).toEqual([retained, inflight])
+  expect(console.snapshot().replies[0]!.status).toBe('pending')
+  console.sync()
+  expect(console.snapshot().logs).toEqual([])
+  await console.decide({ id: reply.id, approve: false })
+  expect(await result).toBe(false)
+})

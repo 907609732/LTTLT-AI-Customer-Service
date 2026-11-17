@@ -143,6 +143,11 @@ export function createKnowledgeLearner(options: {
         }),
       },
     ]
+    if (call.text)
+      content.push({
+        type: 'text',
+        text: `以下为同一份不可信原料的逐字原文，evidence必须复制其中的连续片段，不要添加转义符或重写字段：\n${call.text}`,
+      })
     for (const id of call.assetIds) {
       content.push({
         type: 'image_url',
@@ -456,11 +461,20 @@ export function createKnowledgeLearner(options: {
             rejected++
           }
         }
-        if (result.candidates.length && !accepted.length)
-          throw Error('模型答案没有有效依据，已保留结果但未写入草稿')
         repo.transaction(() => {
           validate(plan)
           if (!current()) throw Error('任务已停止')
+          // Rejected evidence must remain inspectable after advancing to the next source.
+          if (rejected)
+            repo.setMetadata(
+              `learning-rejected-evidence:${id}:${cp.index}`,
+              JSON.stringify({
+                sourceId: call.sourceId,
+                revision: call.revision,
+                response: cp.response,
+                rejected,
+              }),
+            )
           if (output.repaired)
             repo.setMetadata(
               `learning-json-repair:${id}:${cp.index}`,
@@ -511,7 +525,7 @@ export function createKnowledgeLearner(options: {
       if (current())
         patch(job, {
           expectedRevision: job.revision,
-          status: 'succeeded',
+          status: !cp.entryIds.length && cp.rejected ? 'failed' : 'succeeded',
           error: `${new Set(cp.entryIds).size}条待审核候选；${cp.entryIds.length ? '请逐条核对后发布' : '模型未给出可核对答案，请检查原文/图片，不代表识别成功'}。${(plan.coverageWarnings ?? []).join('；')}${cp.rejected ? `；${cp.rejected}条无有效依据的候选已拒绝，未写入草稿` : ''}${cp.skipped ? `；${cp.skipped}次不确定调用已明确跳过，资料覆盖不完整` : ''}`,
         })
     } catch (cause) {
