@@ -1,0 +1,18 @@
+# Prettier resolves these entries relative to this file; ../ targets the repository root.
+../node_modules
+../dist
+../dist-electron
+../dist-electron.previous
+../artifacts
+../coverage
+../release
+../package-lock.json
+# Local agent scratch includes generated reviews, logs and task briefs.
+../.superpowers/sdd
+# Preserve the existing repository's legal text verbatim.
+../docs/legal/COMMERCIAL_LICENSE.md
+../docs/legal/LICENSING.md
+../docs/legal/THIRD_PARTY_NOTICES.md
+../src/styles/legacy
+../vendor/
+../server/

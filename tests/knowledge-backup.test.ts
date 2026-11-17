@@ -344,7 +344,10 @@ it('retains post-backup identity audit but removes its active scope, and refuses
     repo = createKnowledgeRepository({ directory: join(dir, 'live'), workspaceId: 'verify' })
     expect(repo.getEntry(otherDraft.id)?.approved?.answer).toBe('v2')
     expect(repo.getSource(source.id)?.text).toBe('v2')
-    expect(inspectKnowledgeBackup(backup.directory).scope?.canonicalId).toBe(a.id)
+    expect(inspectKnowledgeBackup(backup.directory).scope).toMatchObject({
+      kind: 'family',
+      canonicalId: a.id,
+    })
   } finally {
     repo.dispose()
     rmSync(dir, { recursive: true, force: true })

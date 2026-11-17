@@ -18,11 +18,11 @@ func TestBillingConfigurationFailsClosed(t *testing.T) {
 	t.Setenv("LINGTU_BILLING_STRIPE_WEBHOOK_SECRET", "")
 	t.Setenv("LINGTU_BILLING_PLANS", `[{"id":"starter","name":"Starter","currency":"cny","amount":1000,"calls":100,"valid_days":30}]`)
 	config := loadBillingConfig()
-	if config.Ready || len(config.Plans) != 0 {
+	if config.Ready || len(config.Plans) != 2 {
 		t.Fatalf("unexpected config %+v", config)
 	}
 	t.Setenv("LINGTU_BILLING_PLANS", `[{"id":"bad","name":"Bad","currency":"cny","amount":1.5,"calls":100,"valid_days":30}]`)
-	if len(loadBillingConfig().Plans) != 0 {
+	if len(loadBillingConfig().Plans) != 2 {
 		t.Fatal("fractional minor currency accepted")
 	}
 }
@@ -56,8 +56,19 @@ func TestBillingRegisteredRoutesExposeVersionAndDenyAnonymousCustomersAndAdmins(
 		BillingProtocol int      `json:"billing_protocol"`
 		Capabilities    []string `json:"capabilities"`
 	}
-	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version == "" || info.BillingProtocol != 2 || len(info.Capabilities) == 0 {
+	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version != "2026.11.17-cost.3" || info.BillingProtocol != 2 {
 		t.Fatalf("missing deployed capability/version: %+v status %d", info, response.StatusCode)
+	}
+	// Production native payment, reconciliation, quota and free summary must stay
+	// advertised while the merged cost estimate becomes discoverable.
+	for _, required := range []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates"} {
+		found := false
+		for _, capability := range info.Capabilities {
+			found = found || capability == required
+		}
+		if !found {
+			t.Fatalf("missing deployed capability %s: %+v", required, info.Capabilities)
+		}
 	}
 }
 
@@ -166,9 +177,9 @@ func TestBillingSignedWebhookCommitsAndRejectsTampering(t *testing.T) {
 			t.Fatalf("valid webhook status %d", code)
 		}
 	}
-	var grant lingtu.TrialGrant
+	var grant lingtu.PaidGrant
 	db.First(&grant, "user_id = ?", 42)
-	if grant.Limit != 7 {
+	if grant.Limit != 5 {
 		t.Fatalf("incorrect grant %+v", grant)
 	}
 }

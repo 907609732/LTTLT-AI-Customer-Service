@@ -42,3 +42,12 @@ overlay/lingtuhost/chat.go、vision.go 和 vision_test.go 允许受限 PNG 分�
 新增自有 model_costs.go 与测试，复用固定上游现有 shopspring/decimal，按配置人民币单价计算实际返回 Token 的管理成本估算。ModelConnection 和 managedUsage 仅增量字段；原配置 proof / audit / revision、调用和钱包账本保持。旧调用回算与新调用价格快照明确区分。导入文件修改保留原始哈希与补丁说明，详细契约见 docs/MANAGED_SERVICE.md。
 
 2026-11-16：在最新 main 原生成本、支付配置和视觉能力上整合人民币微元费用、缓存计价、不可回推的历史快照与旧接口兼容，复用已有 Gin/GORM/React、decimal 和固定 New API。微元算法参考现有 New API/LiteLLM 计费口径，无新增运行依赖。增加临时 Vault 测试入口、官方原生数据库工具编排与 MySQL 支付会话幂等回读；不合入其他分支的摘要、原生支付或桌面改动。来源原摘要保留，维护摘要更新。
+## 2026-11-17 生产原生支付/额度/摘要与微元成本合并
+
+以生产来源归档 server/artifacts/production-source.tar.gz（base 209f7b77d27fea6ad4aea89c0674d954a4e44649）为准，与当前 f476016 成本覆盖层做三方合并。生产侧原样保留 lingtu/quota.go、lingtu/trial.go、lingtu/limits.go、lingtuhost/billing_native*.go、lingtuhost/summary.go、lingtuhost/routes.go、lingtuhost/billing*.go 及其测试；当前侧保留微元成本、缓存价、价格快照和费用后台。lingtuhost/chat.go、chat_test.go 逐段融合，未用旧版页面覆盖成本 UI，也未把生产摘要/额度替换为旧实现。patches.json 同时保留生产 go.mod/go.sum 的 GoPay 依赖和当前详细 token 用量补丁。
+
+服务版本更新为 2026.11.17-cost.1，能力名在生产全集上增加 	oken-cny-cost-estimates。摘要走同一 prepareChat 路径，因此沿用价格快照并保存 cost_micros/cost_status，但仍通过 SettleAuxiliary 免扣调用次数；主聊天保留生产原生额度扣费。未修改商户配置字段、密钥序列化、账本唯一键、回调验签或支付 SDK。来源原始 SHA256 保留，最终维护文件哈希在 source-files.json 更新。
+
+## 2026-11-17 cost.2 历史回算与日月报表
+
+服务版本更新为 2026.11.17-cost.2，未改变计费协议和支付能力。新增只读历史当前价格估算字段与报表合计；仅当记录缺少快照和持久化状态、记录渠道与模型精确匹配当前 `CostRateModel` 且用量与单价可用时估算，缓存明细缺失时按普通输入价并显式标注。原 `cost_micros`、`cost_status`、数据库行和 `cache_usage_known` 不变，已有快照优先且不重复计数。日接口保持默认 7/30 天语义，新增 `period=month` 近 12 个自然月、独立 `today`/`this_month` 和严格参数校验；管理网页新增日/月金额卡、分周期金额表与费用图，保留模型筛选和 Token 图。支付、额度、摘要免扣、导入来源 SHA256 及原始上游哈希保持不变。

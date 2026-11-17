@@ -23,11 +23,18 @@ type billingConfig struct {
 	Reason      string               `json:"reason"`
 	Plans       []lingtu.BillingPlan `json:"plans"`
 	Service     billingServiceInfo   `json:"service"`
+	Channels    []billingChannel     `json:"channels"`
+	providers   map[string]nativeProvider
 	key, secret string
 }
 
 func loadBillingConfig() billingConfig {
-	return billingPublicConfig(billingEnvironmentSettings())
+	c := billingPublicConfig(billingEnvironmentSettings())
+	configureNative(&c)
+	if len(c.Plans) == 0 || len(c.providers) > 0 {
+		c.Plans = defaultBillingPlans()
+	}
+	return c
 }
 
 // RegisterBilling mounts only explicit customer operations. The caller supplies its
@@ -42,9 +49,11 @@ func RegisterBilling(router *gin.Engine, authenticated *gin.RouterGroup, db *gor
 	if err = store.Migrate(); err != nil {
 		return err
 	}
-	h := &billingHost{store: store, db: db, portal: strings.TrimRight(portal, "/")}
+	h := &billingHost{store: store, db: db, config: loadBillingConfig(), portal: strings.TrimRight(portal, "/")}
 	authenticated.GET("/billing", h.catalog)
 	authenticated.GET("/billing/orders", h.orders)
+	authenticated.GET("/billing/orders/:id", h.order)
+	authenticated.POST("/billing/orders/:id/close", middleware.LingtuCriticalRateLimit("billing-close"), h.closeOrder)
 	authenticated.POST("/billing/orders", middleware.LingtuCriticalRateLimit("billing-checkout"), h.checkout)
 	router.POST("/api/lingtu/billing/stripe/webhook", h.stripeWebhook)
 	router.GET("/api/lingtu/service", func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.JSON(200, billingServiceVersion()) })
@@ -52,6 +61,8 @@ func RegisterBilling(router *gin.Engine, authenticated *gin.RouterGroup, db *gor
 	admin.GET("/billing", h.adminBillingConfig)
 	admin.POST("/billing", middleware.LingtuCriticalRateLimit("admin-billing-config"), h.adminSaveBilling)
 	admin.POST("/billing/check", middleware.LingtuCriticalRateLimit("admin-billing-check"), h.adminCheckBilling)
+	router.POST("/api/lingtu/billing/alipay/webhook", h.nativeWebhook("alipay"))
+	router.POST("/api/lingtu/billing/wechat/webhook", h.nativeWebhook("wechat"))
 	router.GET("/lingtu/billing/payment-return", func(c *gin.Context) {
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.Header("Cache-Control", "no-store")
@@ -76,7 +87,14 @@ func (h *billingHost) currentConfig() (billingConfig, error) {
 	if err != nil {
 		return billingConfig{}, err
 	}
-	return billingPublicConfig(settings), nil
+	c := billingPublicConfig(settings)
+	c.Channels, c.providers = h.config.Channels, h.config.providers
+	if len(c.providers) > 0 {
+		c.Ready = true
+		c.Reason = ""
+		c.Plans = defaultBillingPlans()
+	}
+	return c, nil
 }
 func (h *billingHost) catalog(c *gin.Context) {
 	config, err := h.currentConfig()
@@ -84,7 +102,15 @@ func (h *billingHost) catalog(c *gin.Context) {
 		clientFailure(c, 503, "billing_unavailable")
 		return
 	}
-	c.JSON(200, config)
+	quota, err := h.store.Quota(identityOf(c).UserID, time.Now())
+	if err != nil {
+		clientFailure(c, 503, "billing_unavailable")
+		return
+	}
+	if len(config.Plans) == 0 {
+		config.Plans = defaultBillingPlans()
+	}
+	c.JSON(200, gin.H{"ready": config.Ready, "reason": config.Reason, "plans": config.Plans, "channels": config.Channels, "quota": quota, "service": config.Service})
 }
 func (h *billingHost) orders(c *gin.Context) {
 	rows, err := h.store.Orders(identityOf(c).UserID, 0, 100)
@@ -107,6 +133,7 @@ func (h *billingHost) checkout(c *gin.Context) {
 	var input struct {
 		PlanID    string `json:"plan_id"`
 		RequestID string `json:"request_id"`
+		Channel   string `json:"channel"`
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
 	decoder := json.NewDecoder(c.Request.Body)
@@ -129,6 +156,18 @@ func (h *billingHost) checkout(c *gin.Context) {
 	}
 	if selected == nil {
 		clientFailure(c, 400, "invalid_plan")
+		return
+	}
+	if input.Channel == "alipay" || input.Channel == "wechat" {
+		h.nativeCheckout(c, *selected, input.RequestID, input.Channel)
+		return
+	}
+	if input.Channel != "" && input.Channel != "stripe" {
+		clientFailure(c, 400, "invalid_channel")
+		return
+	}
+	if !h.stripeReady() {
+		clientFailure(c, 503, "payment_not_configured")
 		return
 	}
 	order, err := h.store.CreateOrder(identityOf(c).UserID, input.RequestID, *selected, time.Now())
@@ -237,9 +276,24 @@ func (h *billingHost) stripeWebhook(c *gin.Context) {
 		clientFailure(c, 400, "invalid_payment")
 		return
 	}
+	payment.PaidAt = event.Created
 	if err = h.store.Credit(payment, time.Now()); err != nil {
 		clientFailure(c, 503, "payment_reconciliation_required")
 		return
 	}
 	c.Status(200)
+}
+
+func (h *billingHost) stripeReady() bool {
+	// Native readiness must not override an explicit Stripe purchase disable.
+	// Retained Stripe keys remain usable only by the existing webhook verifier.
+	if h.db != nil {
+		settings, _, err := loadBillingSettings(h.db)
+		return err == nil && billingPublicConfig(settings).Ready
+	}
+	config, err := h.currentConfig()
+	if err != nil {
+		return false
+	}
+	return config.Ready && (strings.HasPrefix(config.key, "sk_test_") || strings.HasPrefix(config.key, "sk_live_")) && strings.HasPrefix(config.secret, "whsec_")
 }

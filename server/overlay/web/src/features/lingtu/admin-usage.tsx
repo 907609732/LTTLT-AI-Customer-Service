@@ -23,12 +23,43 @@ import { formatCNY } from './admin-cost-format'
 import { formatCostMicros } from './cost-display'
 
 function costSubtotal(totals: {
+  costed_requests?: number
   cost_micros?: number
   estimated_cny?: string
 }) {
+  if (totals.costed_requests === 0) return '—'
   return totals.cost_micros === undefined
     ? formatCNY(totals.estimated_cny)
     : formatCostMicros(totals.cost_micros)
+}
+
+function historicalSubtotal(totals: {
+  historical_costed_requests?: number
+  historical_cost_micros?: number
+  historical_estimated_cny?: string
+}) {
+  if (totals.historical_costed_requests === 0) return '—'
+  return totals.historical_cost_micros === undefined
+    ? formatCNY(totals.historical_estimated_cny)
+    : formatCostMicros(totals.historical_cost_micros)
+}
+
+function reportSubtotal(totals: {
+  report_costed_requests?: number
+  report_unpriced_requests?: number
+  report_cost_micros?: number
+  report_estimated_cny?: string
+  cost_micros?: number
+  estimated_cny?: string
+}) {
+  if (totals.report_costed_requests === 0 && (totals.report_unpriced_requests ?? 0) > 0) return '—'
+  if (totals.report_cost_micros !== undefined) {
+    return formatCostMicros(totals.report_cost_micros)
+  }
+  if (totals.cost_micros !== undefined) {
+    return formatCostMicros(totals.cost_micros)
+  }
+  return formatCNY(totals.report_estimated_cny ?? totals.estimated_cny)
 }
 
 export function CostSummary(props: {
@@ -39,28 +70,70 @@ export function CostSummary(props: {
     costed_requests?: number
     unpriced_requests?: number
     current_rate_requests?: number
+    historical_cost_micros?: number
+    historical_estimated_cny?: string
+    historical_costed_requests?: number
+    historical_unpriced_requests?: number
+    uncached_input_estimates?: number
+    report_cost_micros?: number
+    report_estimated_cny?: string
+    report_costed_requests?: number
+    report_unpriced_requests?: number
   }
 }) {
   const { t } = useTranslation()
+  const historicalVisible =
+    props.totals.historical_cost_micros !== undefined ||
+    props.totals.historical_estimated_cny !== undefined
   return (
     <div className='admin-help'>
       <strong>
-        {t('Estimated cost (CNY)')}: {costSubtotal(props.totals)}
+        {t('Estimated cost (CNY)')}: {reportSubtotal(props.totals)}
       </strong>{' '}
-      · {t('Costed requests')}: {formatNumber(props.totals.costed_requests)} ·{' '}
-      {t('Unpriced requests')}:{' '}
+      · {t('Costed requests')}:{' '}
       {formatNumber(
-        props.totals.unknown_cost_requests ?? props.totals.unpriced_requests
+        props.totals.report_costed_requests ?? props.totals.costed_requests
+      )}{' '}
+      · {t('Unpriced requests')}:{' '}
+      {formatNumber(
+        props.totals.report_unpriced_requests ??
+          props.totals.unknown_cost_requests ??
+          props.totals.unpriced_requests
       )}{' '}
       · {t('Recalculated at current rates')}:{' '}
-      {formatNumber(props.totals.current_rate_requests)}
+      {formatNumber(props.totals.historical_costed_requests ?? props.totals.current_rate_requests)}
+      {historicalVisible && (
+        <p>
+          <span>
+            {t('Admission price snapshot')}: {costSubtotal(props.totals)} ·{' '}
+            {formatNumber(props.totals.costed_requests)}
+          </span>
+          <br />
+          <span>
+            {t('Historical current-rate estimate')}:{' '}
+            {historicalSubtotal(props.totals)} ·{' '}
+            {formatNumber(props.totals.historical_costed_requests)}
+          </span>
+          {(props.totals.uncached_input_estimates ?? 0) > 0 && (
+            <>
+              <br />
+              <span>
+                {formatNumber(props.totals.uncached_input_estimates)}{' '}
+                {t('calls estimated at input price without cache detail')}
+              </span>
+            </>
+          )}
+        </p>
+      )}
       <p>
         {t('Known cost subtotal (CNY)')} ·{' '}
         {t(
           'Configured-rate estimate only; not a supplier bill or balance deduction. Missing usage or prices remain unpriced.'
-        )}{' '}
+        )}
+      </p>
+      <p>
         {t(
-          'Only saved historical price snapshots are included; unknown costs are excluded from the subtotal.'
+          'Historical usage is estimated at current prices and shown separately from saved costs; unpriced calls are excluded.'
         )}
       </p>
     </div>
@@ -70,14 +143,21 @@ function CostCell(props: { totals: UsageTotals }) {
   const { t } = useTranslation()
   return (
     <div>
-      <strong>{costSubtotal(props.totals)}</strong>
+      <strong>{reportSubtotal(props.totals)}</strong>
+      <small className='block'>
+        {t('Admission price snapshot')}: {costSubtotal(props.totals)} ·{' '}
+        {t('Historical current-rate estimate')}:{' '}
+        {historicalSubtotal(props.totals)}
+      </small>
       <small className='block'>
         {t('Unpriced requests')}:{' '}
         {formatNumber(
-          props.totals.unknown_cost_requests ?? props.totals.unpriced_requests
+          props.totals.report_unpriced_requests ??
+            props.totals.unknown_cost_requests ??
+            props.totals.unpriced_requests
         )}{' '}
         · {t('Recalculated at current rates')}:{' '}
-        {formatNumber(props.totals.current_rate_requests)}
+        {formatNumber(props.totals.historical_costed_requests ?? props.totals.current_rate_requests)}
       </small>
     </div>
   )
@@ -89,6 +169,15 @@ interface UsageTotals {
   costed_requests?: number
   unpriced_requests?: number
   current_rate_requests?: number
+  historical_cost_micros?: number
+  historical_estimated_cny?: string
+  historical_costed_requests?: number
+  historical_unpriced_requests?: number
+  uncached_input_estimates?: number
+  report_cost_micros?: number
+  report_estimated_cny?: string
+  report_costed_requests?: number
+  report_unpriced_requests?: number
   requests: number
   successes: number
   failed: number
@@ -163,12 +252,25 @@ interface DailyUsageItem extends UsageTotals {
   upstream_model: string
 }
 interface DailyUsage {
-  days: 7 | 30
+  period?: 'day' | 'month'
+  days: number
+  months?: number
   model: string
   today: UsageTotals
+  this_month?: UsageTotals
   totals: UsageTotals
   items: DailyUsageItem[]
   model_options: string[]
+}
+interface PeriodAmount {
+  date: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  snapshot: number
+  historical: number
+  report: number
+  unpriced: number
 }
 function historicalModel(row: DailyUsageItem) {
   return (
@@ -188,17 +290,50 @@ export function AdminOverview(props: {
   onViewUsage: () => void
 }) {
   const { t } = useTranslation()
+  const [view, setView] = useState<'day' | 'month'>('day')
   const [days, setDays] = useState<7 | 30>(7)
   const [model, setModel] = useState('')
   const query = useQuery({
-    queryKey: ['lingtu', 'usage-daily', days, model],
+    queryKey: ['lingtu', 'usage-daily', view, days, model],
     queryFn: async () =>
       (
         await api.get<DailyUsage>('/api/lingtu/admin/usage-daily', {
-          params: { days, ...(model ? { model } : {}) },
+          params:
+            view === 'month'
+              ? { period: 'month', ...(model ? { model } : {}) }
+              : { days, ...(model ? { model } : {}) },
         })
       ).data,
   })
+  const amounts = useMemo(() => {
+    const groups = new Map<string, PeriodAmount>()
+    for (const row of query.data?.items || []) {
+      const group = groups.get(row.date) || {
+        date: row.date,
+        requests: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        snapshot: 0,
+        historical: 0,
+        report: 0,
+        unpriced: 0,
+      }
+      group.requests += row.requests
+      group.input_tokens += row.input_tokens
+      group.output_tokens += row.output_tokens
+      group.snapshot += row.cost_micros ?? 0
+      group.historical += row.historical_cost_micros ?? 0
+      group.report +=
+        row.report_cost_micros ?? row.cost_micros ?? row.historical_cost_micros ?? 0
+      group.unpriced +=
+        row.report_unpriced_requests ??
+        row.unknown_cost_requests ??
+        row.unpriced_requests ??
+        0
+      groups.set(row.date, group)
+    }
+    return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date))
+  }, [query.data])
   const chart = useMemo(() => {
     const items = query.data?.items || []
     const names = [
@@ -260,22 +395,47 @@ export function AdminOverview(props: {
       <div className='overview-toolbar'>
         <p className='admin-intro'>
           {t(
-            'Actual client usage by Beijing natural day. Missing usage is counted separately and never estimated.'
+            view === 'month'
+              ? 'Actual client usage by Beijing natural month. Missing usage is counted separately and never estimated.'
+              : 'Actual client usage by Beijing natural day. Missing usage is counted separately and never estimated.'
           )}
         </p>
         <div className='daily-chart-controls'>
-          <div role='group' aria-label={t('Usage period')}>
-            {([7, 30] as const).map((value) => (
+          <div role='group' aria-label={t('Usage view')}>
+            {(
+              [
+                ['day', 'Daily view'],
+                ['month', 'Monthly view'],
+              ] as const
+            ).map(([value, label]) => (
               <Button
                 key={value}
-                variant={days === value ? 'secondary' : 'ghost'}
-                aria-pressed={days === value}
-                onClick={() => setDays(value)}
+                variant={view === value ? 'secondary' : 'ghost'}
+                aria-pressed={view === value}
+                onClick={() => setView(value)}
               >
-                {t(value === 7 ? '7 days' : '30 days')}
+                {t(label)}
               </Button>
             ))}
           </div>
+          {view === 'day' ? (
+            <div role='group' aria-label={t('Usage period')}>
+              {([7, 30] as const).map((value) => (
+                <Button
+                  key={value}
+                  variant={days === value ? 'secondary' : 'ghost'}
+                  aria-pressed={days === value}
+                  onClick={() => setDays(value)}
+                >
+                  {t(value === 7 ? '7 days' : '30 days')}
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <span className='admin-help'>
+              {t('Last 12 months')} · {t('Beijing time')}
+            </span>
+          )}
           <Label htmlFor='usage-model-filter'>{t('Model')}</Label>
           <select
             id='usage-model-filter'
@@ -309,6 +469,24 @@ export function AdminOverview(props: {
       {query.data && totals && (
         <>
           <CostSummary totals={totals} />
+          <div className='grid gap-3 sm:grid-cols-3' aria-label={t('Call cost summary')}>
+            {[
+              ["Today's call cost", query.data.today],
+              ["This month's call cost", query.data.this_month],
+              ['Selected period call cost', totals],
+            ].map(([label, value]) => {
+              const amount = value as UsageTotals | undefined
+              return (
+                <Card key={String(label)}>
+                  <CardHeader><CardTitle className='text-sm'>{t(String(label))}</CardTitle></CardHeader>
+                  <CardContent>
+                    <strong className='text-2xl'>{amount ? reportSubtotal(amount) : '—'}</strong>
+                    <p className='admin-help'>{t('Beijing time')} · {formatNumber(amount?.requests)} {t('Client requests')}</p>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
           <div className='daily-kpis'>
             {[
               ['Client requests', totals.requests],
@@ -320,24 +498,45 @@ export function AdminOverview(props: {
                 <span>{t(String(label))}</span>
                 <strong>{formatNumber(Number(value))}</strong>
                 <small>
-                  {t('Selected period')} · {days} {t('days')}
+                  {t('Selected period')} ·{' '}
+                  {view === 'month'
+                    ? t('Last 12 months')
+                    : `${days} ${t('days')}`}
                 </small>
               </div>
             ))}
           </div>
           <p className='admin-help'>
-            {t('Today')}: {costSubtotal(query.data.today)} ·{' '}
+            {t('Today')}: {reportSubtotal(query.data.today)} ·{' '}
             {formatNumber(query.data.today.requests)} {t('Client requests')} ·{' '}
             {formatNumber(query.data.today.total_tokens)}{' '}
             {t('Known total tokens')} ·{' '}
             {formatNumber(query.data.today.unknown_usage)}{' '}
             {t('Requests without usage')} ·{' '}
             {formatNumber(
+              query.data.today.report_unpriced_requests ??
               query.data.today.unknown_cost_requests ??
                 query.data.today.unpriced_requests
             )}{' '}
             {t('Unpriced requests')}
           </p>
+          {query.data.this_month && (
+            <p className='admin-help'>
+              {t('This month')}: {reportSubtotal(query.data.this_month)} ·{' '}
+              {formatNumber(query.data.this_month.requests)}{' '}
+              {t('Client requests')} ·{' '}
+              {formatNumber(query.data.this_month.total_tokens)}{' '}
+              {t('Known total tokens')} ·{' '}
+              {formatNumber(query.data.this_month.unknown_usage)}{' '}
+              {t('Requests without usage')} ·{' '}
+              {formatNumber(
+                query.data.this_month.report_unpriced_requests ??
+                  query.data.this_month.unknown_cost_requests ??
+                  query.data.this_month.unpriced_requests
+              )}{' '}
+              {t('Unpriced requests')}
+            </p>
+          )}
           {totals.requests === 0 && (
             <p role='status' className='clear-empty'>
               {t(
@@ -348,7 +547,132 @@ export function AdminOverview(props: {
           <div className='usage-dashboard-grid'>
             <Card>
               <CardHeader>
-                <CardTitle>{t('Daily token usage')}</CardTitle>
+                <CardTitle>{t('Cost estimate by period')}</CardTitle>
+                <p className='admin-help'>
+                  {t(
+                    'Admission price snapshots and labelled historical current-rate estimates; this is not a supplier bill or balance deduction.'
+                  )}
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div
+                  className='daily-chart-frame'
+                  aria-label={t('Cost estimate by period')}
+                >
+                  <ResponsiveContainer width='100%' height='100%' minWidth={0}>
+                    <BarChart data={amounts} accessibilityLayer>
+                      <CartesianGrid vertical={false} stroke='#e7edf5' />
+                      <XAxis
+                        dataKey='date'
+                        tickFormatter={(value) =>
+                          view === 'month'
+                            ? String(value)
+                            : String(value).slice(5)
+                        }
+                        tick={{ fontSize: 12, fill: '#536783' }}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        width={105}
+                        tickFormatter={(value) =>
+                          formatCostMicros(Number(value))
+                        }
+                        tick={{ fontSize: 12, fill: '#536783' }}
+                      />
+                      <Tooltip
+                        formatter={(value) => formatCostMicros(Number(value))}
+                        contentStyle={{
+                          color: '#18263c',
+                          background: '#fff',
+                          borderColor: '#ccd7e6',
+                        }}
+                      />
+                      <Legend />
+                      <Bar
+                        dataKey='snapshot'
+                        name={t('Admission price snapshot')}
+                        stackId='amount'
+                        fill={chartColors[0]}
+                        maxBarSize={36}
+                      />
+                      <Bar
+                        dataKey='historical'
+                        name={t('Historical current-rate estimate')}
+                        stackId='amount'
+                        fill={chartColors[1]}
+                        maxBarSize={36}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('Aggregate amount by period')}</CardTitle>
+                <p className='admin-help'>
+                  {t(
+                    'Each period adds only known snapshots and labelled historical estimates; unpriced requests stay separate.'
+                  )}
+                </p>
+              </CardHeader>
+              <CardContent>
+                <StaticDataTable
+                  data={amounts}
+                  getRowKey={(row) => row.date}
+                  columns={[
+                    {
+                      id: 'period',
+                      header: t('Period'),
+                      cell: (row) => row.date,
+                    },
+                    {
+                      id: 'calls',
+                      header: t('Client requests'),
+                      cell: (row) => formatNumber(row.requests),
+                    },
+                    {
+                      id: 'input',
+                      header: t('Known input tokens'),
+                      cell: (row) => formatNumber(row.input_tokens),
+                    },
+                    {
+                      id: 'output',
+                      header: t('Known output tokens'),
+                      cell: (row) => formatNumber(row.output_tokens),
+                    },
+                    {
+                      id: 'snapshot',
+                      header: t('Admission price snapshot'),
+                      cell: (row) => formatCostMicros(row.snapshot),
+                    },
+                    {
+                      id: 'historical',
+                      header: t('Historical current-rate estimate'),
+                      cell: (row) => formatCostMicros(row.historical),
+                    },
+                    {
+                      id: 'report',
+                      header: t('Report estimate'),
+                      cell: (row) => row.requests > 0 && row.unpriced === row.requests ? '—' : formatCostMicros(row.report),
+                    },
+                    {
+                      id: 'unpriced',
+                      header: t('Unpriced requests'),
+                      cell: (row) => formatNumber(row.unpriced),
+                    },
+                  ]}
+                  emptyContent={t('No usage records yet')}
+                />
+              </CardContent>
+            </Card>
+          </div>
+          <div className='usage-dashboard-grid'>
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {t(view === 'month' ? 'Monthly token usage' : 'Daily token usage')}
+                </CardTitle>
                 <p className='admin-help'>
                   {t(
                     'Stacked by the actual upstream model recorded at request time.'
@@ -358,7 +682,9 @@ export function AdminOverview(props: {
               <CardContent>
                 <div
                   className='daily-chart-frame'
-                  aria-label={t('Daily token usage')}
+                  aria-label={t(
+                    view === 'month' ? 'Monthly token usage' : 'Daily token usage'
+                  )}
                 >
                   <ResponsiveContainer width='100%' height='100%' minWidth={0}>
                     <BarChart data={chart.data} accessibilityLayer>
@@ -442,7 +768,9 @@ export function AdminOverview(props: {
           </div>
           <Card>
             <CardHeader>
-              <CardTitle>{t('Daily usage details')}</CardTitle>
+              <CardTitle>
+                {t(view === 'month' ? 'Monthly usage details' : 'Daily usage details')}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <StaticDataTable
@@ -457,7 +785,7 @@ export function AdminOverview(props: {
                   ])
                 }
                 columns={[
-                  { id: 'date', header: t('Date'), cell: (row) => row.date },
+                  { id: 'date', header: t(view === 'month' ? 'Month' : 'Date'), cell: (row) => row.date },
                   {
                     id: 'model',
                     header: t('Upstream model ID'),

@@ -7,6 +7,7 @@ import { useKnowledgeManager } from '../src/modules/knowledge/manager-controller
 import type {
   KnowledgeDraftInput,
   KnowledgeEntry,
+  KnowledgeProductCard,
   KnowledgeVersion,
   KnowledgeJob,
 } from '../src/shared/contracts/knowledge'
@@ -132,7 +133,7 @@ function savedVersion(input: KnowledgeDraftInput, revision = 1): KnowledgeVersio
     updatedAt: revision,
   }
 }
-async function setup(controller = false) {
+async function setup(controller = false, canLearn = false, prepare?: () => void) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const runtime = useRuntimeStore()
@@ -163,7 +164,7 @@ async function setup(controller = false) {
     catalog: false,
     collect: false,
     import: false,
-    learn: false,
+    learn: canLearn,
     dailyCheck: false,
     reason: '未接入',
   })
@@ -183,6 +184,7 @@ async function setup(controller = false) {
         ? { dynamicTtlMinutes: 60, dailyCheckTime: '09:00', dailyCheckEnabled: true }
         : { items: [], total: 0, revision: 1 },
   )
+  prepare?.()
   let manager: ReturnType<typeof useKnowledgeManager> | undefined
   const root = controller
     ? defineComponent({
@@ -196,6 +198,76 @@ async function setup(controller = false) {
   await flushPromises()
   return { wrapper, runtime, manager }
 }
+it('removes the header subtitle and the capability explanation row', async () => {
+  const reason = '仅采集原料；学习与审核发布独立执行'
+  const { wrapper } = await setup(false, false, () => {
+    fake.pipeline.mockResolvedValue({
+      catalog: true,
+      collect: false,
+      import: false,
+      learn: false,
+      dailyCheck: false,
+      reason,
+    })
+  })
+  expect(wrapper.get('.knowledge-top').text()).toContain('知识库')
+  expect(wrapper.get('.knowledge-top').text()).not.toContain('审核后使用')
+  expect(wrapper.text()).not.toContain(reason)
+  expect(wrapper.find('p.capability').exists()).toBe(false)
+  wrapper.unmount()
+})
+function productCard(id: string, title: string): KnowledgeProductCard {
+  return {
+    canonical: { id: `canonical-${id}`, title, code: '', revision: 1, updatedAt: 1 },
+    binding: {
+      id,
+      canonicalId: `canonical-${id}`,
+      storeId: 'a',
+      productId: id,
+      skuId: '',
+      title,
+      revision: 1,
+      active: true,
+      updatedAt: 1,
+    },
+    sources: 0,
+    approved: 0,
+    drafts: 0,
+    sourceSummary: { count: 0, kinds: [], thumbnailAssetId: null },
+  }
+}
+it('shows the bulk bar only while a selection exists and keeps every card checkbox', async () => {
+  const { wrapper } = await setup(false, false, () => {
+    const original = fake.query.getMockImplementation()!
+    fake.query.mockImplementation(async (input) =>
+      input.type === 'products'
+        ? {
+            items: [productCard('p1', '商品一'), productCard('p2', '商品二')],
+            total: 2,
+            revision: 1,
+          }
+        : original(input),
+    )
+  })
+  const cardCheckboxes = () => wrapper.findAll('.knowledge-card > input[type="checkbox"]')
+  expect(cardCheckboxes()).toHaveLength(2)
+  expect(wrapper.find('.knowledge-selection').exists()).toBe(false)
+  await cardCheckboxes()[0]!.setValue(true)
+  await flushPromises()
+  const bar = wrapper.get('.knowledge-selection')
+  expect(bar.text()).toContain('已选 1 项')
+  expect(bar.text()).toContain('全选本页')
+  expect(bar.text()).toContain('全选当前筛选')
+  expect(bar.text()).toContain('审核所选草稿')
+  expect(bar.text()).not.toContain('店铺：')
+  expect(bar.text()).not.toContain('筛选：')
+  expect(cardCheckboxes()).toHaveLength(2)
+  await cardCheckboxes()[0]!.setValue(false)
+  await flushPromises()
+  expect(wrapper.find('.knowledge-selection').exists()).toBe(false)
+  expect(cardCheckboxes()).toHaveLength(2)
+  wrapper.unmount()
+})
 it('has two main tabs and switching knowledge shops never changes reception selection', async () => {
   const { wrapper, runtime } = await setup()
   expect(wrapper.text()).toContain('通用问答')
@@ -358,14 +430,16 @@ it.each(['clear', 'restore'] as const)(
           }
           manager.clearConfirmation.value = '清除当前店铺'
         } else {
-          manager.restorePreview.value = {
+          fake.restorePreview.mockResolvedValueOnce({
             token: 'restore',
-            scope: 'all',
-            stores: [],
+            targetStoreId: 'a',
+            scope: '本店备份：a',
+            stores: ['a'],
             bindings: [],
             originalFiles: [],
             message: '',
-          }
+          })
+          await manager.chooseStoreRestore()
         }
         let finished = false
         const replacing = (
@@ -397,14 +471,16 @@ it('cancels a replacement context wait when the manager closes without restoring
   const { wrapper, runtime, manager: state } = await setup(true)
   const manager = state!
   const refresh = vi.spyOn(runtime, 'refresh').mockResolvedValue(undefined)
-  manager.restorePreview.value = {
+  fake.restorePreview.mockResolvedValueOnce({
     token: 'restore',
-    scope: 'all',
-    stores: [],
+    targetStoreId: 'a',
+    scope: '本店备份：a',
+    stores: ['a'],
     bindings: [],
     originalFiles: [],
     message: '',
-  }
+  })
+  await manager.chooseStoreRestore()
   fake.restore.mockResolvedValueOnce({
     context: { workspaceId: 'replacement', storeId: 'a', revision: 2 },
     message: '知识库已恢复',
@@ -427,14 +503,16 @@ it('bounds a missing replacement snapshot without reporting success or applying 
   const refresh = vi.spyOn(runtime, 'refresh').mockResolvedValue(undefined)
   vi.useFakeTimers()
   try {
-    manager.restorePreview.value = {
+    fake.restorePreview.mockResolvedValueOnce({
       token: 'restore',
-      scope: 'all',
-      stores: [],
+      targetStoreId: 'a',
+      scope: '本店备份：a',
+      stores: ['a'],
       bindings: [],
       originalFiles: [],
       message: '',
-    }
+    })
+    await manager.chooseStoreRestore()
     fake.restore.mockResolvedValueOnce({
       context: { workspaceId: 'missing', storeId: 'a', revision: 2 },
       message: '知识库已恢复',
@@ -464,14 +542,16 @@ it('does not report replacement success after closing during the final context r
   fake.query.mockImplementation((input: { type: string }) =>
     input.type === 'summary' ? pending.promise : originalQuery(input),
   )
-  manager.restorePreview.value = {
+  fake.restorePreview.mockResolvedValueOnce({
     token: 'restore',
-    scope: 'all',
-    stores: [],
+    targetStoreId: 'a',
+    scope: '本店备份：a',
+    stores: ['a'],
     bindings: [],
     originalFiles: [],
     message: '',
-  }
+  })
+  await manager.chooseStoreRestore()
   fake.restore.mockResolvedValueOnce({
     context: { workspaceId: 'replacement', storeId: 'a', revision: 2 },
     message: '知识库已恢复',
@@ -488,6 +568,113 @@ it('does not report replacement success after closing during the final context r
   expect(manager.notice.value).not.toContain('已恢复')
   refresh.mockRestore()
 })
+it('drops an A store restore preview when the same account context switches to B before confirmation', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  const preview = {
+    token: 'store-a',
+    targetStoreId: 'a',
+    scope: '本店备份：a',
+    stores: ['a'],
+    bindings: [],
+    originalFiles: [],
+    message: '',
+  }
+  fake.restorePreview.mockResolvedValueOnce(preview)
+  await manager.chooseStoreRestore()
+  expect(manager.restorePreview.value?.targetStoreId).toBe('a')
+  const receive = fake.onContext.mock.calls.at(-1)![0] as (context: {
+    workspaceId: string
+    storeId: string
+    revision: number
+  }) => void
+  receive({ workspaceId: 'w', storeId: 'b', revision: 2 })
+  await flushPromises()
+  expect(manager.storeId.value).toBe('b')
+  expect(manager.restorePreview.value).toBeUndefined()
+  // Even if an old rendered confirmation still holds the preview object, the confirm path rejects.
+  manager.restorePreview.value = preview
+  await expect(manager.restoreBackup()).rejects.toThrow(/上下文|店铺/)
+  expect(fake.restore).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('drops an old preview when the same shop receives a newer external context lease', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  const preview = {
+    token: 'store-a',
+    targetStoreId: 'a',
+    scope: '本店备份：a',
+    stores: ['a'],
+    bindings: [],
+    originalFiles: [],
+    message: '',
+  }
+  fake.restorePreview.mockResolvedValueOnce(preview)
+  await manager.chooseStoreRestore()
+  const receive = fake.onContext.mock.calls.at(-1)![0] as (context: {
+    workspaceId: string
+    storeId: string
+    revision: number
+  }) => void
+  receive({ workspaceId: 'w', storeId: 'a', revision: 2 })
+  await flushPromises()
+  expect(manager.storeId.value).toBe('a')
+  expect(manager.restorePreview.value).toBeUndefined()
+  manager.restorePreview.value = preview
+  await expect(manager.restoreBackup()).rejects.toThrow(/上下文|店铺/)
+  expect(fake.restore).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('closes an advanced full-backup preview on an external context change instead of treating it as a store restore', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  const preview = {
+    token: 'full-restore',
+    scope: '完整知识库（覆盖当前库）',
+    stores: [],
+    bindings: [],
+    originalFiles: [],
+    message: '',
+  }
+  fake.restorePreview.mockResolvedValueOnce(preview)
+  await manager.chooseRestore()
+  expect(manager.restorePreview.value?.scope).toContain('完整知识库')
+  const receive = fake.onContext.mock.calls.at(-1)![0] as (context: {
+    workspaceId: string
+    storeId: string
+    revision: number
+  }) => void
+  receive({ workspaceId: 'w', storeId: 'b', revision: 2 })
+  await flushPromises()
+  expect(manager.restorePreview.value).toBeUndefined()
+  manager.restorePreview.value = preview
+  await expect(manager.restoreBackup()).rejects.toThrow(/上下文|店铺/)
+  expect(fake.restore).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('rejects confirmation when a store preview target no longer matches the current shop', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  fake.restorePreview.mockResolvedValueOnce({
+    token: 'store-a',
+    targetStoreId: 'a',
+    scope: '本店备份：a',
+    stores: ['a'],
+    bindings: [],
+    originalFiles: [],
+    message: '',
+  })
+  await manager.chooseStoreRestore()
+  manager.restorePreview.value!.targetStoreId = 'b'
+  await expect(manager.restoreBackup()).rejects.toThrow(/店铺/)
+  expect(fake.restore).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
 it('defaults clearing to the current shop, previews account scope separately, and never clears on cancel or an incomplete phrase', async () => {
   const { wrapper } = await setup()
   const settingsButton = wrapper.findAll('button').find((b) => b.text() === '设置')!
@@ -1622,14 +1809,13 @@ it('loads every page of unfinished progress rather than losing older recovery co
   wrapper.unmount()
 })
 
-it('toolbar events preserve original controller routes, export formats and full-library backup/restore preview scope', async () => {
+it('toolbar events preserve imports and use current-shop export, backup and restore scope', async () => {
   const { wrapper } = await setup(),
     toolbar = wrapper.findComponent(KnowledgeToolbar)
   // These fixtures verify routing only, and intentionally stop before real collection/export.
   fake.pipeline.mockRejectedValue(new Error('fixture stops before external operation'))
   for (const [event, action] of [
     ['catalog', 'catalog'],
-    ['learn', 'store-materials'],
     ['sources', 'choose-sources'],
   ] as const) {
     toolbar.vm.$emit(event)
@@ -1650,11 +1836,41 @@ it('toolbar events preserve original controller routes, export formats and full-
   }
   toolbar.vm.$emit('backup')
   await flushPromises()
-  expect(fake.backup).toHaveBeenLastCalledWith(undefined)
+  expect(fake.backup).toHaveBeenLastCalledWith(undefined, 'a')
   fake.restorePreview.mockResolvedValue(undefined)
   toolbar.vm.$emit('restore')
   await flushPromises()
-  expect(fake.restorePreview).toHaveBeenCalledWith()
+  expect(fake.restorePreview).toHaveBeenCalledWith('a')
   expect(fake.restore).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('keeps learning outside import and avoids paid estimates when this shop has no materials', async () => {
+  const { wrapper } = await setup(false, true)
+  await wrapper
+    .findAll('button')
+    .find((b) => b.text().includes('通用问答'))!
+    .trigger('click')
+  await flushPromises()
+  fake.pipeline.mockClear().mockResolvedValue({ sourceIds: [] })
+  await wrapper.get('[data-testid="learn-store-materials"]').trigger('click')
+  await flushPromises()
+  expect(fake.pipeline).toHaveBeenCalledWith({ action: 'store-materials', storeId: 'a' })
+  expect(fake.pipeline).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'estimate' }))
+  expect(wrapper.text()).toContain('请先通过“导入”添加资料文件')
+  wrapper.unmount()
+})
+it('explicit shop exports ignore an open product detail and store backup uses the current shop', async () => {
+  const { wrapper, manager } = await setup(true)
+  manager!.detail.value = {
+    canonical: { id: 'family' },
+    bindings: [],
+    entries: [],
+  } as unknown as NonNullable<ReturnType<typeof useKnowledgeManager>['detail']['value']>
+  fake.export.mockRejectedValue(Error('stop download'))
+  await manager!.run(() => manager!.exportEntries('csv', 'shop'))
+  expect(fake.export).toHaveBeenLastCalledWith('a', 'csv', undefined)
+  await manager!.backupStore()
+  expect(fake.backup).toHaveBeenLastCalledWith(undefined, 'a')
   wrapper.unmount()
 })

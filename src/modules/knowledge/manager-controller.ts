@@ -42,6 +42,14 @@ export function useKnowledgeManager() {
   const clearConfirmation = ref('')
   const restorePreview =
     ref<import('@/shared/contracts/knowledge-client').KnowledgeRestorePreview>()
+  let restoreLease:
+    | {
+        workspaceId: string
+        storeId: string
+        revision: number
+        contextRevision: number
+      }
+    | undefined
   const recommendations = ref<{ canonical: CanonicalProduct; reasons: string[]; score: number }[]>(
     [],
   )
@@ -148,6 +156,7 @@ export function useKnowledgeManager() {
   })
   const importPreview = ingestion.preview
   watch(storeId, () => {
+    clearRestorePreview()
     clearTimeout(progressTimer)
     jobs.value = []
     ocrPreview.value = undefined
@@ -163,7 +172,8 @@ export function useKnowledgeManager() {
     currentStore = computed(() => stores.value.find((s) => s.id === storeId.value))
   let leaseRevision = 0,
     editGeneration = 0,
-    draftSession = 0
+    draftSession = 0,
+    contextRevision = -1
   let activeRun: symbol | undefined
   const replacementWaiters = new Set<() => void>()
   function client() {
@@ -195,9 +205,11 @@ export function useKnowledgeManager() {
       recommendations: (id: string) => guard(service.recommendations(id)),
       deleteFamily: (input: Parameters<typeof service.deleteFamily>[0]) =>
         guard(service.deleteFamily(input)),
+      export: (shop: string, format: 'csv' | 'json', canonicalId?: string) =>
+        guard(service.export(shop, format, canonicalId)),
       pipeline: <T extends KnowledgePipelineInput>(input: T) => guard(service.pipeline(input)),
-      backup: (canonicalId?: string) => guard(service.backup(canonicalId)),
-      restorePreview: () => guard(service.restorePreview()),
+      backup: (canonicalId?: string, shop?: string) => guard(service.backup(canonicalId, shop)),
+      restorePreview: (shop?: string) => guard(service.restorePreview(shop)),
       clearPreview: (scope: Parameters<typeof service.clearPreview>[0]) =>
         guard(service.clearPreview(scope)),
       reassociate: (input: Parameters<typeof service.reassociate>[0]) =>
@@ -480,7 +492,12 @@ export function useKnowledgeManager() {
     await client().command({ type: 'save-settings', settings: settings.value })
     notice.value = '知识库设置已保存'
   }
+  function clearRestorePreview() {
+    restorePreview.value = undefined
+    restoreLease = undefined
+  }
   async function closeEditor() {
+    clearRestorePreview()
     do {
       await saveDraft()
     } while (dirty.value)
@@ -968,17 +985,74 @@ export function useKnowledgeManager() {
   }
   async function backup(canonicalId?: string) {
     const result = await client().backup(canonicalId)
-    notice.value = `${result.scope ? `同款全部店铺/SKU备份（${result.scope.storeIds.length}店，${result.scope.bindingIds.length}个绑定；含完整原件）` : '全库一致快照备份'}完成：${result.directory}`
+    notice.value = `${result.scope?.kind === 'store' ? `店铺「${currentStore.value?.storeName || result.scope.storeId}」备份` : result.scope?.kind === 'family' ? `同款全部店铺/SKU备份（${result.scope.storeIds.length}店，${result.scope.bindingIds.length}个绑定；含完整原件）` : '全库一致快照备份'}完成：${result.directory}`
+  }
+  async function backupStore() {
+    const shop = storeId.value,
+      name = currentStore.value?.storeName || shop
+    if (!shop) throw Error('请先选择店铺')
+    const result = await client().backup(undefined, shop)
+    notice.value = `店铺「${name}」备份完成：${result.directory}`
   }
   async function chooseRestore() {
     await closeEditor()
-    restorePreview.value = (await client().restorePreview()) ?? undefined
-  }
-  async function restoreBackup() {
-    const preview = restorePreview.value
+    const shop = storeId.value,
+      w = workspace.value,
+      revision = leaseRevision,
+      context = contextRevision
+    const preview = await client().restorePreview()
     if (!preview) return
+    assertCapturedLease(revision, w, shop)
+    if (preview.targetStoreId && preview.targetStoreId !== shop)
+      throw Error('所选本店备份属于其他店铺，请重新选择')
+    restorePreview.value = preview
+    restoreLease = {
+      workspaceId: w,
+      storeId: shop,
+      revision,
+      contextRevision: context,
+    }
+  }
+  async function chooseStoreRestore() {
+    const shop = storeId.value,
+      w = workspace.value,
+      revision = leaseRevision,
+      context = contextRevision
+    if (!shop) throw Error('请先选择店铺')
+    await closeEditor()
+    assertCapturedLease(revision, w, shop)
+    const preview = await client().restorePreview(shop)
+    if (!preview) return
+    assertCapturedLease(revision, w, shop)
+    if (preview.targetStoreId !== shop)
+      throw Error('本店恢复预览目标已变化，请重新选择当前店铺备份')
+    restorePreview.value = preview
+    restoreLease = {
+      workspaceId: w,
+      storeId: shop,
+      revision,
+      contextRevision: context,
+    }
+  }
+
+  async function restoreBackup() {
+    const preview = restorePreview.value,
+      lease = restoreLease
+    if (!preview) return
+    clearRestorePreview()
+    if (
+      !lease ||
+      disposed ||
+      workspace.value !== lease.workspaceId ||
+      runtime.snapshot.workspaceId !== lease.workspaceId ||
+      storeId.value !== lease.storeId ||
+      leaseRevision !== lease.revision ||
+      contextRevision !== lease.contextRevision
+    )
+      throw Error('店铺、账号或知识库上下文已改变，请重新预览恢复范围')
+    if (preview.targetStoreId && preview.targetStoreId !== storeId.value)
+      throw Error('恢复预览所属店铺已改变，请重新预览')
     const service = createKnowledgeClient(workspace.value)
-    restorePreview.value = undefined
     notice.value = ''
     // Restore intentionally replaces the lease. The owner returns the verified NEW context.
     const result = await service.restore(preview.token)
@@ -1007,17 +1081,30 @@ export function useKnowledgeManager() {
     await applyReplacementContext(result.context)
     notice.value = result.message
   }
-  async function exportEntries(format: 'csv' | 'json' = 'json') {
+  async function exportEntries(
+    format: 'csv' | 'json' = 'json',
+    scope: 'shop' | 'detail' = 'detail',
+  ) {
     const w = workspace.value,
-      shop = storeId.value
-    const result = await createKnowledgeClient(w).export(shop, format, detail.value?.canonical?.id)
+      shop = storeId.value,
+      name = currentStore.value?.storeName || shop
+    if (!shop) throw Error('请先选择店铺')
+    const result = await client().export(
+      shop,
+      format,
+      scope === 'shop' ? undefined : detail.value?.canonical?.id,
+    )
     assertLease(w, shop)
+    const safeName = Array.from(name, (character) => {
+      const code = character.codePointAt(0)!
+      return /[<>:"/\\|?*]/.test(character) || code <= 0x1f || code === 0x7f ? '_' : character
+    }).join('')
     downloadText(
-      `知识库-${shop}.${format}`,
+      `知识库-${safeName}.${format}`,
       result.text,
       format === 'json' ? 'application/json' : 'text/csv;charset=utf-8',
     )
-    notice.value = `已导出${result.count}条。${result.message}`
+    notice.value = `店铺「${name}」已导出${result.count}条。${result.message}`
   }
   async function loadCatalog(cursor = '', initialSearch = search.value) {
     const filter = cursor ? catalogSearch.value : initialSearch
@@ -1157,6 +1244,10 @@ export function useKnowledgeManager() {
   const applyImport = ingestion.apply
   async function learnStore() {
     const result = await client().pipeline({ action: 'store-materials', storeId: storeId.value })
+    if (!result.sourceIds.length) {
+      notice.value = '本店暂无可学习的通用资料，请先通过“导入”添加资料文件。'
+      return
+    }
     learningSelection.value = { bindingIds: [], sourceIds: result.sourceIds }
     estimate.value = await client().pipeline({
       action: 'estimate',
@@ -1164,19 +1255,26 @@ export function useKnowledgeManager() {
       ...learningSelection.value,
     })
   }
+  const contextStore = (context: KnowledgeWindowContext) =>
+    context.storeId || stores.value[0]?.id || ''
+  const contextAlreadyApplied = (context: KnowledgeWindowContext) =>
+    context.workspaceId === workspace.value &&
+    context.revision <= contextRevision &&
+    contextStore(context) === storeId.value
   async function applyContext(context: KnowledgeWindowContext) {
     if (context.workspaceId !== runtime.snapshot.workspaceId) return
-    if (context.revision <= contextRevision && context.workspaceId === workspace.value) return
+    if (contextAlreadyApplied(context)) return
+    clearRestorePreview()
     await saveDraft()
     if (context.workspaceId !== runtime.snapshot.workspaceId) return
-    if (context.revision <= contextRevision && context.workspaceId === workspace.value) return
+    if (contextAlreadyApplied(context)) return
     await closeEditor()
     if (context.workspaceId !== runtime.snapshot.workspaceId) return
-    if (context.revision <= contextRevision && context.workspaceId === workspace.value) return
+    if (contextAlreadyApplied(context)) return
     leaseRevision++
     contextRevision = context.revision
     workspace.value = context.workspaceId
-    storeId.value = context.storeId || stores.value[0]?.id || ''
+    storeId.value = contextStore(context)
     draft.value = undefined
     detail.value = undefined
     selection.value = []
@@ -1231,7 +1329,6 @@ export function useKnowledgeManager() {
     )
       throw Error('账号工作区已再次改变，请从目标店铺重新打开知识库')
   }
-  let contextRevision = -1
   async function hide() {
     await run(async () => {
       do {
@@ -1318,7 +1415,7 @@ export function useKnowledgeManager() {
         metadataCode.value = ''
         mappingCanonical.value = ''
         mappingReview.value = undefined
-        restorePreview.value = undefined
+        clearRestorePreview()
         clearPreview.value = undefined
         clearConfirmation.value = ''
         clearScope.value = 'store'
@@ -1452,6 +1549,7 @@ export function useKnowledgeManager() {
     bindShared,
     doTrial,
     backup,
+    backupStore,
     recommendations,
     entryHistory,
     loadEntryHistory,
@@ -1465,6 +1563,7 @@ export function useKnowledgeManager() {
     previewClear,
     clearKnowledge,
     chooseRestore,
+    chooseStoreRestore,
     restoreBackup,
     exportEntries,
     loadCatalog,

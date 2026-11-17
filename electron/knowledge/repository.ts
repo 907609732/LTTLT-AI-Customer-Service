@@ -46,6 +46,7 @@ import {
 } from './lifecycle'
 import { knowledgeRequire } from './node-loader'
 import { pruneToFamily } from './backup-scope'
+import { pruneToStore } from './backup-store-scope'
 import { questionConflictKey, repairAutomaticConflictKeys } from './conflict-keys'
 import { assertNoInterruptedKnowledgeRestore } from './restore-intent'
 import { clearKnowledgeCopy } from './clear'
@@ -1089,17 +1090,19 @@ export class KnowledgeRepository {
   }
   createBackup(
     destination: string,
-    scope?: { canonicalId: string },
+    scope?: { canonicalId?: string; storeId?: string },
   ): KnowledgeBackupManifest & { directory: string } {
     this.assertOpen()
+    if (scope?.canonicalId && scope.storeId) throw Error('备份不能同时选择店铺和共享商品')
     const directory = join(destination, `knowledge-${this.now()}-${randomUUID()}`)
     mkdirSync(directory, { recursive: true })
     const database = join(directory, 'knowledge.sqlite')
     this.db.prepare('VACUUM INTO ?').run(toNamespacedPath(database))
     const snapshot = new DatabaseSync(toNamespacedPath(database))
-    let family: KnowledgeBackupManifest['scope'], snapshotAssets: KnowledgeAsset[]
+    let scoped: KnowledgeBackupManifest['scope'], snapshotAssets: KnowledgeAsset[]
     try {
-      if (scope) family = pruneToFamily(snapshot, scope.canonicalId)
+      if (scope?.storeId) scoped = pruneToStore(snapshot, scope.storeId)
+      else if (scope?.canonicalId) scoped = pruneToFamily(snapshot, scope.canonicalId)
       snapshotAssets = (
         snapshot.prepare('SELECT body FROM assets').all() as { body: string }[]
       ).map((row) => JSON.parse(String(row.body)) as KnowledgeAsset)
@@ -1112,7 +1115,9 @@ export class KnowledgeRepository {
       files.push({ path, sha256: hash(bytes), size: bytes.length })
     }
     add('knowledge.sqlite')
-    for (const asset of snapshotAssets) {
+    // A store restore can retain both the original and an isolated clone of identical bytes.
+    // The archive is content-addressed, so the file and manifest entry are written once.
+    for (const asset of new Map(snapshotAssets.map((asset) => [asset.sha256, asset])).values()) {
       const bytes = this.readAsset(asset.id)
       mkdirSync(join(directory, 'assets'), { recursive: true })
       writeFileSync(join(directory, 'assets', asset.sha256), bytes, { flag: 'wx', mode: 0o600 })
@@ -1122,7 +1127,7 @@ export class KnowledgeRepository {
       version: 1,
       createdAt: this.now(),
       revision: this.revision,
-      ...(family ? { scope: family } : {}),
+      ...(scoped ? { scope: scoped } : {}),
       files,
     }
     writeFileSync(join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2))

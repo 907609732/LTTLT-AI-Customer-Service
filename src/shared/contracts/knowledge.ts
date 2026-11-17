@@ -268,9 +268,7 @@ export interface KnowledgeBackupManifest {
   version: 1
   createdAt: number
   revision: number
-  scope?: {
-    kind: 'family'
-    canonicalId: string
+  scope?: ({ kind: 'family'; canonicalId: string } | { kind: 'store'; storeId: string }) & {
     storeIds: string[]
     bindingIds: string[]
     dependencyBindingIds: string[]

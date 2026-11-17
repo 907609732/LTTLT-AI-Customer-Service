@@ -155,8 +155,12 @@ func (h *Host) adminUsageSummary(c *gin.Context) {
 		}
 		cost := estimateCNY(record, rates)
 		addCost(&totals.CostTotals, cost)
+		addHistoricalCost(&totals.CostTotals, cost)
+		addReportCost(&totals.CostTotals, cost)
 		if account := accountCosts[record.UserID]; account != nil {
 			addCost(account, cost)
+			addHistoricalCost(account, cost)
+			addReportCost(account, cost)
 		}
 	}
 	if rows.Err() != nil {

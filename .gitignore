@@ -13,3 +13,4 @@ server/bin/
 .env.*
 !.env.example
 *.log
+.superpowers/

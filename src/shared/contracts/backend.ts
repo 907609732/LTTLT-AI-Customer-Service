@@ -262,7 +262,11 @@ export const snapshotSchema = z.object({
       fallbackAfterMs: z.number(),
       fallbackText: z.string(),
     }),
-    safety: z.object({ handoffKeywords: z.array(z.string()) }),
+    safety: z.object({
+      handoffKeywords: z.array(z.string()),
+      // 旧账号快照没有该字段，按未配置客服接管关键词处理。
+      manualReplyKeywords: z.array(z.string()).default([]),
+    }),
   }),
   capabilities: z.object({
     apiKeyConfigured: z.boolean(),
@@ -346,7 +350,7 @@ export function emptySnapshot(): BackendSnapshot {
         fallbackText: '',
         perUidMinIntervalMs: 1000,
       },
-      safety: { handoffKeywords: [] },
+      safety: { handoffKeywords: [], manualReplyKeywords: [] },
     },
     selection: { storeId: '', conversationId: '' },
     capabilities: {

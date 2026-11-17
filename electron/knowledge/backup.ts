@@ -27,6 +27,7 @@ import type {
 } from '../../src/shared/contracts/knowledge'
 import { knowledgeRequire } from './node-loader'
 import { mergeFamily, familyClosure, familyMergeState } from './backup-scope'
+import { mergeStore, storeClosure } from './backup-store-scope'
 import {
   knowledgeDraftSchema,
   knowledgeSourceInputSchema,
@@ -34,22 +35,34 @@ import {
   canonicalProductInputSchema,
 } from '../../src/shared/contracts/knowledge'
 const { DatabaseSync } = knowledgeRequire('node:sqlite') as typeof import('node:sqlite')
+const scopeFieldsSchema = {
+  storeIds: z.array(z.string()),
+  bindingIds: z.array(z.string()),
+  dependencyBindingIds: z.array(z.string()),
+  originalFiles: z.array(z.string()),
+}
+const scopeSchema = z.union([
+  z
+    .object({
+      kind: z.literal('family'),
+      canonicalId: z.string().min(1),
+      ...scopeFieldsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('store'),
+      storeId: z.string().min(1),
+      ...scopeFieldsSchema,
+    })
+    .strict(),
+])
 const manifestSchema = z
   .object({
     version: z.literal(1),
     createdAt: z.number().nonnegative(),
     revision: z.number().int().nonnegative(),
-    scope: z
-      .object({
-        kind: z.literal('family'),
-        canonicalId: z.string().min(1),
-        storeIds: z.array(z.string()),
-        bindingIds: z.array(z.string()),
-        dependencyBindingIds: z.array(z.string()),
-        originalFiles: z.array(z.string()),
-      })
-      .strict()
-      .optional(),
+    scope: scopeSchema.optional(),
     files: z
       .array(
         z
@@ -280,38 +293,102 @@ export function inspectKnowledgeBackup(backupDirectory: string): KnowledgeBackup
       }
     }
     if (manifest.scope) {
-      const scope = manifest.scope,
-        closure = familyClosure(probe, scope.canonicalId)
-      for (const [table, ids] of [
-        ['canonical', closure.canonicals],
-        ['bindings', closure.bindings],
-        ['sources', closure.sources],
-        ['entries', closure.entries],
-        ['assets', closure.assets],
-      ] as const) {
-        const actual = probe.prepare(`SELECT id FROM ${table}`).all() as { id: string }[]
-        if (actual.length !== ids.size || actual.some((row) => !ids.has(row.id)))
-          throw Error('备份范围包含无关商品或资料')
-      }
+      const scope = manifest.scope
       const equal = (a: string[], b: string[]) =>
         JSON.stringify([...a].sort()) === JSON.stringify([...b].sort())
-      const stores = (
-        probe.prepare('SELECT store_id,id FROM bindings').all() as {
-          store_id: string
+      const assertIds = (table: string, expected: Set<string>, key = 'id') => {
+        const actual = probe.prepare(`SELECT DISTINCT ${key} AS id FROM ${table}`).all() as {
           id: string
         }[]
-      )
-        .filter((row) => closure.primaryBindings.has(row.id))
-        .map((row) => row.store_id)
-      if (
-        !equal(scope.bindingIds, [...closure.primaryBindings]) ||
-        !equal(scope.storeIds, [...new Set(stores)]) ||
-        !equal(
-          scope.dependencyBindingIds,
-          [...closure.bindings].filter((id) => !closure.primaryBindings.has(id)),
+        if (actual.length !== expected.size || actual.some((row) => !expected.has(row.id)))
+          throw Error('备份范围包含无关商品或资料')
+      }
+      if (scope.kind === 'family') {
+        const closure = familyClosure(probe, scope.canonicalId)
+        for (const [table, ids] of [
+          ['canonical', closure.canonicals],
+          ['bindings', closure.bindings],
+          ['sources', closure.sources],
+          ['entries', closure.entries],
+          ['assets', closure.assets],
+        ] as const)
+          assertIds(table, ids)
+        const stores = (
+          probe.prepare('SELECT store_id,id FROM bindings').all() as {
+            store_id: string
+            id: string
+          }[]
         )
-      )
-        throw Error('备份范围清单与实际资料不一致')
+          .filter((row) => closure.primaryBindings.has(row.id))
+          .map((row) => row.store_id)
+        if (
+          !equal(scope.bindingIds, [...closure.primaryBindings]) ||
+          !equal(scope.storeIds, [...new Set(stores)]) ||
+          !equal(
+            scope.dependencyBindingIds,
+            [...closure.bindings].filter((id) => !closure.primaryBindings.has(id)),
+          )
+        )
+          throw Error('备份范围清单与实际资料不一致')
+      } else {
+        const closure = storeClosure(probe, scope.storeId)
+        for (const [table, ids] of [
+          ['canonical', closure.canonicals],
+          ['bindings', closure.bindings],
+          ['sources', closure.sources],
+          ['entries', closure.entries],
+          ['assets', closure.assets],
+        ] as const)
+          assertIds(table, ids)
+        // A store archive may contain dependency identities only for evidence, never extra
+        // histories, reviews or metadata from another shop.
+        assertIds('entry_versions', closure.entries)
+        assertIds('source_versions', closure.sources)
+        for (const row of probe.prepare('SELECT entry_id FROM reviews').all() as {
+          entry_id: string
+        }[])
+          if (!closure.entries.has(row.entry_id)) throw Error('备份范围包含无关审核记录')
+        const metadata = probe.prepare('SELECT key FROM metadata').all() as { key: string }[]
+        if (
+          !equal(
+            metadata.map((row) => row.key),
+            [...closure.metadataKeys],
+          )
+        )
+          throw Error('备份范围包含无关元信息')
+        for (const table of ['jobs', 'misses', 'legacy_products', 'legacy_intents'])
+          if (probe.prepare(`SELECT 1 FROM ${table} LIMIT 1`).get())
+            throw Error('本店备份不得包含任务、待学问题或旧账号数据')
+        const assets = (
+          probe.prepare('SELECT id,body FROM assets').all() as { id: string; body: string }[]
+        ).map((row) => ({
+          id: row.id,
+          asset: JSON.parse(
+            row.body,
+          ) as import('../../src/shared/contracts/knowledge').KnowledgeAsset,
+        }))
+        const expectedFiles = [...new Set(assets.map((row) => `assets/${row.asset.sha256}`))]
+        const actualFiles = manifest.files
+          .filter((file) => file.path.startsWith('assets/'))
+          .map((file) => file.path)
+        if (!equal(expectedFiles, actualFiles)) throw Error('本店备份附件清单与实际资料不一致')
+        if (
+          !equal(
+            scope.originalFiles,
+            assets.map((row) => row.asset.name),
+          )
+        )
+          throw Error('本店备份原件清单与实际资料不一致')
+        if (
+          !equal(scope.bindingIds, [...closure.primaryBindings]) ||
+          !equal(scope.storeIds, [scope.storeId]) ||
+          !equal(
+            scope.dependencyBindingIds,
+            [...closure.bindings].filter((id) => !closure.primaryBindings.has(id)),
+          )
+        )
+          throw Error('本店备份范围清单与实际资料不一致')
+      }
     }
   } finally {
     probe.close()
@@ -353,6 +430,7 @@ export function knowledgeRestoreImpact(
   backupDirectory: string,
   currentDirectory: string,
   canonicalId?: string,
+  storeId?: string,
 ) {
   const readOptions = { open: true, readOnly: true }
   const source = new DatabaseSync(
@@ -368,12 +446,56 @@ export function knowledgeRestoreImpact(
       (row) => JSON.parse(row.body) as T,
     )
   try {
-    const incomingBindings = rows<ProductBinding>(source, 'bindings'),
+    const sourceBindings = rows<ProductBinding>(source, 'bindings'),
       currentBindings = rows<ProductBinding>(target, 'bindings')
     const incomingEntries = rows<KnowledgeEntry>(source, 'entries'),
       currentEntries = rows<KnowledgeEntry>(target, 'entries')
-    const incomingSources = rows<KnowledgeSource>(source, 'sources'),
+    const sourceSources = rows<KnowledgeSource>(source, 'sources'),
       currentSources = rows<KnowledgeSource>(target, 'sources')
+    if (storeId) {
+      const incoming = storeClosure(source, storeId)
+      const incomingBindings = sourceBindings.filter((b) => incoming.primaryBindings.has(b.id))
+      const currentStoreBindings = currentBindings.filter((b) => b.storeId === storeId)
+      const physical = (binding: ProductBinding) =>
+        JSON.stringify([binding.storeId, binding.productId, binding.skuId])
+      const incomingPhysical = new Set(incomingBindings.map(physical))
+      const deactivatedBindings = currentStoreBindings.filter(
+        (binding) => !incomingPhysical.has(physical(binding)),
+      )
+      const currentBindingIds = new Set(currentStoreBindings.map((b) => b.id))
+      const currentCanonicals = new Set(currentStoreBindings.map((b) => b.canonicalId))
+      const owned = (entry: KnowledgeEntry) =>
+        [entry.draft, ...(entry.approved ? [entry.approved] : [])].some((version) => {
+          const scope = version.scope
+          return scope.kind === 'store'
+            ? scope.storeId === storeId
+            : scope.kind === 'template'
+              ? scope.storeIds.includes(storeId)
+              : scope.kind === 'binding'
+                ? currentBindingIds.has(scope.bindingId)
+                : currentCanonicals.has(scope.canonicalId)
+        })
+      const incomingEntryIds = new Set(incomingEntries.map((entry) => entry.id))
+      const removedEntries = currentEntries.filter(
+        (entry) => owned(entry) && !incomingEntryIds.has(entry.id),
+      )
+      const stores = new Set([storeId])
+      for (const binding of sourceBindings)
+        if (incoming.bindings.has(binding.id) && !incoming.primaryBindings.has(binding.id))
+          stores.add(binding.storeId)
+      return {
+        restoredBindings: incomingBindings,
+        deactivatedBindings,
+        removedBindings: [],
+        stores: [...stores].sort(),
+        restoredEntries: incomingEntries.length,
+        removedEntries: removedEntries.length,
+        restoredSources: sourceSources.length,
+        removedSources: 0,
+      }
+    }
+    const incomingBindings = sourceBindings,
+      incomingSources = sourceSources
     const family = canonicalId ? familyMergeState(target, source, canonicalId) : undefined
     const incomingIds = new Set(incomingBindings.map((b) => b.id)),
       incomingEntryIds = new Set(incomingEntries.map((e) => e.id)),
@@ -442,27 +564,34 @@ export function restoreKnowledgeBackup(options: {
   options = { ...options, directory: realpathSync(options.directory) }
   const staged = join(options.directory, `knowledge-restore-${randomUUID()}.sqlite`)
   try {
-    if (manifest.scope && existsSync(join(options.directory, 'knowledge.sqlite'))) {
-      const current = new DatabaseSync(
-        toNamespacedPath(join(options.directory, 'knowledge.sqlite')),
-      )
-      try {
-        current.prepare('VACUUM INTO ?').run(toNamespacedPath(staged))
-      } finally {
-        current.close()
-      }
-      const readOptions = { open: true, readOnly: true }
-      const target = new DatabaseSync(toNamespacedPath(staged)),
-        source = new DatabaseSync(
-          toNamespacedPath(join(options.backupDirectory, 'knowledge.sqlite')),
-          readOptions,
-        )
-      try {
-        mergeFamily(target, source, manifest.scope.canonicalId)
-      } finally {
-        target.close()
-        source.close()
-      }
+    const currentDirectory = join(options.directory, 'knowledge.sqlite')
+    if (manifest.scope) {
+      // A store archive is a delta over the live account. Copying it would import the foreign
+      // dependency identities and could make B's evidence appear to be A's own.
+      if (manifest.scope.kind === 'store' && !existsSync(currentDirectory))
+        throw Error('当前知识库不存在，无法安全核对本店恢复依赖')
+      if (existsSync(currentDirectory)) {
+        const current = new DatabaseSync(toNamespacedPath(currentDirectory))
+        try {
+          current.prepare('VACUUM INTO ?').run(toNamespacedPath(staged))
+        } finally {
+          current.close()
+        }
+        const readOptions = { open: true, readOnly: true }
+        const target = new DatabaseSync(toNamespacedPath(staged)),
+          source = new DatabaseSync(
+            toNamespacedPath(join(options.backupDirectory, 'knowledge.sqlite')),
+            readOptions,
+          )
+        try {
+          if (manifest.scope.kind === 'family')
+            mergeFamily(target, source, manifest.scope.canonicalId)
+          else mergeStore(target, source, manifest.scope.storeId)
+        } finally {
+          target.close()
+          source.close()
+        }
+      } else copyFileSync(join(options.backupDirectory, 'knowledge.sqlite'), staged)
     } else copyFileSync(join(options.backupDirectory, 'knowledge.sqlite'), staged)
   } catch (cause) {
     if (existsSync(staged)) rmSync(staged)

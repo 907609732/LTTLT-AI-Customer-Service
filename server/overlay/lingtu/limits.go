@@ -97,16 +97,10 @@ func (s *TrialStore) ReserveWithLimits(userID int, requestID, digest string, now
 		if result.RowsAffected != 1 {
 			return ErrDailyCallLimit
 		}
-		result = tx.Model(&TrialGrant{}).Where("user_id = ? AND expires_at > ? AND used + reserved < call_limit", userID, now.Unix()).UpdateColumn("reserved", gorm.Expr("reserved + 1"))
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
-			return ErrTrialUnavailable
-		}
-		if err := tx.Create(&TrialRequest{UserID: userID, RequestID: requestID, Digest: digest, State: "pending", CreatedAt: now.Unix()}).Error; err != nil {
+		if err := reserveQuota(tx, userID, requestID, digest, now); err != nil {
 			return err
 		}
+
 		if err := tx.Create(&trialLimitedRequest{UserID: userID, RequestID: requestID, Day: day, StartedAt: now.UnixNano(), Slot: true}).Error; err != nil {
 			return err
 		}

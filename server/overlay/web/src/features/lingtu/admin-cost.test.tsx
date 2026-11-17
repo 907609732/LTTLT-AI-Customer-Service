@@ -311,6 +311,103 @@ it('uses the selected 7/30-day response and keeps today cost separate from the s
   await screen.findByText(/Estimated cost.*¥0.000030/)
   expect(periods).toEqual([7, 30])
 })
+it('shows the combined report estimate with separate snapshot and historical current-rate evidence', async () => {
+  const rich = {
+    ...totals,
+    cost_micros: 1,
+    estimated_cny: '0.000001',
+    historical_cost_micros: 2,
+    historical_estimated_cny: '0.000002',
+    historical_costed_requests: 1,
+    historical_unpriced_requests: 1,
+    uncached_input_estimates: 1,
+    report_cost_micros: 3,
+    report_estimated_cny: '0.000003',
+    report_costed_requests: 2,
+    report_unpriced_requests: 1,
+  }
+  api.defaults.adapter = async (request) => ({
+    data: {
+      totals: rich,
+      today: rich,
+      this_month: rich,
+      days: 7,
+      period: 'day',
+      model: '',
+      model_options: [],
+      items: [],
+    },
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: request,
+  })
+  wrapper(<AdminOverview onManageAccounts={() => {}} onViewUsage={() => {}} />)
+  await screen.findByText(/Estimated cost \(CNY\): ¥0\.000003/)
+  expect(screen.getByText(/Admission price snapshot: ¥0\.000001/)).toBeTruthy()
+  expect(
+    screen.getByText(/Historical current-rate estimate: ¥0\.000002/)
+  ).toBeTruthy()
+  expect(
+    screen.getByText(/1 calls estimated at input price without cache detail/)
+  ).toBeTruthy()
+  expect(screen.getByText(/This month: ¥0\.000003/)).toBeTruthy()
+  expect(screen.getByText(/Today.*¥0\.000003/)).toBeTruthy()
+  expect(screen.getByText('Aggregate amount by period')).toBeTruthy()
+  expect(screen.getByLabelText('Cost estimate by period')).toBeTruthy()
+})
+
+it('switches to the 12-calendar-month view without losing the model filter or token chart', async () => {
+  const requests: Record<string, unknown>[] = []
+  api.defaults.adapter = async (request) => {
+    requests.push(request.params)
+    const monthly = request.params?.period === 'month'
+    return {
+      data: {
+        totals: { ...totals, cost_micros: monthly ? 30 : 7 },
+        today: { ...totals, cost_micros: 1 },
+        this_month: { ...totals, cost_micros: 11 },
+        period: monthly ? 'month' : 'day',
+        days: monthly ? 0 : 7,
+        months: monthly ? 12 : 0,
+        model: '',
+        model_options: ['managed-7'],
+        items: [
+          {
+            ...totals,
+            cost_micros: monthly ? 30 : 7,
+            report_cost_micros: monthly ? 30 : 7,
+            date: monthly ? '2026-11' : '2026-11-13',
+            model: 'managed-7',
+            channel_id: 7,
+            channel_name: 'Historical API',
+            upstream_model: 'old-model',
+          },
+        ],
+      },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  wrapper(<AdminOverview onManageAccounts={() => {}} onViewUsage={() => {}} />)
+  await screen.findByText(/Estimated cost \(CNY\): ¥0\.000007/)
+  fireEvent.click(screen.getByRole('button', { name: 'Monthly view' }))
+  await waitFor(() =>
+    expect(requests).toContainEqual({ period: 'month' })
+  )
+  await screen.findByText(/Estimated cost \(CNY\): ¥0\.000030/)
+  expect(
+    screen.getByRole('button', { name: 'Monthly view' }).getAttribute('aria-pressed')
+  ).toBe('true')
+  expect(screen.getByRole('combobox', { name: 'Usage model filter' })).toBeTruthy()
+  expect(screen.getByText('Monthly token usage')).toBeTruthy()
+  expect(screen.getAllByText('2026-11').length).toBeGreaterThan(0)
+  expect(screen.getByText('Aggregate amount by period')).toBeTruthy()
+  expect(screen.getByLabelText('Cost estimate by period')).toBeTruthy()
+  expect(requests[0]).toEqual({ days: 7 })
+})
 it('preserves six-decimal money precision and rejects unsafe or malformed input', () => {
   expect(formatCostMicros(0)).toBe('¥0.000000')
   expect(formatCostMicros(Number.MAX_SAFE_INTEGER + 1)).toBe('—')
@@ -321,4 +418,13 @@ it('preserves six-decimal money precision and rejects unsafe or malformed input'
   for (const value of ['', '0', '0.000001', '1000000.000000']) {
     expect(validCostPrice(value)).toBe(true)
   }
+})
+
+it('shows unpriced reports as unknown rather than free when no call can be estimated', async () => {
+ const unpriced = {...totals, requests: 2, cost_micros: 0, costed_requests: 0, historical_cost_micros: 0, historical_costed_requests: 0, report_cost_micros: 0, report_costed_requests: 0, report_unpriced_requests: 2}
+ api.defaults.adapter = async (request) => ({data: {totals: unpriced, today: unpriced, this_month: unpriced, days: 7, items: [], model_options: []}, status: 200, statusText: 'OK', headers: {}, config: request})
+ wrapper(<AdminOverview onManageAccounts={() => {}} onViewUsage={() => {}} />)
+ await screen.findByText(/Estimated cost \(CNY\): —/)
+ expect(screen.getByText(/Today.*—/)).toBeTruthy()
+ expect(screen.getByText(/This month.*—/)).toBeTruthy()
 })

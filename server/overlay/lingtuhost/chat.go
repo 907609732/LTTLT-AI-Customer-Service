@@ -193,7 +193,7 @@ func parseChat(r io.Reader) (chatInput, string, error) {
 	if err != nil || len(raw) > 16*1024*1024 {
 		return in, "", errors.New("invalid request")
 	}
-	if json.Unmarshal(raw, &in) != nil || len(in.RequestID) < 1 || len(in.RequestID) > 128 || len(in.Messages) < 1 || len(in.Messages) > 64 {
+	if json.Unmarshal(raw, &in) != nil || len(in.RequestID) < 1 || len(in.RequestID) > 128 || strings.HasPrefix(in.RequestID, "summary_") || len(in.Messages) < 1 || len(in.Messages) > 64 {
 		return in, "", errors.New("invalid request")
 	}
 	if in.Model != "" && !modelIdentifier(in.Model) {
@@ -417,6 +417,12 @@ func trialFailure(c *gin.Context, err error) {
 }
 func (h *Host) prepareChat(c *gin.Context) {
 	in, digest, err := parseChat(c.Request.Body)
+	auxiliary := false
+	if prepared, ok := c.Get("lingtu_summary_input"); ok {
+		if summary, valid := prepared.(chatInput); valid {
+			in, digest, err, auxiliary = summary, chatDigest(summary), nil, true
+		}
+	}
 	if err != nil {
 		clientFailure(c, 400, "invalid_request")
 		return
@@ -475,6 +481,13 @@ func (h *Host) prepareChat(c *gin.Context) {
 		}
 		return
 	}
+	if auxiliary {
+		if err = h.trials.MarkAuxiliary(uid, in.RequestID); err != nil {
+			_ = h.trials.Settle(uid, in.RequestID, "failed")
+			clientFailure(c, 503, "temporarily_unavailable")
+			return
+		}
+	}
 	channelName := channel.Name
 	if binding.ChannelID != 0 {
 		channelName = binding.Name
@@ -506,7 +519,11 @@ func (h *Host) prepareChat(c *gin.Context) {
 	c.Request.URL.Path = "/v1/chat/completions"
 	c.Request.URL.RawQuery = ""
 	c.Request.RequestURI = "/v1/chat/completions"
-	requestBody, _ := json.Marshal(gin.H{"model": channel.Models, "messages": in.Messages, "stream": false, "max_tokens": policy.MaxTokens})
+	maxTokens := policy.MaxTokens
+	if auxiliary {
+		maxTokens = min(maxTokens, c.GetInt("lingtu_summary_budget"))
+	}
+	requestBody, _ := json.Marshal(gin.H{"model": channel.Models, "messages": in.Messages, "stream": false, "max_tokens": maxTokens})
 	c.Request.Body = io.NopCloser(bytes.NewReader(requestBody))
 	c.Request.ContentLength = int64(len(requestBody))
 	c.Set("lingtu_internal", true)
@@ -541,7 +558,20 @@ func (h *Host) prepareChat(c *gin.Context) {
 		usage.InputTokens, usage.OutputTokens, usage.UsageKnown = providerUsage.Input, providerUsage.Output, providerUsage.Known
 		var plain []byte
 		if panicValue == nil && started && upstreamStatus >= 200 && upstreamStatus < 300 && capture.Status() == 200 && !capture.tooLarge {
+			outcome, diagnostic = "failed", "invalid_model_reply"
 			plain, _, _, _ = sanitizeManagedResponse(capture.body.Bytes(), selected, providerUsage, append(channel.GetKeys(), c.GetString("lingtu_internal_key"))...)
+			if len(plain) > 0 && !auxiliary {
+				var response struct {
+					Choices []struct {
+						Message struct {
+							Content string `json:"content"`
+						} `json:"message"`
+					} `json:"choices"`
+				}
+				if json.Unmarshal(plain, &response) != nil || len(response.Choices) == 0 || !effectiveReply(response.Choices[0].Message.Content) {
+					plain = nil
+				}
+			}
 			if len(plain) > 0 {
 				outcome = "success"
 				diagnostic = "success"
@@ -567,6 +597,9 @@ func (h *Host) prepareChat(c *gin.Context) {
 			}
 			if e := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&usage).Error; e != nil {
 				return e
+			}
+			if auxiliary {
+				return lingtu.NewTrialStore(tx).SettleAuxiliary(uid, in.RequestID, outcome)
 			}
 			return lingtu.NewTrialStore(tx).Settle(uid, in.RequestID, outcome)
 		})

@@ -33,27 +33,29 @@ E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独�
 
 ## 目录与职责
 
-| 目录                      | 职责                                            |
-| ------------------------- | ----------------------------------------------- |
-| .github                   | 独立主项目的云端检查与 Windows 构建，只上传产物 |
-| electron                  | Electron 主进程、preload、业务运行时与平台接入  |
-| server                    | 独立托管 API、原生管理网页覆盖层与运维说明      |
-| vendor/lingtu-runtime     | 固定来源的客户端运行依赖与许可                  |
-| src/app                   | 入口、布局、路由、菜单注册和演示服务装配        |
-| src/modules/workbench     | 工作台、快捷回复和定时任务界面                  |
-| src/modules/account       | 登录、账号、团队和店铺登录弹窗                  |
-| src/modules/shops         | 店铺、商品及相关弹窗                            |
-| src/modules/reception     | 转人工、欢迎语、自动操作、图片识别              |
-| src/modules/knowledge     | 意图、知识、模型定制和训练                      |
-| src/modules/quality       | 工单、质检和售后预警                            |
-| src/modules/billing       | 充值、订单、算力与账户聚合界面                  |
-| src/modules/settings      | 软件偏好和设置                                  |
-| src/modules/auxiliary     | 辅助中心、聚合后台、助手及弹层                  |
-| src/modules/simulation    | 本机模拟店铺客服台与会话回复界面                |
-| src/shared                | 类型契约、桌面适配、图标、公共 UI               |
-| src/styles/legacy         | 还原样式兼容层，不直接重生成                    |
-| tests / electron/smoke.ts | 逻辑测试 / 真实桌面冒烟                         |
-| artifacts                 | 忽略的源码备份、截图和测试报告                  |
+| 目录                      | 职责                                                  |
+| ------------------------- | ----------------------------------------------------- |
+| .github                   | 独立主项目的云端检查与 Windows 构建，只上传产物       |
+| config                    | TypeScript、ESLint、Prettier 与 electron-builder 配置 |
+| docs/legal                | AGPL、商业授权与第三方权利说明                        |
+| electron                  | Electron 主进程、preload、业务运行时与平台接入        |
+| server                    | 独立托管 API、原生管理网页覆盖层与运维说明            |
+| vendor/lingtu-runtime     | 固定来源的客户端运行依赖与许可                        |
+| src/app                   | 入口、布局、路由、菜单注册和演示服务装配              |
+| src/modules/workbench     | 工作台、快捷回复和定时任务界面                        |
+| src/modules/account       | 登录、账号、团队和店铺登录弹窗                        |
+| src/modules/shops         | 店铺、商品及相关弹窗                                  |
+| src/modules/reception     | 转人工、欢迎语、自动操作、图片识别                    |
+| src/modules/knowledge     | 意图、知识、模型定制和训练                            |
+| src/modules/quality       | 工单、质检和售后预警                                  |
+| src/modules/billing       | 充值、订单、算力与账户聚合界面                        |
+| src/modules/settings      | 软件偏好和设置                                        |
+| src/modules/auxiliary     | 辅助中心、聚合后台、助手及弹层                        |
+| src/modules/simulation    | 本机模拟店铺客服台与会话回复界面                      |
+| src/shared                | 类型契约、桌面适配、图标、公共 UI                     |
+| src/styles/legacy         | 还原样式兼容层，不直接重生成                          |
+| tests / electron/smoke.ts | 逻辑测试 / 真实桌面冒烟                               |
+| artifacts                 | 忽略的源码备份、截图和测试报告                        |
 
 跨模块只经公开入口导入组件。账户聚合依赖账号与设置属于现有界面组合；后续新增业务逻辑应放回各自模块，避免将 billing 扩展为全局业务中心。
 
@@ -161,3 +163,11 @@ Task4 review round1: source replacement now uses stable logical positions and re
 店铺AI恢复由electron/store-ai-preferences.ts与ai-state-restore.ts在主进程协调，接入local-runtime普通启动、平台身份事件及显式开关命令；共享店铺快照仅暴露可选恢复状态，不公开存储身份。知识库维护重建抑制恢复，规则与验证边界见AI_STATE_RESTORE.md。
 
 2026-11-16（1.0.35）：详细日志通过现有 runtime 命令 clear-runtime-logs 清除有界内存中的已完成记录；不会删除持久化会话、批准候选或取消在途请求。Desktop 新增可选 isAlwaysOnTop/setAlwaysOnTop，preload 对应受信来源窗口 IPC win:is-always-on-top/win:set-always-on-top，布尔输入校验。日志窗以原生 app-region 拖动，工具栏 no-drag；无新增生产依赖。
+
+## 单店知识备份与恢复（2026-11-17）
+
+knowledge runtime 的既有 backup/restore-preview 请求新增可选 storeId，沿用既有受信窗口IPC及工作区租约；无新通道或依赖。repository.createBackup 在一致SQLite副本中通过 backup-store-scope 裁剪本店实际适用知识及必要证据，manifest scope 为 family/store 判别联合，旧无scope全库包保持兼容。包内任务、待学问题及无关导入元信息排除，完整原件可能包含其他商品行，预览披露。
+
+单店恢复继续由工作区所有者停止写者，使用现有staging、恢复意图和回滚。共享身份克隆到本店隔离副本；只保留原本适用于本店的草稿、审核版本和历史，不通过恢复扩大其他店批准范围。外店依赖只核对不覆写，依赖缺失/变化拒绝恢复；其他店私有数据及解析内容保持。原全库与family路径保留在高级入口。
+
+客服接管关键词入口复用现有ConfigStore与ReplyEngine D-07，保存命令在既有save-config白名单下增加MANUAL_REPLY_KEYWORDS屏幕标识；自有manual-reply-keywords helper在主进程规范化输入，vendor仅最小配置保存分支。快照新字段manualReplyKeywords默认空，旧数据兼容；没有新增IPC通道、依赖或独立暂停调度器。源代码出处与hash见vendor/lingtu-runtime/PROVENANCE.md。
