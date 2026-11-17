@@ -103,6 +103,11 @@ it('displays the Go defaults for a new hosted context policy', () => {
   })
   expect(screen.getByText('Revision: 0')).toBeTruthy()
   expect(
+    screen.getByText(
+      'The model learning endpoint does not write knowledge. Automatic detail-page collection is not connected, and the per-product call limit is not enforced yet.'
+    )
+  ).toBeTruthy()
+  expect(
     (screen.getByLabelText('Retrieval budget (tokens)') as HTMLInputElement).value
   ).toBe('3000')
   expect(

@@ -178,7 +178,7 @@ func TestBillingCreditRollsBackGrantWhenReceiptCannotCommit(t *testing.T) {
 	}
 }
 
-func TestBillingCheckoutAttachmentRetriesAreIdempotent(t *testing.T) {
+func TestBillingCheckoutAttachmentRetriesAreIdempotentAcrossChannels(t *testing.T) {
 	for _, channel := range []string{"stripe", "wechat"} {
 		t.Run(channel, func(t *testing.T) {
 			db := trialDB(t)

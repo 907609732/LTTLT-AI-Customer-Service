@@ -68,6 +68,8 @@
 
 显式 `policy_version` 与服务端当前策略 revision 不一致时，在预留额度前返回 409 `policy_version_stale`。已成功请求的原样重放在策略更新后仍按原摘要返回缓存结果，不重复扣减试用次数。学习调用还要求 `learning.enabled=true`、来源在 `allowed_sources` 内、账号已启用，并受策略视觉开关和获准通道真实上游模型能力约束；图片 parts 必须与声明的文字/图片来源一致，否则返回 400 `learning_source_mismatch`。关闭时返回 403 `learning_disabled`，来源未允许返回 403 `learning_source_not_allowed`，策略禁用图片学习返回 403 `vision_disabled`，非视觉上游模型沿用 400 `vision_unavailable`。客户端声明的来源只是声明，服务端不能证明商品页面的真实来源，也不宣称已抓取或验证买家页面。
 
+当前模型学习接口不会自动写入知识库，也没有可信的商品身份字段，因此 `max_calls_per_product` 只保存和下发配置，尚未执行单商品限流。`requires_review` 固定为 true 代表后续知识写入必须走审核；本阶段没有接通详情页采集器或自动写入流程。管理页明确显示这些边界。
+
 客户端提交的 `max_tokens` 不参与上游请求。回复沿用试用策略的 `MaxTokens`；学习使用策略 `max_output_tokens`（512..4096，可高于旧的 512），但不会突破策略上限。接待新规则启用时，服务端把 `runtime_context.system_prompt` 作为首条 system 消息只发给上游，客户端配置、错误和调试日志都不返回该文本；固定上游 logger 的 `lingtu_internal` 替换保证 DebugEnabled 时请求字节被替换为 `managed relay event`，未修改生成的上游源码。模型完整回显规则或较长直接片段时，响应清洗失败关闭；语义改写不能可靠识别，管理员不得把密钥或凭据放入提示词。
 
 显式 policy-aware 调用，以及已启用隐藏接待规则的旧调用，按获准通道实际上游模型使用既有 tokenkit 估算文字输入，包含隐藏 system prompt、排除 base64 图片，超过 16384 token 在预留前返回 400 `context_too_large`；未启用规则的旧调用保留既有上限。图片仍沿用既有 PNG/尺寸/数量校验。策略记录损坏时所有调用返回 503 `configuration_unavailable`，避免默默绕过管理员已保存的接待规则。`managedUsage` 增量 `purpose` 列由现有 AutoMigrate 迁移，账号日额度、并发、结算、成本、不确定结果和模型准入不变。

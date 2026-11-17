@@ -570,6 +570,11 @@ export function AdminContextPolicy(props: AdminContextPolicyProps) {
         </div>
         <div className='space-y-3 rounded-lg border border-blue-100 p-3'>
           <h3 className='text-sm font-semibold'>{t('Learning policy')}</h3>
+          <p className='text-xs text-slate-600'>
+            {t(
+              'The model learning endpoint does not write knowledge. Automatic detail-page collection is not connected, and the per-product call limit is not enforced yet.'
+            )}
+          </p>
           <div className='flex items-center justify-between'>
             <Label htmlFor='context-learning-enabled'>
               {t('Detail-page learning')}

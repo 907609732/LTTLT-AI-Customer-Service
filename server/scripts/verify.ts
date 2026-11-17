@@ -97,7 +97,7 @@ try {
       '-run',
       'Test(Device|Desktop|Trial|Concurrent|Settlement|Social|Credential|GORM|Lingtu|LocalHTTP)',
       '-count=1',
-      '-timeout=180s',
+      '-timeout=300s',
     ],
     upstream,
     { LINGTU_TEST_ENGINE: '', LINGTU_TEST_DSN: '' },

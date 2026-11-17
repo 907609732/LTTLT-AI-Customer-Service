@@ -504,7 +504,7 @@
     {
       "path": "translations.json",
       "upstreamPath": "managed-server/translations.json",
-      "sha256": "890315d3f884a4cc6cb655e3c854d1e70354462ab38f9f6b896cbf81bdd99027",
+      "sha256": "ce0fec3391b6a82b0d921dadf4f72c0114793cf567165afe6179fdaa377be0f3",
       "upstreamSha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149",
       "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: add stable daily/monthly amount, historical current-rate, cache-detail and report-estimate translation keys. 2026-11-17: add hosted context policy editor, validation and conflict messages"
     },

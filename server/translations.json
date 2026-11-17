@@ -410,6 +410,7 @@
   "Binding is always first and template is always last.": "商品绑定固定最先，模板固定最后。",
   "Retrieval order must start with binding, end with template, and use store and canonical once.": "检索顺序须以绑定开始、以模板结束，并在中间各使用一次店铺知识和通用规范。",
   "Learning policy": "学习策略",
+  "The model learning endpoint does not write knowledge. Automatic detail-page collection is not connected, and the per-product call limit is not enforced yet.": "模型学习接口不会写入知识库；详情页自动采集尚未接入，单商品调用上限暂未执行。",
   "Detail-page learning": "启用商品详情页学习",
   "Vision learning allowed": "允许图片视觉学习",
   "Allowed sources": "允许的学习来源",
