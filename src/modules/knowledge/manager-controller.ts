@@ -1,6 +1,9 @@
 import { isRecoverableKnowledgeJob } from '@/shared/knowledge-progress'
 import { publishKnowledgeBatch, type BatchReviewResult } from './batch-review'
 import { useKnowledgeIngestion } from './ingestion-controller'
+import { useKnowledgeCatalog } from './catalog-controller'
+import { useKnowledgeMaintenance } from './maintenance-controller'
+import { useKnowledgeProductLearning } from './product-learning-controller'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { getDesktop } from '@/shared/platform/desktop'
@@ -29,28 +32,12 @@ import type {
 } from '@/shared/contracts/knowledge-client'
 import type {
   KnowledgePipelineCapabilities,
-  KnowledgeCatalogPage,
-  KnowledgeEstimate,
   KnowledgePipelineInput,
 } from '@/shared/contracts/knowledge-pipeline'
 import { createKnowledgeClient } from './manager-service'
 
 /** Local manager state is independent from reception selection; async results retain account/store leases. */
 export function useKnowledgeManager() {
-  const ocrPreview = ref<import('@/shared/contracts/knowledge-pipeline').KnowledgeOcrPreview>()
-  const clearScope = ref<'store' | 'account'>('store')
-  const clearPreview = ref<import('@/shared/contracts/knowledge-client').KnowledgeClearPreview>()
-  const clearConfirmation = ref('')
-  const restorePreview =
-    ref<import('@/shared/contracts/knowledge-client').KnowledgeRestorePreview>()
-  let restoreLease:
-    | {
-        workspaceId: string
-        storeId: string
-        revision: number
-        contextRevision: number
-      }
-    | undefined
   const recommendations = ref<{ canonical: CanonicalProduct; reasons: string[]; score: number }[]>(
     [],
   )
@@ -142,14 +129,37 @@ export function useKnowledgeManager() {
   const metadataTitle = ref(''),
     metadataCode = ref('')
   const mappingCanonical = ref('')
-  const catalog = ref<KnowledgeCatalogPage>(),
-    catalogIds = ref<string[]>([]),
-    catalogAll = ref(false),
-    catalogOpen = ref(false),
-    catalogSearch = ref(''),
-    estimate = ref<KnowledgeEstimate>()
+  const {
+    catalog,
+    catalogIds,
+    catalogAll,
+    catalogOpen,
+    catalogSearch,
+    load: loadCatalog,
+    thumbnail: loadCatalogThumbnail,
+    collect: collectCatalogSelection,
+    reset: resetCatalog,
+  } = useKnowledgeCatalog({ client, storeId, search })
   const batchResults = ref<BatchReviewResult[]>([])
-  const learningSelection = ref<{ bindingIds: string[]; sourceIds: string[] }>()
+  const {
+    estimate,
+    ocrPreview,
+    learnProduct,
+    recognizeProduct,
+    startLearn,
+    learnStore,
+    reset: resetLearning,
+  } = useKnowledgeProductLearning({
+    client,
+    storeId,
+    notice,
+    refresh,
+    // 打开详情的编辑器状态仍由本 controller 唯一持有。
+    selectBinding: (binding, nextSources) => {
+      detailBinding.value = binding
+      sources.value = nextSources
+    },
+  })
   const ingestion = useKnowledgeIngestion({
     client,
     storeId,
@@ -158,23 +168,6 @@ export function useKnowledgeManager() {
     notice,
   })
   const importPreview = ingestion.preview
-  watch(storeId, () => {
-    clearRestorePreview()
-    clearTimeout(progressTimer)
-    jobs.value = []
-    misses.value = []
-    missStatus.value = 'open'
-    missUpdating.value = ''
-    total.value = 0
-    ocrPreview.value = undefined
-    clearPreview.value = undefined
-    clearConfirmation.value = ''
-    clearScope.value = 'store'
-    ingestion.reset()
-    estimate.value = undefined
-    learningSelection.value = undefined
-    batchResults.value = []
-  })
   const stores = computed(() => runtime.snapshot.stores),
     currentStore = computed(() => stores.value.find((s) => s.id === storeId.value))
   let leaseRevision = 0,
@@ -183,6 +176,50 @@ export function useKnowledgeManager() {
     contextRevision = -1
   let activeRun: symbol | undefined
   const replacementWaiters = new Set<() => void>()
+  const maintenance = useKnowledgeMaintenance({
+    client,
+    workspace,
+    storeId,
+    currentStoreName: () => currentStore.value?.storeName,
+    captureLease: () => ({
+      revision: leaseRevision,
+      workspaceId: workspace.value,
+      storeId: storeId.value,
+    }),
+    leaseRevision: () => leaseRevision,
+    contextRevision: () => contextRevision,
+    runtimeWorkspaceId: () => runtime.snapshot.workspaceId,
+    isDisposed: () => disposed,
+    assertCaptured: assertCapturedLease,
+    closeEditor,
+    applyReplacementContext,
+    notice,
+  })
+  const {
+    restorePreview,
+    clearScope,
+    clearPreview,
+    clearConfirmation,
+    backup,
+    backupStore,
+    chooseRestore,
+    chooseStoreRestore,
+    restoreBackup,
+    previewClear,
+    clearKnowledge,
+  } = maintenance
+  watch(storeId, () => {
+    maintenance.reset()
+    clearTimeout(progressTimer)
+    jobs.value = []
+    misses.value = []
+    missStatus.value = 'open'
+    missUpdating.value = ''
+    total.value = 0
+    resetLearning()
+    ingestion.reset()
+    batchResults.value = []
+  })
   function client() {
     const service = createKnowledgeClient(workspace.value),
       revision = leaseRevision,
@@ -509,12 +546,8 @@ export function useKnowledgeManager() {
     await client().command({ type: 'save-settings', settings: settings.value })
     notice.value = '知识库设置已保存'
   }
-  function clearRestorePreview() {
-    restorePreview.value = undefined
-    restoreLease = undefined
-  }
   async function closeEditor() {
-    clearRestorePreview()
+    maintenance.clearRestorePreview()
     do {
       await saveDraft()
     } while (dirty.value)
@@ -531,11 +564,7 @@ export function useKnowledgeManager() {
     trial.value = undefined
     question.value = ''
     trialSku.value = ''
-    catalog.value = undefined
-    catalogIds.value = []
-    catalogAll.value = false
-    catalogOpen.value = false
-    catalogSearch.value = ''
+    resetCatalog()
   }
   async function changeStore(next: string) {
     await run(async () => {
@@ -1057,104 +1086,6 @@ export function useKnowledgeManager() {
     assertLease(w, s)
     trial.value = result
   }
-  async function backup(canonicalId?: string) {
-    const result = await client().backup(canonicalId)
-    notice.value = `${result.scope?.kind === 'store' ? `店铺「${currentStore.value?.storeName || result.scope.storeId}」备份` : result.scope?.kind === 'family' ? `同款全部店铺/SKU备份（${result.scope.storeIds.length}店，${result.scope.bindingIds.length}个绑定；含完整原件）` : '全库一致快照备份'}完成：${result.directory}`
-  }
-  async function backupStore() {
-    const shop = storeId.value,
-      name = currentStore.value?.storeName || shop
-    if (!shop) throw Error('请先选择店铺')
-    const result = await client().backup(undefined, shop)
-    notice.value = `店铺「${name}」备份完成：${result.directory}`
-  }
-  async function chooseRestore() {
-    await closeEditor()
-    const shop = storeId.value,
-      w = workspace.value,
-      revision = leaseRevision,
-      context = contextRevision
-    const preview = await client().restorePreview()
-    if (!preview) return
-    assertCapturedLease(revision, w, shop)
-    if (preview.targetStoreId && preview.targetStoreId !== shop)
-      throw Error('所选本店备份属于其他店铺，请重新选择')
-    restorePreview.value = preview
-    restoreLease = {
-      workspaceId: w,
-      storeId: shop,
-      revision,
-      contextRevision: context,
-    }
-  }
-  async function chooseStoreRestore() {
-    const shop = storeId.value,
-      w = workspace.value,
-      revision = leaseRevision,
-      context = contextRevision
-    if (!shop) throw Error('请先选择店铺')
-    await closeEditor()
-    assertCapturedLease(revision, w, shop)
-    const preview = await client().restorePreview(shop)
-    if (!preview) return
-    assertCapturedLease(revision, w, shop)
-    if (preview.targetStoreId !== shop)
-      throw Error('本店恢复预览目标已变化，请重新选择当前店铺备份')
-    restorePreview.value = preview
-    restoreLease = {
-      workspaceId: w,
-      storeId: shop,
-      revision,
-      contextRevision: context,
-    }
-  }
-
-  async function restoreBackup() {
-    const preview = restorePreview.value,
-      lease = restoreLease
-    if (!preview) return
-    clearRestorePreview()
-    if (
-      !lease ||
-      disposed ||
-      workspace.value !== lease.workspaceId ||
-      runtime.snapshot.workspaceId !== lease.workspaceId ||
-      storeId.value !== lease.storeId ||
-      leaseRevision !== lease.revision ||
-      contextRevision !== lease.contextRevision
-    )
-      throw Error('店铺、账号或知识库上下文已改变，请重新预览恢复范围')
-    if (preview.targetStoreId && preview.targetStoreId !== storeId.value)
-      throw Error('恢复预览所属店铺已改变，请重新预览')
-    const service = createKnowledgeClient(workspace.value)
-    notice.value = ''
-    // Restore intentionally replaces the lease. The owner returns the verified NEW context.
-    const result = await service.restore(preview.token)
-    await applyReplacementContext(result.context)
-    notice.value = result.message
-  }
-  async function previewClear() {
-    await closeEditor()
-    clearConfirmation.value = ''
-    clearPreview.value = await client().clearPreview(
-      clearScope.value === 'store'
-        ? { kind: 'store', storeId: storeId.value }
-        : { kind: 'account' },
-    )
-  }
-  async function clearKnowledge() {
-    const preview = clearPreview.value
-    if (!preview || clearConfirmation.value !== preview.confirmation)
-      throw Error('请输入完整确认文字')
-    const service = createKnowledgeClient(workspace.value)
-    const confirmation = clearConfirmation.value
-    notice.value = ''
-    clearPreview.value = undefined
-    clearConfirmation.value = ''
-    const result = await service.clear(preview.token, confirmation)
-    await applyReplacementContext(result.context)
-    notice.value = result.message
-  }
   async function exportEntries(
     format: 'csv' | 'json' = 'json',
     scope: 'shop' | 'detail' = 'detail',
@@ -1180,134 +1111,14 @@ export function useKnowledgeManager() {
     )
     notice.value = `店铺「${name}」已导出${result.count}条。${result.message}`
   }
-  async function loadCatalog(cursor = '', initialSearch = search.value) {
-    const filter = cursor ? catalogSearch.value : initialSearch
-    const result = await client().pipeline({
-      action: 'catalog',
-      storeId: storeId.value,
-      search: filter,
-      cursor,
-    })
-    if (
-      cursor &&
-      catalog.value &&
-      (result.identityVersion !== catalog.value.identityVersion ||
-        result.scopeToken !== catalog.value.scopeToken)
-    )
-      throw Error('目录身份或筛选范围已变化，请重新读取')
-    catalog.value = result
-    if (!cursor) {
-      catalogSearch.value = filter
-      catalogIds.value = []
-      catalogAll.value = false
-    }
-    catalogOpen.value = true
-  }
   async function collectCatalog() {
-    if (!catalog.value) return
-    if (
-      catalogAll.value &&
-      (!catalog.value.complete || catalog.value.total === null || catalog.value.total > 1000)
-    )
-      throw Error('目录范围未完整或数量超限，请明确选择已验证商品')
-    if (!catalogIds.value.length && !catalogAll.value) throw Error('请选择商品或明确当前筛选全选')
-    await client().pipeline({
-      action: 'start',
-      storeId: storeId.value,
-      kind: 'collect',
-      bindingIds: [],
-      sourceIds: [],
-      catalog: {
-        identityVersion: catalog.value.identityVersion,
-        scopeToken: catalog.value.scopeToken,
-        productIds: catalogIds.value,
-        allMatching: catalogAll.value,
-        total: catalog.value.total,
-      },
-    })
+    // 目录校验与提交由 catalog controller 负责；这里只做采集后的跨视图切换。
+    if (!(await collectCatalogSelection())) return
     notice.value = '正在采集商品资料，完成后可在商品条目开始学习。'
-    catalogOpen.value = false
     tab.value = 'products'
     view.value = 'library'
     search.value = ''
     page.value = 0
-    await refresh()
-  }
-  async function loadCatalogThumbnail(productId: string): Promise<string> {
-    const selected = catalog.value,
-      service = client()
-    if (!selected) throw Error('商品目录已关闭')
-    const result = await service.pipeline({
-      action: 'catalog-thumbnail',
-      storeId: storeId.value,
-      scopeToken: selected.scopeToken,
-      identityVersion: selected.identityVersion,
-      productId,
-    })
-    if (catalog.value?.scopeToken !== selected.scopeToken) throw Error('商品目录已改变')
-    const image = await service.asset(result.assetId)
-    if (catalog.value?.scopeToken !== selected.scopeToken) throw Error('商品目录已改变')
-    return image
-  }
-  async function learnProduct(binding: ProductBinding) {
-    const d = await client().query({
-      type: 'detail',
-      canonicalId: binding.canonicalId,
-      storeId: binding.storeId,
-    })
-    learningSelection.value = {
-      bindingIds: [binding.id],
-      sourceIds: d.sources
-        .filter(
-          (s) =>
-            !s.removed &&
-            (s.bindingId === binding.id ||
-              d.bindings.some((b) => b.id === s.bindingId && b.productId === binding.productId)),
-        )
-        .map((s) => s.id),
-    }
-    estimate.value = await client().pipeline({
-      action: 'estimate',
-      storeId: binding.storeId,
-      ...learningSelection.value,
-    })
-    detailBinding.value = binding
-    sources.value = d.sources
-  }
-  async function recognizeProduct(binding: ProductBinding) {
-    const d = await client().query({
-      type: 'detail',
-      canonicalId: binding.canonicalId,
-      storeId: binding.storeId,
-    })
-    const sourceIds = d.sources
-      .filter(
-        (s) =>
-          !s.removed &&
-          (s.bindingId === binding.id ||
-            d.bindings.some((b) => b.id === s.bindingId && b.productId === binding.productId)),
-      )
-      .map((s) => s.id)
-    ocrPreview.value = await client().pipeline({
-      action: 'recognize-images',
-      storeId: binding.storeId,
-      bindingIds: [binding.id],
-      sourceIds,
-    })
-  }
-  async function startLearn() {
-    if (!estimate.value || !learningSelection.value) return
-    await client().pipeline({
-      action: 'start',
-      storeId: storeId.value,
-      kind: 'learn',
-      ...learningSelection.value,
-      estimateId: estimate.value.estimateId,
-    })
-    estimate.value = undefined
-    notice.value = learningSelection.value.bindingIds.length
-      ? '已开始学习，请在对应商品条目查看资料处理进度；完成后请审核草稿。'
-      : '已开始学习本店通用资料'
     await refresh()
   }
   const chooseSources = () => ingestion.choose()
@@ -1316,19 +1127,6 @@ export function useKnowledgeManager() {
   }
   const confirmArchive = () => ingestion.choose(true)
   const applyImport = ingestion.apply
-  async function learnStore() {
-    const result = await client().pipeline({ action: 'store-materials', storeId: storeId.value })
-    if (!result.sourceIds.length) {
-      notice.value = '本店暂无可学习的通用资料，请先通过“导入”添加资料文件。'
-      return
-    }
-    learningSelection.value = { bindingIds: [], sourceIds: result.sourceIds }
-    estimate.value = await client().pipeline({
-      action: 'estimate',
-      storeId: storeId.value,
-      ...learningSelection.value,
-    })
-  }
   const contextStore = (context: KnowledgeWindowContext) =>
     context.storeId || stores.value[0]?.id || ''
   const contextAlreadyApplied = (context: KnowledgeWindowContext) =>
@@ -1338,7 +1136,7 @@ export function useKnowledgeManager() {
   async function applyContext(context: KnowledgeWindowContext) {
     if (context.workspaceId !== runtime.snapshot.workspaceId) return
     if (contextAlreadyApplied(context)) return
-    clearRestorePreview()
+    maintenance.clearRestorePreview()
     await saveDraft()
     if (context.workspaceId !== runtime.snapshot.workspaceId) return
     if (contextAlreadyApplied(context)) return
@@ -1474,7 +1272,7 @@ export function useKnowledgeManager() {
         settings.value = undefined
         summary.value = undefined
         capabilities.value = undefined
-        ocrPreview.value = undefined
+        resetLearning()
         total.value = 0
         selection.value = []
         allScope.value = false
@@ -1491,20 +1289,11 @@ export function useKnowledgeManager() {
         metadataCode.value = ''
         mappingCanonical.value = ''
         mappingReview.value = undefined
-        clearRestorePreview()
-        clearPreview.value = undefined
-        clearConfirmation.value = ''
-        clearScope.value = 'store'
+        maintenance.reset()
         deleteReview.value = undefined
         recommendations.value = []
         entryHistory.value = []
-        catalog.value = undefined
-        catalogIds.value = []
-        catalogAll.value = false
-        catalogOpen.value = false
-        catalogSearch.value = ''
-        estimate.value = undefined
-        learningSelection.value = undefined
+        resetCatalog()
         ingestion.reset()
         batchResults.value = []
         workspace.value = next
