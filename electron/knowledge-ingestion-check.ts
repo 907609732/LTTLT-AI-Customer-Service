@@ -224,7 +224,7 @@ app
       }),
     )
     await manager.open({ workspaceId: w, storeId: a })
-    await openToolbarMenu('导入商品', '导入商品CSV / 通用资料')
+    await openToolbarMenu('导入', '导入资料文件')
     await until(`Boolean(document.querySelector('[aria-label="导入预览"]'))`)
     assert((await evaluate<string>('document.body.innerText')).includes('商品 1'))
     await screenshot('import-preview.png')
@@ -384,7 +384,7 @@ app
     checks.push(
       'actual failed HTTP call persists uncertain result; bare resume no replay; explicit skip causes zero additional calls',
     )
-    await openToolbarMenu('导入商品', '导入本机归档聊天')
+    await openToolbarMenu('导入', '导入本机归档聊天')
     await until(`Boolean(document.querySelector('[aria-label="选择归档聊天范围"]'))`)
     await screenshot('archive-range.png')
     checks.push(
@@ -409,7 +409,13 @@ app
       `([...document.querySelectorAll('.knowledge-tabs button')].find(n=>n.textContent.trim().startsWith('待审核 '))).click()`,
     )
     await until(`document.querySelectorAll('.knowledge-content .knowledge-card').length===2`)
-    await evaluate(`document.querySelector('.knowledge-selection input').click()`)
+    await evaluate(
+      `document.querySelectorAll('.knowledge-content .knowledge-card input[type="checkbox"]')[0].click()`,
+    )
+    await evaluate(
+      `document.querySelectorAll('.knowledge-content .knowledge-card input[type="checkbox"]')[1].click()`,
+    )
+    await until(`document.querySelector('.knowledge-selection')?.textContent.includes('已选 2 项')`)
     await click('审核所选草稿')
     await until(`Boolean(document.querySelector('[aria-label="审核发布"]'))`)
     repo.saveSource({

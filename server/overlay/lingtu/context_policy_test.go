@@ -21,6 +21,12 @@ func contextPolicyDB(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(&ManagedSetting{}); err != nil {
 		t.Fatal(err)
 	}
+	// The shared MySQL/Postgres test database keeps ManagedSetting rows between
+	// tests, unlike the per-test SQLite file. Remove only this policy row so a
+	// previous test cannot supply a revision or leave a primary key behind.
+	if err := db.Where("name = ?", ContextPolicySettingName).Delete(&ManagedSetting{}).Error; err != nil {
+		t.Fatal(err)
+	}
 	return db
 }
 

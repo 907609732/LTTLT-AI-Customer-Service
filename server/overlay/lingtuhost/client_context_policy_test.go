@@ -1,6 +1,8 @@
 package lingtuhost
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -24,6 +26,15 @@ type clientContextPolicyResponse struct {
 	Learning       lingtu.ClientLearningPolicy `json:"learning"`
 }
 
+// clientContextPolicySessionID derives a deterministic ID from the test name.
+// hostDB leaves ManagedSession rows in the shared MySQL/Postgres database, and
+// session IDs are primary keys limited to 64 characters, so hashing keeps each
+// test unique while avoiding slashes and other characters from subtest names.
+func clientContextPolicySessionID(name string) string {
+	digest := sha256.Sum256([]byte(name))
+	return "client-context-policy-" + hex.EncodeToString(digest[:16])
+}
+
 // clientContextPolicyHost uses the real restricted-session middleware and token
 // issue path. Only the native user/session validation dependency is a fixture,
 // matching the existing billing HTTP regression; account authorization and the
@@ -41,7 +52,7 @@ func clientContextPolicyHost(t *testing.T, db *gorm.DB) (*Host, string) {
 	if err := sessions.Migrate(); err != nil {
 		t.Fatal(err)
 	}
-	bundle, err := sessions.Create(42, "client-context-policy-session", 1, time.Now())
+	bundle, err := sessions.Create(42, clientContextPolicySessionID(t.Name()), 1, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
