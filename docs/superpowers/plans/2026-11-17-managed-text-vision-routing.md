@@ -4,16 +4,16 @@
 
 ## 1. 规划（完成）
 
-| 项 | 决定 |
-| --- | --- |
+| 项           | 决定                                                                                                                                                                                           |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 默认试用策略 | 仅无保存行时：`calls=100`；`model_scope=selected`；`allowed_models=[deepseek-flash, qwen3-vl-plus]`；`default_model=deepseek-flash`。有保存行按旧基底（20/7/无 scope/nil allowed）解码，不覆盖 |
-| 文字路由 | 策略默认模型/账号偏好解析结果（新装默认 DeepSeek）；出厂双模型下不可用即 `503 model_not_ready`，不静默用视觉模型 |
-| 图片路由 | 客户端未指定 `model` 且消息含图片 → 允许范围内第一个就绪视觉模型（ID 稳定排序，即 Qwen3-VL） |
-| 显式模型 | 保持“不静默换模型”：显式非视觉模型 + 图片仍返回 `vision_unavailable` |
-| 能力投影 | `capabilities.vision` = 存在就绪视觉路由；`model` 仍为文字默认模型 |
-| 兼容 | 已保存旧策略不变；旧管理页保留范围；允许“上一版已允许但当前未配置”的模型留在范围 |
-| 不改动 | 桌面协议/渲染层、`vendor/lingtu-runtime`、数据库列、部署脚本 |
-| 验证 | 定向 Go 测试（已红转绿）+ 管理页测试与 `npm run server:verify`（待 Codex） |
+| 文字路由     | 策略默认模型/账号偏好解析结果（新装默认 DeepSeek）；出厂双模型下不可用即 `503 model_not_ready`，不静默用视觉模型                                                                               |
+| 图片路由     | 客户端未指定 `model` 且消息含图片 → 允许范围内第一个就绪视觉模型（ID 稳定排序，即 Qwen3-VL）                                                                                                   |
+| 显式模型     | 保持“不静默换模型”：显式非视觉模型 + 图片仍返回 `vision_unavailable`                                                                                                                           |
+| 能力投影     | `capabilities.vision` = 存在就绪视觉路由；`model` 仍为文字默认模型                                                                                                                             |
+| 兼容         | 已保存旧策略不变；旧管理页保留范围；允许“上一版已允许但当前未配置”的模型留在范围                                                                                                               |
+| 不改动       | 桌面协议/渲染层、`vendor/lingtu-runtime`、数据库列、部署脚本                                                                                                                                   |
+| 验证         | 定向 Go 测试（已红转绿）+ 管理页测试与 `npm run server:verify`（待 Codex）                                                                                                                     |
 
 对应用例清单（先写失败用例再实现）：
 
@@ -37,25 +37,25 @@
 
 ## 3. UI（完成）
 
-| 文件 | 改动 |
-| --- | --- |
-| `server/overlay/web/src/features/lingtu/admin-page.tsx` | `TrialRules` 顶部额度/路由说明；范围已设置时渲染分流说明与缺视觉模型警告（按 `upstream_model === 'qwen3-vl-plus'` 判断就绪） |
-| `server/translations.json` | 新增三条英文键及中文译文 |
-| `server/overlay/web/src/features/lingtu/admin-page.test.tsx` | 新增：无就绪视觉模型时显示警告、有就绪视觉模型时不显示 |
+| 文件                                                         | 改动                                                                                                                         |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `server/overlay/web/src/features/lingtu/admin-page.tsx`      | `TrialRules` 顶部额度/路由说明；范围已设置时渲染分流说明与缺视觉模型警告（按 `upstream_model === 'qwen3-vl-plus'` 判断就绪） |
+| `server/translations.json`                                   | 新增三条英文键及中文译文                                                                                                     |
+| `server/overlay/web/src/features/lingtu/admin-page.test.tsx` | 新增：无就绪视觉模型时显示警告、有就绪视觉模型时不显示                                                                       |
 
 视觉判断：沿用蓝色卡片、灰色说明、琥珀警告；不新增按钮或弹窗。最终文案与截图由 Codex 复核。
 
 ## 4. 开发（完成）
 
-| 文件 | 改动 |
-| --- | --- |
-| `server/overlay/lingtu/settings.go` | 分开旧默认基底与出厂默认；有行按旧值解码，无行才用 100 次/selected/双模型 |
-| `server/overlay/lingtuhost/model_policy.go` | 图片模型选择；出厂双模型文字固定（DS 不可用即 fail-closed）；`validateModelPolicy` 允许保留“上一版允许但当前未配置”的模型 |
-| `server/overlay/lingtuhost/chat.go` | 未显式指定模型且含图片时改选视觉路由；显式选择保持原语义 |
-| `server/overlay/lingtuhost/routes.go` | `/me` 能力按视觉路由投影，`model` 仍为文字默认模型 |
-| `server/overlay/lingtu/default_policy_test.go` | 新自有测试：出厂默认、旧 JSON 缺 scope、all 省略 allowed、selected 仅 DS、无行默认 |
-| `server/overlay/lingtuhost/text_vision_acceptance_test.go` | Codex 新增自有验收测试（3 项，已独立通过） |
-| 既有测试 | 新增分流/固定文字/能力/范围保留用例；仍在验证旧单模型路径的用例显式保存旧策略；授予额度断言改用默认值；`all` 夹具清空 allowed |
+| 文件                                                       | 改动                                                                                                                          |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `server/overlay/lingtu/settings.go`                        | 分开旧默认基底与出厂默认；有行按旧值解码，无行才用 100 次/selected/双模型                                                     |
+| `server/overlay/lingtuhost/model_policy.go`                | 图片模型选择；出厂双模型文字固定（DS 不可用即 fail-closed）；`validateModelPolicy` 允许保留“上一版允许但当前未配置”的模型     |
+| `server/overlay/lingtuhost/chat.go`                        | 未显式指定模型且含图片时改选视觉路由；显式选择保持原语义                                                                      |
+| `server/overlay/lingtuhost/routes.go`                      | `/me` 能力按视觉路由投影，`model` 仍为文字默认模型                                                                            |
+| `server/overlay/lingtu/default_policy_test.go`             | 新自有测试：出厂默认、旧 JSON 缺 scope、all 省略 allowed、selected 仅 DS、无行默认                                            |
+| `server/overlay/lingtuhost/text_vision_acceptance_test.go` | Codex 新增自有验收测试（3 项，已独立通过）                                                                                    |
+| 既有测试                                                   | 新增分流/固定文字/能力/范围保留用例；仍在验证旧单模型路径的用例显式保存旧策略；授予额度断言改用默认值；`all` 夹具清空 allowed |
 
 ## 5. 验证
 
