@@ -12,6 +12,7 @@
 - `bun run typecheck`：1436文件/2项目通过；改动两文件 oxlint通过。
 - `node --test server/tests/preparation.test.mjs`：翻译/生成2项通过。
 - 原生网页以 http://127.0.0.1:3000 作为本机 API 构建通过；Windows amd64服务端编译通过，不将此本机页面包用于生产。
+- 第一轮 GitHub MySQL：托管路由包通过，但新默认策略测试遗留加密 trial_policy 行，造成后续用例污染。仅在该测试夹具进入与退出时清理其拥有的策略行；本机默认/旧策略/身份定向重跑通过（1.360s），云端矩阵继续复跑。生产代码与数据库未变。
 - 未运行完整桌面测试、完整 server:verify 或本机MySQL/PostgreSQL；GitHub CI与Linux构建结果另行记录，不冒充已经通过。
 
 版本 package.json/package-lock.json=1.0.48。来源清单保留上游原始摘要并刷新实际哈希。生产未部署、未保存线上策略；仅升级不覆盖已有策略，新账号100次与指定双模型须在部署后明确保存。

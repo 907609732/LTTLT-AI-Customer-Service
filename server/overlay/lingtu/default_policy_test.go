@@ -18,7 +18,18 @@ func policyFixtureDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	SetEncryptionVault(vault)
-	return identityFixture(t)
+	db := identityFixture(t)
+	// MySQL/PostgreSQL share lingtu_test across cases, unlike SQLite's temp
+	// database. Only this fixture owns trial_policy; do not leave its encrypted
+	// row for the next case to read with another test's encryption vault.
+	clearPolicy := func() {
+		if err := db.Where("name = ?", "trial_policy").Delete(&ManagedSetting{}).Error; err != nil {
+			t.Error(err)
+		}
+	}
+	clearPolicy()
+	t.Cleanup(clearPolicy)
+	return db
 }
 
 // New deployments admit exactly the text model and the visual model the user

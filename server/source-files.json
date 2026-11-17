@@ -504,7 +504,7 @@
     {
       "path": "overlay/lingtu/default_policy_test.go",
       "upstreamPath": "managed-server/overlay/lingtu/default_policy_test.go",
-      "sha256": "fe9b9148965f753c5879b9269afb777785ca9c94ec40fd5e03d7c305df1e0e91",
+      "sha256": "6efd2c6bc39fb0be94e87f2e44a9b5d32e7146e81f38eb96f9d754414cbd3ef1",
       "localPatch": "Self-owned test added 2026-11-17; shipped text/visual defaults and saved-policy decoding."
     },
     {
