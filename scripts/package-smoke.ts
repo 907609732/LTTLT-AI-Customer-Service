@@ -296,7 +296,8 @@ try {
         `(() => {
           const footer = document.querySelector('.sidebar-footer');
           const actions = footer?.querySelectorAll('button');
-          return Boolean(actions?.length === 1 && actions[0].textContent.trim() === '快捷回复' &&
+          return Boolean(actions?.length === 2 && actions[0].textContent.trim() === '快捷回复' &&
+            actions[1].textContent.trim().startsWith('回复监控') &&
             footer.querySelector('.app-version')?.textContent.trim() === ${JSON.stringify('v' + expectedVersion)} &&
             !document.querySelector('.advanced-model') && document.querySelector('.login-trigger'));
         })()`,
@@ -391,6 +392,24 @@ try {
     )) !== true
   )
     throw new Error('Packaged check must not display a user window')
+  await evaluate(`document.querySelector('.sidebar-footer [aria-label="回复监控"]').click()`)
+  let monitorReady = false
+  for (let attempt = 0; attempt < 80; attempt++) {
+    monitorReady =
+      (await mainEvaluate(`(async () => {
+        const monitor = globalThis.__lingtuPackageWindows.getAllWindows().find(window =>
+          window.webContents.getURL().endsWith('#/reply-monitor'));
+        if (!monitor) return false;
+        return monitor.webContents.executeJavaScript(
+          "document.body.innerText.includes('回复监控') && typeof window.yunduoDesktop?.developerDebug === 'undefined' && !document.querySelector('[data-action=\\\"developer-toggle\\\"]')"
+        );
+      })()`)) === true
+    if (monitorReady) break
+    await delay(250)
+  }
+  if (!monitorReady) throw new Error('Packaged monitor unavailable or exposes developer controls')
+  await mainEvaluate(`globalThis.__lingtuPackageWindows.getAllWindows().find(window =>
+    window.webContents.getURL().endsWith('#/reply-monitor'))?.close()`)
   const report = {
     status: 'passed',
     checkedAt: new Date().toISOString(),
@@ -403,7 +422,8 @@ try {
       'real packaged window/preload',
       'no developer bridge, source preload or node-pty in packaged application',
       'real business IPC, empty isolated stores and no Key',
-      'legacy settings redirects to configuration center; sidebar keeps only quick replies and matching source version',
+      'legacy settings redirect, lower-left quick replies/reply monitor and matching source version',
+      'packaged reply monitor opens without developer bridge or controls',
       'simple own-Key/server login without server address fields',
       'packaged main parses scan PDF, DOCX embedded image, all XLSX sheets and PNG from ASAR dependencies',
     ],
