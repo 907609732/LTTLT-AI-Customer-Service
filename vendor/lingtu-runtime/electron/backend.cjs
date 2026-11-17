@@ -187,12 +187,18 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    // Only an explicitly marked main-process caller may add policy metadata.
    // Unknown input fields (including client output limits) never reach the wire.
    const payload={client_request_id:requestId,messages};
-   if(purpose==='reply'||purpose==='learning'){
-    payload.purpose=purpose;
-    if(Number.isSafeInteger(policyVersion)&&policyVersion>=0)payload.policy_version=policyVersion;
-    if(purpose==='learning'&&['pdd_detail_text','pdd_detail_image'].includes(learningSource))payload.learning_source=learningSource;
-   }
-   try{managedReady();const result=await managedChat(payload,{signal:c.signal,traceId});if(disposed||c.signal.aborted)throw Error('生成已取消');const content=result?.choices?.[0]?.message?.content;if(typeof content!=='string'||!content.trim())throw Error('托管模型未返回可用回复');return content;}
+   try{
+    const marked=purpose!==undefined||policyVersion!==undefined||learningSource!==undefined;
+    if(marked){
+     if(!['reply','learning'].includes(purpose)||
+        (policyVersion!==undefined&&(!Number.isSafeInteger(policyVersion)||policyVersion<0))||
+        (purpose==='learning'&&(policyVersion===undefined||!['pdd_detail_text','pdd_detail_image'].includes(learningSource)))||
+        (purpose!=='learning'&&learningSource!==undefined))throw new ManagedSessionError('invalid_request');
+     payload.purpose=purpose;
+     if(policyVersion!==undefined)payload.policy_version=policyVersion;
+     if(learningSource!==undefined)payload.learning_source=learningSource;
+    }
+    managedReady();const result=await managedChat(payload,{signal:c.signal,traceId});if(disposed||c.signal.aborted)throw Error('生成已取消');const content=result?.choices?.[0]?.message?.content;if(typeof content!=='string'||!content.trim())throw Error('托管模型未返回可用回复');return content;}
    catch(e){if(!disposed){reportConversationIssue(e instanceof ManagedSessionError?e:new ManagedSessionError('generation_failed'),{...reviewContext,requestId,storeName:registry.get(reviewContext?.storeId)?.storeName||''});}throw e;}
    finally{clearTimeout(timer);generations.delete(c);signal?.removeEventListener('abort',abort);}
    });

@@ -212,36 +212,15 @@ describe('托管后端显式策略透传', () => {
     expect(payloads[1]).toEqual({ client_request_id: expect.any(String), messages })
     expect(Object.keys(payloads[1]!)).toEqual(['client_request_id', 'messages'])
 
-    await backend.engine.aiClient.complete({
-      messages,
-      purpose: 'admin',
-      policyVersion: 3,
-      learningSource: 'pdd_detail_text',
-    })
-    expect(payloads[2]).toEqual({ client_request_id: expect.any(String), messages })
-
-    await backend.engine.aiClient.complete({
-      messages,
-      purpose: 'reply',
-      policyVersion: 0,
-      learningSource: 'pdd_detail_text',
-    })
-    expect(payloads[3]).toEqual({
-      client_request_id: expect.any(String),
-      messages,
-      purpose: 'reply',
-      policy_version: 0,
-    })
-
-    await backend.engine.aiClient.complete({
-      messages,
-      purpose: 'learning',
-      policyVersion: -1,
-    })
-    expect(payloads[4]).toEqual({
-      client_request_id: expect.any(String),
-      messages,
-      purpose: 'learning',
-    })
+    for (const metadata of [
+      { purpose: 'admin', policyVersion: 3, learningSource: 'pdd_detail_text' },
+      { purpose: 'reply', policyVersion: 0, learningSource: 'pdd_detail_text' },
+      { purpose: 'learning', policyVersion: -1, learningSource: 'pdd_detail_text' },
+      { purpose: 'learning', policyVersion: 3, learningSource: 'pdd_detail_video' },
+      { purpose: 'learning', policyVersion: 3 },
+    ]) {
+      await expect(backend.engine.aiClient.complete({ messages, ...metadata })).rejects.toThrow()
+      expect(payloads).toHaveLength(2)
+    }
   })
 })

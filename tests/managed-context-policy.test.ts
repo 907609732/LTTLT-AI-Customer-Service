@@ -249,6 +249,13 @@ describe('托管上下文策略安全投影', () => {
       expect(managedContextPolicySchema.safeParse(value).success).toBe(false)
   })
 
+  it('接受服务端允许的模型显示名长度和超过200个连接', () => {
+    const name = `${'m'.repeat(128)} · ${'n'.repeat(128)}`
+    const models = Array.from({ length: 201 }, (_, index) => ({ id: `model-${index}`, name }))
+    expect(name.length).toBe(259)
+    expect(managedContextPolicySchema.safeParse({ ...policy, models }).success).toBe(true)
+  })
+
   it('旧服务端缺字段或配置失败使新学习不可用，恢复后仍可读取', async () => {
     vi.useFakeTimers()
     const f = fixture()

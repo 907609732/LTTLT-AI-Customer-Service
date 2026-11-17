@@ -33,11 +33,12 @@ export const managedContextPolicySchema = z
         z
           .object({
             id: z.string().min(1).max(128),
-            name: z.string().max(256),
+            // Server display names join a 128-character upstream model, " · ",
+            // and a 128-character administrator name.
+            name: z.string().max(259),
           })
           .strict(),
-      )
-      .max(200),
+      ),
     max_tokens: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     policy_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     runtime_context: z

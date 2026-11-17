@@ -10,6 +10,8 @@ backend.cjs 只增加可选 knowledgePorts / knowledgeContext / onKnowledgeModel
 
 managed-session.cjs 新增主进程专用 config()，仅以现有鉴权会话 GET 固定 /api/client/config；serviceRequest 的团队/计费白名单不变。chat 仅构造 client_request_id/messages 与可选 purpose/policy_version/learning_source，未知字段（包括客户端 max_tokens）不进入正文；旧正文语义不变。backend.cjs 仅从显式标记的 model.complete 输入转发学习用途、版本和来源，现有回复调用保持省略。策略投影由本工程 TypeScript 的 Zod 严格校验并在主进程缓存最多 60 秒；当前没有获批的直接详情页学习调用点，透传能力保持未启用。source-files.json 保留 upstreamGitBlob/upstreamSha256，仅更新上述两个文件的实际 sha256 与补丁说明。
 
+独立复审补充：显式用途、版本或来源无效时，backend.cjs 在调用 managedChat 前直接拒绝，不降级为旧版聊天正文；仍保留三字段均省略的旧请求。客户端模型列表校验接受服务端可能返回的 259 字符显示名及其现有响应大小边界。
+
 针对性验证：managed-session-context、managed-session-billing、managed-backend 与桌面 managed-context-policy/managed-context-transport 测试通过；未运行全量上游套件。
 
 ## 2026-11-13：用户授权新增可选托管装配
