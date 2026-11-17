@@ -185,9 +185,9 @@
     {
       "path": "overlay/lingtuhost/admin.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin.go",
-      "sha256": "14247d6248c92bfd62f3e06640455ba5278f3ed79de0986d21533a9a7b26d70d",
+      "sha256": "f0813e821e34d06f0d2c871e230c82f78d3dcf21d82ed7d966b429c02b6de482",
       "upstreamSha256": "2fe0a91291e4b657105d3f052f01a7f41015c240e000acb8e2a4f20966e245ab",
-      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials."
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials. Add the AdminAuth context_policy read and revision-checked save with a strict top-level/nested whitelist, exact request-hash proof, audit and no prompt logging."
     },
     {
       "path": "overlay/lingtuhost/admin_connections_review_test.go",
@@ -370,16 +370,16 @@
     {
       "path": "overlay/service/lingtu_verification.go",
       "upstreamPath": "managed-server/overlay/service/lingtu_verification.go",
-      "sha256": "8e6fc851d4701a0f92876ff33d9cd6bd7dee8bb97edd7836ab5fb36e29eb1a60",
+      "sha256": "d3b7682b71fcfcb2fb8e9527ba9462127107b8eeeaf862362ceb13788e1241ca",
       "upstreamSha256": "3a5c49c03de8e31991f2027013d926e5a3494a09b98fd01cf7eaa6ec307217af",
-      "localPatch": "Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
+      "localPatch": "Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Accept context_policy as an exact request-hash managed configuration proof section."
     },
     {
       "path": "overlay/service/lingtu_verification_test.go",
       "upstreamPath": "managed-server/overlay/service/lingtu_verification_test.go",
-      "sha256": "bc8c26bed21142adfa0025e68243c2a29ef24ed6150f9333186d5447750e81c9",
+      "sha256": "f3b32f8ae889af38e98b3cab2423f442220cf368035ca824e7608f0da745e02c",
       "upstreamSha256": "5906a2cbe8992ac580172df870112bf35120be8b83f1d5fd4b05b0b98bf4b5db",
-      "localPatch": "Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
+      "localPatch": "Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Verify context_policy proof acceptance and exact body binding."
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-light.css",

@@ -8,7 +8,7 @@ import (
 )
 
 func TestLingtuConnectionProofSupportsExactManagedSectionAndBody(t *testing.T) {
-	for _, section := range []string{"model_connection", "qwen-vision", "billing"} {
+	for _, section := range []string{"model_connection", "qwen-vision", "billing", "context_policy"} {
 		context, _ := common.Marshal(map[string]string{"section": section, "request_hash": strings.Repeat("b", 64)})
 		first, err := BindVerificationOperation(VerificationOperation{Scope: VerificationScopeManagedConfigure, Context: context})
 		if err != nil {
@@ -19,6 +19,19 @@ func TestLingtuConnectionProofSupportsExactManagedSectionAndBody(t *testing.T) {
 		if err != nil || first.ContextHash == second.ContextHash {
 			t.Fatal("proof not bound to exact body")
 		}
+	}
+}
+
+func TestLingtuManagedConfigurationProofAcceptsContextPolicy(t *testing.T) {
+	context, _ := common.Marshal(map[string]string{"section": "context_policy", "request_hash": strings.Repeat("d", 64)})
+	first, err := BindVerificationOperation(VerificationOperation{Scope: VerificationScopeManagedConfigure, Context: context})
+	if err != nil {
+		t.Fatal("context_policy managed section rejected", err)
+	}
+	context, _ = common.Marshal(map[string]string{"section": "context_policy", "request_hash": strings.Repeat("e", 64)})
+	second, err := BindVerificationOperation(VerificationOperation{Scope: VerificationScopeManagedConfigure, Context: context})
+	if err != nil || first.ContextHash == second.ContextHash {
+		t.Fatal("context_policy proof not bound to exact request body")
 	}
 }
 

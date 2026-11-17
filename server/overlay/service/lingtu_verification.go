@@ -23,7 +23,7 @@ func bindManagedConfiguration(fields map[string]json.RawMessage) (ManagedConfigu
 		return context, ErrVerificationContextInvalid
 	}
 	switch context.Section {
-	case "wechat", "dingtalk", "deepseek", "qwen", "qwen-vision", "model_connection", "smtp", "trial", "account", "reconcile", "billing":
+	case "wechat", "dingtalk", "deepseek", "qwen", "qwen-vision", "model_connection", "smtp", "trial", "account", "reconcile", "billing", "context_policy":
 		return context, nil
 	}
 	return context, ErrVerificationContextInvalid
