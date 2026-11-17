@@ -28,8 +28,12 @@
 - [x] 2. GM注册表与服务，先测试help/status/stores/logs边界及未知命令，再实现有界、脱敏、逐命令扩展。pdd-popup status/allow/block绑定显式storeId，仅本次运行；复用正确来源URL和嵌入view识别：BrowserWindow.fromWebContents(wc)可能返回父窗口，不能用===null判定；应比较owner.webContents!==wc并核对目标store真实WebContents。allow正常网页新窗，block恢复原默认外部打开+deny，无后台页面或其他平台副作用。
 - [x] 3. node-pty服务，先使用注入fake测试会话/输出/resize/退出/权限，再用真实隔离Electron验证cmd.exe。支持持续会话cd/中文/方向键/Ctrl+C/退出、正尺寸、输出缓冲有界、清屏仅清显示、断开结束进程树。默认cwd=源码appPath；不自动启动，不提权。启动失败明确显示，不降级为假终端。
 - [x] 4. UI和入口迁移，先写紧凑/源码/打包能力缺失及tab/按钮行为失败测试。主工作台右上移除；工作台和配置中心左下提供同一入口。展开960×620，左340回复+审批/高级日志，右GM/CMD；窄屏上下。选择店铺、GM输入/历史/输出分离；CMD连接/断开/清屏/状态/目录，xterm自动fit并向PTY resize。关闭清理，收起保留会话。通过module service/platform API，不直接调用Electron/Node。
-- [ ] 5. 文档与验收：新增docs/DEVELOPER_DEBUG.md，更新AGENTS/ARCHITECTURE/RUNTIME_LOGS/auxiliary README/HANDOFF/THIRD_PARTY_NOTICES，规定后续调试统一注册。新增隔离原生场景验证真实终端、GM、窗口状态、拒绝其他来源及打包gate。定向单测、Vue/Electron类型、修改文件lint/format和build。Codex独立审查后修正、合最新main、版本一次patch、推送CI、下载产物确认无debug后本机启动，最后重启主项目供用户查看。
+- [x] 5. 文档与验收：新增docs/DEVELOPER_DEBUG.md，更新AGENTS/ARCHITECTURE/RUNTIME_LOGS/auxiliary README/HANDOFF/THIRD_PARTY_NOTICES，规定后续调试统一注册。新增隔离原生场景验证真实终端、GM、窗口状态、拒绝其他来源及打包gate。定向单测、Vue/Electron类型、修改文件lint/format和build。Codex独立审查后修正、合最新main、版本一次patch、推送CI、下载产物确认无debug后本机启动，最后重启主项目供用户查看。
 
 ## Implementation rulings
 
 依赖安装、Node/Electron原生模块最小验证及package版本由Codex负责；DeepSeek不要运行npm install/ci或改版本。若需要额外源码文件按职责新增并报告；不要为了节省分析时间把主进程全部塞入local-runtime.ts，debug域保持独立。配置和密钥永不进入GM快照或自动日志。
+
+## 最终验收回执（2026-11-18）
+
+1.0.58 / fadc03d：CI 44137539038 全绿，169 文件/1268 项、原生桌面 91/91、知识库与来源学习和产物 10 项通过；下载校验三份 SHA256 匹配，同 ZIP 本机首次 10 项通过。正常主目录实例已重开并核对 v1.0.58、原 userData、临时端口关闭。详见 docs/1.0.58-acceptance.md。PDD 实店弹窗与真实发送仍未验证，未公开发布或部署。
