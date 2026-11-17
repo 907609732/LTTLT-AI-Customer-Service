@@ -95,12 +95,12 @@ func TestLingtuCNYUsageViewsAgreeAndKeepUnknown(t *testing.T) {
 		} else {
 			var result struct {
 				Items []struct {
-					RequestID string `json:"request_id"`
-					Cost      string `json:"estimated_cny"`
-					Basis     string `json:"cost_basis"`
-					HistoricalMicros int64 `json:"historical_cost_micros"`
-					HistoricalKnown bool `json:"historical_cost_known"`
-					ReportMicros int64 `json:"report_cost_micros"`
+					RequestID        string `json:"request_id"`
+					Cost             string `json:"estimated_cny"`
+					Basis            string `json:"cost_basis"`
+					HistoricalMicros int64  `json:"historical_cost_micros"`
+					HistoricalKnown  bool   `json:"historical_cost_known"`
+					ReportMicros     int64  `json:"report_cost_micros"`
 				} `json:"items"`
 			}
 			json.Unmarshal(recorder.Body.Bytes(), &result)
@@ -303,5 +303,25 @@ func TestLingtuCNYAccountAggregationAvoidsUngroupedUsageColumns(t *testing.T) {
 	})
 	if !strings.Contains(sql, "GROUP BY") || !strings.Contains(sql, "SUM(") || strings.Contains(sql, "cost_snapshot") || strings.Contains(sql, "AS channel_id") {
 		t.Fatal(sql)
+	}
+}
+
+func TestLingtuHistoricalEmptySnapshotPricesAreNotPriceEvidence(t *testing.T) {
+	rates := map[int]lingtu.ModelConnection{7: {ChannelID: 7, CostRateModel: "qwen", InputCNY: "2", OutputCNY: "8", CacheReadCNY: "0.2"}}
+	for _, prices := range [][2]string{{"", ""}, {"2", ""}, {"", "8"}} {
+		record := usageDailyRecord{ChannelID: 7, UpstreamModel: "qwen", UsageKnown: true, InputTokens: 1000000, OutputTokens: 1000000, CostSnapshot: true, CostInputCNY: prices[0], CostOutputCNY: prices[1]}
+		before := record
+		got := estimateCNY(record, rates)
+		if got.CostKnown || got.CostMicros != 0 || got.CostStatus != "missing_price" || got.Basis != "unpriced" || record != before {
+			t.Fatalf("snapshot evidence changed: %+v", got)
+		}
+		if !got.HistoricalCostKnown || got.HistoricalCostMicros != 10000000 || got.ReportCostMicros != 10000000 || !got.HistoricalInputPriceOnly {
+			t.Fatalf("empty-price marker wrongly blocked historical estimate: %+v", got)
+		}
+	}
+	record := usageDailyRecord{ChannelID: 7, UpstreamModel: "qwen", UsageKnown: true, InputTokens: 1000000, CostSnapshot: true, CostInputCNY: "2", CostOutputCNY: "8", CostCacheReadCNY: "0.2"}
+	got := estimateCNY(record, rates)
+	if got.CostStatus != "cache_usage_unknown" || got.HistoricalCostKnown {
+		t.Fatalf("a valid historical price snapshot was repriced: %+v", got)
 	}
 }

@@ -117,7 +117,7 @@ func microsCNY(micros int64) string {
 	return decimal.NewFromInt(micros).Shift(-6).String()
 }
 
-// Only an unpersisted, snapshot-less row is eligible for a read-only historical
+// Only a row without complete admission prices is eligible for a read-only historical
 // estimate. Exact channel and recorded upstream model must both match the saved
 // rate row; no model-name guessing and no write-back are allowed.
 func historicalCurrentRateEstimate(record usageDailyRecord, rates map[int]lingtu.ModelConnection) (int64, bool, string, bool) {
@@ -166,7 +166,7 @@ func estimateCNY(record usageDailyRecord, rates map[int]lingtu.ModelConnection) 
 		cost.CostMicros, cost.CostKnown, cost.Basis = micros, true, "snapshot"
 		cost.CNY = microsCNY(micros)
 	}
-	if !cost.CostKnown && record.CostStatus == "" && !record.CostSnapshot {
+	if !cost.CostKnown && record.CostStatus == "" && (!record.CostSnapshot || record.CostInputCNY == "" || record.CostOutputCNY == "") {
 		cost.historicalApplicable = true
 		historicalMicros, historicalKnown, basis, inputOnly := historicalCurrentRateEstimate(record, rates)
 		cost.HistoricalBasis = basis

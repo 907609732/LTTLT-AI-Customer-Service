@@ -56,7 +56,7 @@ func TestBillingRegisteredRoutesExposeVersionAndDenyAnonymousCustomersAndAdmins(
 		BillingProtocol int      `json:"billing_protocol"`
 		Capabilities    []string `json:"capabilities"`
 	}
-	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version != "2026.11.17-cost.2" || info.BillingProtocol != 2 {
+	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version != "2026.11.17-cost.3" || info.BillingProtocol != 2 {
 		t.Fatalf("missing deployed capability/version: %+v status %d", info, response.StatusCode)
 	}
 	// Production native payment, reconciliation, quota and free summary must stay
