@@ -6,6 +6,14 @@ backend.cjs 只增加可选 knowledgePorts / knowledgeContext / onKnowledgeModel
 
 针对性上游验证：backend-integration.test.mjs、managed-backend.test.mjs、reply-engine.test.js 共87项通过；未运行全量上游套件。
 
+## 2026-11-17：托管上下文策略读取与受限透传
+
+managed-session.cjs 新增主进程专用 config()，仅以现有鉴权会话 GET 固定 /api/client/config；serviceRequest 的团队/计费白名单不变。chat 仅构造 client_request_id/messages 与可选 purpose/policy_version/learning_source，未知字段（包括客户端 max_tokens）不进入正文；旧正文语义不变。backend.cjs 仅从显式标记的 model.complete 输入转发学习用途、版本和来源，现有回复调用保持省略。策略投影由本工程 TypeScript 的 Zod 严格校验并在主进程缓存最多 60 秒；当前没有获批的直接详情页学习调用点，透传能力保持未启用。source-files.json 保留 upstreamGitBlob/upstreamSha256，仅更新上述两个文件的实际 sha256 与补丁说明。
+
+独立复审补充：显式用途、版本或来源无效时，backend.cjs 在调用 managedChat 前直接拒绝，不降级为旧版聊天正文；仍保留三字段均省略的旧请求。客户端模型列表校验接受服务端可能返回的 259 字符显示名及其现有响应大小边界。
+
+针对性验证：managed-session-context、managed-session-billing、managed-backend 与桌面 managed-context-policy/managed-context-transport 测试通过；未运行全量上游套件。
+
 ## 2026-11-13：用户授权新增可选托管装配
 
 原本机装配仍默认保留；用户明确要求合并 PR #21 服务端后，云朵的 TypeScript 控制器复用已有 managed-session 和 managed 后端注入，不替换运行时或混用上游 React 桌面。backend.cjs 的唯一新增兼容点是把 complete 的可选 traceId 转交 managedChat 的本机 options，未写入 HTTP 正文；提交诊断由自有控制器在实际 chat fetch 前发出。原始来源与最新实际摘要保留在 source-files.json。账号隔离与新服务端来源见 docs/MANAGED_SERVICE.md 和 server/PROVENANCE.md。

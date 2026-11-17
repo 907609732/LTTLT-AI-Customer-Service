@@ -3,7 +3,9 @@ package lingtuhost
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/mail"
 	"strconv"
@@ -65,6 +67,46 @@ type configurationRequest struct {
 	SMTPFrom             string            `json:"smtp_from"`
 }
 
+// decodeContextPolicyRequest applies a strict whitelist to the context policy
+// section only. Other admin sections keep their existing decoding behavior so
+// older clients remain compatible. The revision is the expected revision; the
+// nested candidate is validated without accepting server-only or misspelled
+// fields.
+func decodeContextPolicyRequest(body []byte) (int, lingtu.ContextPolicyInput, error) {
+	var fields map[string]json.RawMessage
+	if err := common.Unmarshal(body, &fields); err != nil {
+		return 0, lingtu.ContextPolicyInput{}, err
+	}
+	for key := range fields {
+		switch key {
+		case "section", "revision", "context_policy":
+		default:
+			return 0, lingtu.ContextPolicyInput{}, fmt.Errorf("unknown field %q", key)
+		}
+	}
+	var section string
+	if err := common.Unmarshal(fields["section"], &section); err != nil || section != "context_policy" {
+		return 0, lingtu.ContextPolicyInput{}, errors.New("invalid context policy section")
+	}
+	rawRevision, ok := fields["revision"]
+	if !ok {
+		return 0, lingtu.ContextPolicyInput{}, errors.New("missing revision")
+	}
+	var revision int
+	if err := common.Unmarshal(rawRevision, &revision); err != nil || revision < 0 {
+		return 0, lingtu.ContextPolicyInput{}, errors.New("invalid revision")
+	}
+	rawPolicy, ok := fields["context_policy"]
+	if !ok {
+		return 0, lingtu.ContextPolicyInput{}, errors.New("missing context_policy")
+	}
+	input, err := lingtu.DecodeContextPolicyInput(rawPolicy)
+	if err != nil {
+		return 0, lingtu.ContextPolicyInput{}, err
+	}
+	return revision, input, nil
+}
+
 func (h *Host) registerAdmin(router *gin.Engine) {
 	admin := router.Group("/api/lingtu/admin", middleware.DisableCache(), middleware.AdminAuth())
 	admin.GET("/config", h.adminConfig)
@@ -77,6 +119,11 @@ func (h *Host) registerAdmin(router *gin.Engine) {
 }
 func (h *Host) adminConfig(c *gin.Context) {
 	policy, err := lingtu.LoadTrialPolicy(model.DB)
+	if err != nil {
+		clientFailure(c, 503, "configuration_unavailable")
+		return
+	}
+	contextPolicy, err := lingtu.LoadContextPolicy(model.DB)
 	if err != nil {
 		clientFailure(c, 503, "configuration_unavailable")
 		return
@@ -120,7 +167,7 @@ func (h *Host) adminConfig(c *gin.Context) {
 		clientFailure(c, 503, "configuration_unavailable")
 		return
 	}
-	c.JSON(200, gin.H{"policy": policy, "login_providers": providers, "model_providers": models, "smtp": smtp, "model_catalog": managedModelCatalog(), "model_connections": connections})
+	c.JSON(200, gin.H{"policy": policy, "context_policy": contextPolicy, "login_providers": providers, "model_providers": models, "smtp": smtp, "model_catalog": managedModelCatalog(), "model_connections": connections})
 }
 func (h *Host) adminAccounts(c *gin.Context) {
 	page, ok := positiveQuery(c, "page", 1)
@@ -176,6 +223,16 @@ func (h *Host) saveConfig(c *gin.Context) {
 		clientFailure(c, 400, "invalid_request")
 		return
 	}
+	var policyInput lingtu.ContextPolicyInput
+	if request.Section == "context_policy" {
+		revision, input, decodeErr := decodeContextPolicyRequest(body)
+		if decodeErr != nil {
+			clientFailure(c, 400, "invalid_request")
+			return
+		}
+		request.Revision = revision
+		policyInput = input
+	}
 	digest := sha256.Sum256(body)
 	context, _ := common.Marshal(service.ManagedConfigurationContext{Section: request.Section, RequestHash: hex.EncodeToString(digest[:])})
 	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeManagedConfigure, Context: context}) == nil {
@@ -188,7 +245,10 @@ func (h *Host) saveConfig(c *gin.Context) {
 		clientFailure(c, 503, "temporarily_unavailable")
 		return
 	}
+	var savedContextPolicy lingtu.ManagedContextPolicy
 	switch request.Section {
+	case "context_policy":
+		savedContextPolicy, err = lingtu.SaveContextPolicy(model.DB, request.Revision, policyInput)
 	case "wechat", "dingtalk":
 		err = h.saveSocial(request)
 	case "deepseek", "qwen", "qwen-vision":
@@ -215,6 +275,22 @@ func (h *Host) saveConfig(c *gin.Context) {
 		return
 	}
 	if err != nil {
+		if request.Section == "context_policy" {
+			switch {
+			case errors.Is(err, lingtu.ErrContextPolicyConflict):
+				latest, loadErr := lingtu.LoadContextPolicy(model.DB)
+				if loadErr != nil {
+					clientFailure(c, 503, "temporarily_unavailable")
+					return
+				}
+				c.JSON(409, gin.H{"error": "revision_conflict", "revision": latest.Revision})
+			case errors.Is(err, lingtu.ErrInvalidContextPolicy):
+				clientFailure(c, 400, "invalid_request")
+			default:
+				clientFailure(c, 503, "temporarily_unavailable")
+			}
+			return
+		}
 		if request.Section == "model_connection" && ((request.Action == "test" && request.ConnectionID > 0) || c.GetBool("lingtu_connection_saved")) {
 			connectionID := request.ConnectionID
 			if c.GetBool("lingtu_connection_saved") {
@@ -259,6 +335,10 @@ func (h *Host) saveConfig(c *gin.Context) {
 			connectionID = c.GetInt("lingtu_saved_connection_id")
 		}
 		c.JSON(200, gin.H{"saved": true, "tested": request.Action == "test" || request.TestAfterSave, "connection_id": connectionID, "model_connections": connections, "policy": policy})
+		return
+	}
+	if request.Section == "context_policy" {
+		c.JSON(200, gin.H{"saved": true, "context_policy": savedContextPolicy})
 		return
 	}
 	c.JSON(200, gin.H{"saved": true})

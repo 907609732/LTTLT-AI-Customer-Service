@@ -71,6 +71,25 @@ const config = {
   model_providers: [],
   smtp: {},
 }
+const contextPolicy = {
+  revision: 4,
+  runtime_context: {
+    enabled: true,
+    system_prompt: 'Initial hidden prompt',
+    retrieval_budget: 3000,
+    retrieval_order: ['binding', 'store', 'canonical', 'template'],
+  },
+  learning: {
+    enabled: false,
+    vision_enabled: true,
+    allowed_sources: ['pdd_detail_text', 'pdd_detail_image'],
+    max_calls_per_product: 20,
+    max_output_tokens: 4096,
+    requires_review: true,
+    video_mode: 'disabled',
+    asr_mode: 'disabled',
+  },
+}
 const totals = {
   estimated_cny: '0.006555',
   costed_requests: 1,
@@ -219,6 +238,16 @@ function renderAdmin() {
     </QueryClientProvider>
   )
 }
+async function hostedContextView() {
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('button', { name: 'English' }))
+  fireEvent.click(
+    await screen.findByRole('tab', { name: 'Hosted model context' })
+  )
+  return (await screen.findByLabelText(
+    'Hidden system prompt'
+  )) as HTMLTextAreaElement
+}
 
 it('exposes all management sections by default in Chinese and persists an English language choice across remounts', async () => {
   installFixture()
@@ -232,6 +261,7 @@ it('exposes all management sections by default in Chinese and persists an Englis
     '登录方式',
     '试用设置',
     '充值与计费',
+    '托管模型上下文',
   ]) {
     expect(screen.getByRole('tab', { name })).toBeTruthy()
   }
@@ -251,6 +281,7 @@ it('exposes all management sections by default in Chinese and persists an Englis
     'Usage records',
     'Sign-in methods',
     'Trial settings',
+    'Hosted model context',
   ]) {
     expect(screen.getByRole('tab', { name })).toBeTruthy()
   }
@@ -264,6 +295,190 @@ it('exposes all management sections by default in Chinese and persists an Englis
     })
   ).toBeTruthy()
   expect(i18next.language).toBe('en')
+})
+
+it('navigates to hosted model context and submits the exact policy with one security proof', async () => {
+  allowProtectedSave()
+  const posts: Record<string, unknown>[] = []
+  const savedPolicy = {
+    ...contextPolicy,
+    revision: 5,
+    runtime_context: {
+      ...contextPolicy.runtime_context,
+      system_prompt: 'Updated hidden rules',
+    },
+  }
+  let current = contextPolicy
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') {
+      expect(request.headers['X-Security-Proof']).toBe('fixture-proof')
+      posts.push(JSON.parse(request.data))
+      current = savedPolicy
+      return {
+        data: { saved: true, context_policy: savedPolicy },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: request,
+      }
+    }
+    return {
+      data: fixtureData(request.url || '', request.params, {
+        ...config,
+        context_policy: current,
+      }),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  expect(screen.queryByLabelText('Hidden system prompt')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'English' }))
+  fireEvent.click(
+    await screen.findByRole('tab', { name: 'Hosted model context' })
+  )
+  expect(await screen.findByText('Revision: 4')).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Hidden system prompt'), {
+    target: { value: 'Updated hidden rules' },
+  })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save context policy' })
+  )
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts[0]).toEqual({
+    section: 'context_policy',
+    revision: 4,
+    context_policy: {
+      runtime_context: {
+        enabled: true,
+        system_prompt: 'Updated hidden rules',
+        retrieval_budget: 3000,
+        retrieval_order: ['binding', 'store', 'canonical', 'template'],
+      },
+      learning: contextPolicy.learning,
+    },
+  })
+  expect(verify).toHaveBeenCalledWith(
+    expect.objectContaining({
+      scope: 'admin.user.managed_config',
+      context: expect.objectContaining({
+        section: 'context_policy',
+        request_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    })
+  )
+  expect(await screen.findByText('Revision: 5')).toBeTruthy()
+})
+
+it('does not POST a hosted context policy when administrator verification is canceled', async () => {
+  allowProtectedSave()
+  verify.mockResolvedValueOnce(null)
+  let posts = 0
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') {
+      posts++
+      return {
+        data: { saved: true, context_policy: contextPolicy },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: request,
+      }
+    }
+    return {
+      data: fixtureData(request.url || '', request.params, {
+        ...config,
+        context_policy: contextPolicy,
+      }),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  renderAdmin()
+  const prompt = await hostedContextView()
+  fireEvent.change(prompt, { target: { value: 'Unconfirmed draft' } })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save context policy' })
+  )
+  await waitFor(() => expect(verify).toHaveBeenCalledTimes(1))
+  expect(posts).toBe(0)
+  expect(
+    await screen.findByText(
+      'Changes were not saved. Verify administrator identity and try again.'
+    )
+  ).toBeTruthy()
+  expect(prompt.value).toBe('Unconfirmed draft')
+})
+
+it('keeps a dirty hosted context policy through a 409 and reloads it only from the explicit refresh action', async () => {
+  allowProtectedSave()
+  const posts: Record<string, unknown>[] = []
+  let current = contextPolicy
+  let gets = 0
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data))
+      current = {
+        ...contextPolicy,
+        revision: 5,
+        runtime_context: {
+          ...contextPolicy.runtime_context,
+          system_prompt: 'Latest server prompt',
+        },
+      }
+      throw new AxiosError('conflict', 'ERR_BAD_REQUEST', request, undefined, {
+        data: { error: 'revision_conflict', revision: 5 },
+        status: 409,
+        statusText: 'Conflict',
+        headers: {},
+        config: request,
+      })
+    }
+    if (request.url?.endsWith('/config')) gets++
+    return {
+      data: fixtureData(request.url || '', request.params, {
+        ...config,
+        context_policy: current,
+      }),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  renderAdmin()
+  const prompt = await hostedContextView()
+  fireEvent.change(prompt, { target: { value: 'Unsaved draft prompt' } })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save context policy' })
+  )
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(
+    await screen.findByText(
+      'The hosted context policy changed elsewhere. Refresh to review the latest revision.'
+    )
+  ).toBeTruthy()
+  expect(
+    screen.getByText('The configuration has changed. Latest revision 5.')
+  ).toBeTruthy()
+  expect(prompt.value).toBe('Unsaved draft prompt')
+  expect(gets).toBe(1)
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(gets).toBeGreaterThan(1))
+  expect(prompt.value).toBe('Unsaved draft prompt')
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Refresh latest configuration' })
+  )
+  await waitFor(() => expect(prompt.value).toBe('Latest server prompt'))
+  expect(screen.getByText('Revision: 5')).toBeTruthy()
+  expect(
+    screen.queryByText('The configuration has changed. Latest revision 5.')
+  ).toBeNull()
 })
 
 it('filters both per-account totals and request details after selecting an account and labels missing usage honestly', async () => {

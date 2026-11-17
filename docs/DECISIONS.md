@@ -1,5 +1,11 @@
 # 架构决策
 
+## 2026-11-17：托管接待知识预算在 resolver 之后按 token 整条填充
+
+管理员的 `retrieval_budget` / `retrieval_order` 只控制已审核候选的预算填充，不参与冲突胜出。决定先复用 `repo.resolveKnowledge`（托管候选窗口 50 条 / 60,000 字符）确定审核、范围、SKU 覆盖、有效期和命中顺序，再按 binding 固定最前、template 固定最后、store/canonical 可交换的顺序选取完整 citation。预算按现有 cl100k tokenizer 对序列化 citation 在独立 worker 中批量计量，不按字符估算，也不在主线程处理病态 Unicode。超预算整条省略，并与 resolver omitted 合并计数。
+
+代价与边界：托管接待最多加载 50 条完整引用并多一次 worker 计量；预算只覆盖引用载荷，不含系统提示与对话。本机 Key、策略停用、旧服务端缺字段或读取失败回退既有 10 条 / 24,000 字符路径，不用本地默认策略伪造服务端启用；16K/8K 压缩和统一发送确认门不变。
+
 ## 2026-11-16：取消本机/托管账号工作区隔离（用户明确要求）
 
 用户登录托管账号后原有本机店铺全部不可见，明确要求“去掉，不要隔离”。决定所有模式与账号共用 `local-runtime` 根目录和 `yunduo-local` 平台分区；登录只决定托管 AI、团队和计费资格，不再按账号切换 dataDir、partitionNamespace 或隐藏业务数据。平台采集/商品事实的软件账号键固定为 `local`，避免同一店铺在登录前后被拆成两套来源。旧 `managed-workspaces` 目录保留但不自动合并。

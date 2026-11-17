@@ -14,8 +14,9 @@ import (
 )
 
 type ManagedSetting struct {
-	Name  string `gorm:"type:varchar(64);primaryKey"`
-	Value string `gorm:"type:text;serializer:lingtu_secret"`
+	Name     string `gorm:"type:varchar(64);primaryKey"`
+	Value    string `gorm:"type:text;serializer:lingtu_secret"`
+	Revision int    `gorm:"not null;default:0"`
 }
 
 func (ManagedSetting) TableName() string { return "lingtu_settings" }

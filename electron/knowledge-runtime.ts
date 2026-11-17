@@ -16,9 +16,10 @@ import type {
   KnowledgeClearScope,
   KnowledgeClearPreview,
 } from '../src/shared/contracts/knowledge-client'
-import type { KnowledgeCitation } from '../src/shared/contracts/knowledge'
+import type { KnowledgeCitation, KnowledgeResolution } from '../src/shared/contracts/knowledge'
 import { modelMessagesSchema, CONTEXT_TRIGGER, type ModelMessages } from './context-compression'
-import { estimateKnowledgeTokens } from './knowledge/budget'
+import { estimateKnowledgeCitationTokens, estimateKnowledgeTokens } from './knowledge/budget'
+import type { ManagedContextPolicy } from './managed-context-policy'
 import type { KnowledgeRepository } from './knowledge'
 import type { SendProposal } from './review-console'
 import type {
@@ -47,6 +48,13 @@ export interface KnowledgeModelPort {
     signal?: AbortSignal
     isCurrent?: () => boolean
     traceId?: string
+    /**
+     * Opt-in managed-policy metadata for an approved direct-learning caller.
+     * Existing reply/trial calls omit all three, so their wire body is unchanged.
+     */
+    purpose?: 'reply' | 'learning'
+    policyVersion?: number
+    learningSource?: 'pdd_detail_text' | 'pdd_detail_image'
   }): Promise<string>
 }
 export function createKnowledgeRuntime(options: {
@@ -57,6 +65,12 @@ export function createKnowledgeRuntime(options: {
   changed(): void
   chooseRestore?(): Promise<string | undefined>
   resolveSku?(storeId: string, productId: string, question: string): string
+  /**
+   * Managed reception reads the current safe projection from the main-process
+   * controller. Local key mode and a missing/failed lookup fall back to the
+   * legacy resolver window; they never invent an enabled policy.
+   */
+  managedContextPolicy?(): Promise<ManagedContextPolicy | null>
 }) {
   const repo = options.repository
   // Daily collection is an explicit opt-in for each runtime session, including existing accounts.
@@ -149,6 +163,70 @@ export function createKnowledgeRuntime(options: {
     } finally {
       controllers.delete(controller)
       input.signal?.removeEventListener('abort', abort)
+    }
+  }
+  /**
+   * Policy lookup failure only disables the new managed budget. The reviewed
+   * resolver result and existing send confirmation stay available, so an
+   * unavailable config endpoint cannot cut off an already permitted reply path.
+   */
+  const managedReceptionContext = async () => {
+    if (!options.managedContextPolicy) return undefined
+    try {
+      const projection = await options.managedContextPolicy()
+      return projection?.runtime_context.enabled ? projection.runtime_context : undefined
+    } catch {
+      return undefined
+    }
+  }
+  /**
+   * Approval, scope, conflict winners, expiry, hit order and source refs are
+   * already decided by repo.resolveKnowledge. This only fills the server token
+   * budget with whole citations in the configured stage order; binding stays
+   * first, template last, and order within each stage is never re-ranked.
+   */
+  async function applyReceptionBudget(
+    resolution: KnowledgeResolution,
+    policy: ManagedContextPolicy['runtime_context'],
+  ): Promise<KnowledgeResolution> {
+    const grouped = new Map<string, KnowledgeCitation[]>()
+    for (const citation of resolution.citations) {
+      const rows = grouped.get(citation.scope.kind) ?? []
+      rows.push(citation)
+      grouped.set(citation.scope.kind, rows)
+    }
+    const stages: ManagedContextPolicy['runtime_context']['retrieval_order'] = [
+      'binding',
+      ...policy.retrieval_order.filter((stage) => stage !== 'binding' && stage !== 'template'),
+      'template',
+    ]
+    const ordered = stages.flatMap((stage) => grouped.get(stage) ?? [])
+    // Account shutdown/cancel uses the same controller set as model completions,
+    // so a pathological Unicode batch cannot outlive the knowledge workspace.
+    const controller = new AbortController()
+    controllers.add(controller)
+    try {
+      const costs = await estimateKnowledgeCitationTokens(
+        ordered.map((citation) => JSON.stringify(citation)),
+        controller.signal,
+      )
+      let used = 0,
+        omitted = resolution.omitted,
+        characters = 0
+      const citations: KnowledgeCitation[] = []
+      ordered.forEach((citation, index) => {
+        const cost = costs[index] ?? Number.POSITIVE_INFINITY
+        if (used + cost > policy.retrieval_budget) {
+          omitted++
+          return
+        }
+        used += cost
+        characters += citation.question.length + citation.answer.length
+        citations.push(citation)
+      })
+      return { ...resolution, citations, characters, omitted }
+    } finally {
+      controllers.delete(controller)
     }
   }
   const api = {
@@ -271,21 +349,29 @@ export function createKnowledgeRuntime(options: {
       const skuId = productId
         ? skuIdentity(context.storeId, productId, query, context.skuId)
         : context.skuId || ''
+      const managedBudget = await managedReceptionContext()
+      active()
+      // Managed mode first asks the existing resolver for a bounded 50/60000
+      // candidate window; only the token budget selection runs after conflict
+      // winners. Local/disabled/missing policy keeps the exact legacy window.
       const resolution = repo.resolveKnowledge({
         storeId: context.storeId,
         productId,
         skuId,
         query,
-        maxCharacters: 24000,
+        ...(managedBudget ? { limit: 50, maxCharacters: 60000 } : { maxCharacters: 24000 }),
       })
+      const budgeted = managedBudget
+        ? await applyReceptionBudget(resolution, managedBudget)
+        : resolution
       const substantive =
         query.trim() &&
         !/^(你好|您好|在吗|谢谢|谢谢你|好的|好|嗯|哦|收到|辛苦了|再见|hello|hi|thanks)[\s！!。，,.？?~～]*$/iu.test(
           query.trim(),
         )
       if (
-        !resolution.citations.length &&
-        !resolution.omitted &&
+        !budgeted.citations.length &&
+        !budgeted.omitted &&
         context.purpose === 'reply' &&
         context.uid &&
         substantive
@@ -296,9 +382,9 @@ export function createKnowledgeRuntime(options: {
           skuId,
           question: query,
           conversationId: context.uid,
-          reason: ['unknown', 'ambiguous'].includes(resolution.productStatus)
+          reason: ['unknown', 'ambiguous'].includes(budgeted.productStatus)
             ? 'unknown-product'
-            : resolution.expiredFields.length
+            : budgeted.expiredFields.length
               ? 'expired-field'
               : 'no-eligible-knowledge',
           context: thread.slice(-6).map((message) => ({
@@ -307,13 +393,13 @@ export function createKnowledgeRuntime(options: {
           })),
         })
       const resolutionId = randomUUID()
-      resolutions.set(resolutionId, resolution.citations)
+      resolutions.set(resolutionId, budgeted.citations)
       while (resolutions.size > 100) resolutions.delete(resolutions.keys().next().value!)
       return [
         {
           source: 'reviewed-knowledge',
           resolutionId,
-          ...resolution,
+          ...budgeted,
           rule: '仅采用已审核且仍有效的完整依据；未命中或动态过期时说明未知并核实。原始资料和草稿不得用于确定承诺。',
         },
       ]

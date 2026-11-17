@@ -239,8 +239,27 @@ func (h *Host) config(c *gin.Context) {
 		clientFailure(c, 503, "model_not_ready")
 		return
 	}
-	// Only display/selection policy; no upstream URL, channel or credential is serialized.
-	c.JSON(200, gin.H{"default_model": selection.DefaultModel, "models": selection.Models, "max_tokens": policy.MaxTokens})
+	// The desktop only receives the safe projection: revision, enabled flags,
+	// retrieval budget/order and learning limits. Hidden prompts, provider
+	// routing, credentials and the full administrator policy stay server-side.
+	// A missing setting means DefaultContextPolicy (revision 0); a damaged or
+	// unreadable row must fail closed instead of silently reverting defaults.
+	managedPolicy, err := lingtu.LoadContextPolicy(model.DB)
+	if err != nil {
+		clientFailure(c, 503, "configuration_unavailable")
+		return
+	}
+	projection := managedPolicy.ClientProjection()
+	// Existing default_model/models/max_tokens keep their original meaning; the
+	// context policy is additive so older clients can ignore it.
+	c.JSON(200, gin.H{
+		"default_model":   selection.DefaultModel,
+		"models":          selection.Models,
+		"max_tokens":      policy.MaxTokens,
+		"policy_version":  projection.Revision,
+		"runtime_context": projection.RuntimeContext,
+		"learning":        projection.Learning,
+	})
 }
 func (h *Host) approve(c *gin.Context) {
 	identity, ok := middleware.GetSessionAuthIdentity(c)

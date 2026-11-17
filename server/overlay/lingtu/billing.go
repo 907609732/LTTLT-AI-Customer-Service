@@ -81,6 +81,16 @@ func (s *BillingStore) Migrate() error {
 	// Existing receipts prove mixing occurred, but cannot establish which past calls
 	// consumed trial versus paid or recover the overwritten original trial expiry.
 	// Preserve that historical entitlement and expiry rather than invent attribution.
+	// A fresh billing-only database has no receipts or trial-grant table yet. Skip
+	// the backfill when there is no receipt evidence; production startup migrates
+	// trial grants before billing, and a nonempty legacy receipt still requires it.
+	var legacyReceipts int64
+	if err := s.db.Model(&BillingCredit{}).Where("provider_key IS NULL").Count(&legacyReceipts).Error; err != nil {
+		return err
+	}
+	if legacyReceipts == 0 {
+		return nil
+	}
 	return s.db.Model(&TrialGrant{}).Where("user_id IN (?) AND (provenance IS NULL OR provenance = ?)", s.db.Model(&BillingCredit{}).Select("user_id").Where("provider_key IS NULL"), "").UpdateColumn("provenance", "legacy_mixed").Error
 }
 
