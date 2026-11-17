@@ -80,6 +80,19 @@ type costEstimate struct {
 	CostCacheReadCNY string `json:"cost_cache_read_cny" gorm:"-"`
 	CacheReadTokens  int    `json:"cache_read_tokens" gorm:"-"`
 	CacheUsageKnown  bool   `json:"cache_usage_known" gorm:"-"`
+
+	// The fields below are a read-only historical recalculation at today's saved
+	// rates. They never replace the admission snapshot or its persisted status.
+	HistoricalEstimatedCNY   string `json:"historical_estimated_cny" gorm:"-"`
+	HistoricalCostMicros     int64  `json:"historical_cost_micros" gorm:"-"`
+	HistoricalCostKnown      bool   `json:"historical_cost_known" gorm:"-"`
+	HistoricalBasis          string `json:"historical_cost_basis" gorm:"-"`
+	HistoricalInputPriceOnly bool   `json:"historical_input_price_only" gorm:"-"`
+	ReportEstimatedCNY       string `json:"report_estimated_cny" gorm:"-"`
+	ReportCostMicros         int64  `json:"report_cost_micros" gorm:"-"`
+	ReportCostKnown          bool   `json:"report_cost_known" gorm:"-"`
+
+	historicalApplicable bool
 }
 type CostTotals struct {
 	EstimatedCNY        string `json:"estimated_cny" gorm:"-"`
@@ -88,11 +101,57 @@ type CostTotals struct {
 	CurrentRateRequests int64  `json:"current_rate_requests" gorm:"-"`
 	CostMicros          int64  `json:"cost_micros" gorm:"-"`
 	UnknownCostRequests int64  `json:"unknown_cost_requests" gorm:"-"`
+
+	HistoricalEstimatedCNY     string `json:"historical_estimated_cny" gorm:"-"`
+	HistoricalCostMicros       int64  `json:"historical_cost_micros" gorm:"-"`
+	HistoricalCostedRequests   int64  `json:"historical_costed_requests" gorm:"-"`
+	HistoricalUnpricedRequests int64  `json:"historical_unpriced_requests" gorm:"-"`
+	UncachedInputEstimates     int64  `json:"uncached_input_estimates" gorm:"-"`
+	ReportEstimatedCNY         string `json:"report_estimated_cny" gorm:"-"`
+	ReportCostMicros           int64  `json:"report_cost_micros" gorm:"-"`
+	ReportCostedRequests       int64  `json:"report_costed_requests" gorm:"-"`
+	ReportUnpricedRequests     int64  `json:"report_unpriced_requests" gorm:"-"`
+}
+
+func microsCNY(micros int64) string {
+	return decimal.NewFromInt(micros).Shift(-6).String()
+}
+
+// Only an unpersisted, snapshot-less row is eligible for a read-only historical
+// estimate. Exact channel and recorded upstream model must both match the saved
+// rate row; no model-name guessing and no write-back are allowed.
+func historicalCurrentRateEstimate(record usageDailyRecord, rates map[int]lingtu.ModelConnection) (int64, bool, string, bool) {
+	if record.ChannelID <= 0 || record.UpstreamModel == "" {
+		return 0, false, "unpriced", false
+	}
+	rate, ok := rates[record.ChannelID]
+	if !ok || rate.CostRateModel != record.UpstreamModel || rate.InputCNY == "" || rate.OutputCNY == "" {
+		return 0, false, "unpriced", false
+	}
+	if int64(int(record.InputTokens)) != record.InputTokens || int64(int(record.OutputTokens)) != record.OutputTokens {
+		return 0, false, "unpriced", false
+	}
+	inputOnly := !record.CacheUsageKnown
+	var cachePrice *string
+	if record.CacheUsageKnown {
+		cachePrice = optionalCostPrice(rate.CacheReadCNY)
+	}
+	// Omitting the cache price makes EstimateTokenCost price every input token at
+	// the normal input rate; the cache-known flag itself is never modified.
+	micros, status := lingtu.EstimateTokenCost(int(record.InputTokens), int(record.OutputTokens), record.CacheReadTokens, record.UsageKnown, record.CacheUsageKnown, optionalCostPrice(rate.InputCNY), optionalCostPrice(rate.OutputCNY), cachePrice)
+	if status != "estimated" || micros < 0 {
+		return 0, false, "unpriced", inputOnly
+	}
+	if inputOnly {
+		return micros, true, "current_rates_uncached_input", true
+	}
+	return micros, true, "current_rates", false
 }
 
 // Historical rows are priced only from their own admission snapshot. Once a
 // status is persisted, every view uses the same per-request rounded integer.
-func estimateCNY(record usageDailyRecord, _ map[int]lingtu.ModelConnection) costEstimate {
+// A separate current-rate estimate is added without changing that evidence.
+func estimateCNY(record usageDailyRecord, rates map[int]lingtu.ModelConnection) costEstimate {
 	cost := costEstimate{Basis: "unpriced", CostStatus: record.CostStatus, CostInputCNY: record.CostInputCNY, CostOutputCNY: record.CostOutputCNY, CostCacheReadCNY: record.CostCacheReadCNY, CacheReadTokens: record.CacheReadTokens, CacheUsageKnown: record.CacheUsageKnown}
 	micros, status := record.CostMicros, record.CostStatus
 	if status == "" {
@@ -105,21 +164,77 @@ func estimateCNY(record usageDailyRecord, _ map[int]lingtu.ModelConnection) cost
 	cost.CostStatus = status
 	if status == "estimated" && (record.CostStatus == "" || record.CostKnown) && micros >= 0 {
 		cost.CostMicros, cost.CostKnown, cost.Basis = micros, true, "snapshot"
-		cost.CNY = decimal.NewFromInt(micros).Shift(-6).String()
+		cost.CNY = microsCNY(micros)
+	}
+	if !cost.CostKnown && record.CostStatus == "" && !record.CostSnapshot {
+		cost.historicalApplicable = true
+		historicalMicros, historicalKnown, basis, inputOnly := historicalCurrentRateEstimate(record, rates)
+		cost.HistoricalBasis = basis
+		if historicalKnown {
+			cost.HistoricalCostKnown, cost.HistoricalCostMicros = true, historicalMicros
+			cost.HistoricalEstimatedCNY = microsCNY(historicalMicros)
+			cost.HistoricalInputPriceOnly = inputOnly
+		}
+	}
+	if cost.CostKnown {
+		cost.ReportCostKnown, cost.ReportCostMicros = true, cost.CostMicros
+		cost.ReportEstimatedCNY = cost.CNY
+	} else if cost.HistoricalCostKnown {
+		cost.ReportCostKnown, cost.ReportCostMicros = true, cost.HistoricalCostMicros
+		cost.ReportEstimatedCNY = cost.HistoricalEstimatedCNY
 	}
 	return cost
+}
+
+const maxCostMicros = int64(^uint64(0) >> 1)
+
+func addMicros(total *int64, amount int64) bool {
+	if amount < 0 || *total < 0 || *total > maxCostMicros-amount {
+		return false
+	}
+	*total += amount
+	return true
 }
 func addCost(total *CostTotals, cost costEstimate) {
 	// An unrepresentable subtotal is left out and explicitly counted as unknown,
 	// rather than wrapping the integer amount into a negative cost.
-	if !cost.CostKnown || cost.CostMicros < 0 || total.CostMicros > 9223372036854775807-cost.CostMicros {
+	if !cost.CostKnown || cost.CostMicros < 0 || !addMicros(&total.CostMicros, cost.CostMicros) {
 		total.UnpricedRequests++
 		total.UnknownCostRequests++
 		return
 	}
-	total.CostMicros += cost.CostMicros
-	total.EstimatedCNY = decimal.NewFromInt(total.CostMicros).Shift(-6).String()
+	total.EstimatedCNY = microsCNY(total.CostMicros)
 	total.CostedRequests++
+}
+func addHistoricalCost(total *CostTotals, cost costEstimate) {
+	if !cost.historicalApplicable {
+		return
+	}
+	if !cost.HistoricalCostKnown || cost.HistoricalCostMicros < 0 || !addMicros(&total.HistoricalCostMicros, cost.HistoricalCostMicros) {
+		total.HistoricalUnpricedRequests++
+		return
+	}
+	total.HistoricalEstimatedCNY = microsCNY(total.HistoricalCostMicros)
+	total.HistoricalCostedRequests++
+	if cost.HistoricalInputPriceOnly {
+		total.UncachedInputEstimates++
+	}
+}
+func addReportCost(total *CostTotals, cost costEstimate) {
+	// Exactly one component per request enters the report total, so a request
+	// with both a snapshot and a recalculation is never counted twice.
+	amount, known := int64(0), false
+	if cost.CostKnown {
+		amount, known = cost.CostMicros, true
+	} else if cost.HistoricalCostKnown {
+		amount, known = cost.HistoricalCostMicros, true
+	}
+	if !known || amount < 0 || !addMicros(&total.ReportCostMicros, amount) {
+		total.ReportUnpricedRequests++
+		return
+	}
+	total.ReportEstimatedCNY = microsCNY(total.ReportCostMicros)
+	total.ReportCostedRequests++
 }
 func loadCostRates(ctx context.Context) (map[int]lingtu.ModelConnection, error) {
 	var records []lingtu.ModelConnection

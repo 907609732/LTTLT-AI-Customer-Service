@@ -9,18 +9,20 @@
 ## 后台显示与接口
 
 - `/api/lingtu/admin/config`：连接返回 input_cny、output_cny、cache_read_cny，单位相同；POST config 的 model_connection/save 在 cost_rates 对象中接收同名价格。显式 null 或空字符串清空，省略字段保留；零价有效。管理员验证、审计和 revision 规则沿用 main 实现。
-- `/api/lingtu/admin/usage`：每次调用返回历史价格、`cache_read_tokens`、`cache_usage_known`、`cost_micros`、`cost_known`、`cost_status`。只有 `cost_known=true` 才代表已知估算，不能单独把数字 0 当作免费。
-- `/api/lingtu/admin/usage-summary`：账号及全部历史汇总增加 `cost_micros`（已知小计）、`unknown_cost_requests`（未知费用次数），不受分页影响。
-- `/api/lingtu/admin/usage-daily`：今日、7/30 日、实际模型分组均返回相同金额和未知次数，继续按北京时间自然日及请求账本过滤。
+- `/api/lingtu/admin/usage`：每次调用返回历史价格、`cache_read_tokens`、`cache_usage_known`、`cost_micros`、`cost_known`、`cost_status`。只有 `cost_known=true` 才代表已知估算，不能单独把数字 0 当作免费。另返回只读的 `historical_estimated_cny`、`historical_cost_micros`、`historical_cost_known`、`historical_cost_basis`、`historical_input_price_only`，以及二者择一合计的 `report_estimated_cny`、`report_cost_micros`、`report_cost_known`。
+- `/api/lingtu/admin/usage-summary`：账号及全部历史汇总增加 `cost_micros`（已知快照小计）、`unknown_cost_requests`（未知费用次数），不受分页影响。新增 `historical_*` 与 `report_*` 汇总，分别统计历史按当前价格估算和报表合计；原快照金额、次数字段保持不变。
+- `/api/lingtu/admin/usage-daily`：未指定时保持原 7 天语义，`days=7|30` 仅用于按日视图。新增 `period=month`，固定返回近 12 个北京时间自然月；月视图不接受 `days`，重复或未知参数返回 400。两种视图均返回独立于所选周期的北京时间 `today` 与 `this_month`，以及相同的逐桶金额、`historical_*`、`report_*` 和未计价次数。
 
-`cost_status`：estimated、pending、unknown_usage、missing_price、cache_usage_unknown、missing_snapshot、cost_overflow。旧记录缺价格快照时保持未知，不用当前报价追算历史。失败、拒绝向客户端交付但已产生用量的调用都保留成本；重放不会重复计费。连接测试不在客户端成本账本中。
+历史回算只读且仅用于缺少快照、`cost_status` 为空的行：请求记录的实际 `channel_id` 必须等于当前连接，且记录的 `upstream_model` 必须与保存的 `CostRateModel` 完全一致，才使用该连接当前单价；渠道缺失、模型名不一致、用量未知或单价缺失都保持未计价。没有缓存明细时调用现有 `EstimateTokenCost` 并省略缓存价，按普通输入价估算，`historical_cost_basis=current_rates_uncached_input`、`historical_input_price_only=true`，不修改 `cache_usage_known`，也不写回 `cost_micros`、`cost_status`。已有有效快照始终优先，报表合计对每条请求只取快照或历史回算之一，避免重复计数。
 
-摘要压缩调用同样保存成本：它复用主聊天的限定价格快照，写入实际 token 用量与 `cost_micros`/`cost_status`，但按生产规则不扣试用/付费次数，重放仍只保留一条成本记录。主聊天继续使用生产原生额度扣费。服务探针版本为 `2026.11.17-cost.1`，能力名包含 `token-cny-cost-estimates`。
+`cost_status`：estimated、pending、unknown_usage、missing_price、cache_usage_unknown、missing_snapshot、cost_overflow。旧记录的原费用快照仍保持未知；用户已确认允许在独立报表字段中按当前价回算历史，不写回账目。失败、拒绝向客户端交付但已产生用量的调用都保留成本；重放不会重复计费。连接测试不在客户端成本账本中。
+
+摘要压缩调用同样保存成本：它复用主聊天的限定价格快照，写入实际 token 用量与 `cost_micros`/`cost_status`，但按生产规则不扣试用/付费次数，重放仍只保留一条成本记录。主聊天继续使用生产原生额度扣费。服务探针版本为 `2026.11.17-cost.2`，能力名包含 `token-cny-cost-estimates`。
 
 此处是运营模型成本估算，与客户套餐扣次、充值和服务商最终账单独立。图像/音频/工具附加费、阶梯报价、缓存写入费等未能从当前输入/输出/缓存读取单价推导的项目不包含在估算中。
 
 ## 兼容与验证
 
-保留 main 的 cost_rates、estimated_cny、cost_basis 兼容接口，均从同一微元金额派生。历史 CostSnapshot=true 的记录只使用自身历史单价兼容读取；没有历史快照时保持未知。不会用现价重估旧调用。
+保留 main 的 cost_rates、estimated_cny、cost_basis 兼容接口，均从同一微元金额派生。历史 CostSnapshot=true 的记录只使用自身历史单价兼容读取；原快照字段在没有历史快照时保持未知。历史按当前价格回算只出现在独立的 `historical_*` 字段和明确标注的报表合计中，原快照金额、`cost_status`、数据库行和 `cache_usage_known` 均不改变。
 
-验证命令 npm run server:verify:databases，报告见 artifacts/verification.json 和 artifacts/database-matrix/verification.json。CI 工作流运行完整 service 三引擎、托管双引擎及原生管理网页检查/构建，并输出带提交号和 SHA256 的 Windows 本机预览产物。仅使用隔离数据库和模拟模型，未调用付费服务商。
+本轮 `2026.11.17-cost.2` 只执行了聚焦 Go 费用/日周月接口测试、聚焦管理网页费用测试与页面回归测试，以及聚焦前端类型检查；未运行完整数据库矩阵、完整服务验证或正式部署，不能表述为全量通过。父任务负责完整矩阵、部署和正式页面验收。历史验证命令为 npm run server:verify:databases，报告见 artifacts/verification.json 和 artifacts/database-matrix/verification.json。CI 工作流运行完整 service 三引擎、托管双引擎及原生管理网页检查/构建，并输出带提交号和 SHA256 的 Windows 本机预览产物。仅使用隔离数据库和模拟模型，未调用付费服务商。

@@ -89,12 +89,18 @@ func TestLingtuCNYUsageViewsAgreeAndKeepUnknown(t *testing.T) {
 			if result.Totals.EstimatedCNY != "0.007122" || result.Totals.UnpricedRequests != 2 || result.Totals.CurrentRateRequests != 0 {
 				t.Fatalf("summary: %s", recorder.Body.String())
 			}
+			if result.Totals.HistoricalCostMicros != 6555 || result.Totals.HistoricalCostedRequests != 1 || result.Totals.ReportCostMicros != 13677 || result.Totals.ReportCostedRequests != 2 || result.Totals.ReportUnpricedRequests != 1 || result.Totals.UncachedInputEstimates != 1 {
+				t.Fatalf("summary historical: %s", recorder.Body.String())
+			}
 		} else {
 			var result struct {
 				Items []struct {
 					RequestID string `json:"request_id"`
 					Cost      string `json:"estimated_cny"`
 					Basis     string `json:"cost_basis"`
+					HistoricalMicros int64 `json:"historical_cost_micros"`
+					HistoricalKnown bool `json:"historical_cost_known"`
+					ReportMicros int64 `json:"report_cost_micros"`
 				} `json:"items"`
 			}
 			json.Unmarshal(recorder.Body.Bytes(), &result)
@@ -102,12 +108,22 @@ func TestLingtuCNYUsageViewsAgreeAndKeepUnknown(t *testing.T) {
 				if row.RequestID == "frozen" && (row.Cost != "0.007122" || row.Basis != "snapshot") {
 					t.Fatalf("request: %s", recorder.Body.String())
 				}
+				if row.RequestID == "historical" && (row.Basis != "unpriced" || row.Cost != "" || !row.HistoricalKnown || row.HistoricalMicros != 6555 || row.ReportMicros != 6555) {
+					t.Fatalf("request historical snapshot evidence: %s", recorder.Body.String())
+				}
 			}
 		}
 	}
 	recorder, result := dailyUsageTestCall(t, "/?days=7")
 	if recorder.Code != 200 || result.Totals.EstimatedCNY != "0.007122" || result.Totals.UnpricedRequests != 2 {
 		t.Fatalf("daily: %s", recorder.Body.String())
+	}
+	if result.Totals.HistoricalCostMicros != 6555 || result.Totals.ReportCostMicros != 13677 || result.Today.ReportCostMicros != 13677 {
+		t.Fatalf("daily historical: %s", recorder.Body.String())
+	}
+	recorder, result = dailyUsageTestCall(t, "/?period=month")
+	if recorder.Code != 200 || result.Period != "month" || result.Months != 12 || result.Totals.ReportCostMicros != 13677 || result.ThisMonth.ReportCostMicros != 13677 {
+		t.Fatalf("monthly historical: %s", recorder.Body.String())
 	}
 }
 
@@ -160,6 +176,122 @@ func TestLingtuCNYLegacySavePreservesRates(t *testing.T) {
 	db.First(&row, old.Id)
 	if row.CostRateModel != old.Models || row.InputCNY != "1" || row.OutputCNY != "10" {
 		t.Fatalf("legacy erased rates: %+v", row)
+	}
+}
+
+func TestLingtuHistoricalCurrentRateEstimateKeepsSnapshotEvidenceSeparate(t *testing.T) {
+	rate := lingtu.ModelConnection{ChannelID: 7, CostRateModel: "qwen", InputCNY: "2", OutputCNY: "8", CacheReadCNY: "0.5"}
+	rates := map[int]lingtu.ModelConnection{7: rate}
+	record := usageDailyRecord{ChannelID: 7, UpstreamModel: "qwen", UsageKnown: true, InputTokens: 1000000, OutputTokens: 1000000, CacheReadTokens: 0, CacheUsageKnown: true}
+	got := estimateCNY(record, rates)
+	if got.CostKnown || got.CostMicros != 0 || got.Basis != "unpriced" || got.CostStatus != "missing_snapshot" {
+		t.Fatalf("historical row changed snapshot evidence: %+v", got)
+	}
+	if !got.HistoricalCostKnown || got.HistoricalCostMicros != 10000000 || got.HistoricalBasis != "current_rates" || got.HistoricalInputPriceOnly {
+		t.Fatalf("historical current-rate estimate: %+v", got)
+	}
+	if got.ReportCostMicros != 10000000 || got.ReportEstimatedCNY != "10" {
+		t.Fatalf("combined report estimate: %+v", got)
+	}
+
+	record.CacheReadTokens = 500000
+	if got := estimateCNY(record, rates); got.HistoricalCostMicros != 9250000 || got.HistoricalBasis != "current_rates" {
+		t.Fatalf("cache discount: %+v", got)
+	}
+	record.CacheUsageKnown = false
+	if got := estimateCNY(record, rates); got.HistoricalCostMicros != 10000000 || got.HistoricalBasis != "current_rates_uncached_input" || !got.HistoricalInputPriceOnly {
+		t.Fatalf("missing cache detail must use input price with an explicit label: %+v", got)
+	}
+	record.CacheUsageKnown = true
+	rate.CacheReadCNY = ""
+	rates[7] = rate
+	if got := estimateCNY(record, rates); got.HistoricalCostMicros != 10000000 {
+		t.Fatalf("unconfigured cache price: %+v", got)
+	}
+
+	record.UsageKnown = false
+	if got := estimateCNY(record, rates); got.HistoricalCostKnown || got.HistoricalBasis != "unpriced" || !got.historicalApplicable {
+		t.Fatalf("unknown usage must stay unpriced: %+v", got)
+	}
+	record.UsageKnown = true
+	record.UpstreamModel = "Qwen"
+	if got := estimateCNY(record, rates); got.HistoricalCostKnown || !got.historicalApplicable {
+		t.Fatalf("exact recorded model match required: %+v", got)
+	}
+	record.UpstreamModel = "qwen"
+	record.ChannelID = 0
+	if got := estimateCNY(record, rates); got.HistoricalCostKnown || !got.historicalApplicable {
+		t.Fatalf("missing channel must stay unpriced: %+v", got)
+	}
+	record.ChannelID = 7
+	rate.InputCNY = ""
+	rates[7] = rate
+	if got := estimateCNY(record, rates); got.HistoricalCostKnown || !got.historicalApplicable {
+		t.Fatalf("missing price must stay unpriced: %+v", got)
+	}
+	rate.InputCNY, rate.OutputCNY = "0", "0"
+	rates[7] = rate
+	if got := estimateCNY(record, rates); !got.HistoricalCostKnown || got.HistoricalCostMicros != 0 || got.HistoricalBasis != "current_rates" {
+		t.Fatalf("explicit zero prices are free, not missing: %+v", got)
+	}
+
+	rate.InputCNY, rate.OutputCNY = "1", "1"
+	rates[7] = rate
+	snapshot := usageDailyRecord{CostSnapshot: true, CostInputCNY: "2", CostOutputCNY: "4", UsageKnown: true, InputTokens: 1000, OutputTokens: 1000}
+	first := estimateCNY(snapshot, rates)
+	rate.InputCNY, rate.OutputCNY = "999", "999"
+	rates[7] = rate
+	second := estimateCNY(snapshot, rates)
+	if first.CostMicros != 6000 || second.CostMicros != 6000 || second.ReportCostMicros != 6000 || first.CNY != second.CNY || first.HistoricalCostKnown || second.HistoricalCostKnown {
+		t.Fatalf("price changes altered snapshot evidence: %+v %+v", first, second)
+	}
+
+	persisted := usageDailyRecord{ChannelID: 7, UpstreamModel: "qwen", UsageKnown: true, InputTokens: 1000, OutputTokens: 1000, CostStatus: "unknown_usage"}
+	if got := estimateCNY(persisted, rates); got.HistoricalCostKnown || got.historicalApplicable || got.CostStatus != "unknown_usage" {
+		t.Fatalf("persisted status must not be rewritten: %+v", got)
+	}
+	overflow := usageDailyRecord{ChannelID: 7, UpstreamModel: "qwen", UsageKnown: true, InputTokens: 1 << 50, OutputTokens: 0, CacheUsageKnown: true}
+	rate.InputCNY, rate.OutputCNY = "1000000", "1000000"
+	rates[7] = rate
+	if got := estimateCNY(overflow, rates); got.HistoricalCostKnown || got.HistoricalBasis != "unpriced" || !got.historicalApplicable {
+		t.Fatalf("overflow must stay unpriced: %+v", got)
+	}
+}
+
+func TestLingtuHistoricalAggregateAvoidsDoubleCountAndOverflow(t *testing.T) {
+	rate := lingtu.ModelConnection{ChannelID: 7, CostRateModel: "qwen", InputCNY: "2", OutputCNY: "8"}
+	rates := map[int]lingtu.ModelConnection{7: rate}
+	records := []usageDailyRecord{
+		{CostSnapshot: true, CostInputCNY: "1", CostOutputCNY: "1", UsageKnown: true, InputTokens: 1000, OutputTokens: 1000},
+		{ChannelID: 7, UpstreamModel: "qwen", UsageKnown: true, InputTokens: 2000, CacheUsageKnown: false},
+		{ChannelID: 7, UpstreamModel: "different", UsageKnown: true, InputTokens: 2000, CacheUsageKnown: false},
+	}
+	var totals CostTotals
+	for _, record := range records {
+		cost := estimateCNY(record, rates)
+		addCost(&totals, cost)
+		addHistoricalCost(&totals, cost)
+		addReportCost(&totals, cost)
+	}
+	if totals.CostMicros != 2000 || totals.EstimatedCNY != "0.002" || totals.CostedRequests != 1 || totals.UnpricedRequests != 2 {
+		t.Fatalf("snapshot totals changed: %+v", totals)
+	}
+	if totals.HistoricalCostMicros != 4000 || totals.HistoricalEstimatedCNY != "0.004" || totals.HistoricalCostedRequests != 1 || totals.HistoricalUnpricedRequests != 1 || totals.UncachedInputEstimates != 1 {
+		t.Fatalf("historical totals: %+v", totals)
+	}
+	if totals.ReportCostMicros != 6000 || totals.ReportEstimatedCNY != "0.006" || totals.ReportCostedRequests != 2 || totals.ReportUnpricedRequests != 1 {
+		t.Fatalf("combined report totals: %+v", totals)
+	}
+
+	totals = CostTotals{CostMicros: 9223372036854775807, EstimatedCNY: "9223372036854.775807"}
+	addCost(&totals, costEstimate{CostKnown: true, CostMicros: 1})
+	if totals.CostMicros != 9223372036854775807 || totals.UnpricedRequests != 1 || totals.UnknownCostRequests != 1 {
+		t.Fatalf("snapshot overflow guard: %+v", totals)
+	}
+	totals = CostTotals{ReportCostMicros: 9223372036854775807, ReportEstimatedCNY: "9223372036854.775807"}
+	addReportCost(&totals, costEstimate{CostKnown: true, CostMicros: 1})
+	if totals.ReportCostMicros != 9223372036854775807 || totals.ReportUnpricedRequests != 1 || totals.ReportCostedRequests != 0 {
+		t.Fatalf("report overflow guard: %+v", totals)
 	}
 }
 
