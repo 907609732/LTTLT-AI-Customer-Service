@@ -14,6 +14,10 @@ import { createProductCatalog } from './product-catalog'
 import { applyStoreZoom } from './store-zoom'
 import { createStoreBackendOpener } from './store-backend'
 import { createReplyMonitorWindow } from './reply-monitor-window'
+import {
+  createDeveloperDebugController,
+  type DeveloperDebugController,
+} from './developer-debug/controller'
 import { AiStateRestore, type AiRestoreStore } from './ai-state-restore'
 import { StoreAiPreferences } from './store-ai-preferences'
 import { StoreSendModes } from './store-send-modes'
@@ -294,9 +298,19 @@ export function createLocalRuntime(options: {
   }
   const sendModes = new StoreSendModes(dataDir)
   const sendAuthorizations = new SendModeAuthorizations((id) => sendModes.read(id))
+  let developerDebug: DeveloperDebugController | undefined
   const replyMonitor = createReplyMonitorWindow({
     getParent: options.getWindow,
-    create: (parent) => createWindow({ compact: true, parent }),
+    create: (parent) => {
+      const win = createWindow({
+        compact: true,
+        parent,
+        // The preload only asks for the bridge in this window; the IPC owner lease is the authority.
+        developerDebug: !app.isPackaged,
+      })
+      developerDebug?.attach(win)
+      return win
+    },
     load: (win) => loadRenderer(win, '/reply-monitor'),
   })
   const reporting = createReportingPipeline(dataDir)
@@ -547,6 +561,30 @@ export function createLocalRuntime(options: {
   ) => VendorShopManager
   const operationAdapters = new Map<string, unknown>()
   const platformWrites = new PlatformWriteCoordinator()
+  if (!app.isPackaged) {
+    developerDebug = createDeveloperDebugController({
+      workspaceId,
+      appVersion: app.getVersion(),
+      monitor: replyMonitor,
+      isWorkspaceActive: () => !closed && managed.canAccessWorkspace(),
+      stores: () =>
+        read().stores.map((store) => ({
+          id: store.id,
+          storeName: store.storeName,
+          platform: store.platform,
+          open: store.runtime.open,
+          online: store.runtime.online,
+          authenticated: store.runtime.authenticated ?? null,
+          aiEnabled: store.aiEnabled,
+          sendMode: store.sendMode ?? 'review',
+        })),
+      logs: () => review.snapshot().logs,
+      getStoreWebContents: (storeId) => vendorManager?.webContentsOf?.(storeId) ?? null,
+      openExternal: (url) => shell.openExternal(url),
+      // Bundled main lives in dist-electron; the debug CMD starts at the source project root.
+      ptyCwd: () => path.resolve(__dirname, '..'),
+    })
+  }
   const platformProducts = createKnowledgePlatformProducts({
     repository: knowledgeRepository,
     assertActive: () => assertActive(),
@@ -702,6 +740,7 @@ export function createLocalRuntime(options: {
       if (closed || !event || typeof event !== 'object') return
       const type = Reflect.get(event, 'type')
       if (typeof type !== 'string') return
+      if (type.startsWith('shop:')) developerDebug?.syncAllPopupPolicies()
       const revision: unknown = Reflect.get(event, 'revision')
       const safeEvent: BackendEvent = {
         type,
@@ -1104,6 +1143,7 @@ export function createLocalRuntime(options: {
     () => assistHost.dispose(),
     () => managed.dispose(),
     () => review.dispose(),
+    () => developerDebug?.dispose(),
     () => sendAuthorizations.dispose(),
     () => replyMonitor.dispose(),
     () => {
@@ -1171,6 +1211,9 @@ export function createLocalRuntime(options: {
     receptionOperations() {
       assertActive()
       return operations
+    },
+    developerDebug() {
+      return closed ? undefined : developerDebug
     },
     serviceRequest(
       endpoint: string,
@@ -1291,6 +1334,8 @@ export function createLocalRuntime(options: {
       const { workspaceId: _workspaceId, ...raw } = command
       void _workspaceId
       const result = resultSchema.parse(await aiRestore.userExecute(raw))
+      if (command.action === 'open-store' && command.storeId)
+        developerDebug?.syncPopupPolicy(command.storeId)
       // 删除店铺时同步清空本机模拟数据，避免残留顾客被下一次同名店铺复用。
       if (command.action === 'remove-store' && command.storeId) {
         knowledge.removeStore(command.storeId)

@@ -70,6 +70,7 @@ function fixture(directory?: string, requiresInitializedSession = false) {
       receptionOperations: () => {
         throw Error('测试未接接待')
       },
+      developerDebug: () => undefined,
       serviceRequest: async () => {
         if (closed) throw Error('closed')
         return { workspaceId: state.workspaceId }

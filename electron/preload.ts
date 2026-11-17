@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopApi } from '../src/shared/contracts/desktop'
 import type { PlatformLearningTransport } from '../src/shared/contracts/platform-learning'
 import { createCustomPhrasesPreload } from './custom-phrases-preload'
+import { createDeveloperDebugBridge } from './developer-debug/preload'
+import { developerDebugChannels } from '../src/shared/contracts/developer-debug'
 
 const api: DesktopApi = {
   isElectron: true,
@@ -105,4 +107,19 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener('assist:request-close', receive)
   },
 }
+declare const __SOURCE_DEVELOPER_PRELOAD__: boolean
+const developerDebug =
+  typeof __SOURCE_DEVELOPER_PRELOAD__ !== 'undefined' && __SOURCE_DEVELOPER_PRELOAD__
+    ? createDeveloperDebugBridge({
+        requested: true,
+        probe: () => ipcRenderer.sendSync(developerDebugChannels.capability) === true,
+        invoke: (channel, input) => ipcRenderer.invoke(channel, input),
+        on: (channel, listener) => {
+          const receive = (_event: Electron.IpcRendererEvent, value: unknown) => listener(value)
+          ipcRenderer.on(channel, receive)
+          return () => ipcRenderer.removeListener(channel, receive)
+        },
+      })
+    : undefined
+if (developerDebug) api.developerDebug = developerDebug
 contextBridge.exposeInMainWorld('yunduoDesktop', Object.freeze(api))

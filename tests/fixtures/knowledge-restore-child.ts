@@ -49,6 +49,7 @@ export async function run(mode: string, directory: string, backupDirectory: stri
       platformLearning: unavailable,
       platformOrders: unavailable,
       receptionOperations: unavailable,
+      developerDebug: () => undefined,
       openPlatformLearningSource: async () => unavailable(),
       serviceRequest: async () => unavailable(),
       start: async () => {},

@@ -56,6 +56,8 @@ const excluded = members.filter(
   (name) =>
     /^\/(server|artifacts|tests|electron)\//.test(name) ||
     /^\/dist-electron\/smoke\./.test(name) ||
+    /^\/dist-electron\/developer-preload\./.test(name) ||
+    /^\/node_modules\/node-pty(?:\/|$)/.test(name) ||
     /\/private\.json$|\/master\.key$|\/managed\.db$|\.map$/.test(name),
 )
 if (excluded.length) throw new Error('Private/development files in package: ' + excluded.join(', '))
@@ -267,6 +269,8 @@ try {
     await delay(250)
   }
   if (!ready) throw new Error('Packaged UI/preload not ready')
+  if ((await evaluate(`typeof window.yunduoDesktop.developerDebug`)) !== 'undefined')
+    throw new Error('Packaged preload exposes source developer capabilities')
   const state = z
     .object({
       capabilities: z.object({ modelMode: z.literal('local'), apiKeyConfigured: z.literal(false) }),
@@ -397,6 +401,7 @@ try {
       'ASAR Apache/AGPL license texts and scope match source bytes',
       'ASAR private/development exclusion',
       'real packaged window/preload',
+      'no developer bridge, source preload or node-pty in packaged application',
       'real business IPC, empty isolated stores and no Key',
       'legacy settings redirects to configuration center; sidebar keeps only quick replies and matching source version',
       'simple own-Key/server login without server address fields',

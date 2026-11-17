@@ -69,6 +69,7 @@ app
       receptionOperations: () => {
         throw Error('该检查未接平台接待')
       },
+      developerDebug: () => undefined,
       dataDirectory: () => {
         throw Error('窗口专项不访问私有目录')
       },

@@ -59,6 +59,8 @@ export function createWindow(
     compact?: boolean
     knowledge?: boolean
     parent?: BrowserWindow
+    /** Source-only reply monitor; app.isPackaged remains the main-process authority. */
+    developerDebug?: boolean
   } = {},
 ): BrowserWindow {
   const auxiliary = options.auxiliary === true
@@ -79,7 +81,10 @@ export function createWindow(
     title: PRODUCT_NAME,
     icon: appIconPath,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(
+        __dirname,
+        options.developerDebug && !app.isPackaged ? 'developer-preload.cjs' : 'preload.cjs',
+      ),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

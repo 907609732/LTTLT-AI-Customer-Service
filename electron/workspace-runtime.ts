@@ -327,6 +327,10 @@ export function createWorkspaceRuntime(options: {
         return current.openSimulatorPage()
       })
     },
+    developerDebug() {
+      if (closed || unavailable) return undefined
+      return current.developerDebug()
+    },
     dispose() {
       // Stop accepting commands immediately, then drain in-flight work before stopping the host.
       closed = true

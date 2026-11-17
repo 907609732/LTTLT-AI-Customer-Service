@@ -1,3 +1,16 @@
+## 2026-11-18 回复监控左下统一入口与源码 GM/CMD（1.0.53，源码工作树）
+
+已按批准的 `docs/superpowers/specs/2026-11-18-developer-console-design.md` 与 plan 完成实现，不只出计划。主工作台右上角监控按钮移除，工作台左下与“快捷回复”并列、版本独立下一行；配置中心左下也提供同一入口，均调用原 `open-reply-monitor`。默认仍是 340×300、parent 左下、`showInactive`、不置顶；源码版底栏“开发调试”在同窗展开 960×620，左 340 保留回复信息/确认/取消/高级日志，右侧 GM 指令/CMD，720px 以下上下排列。关闭窗口结束终端会话，收起保留，重新进入标签不重连/不重建 shell。
+
+新增 `electron/developer-debug/`：`app.isPackaged` 主进程 gate、owner + workspace + 监控主 frame 绑定 IPC、固定 GM 注册表（help/status/stores/logs [n]/pdd-popup status|allow|block）、按店 pdd-popup 内存策略、node-pty ConPTY 宿主。普通 preload 编译时关闭调试桥；源码监控由单独 `developer-preload.cjs` 提供，且不在 electron-builder files 白名单。node-pty 在 esbuild external、点击连接时动态 require；xterm/FitAddon 只在首次进入 CMD 标签异步加载。前端通过 `src/modules/auxiliary/services/developer-debug.ts` 使用 shared 窄契约，不直接访问 Electron/Node。PDD 策略只接受厂家 `webContentsOf(storeId)` 的实际 PDD WebContents，核对 `mms.pinduoduo.com`，不按 `BrowserWindow.fromWebContents===null` 判断内嵌页，也不改 vendor；block 恢复外部打开 + deny，allow 仅 HTTP/HTTPS/about:blank 且子窗 sandbox/contextIsolation/nodeIntegration 配置安全，正常重启复位。
+
+实际验证：
+
+- `npx vitest run tests/developer-debug-gm.test.ts tests/developer-debug-pty.test.ts tests/developer-debug-bridge.test.ts tests/developer-debug-review.test.ts tests/developer-terminal-lifecycle.test.ts tests/reply-monitor-window.test.ts tests/reply-monitor.test.ts tests/reply-monitor-developer.test.ts tests/main-sidebar.test.ts tests/shop-manage-monitor.test.ts`：10 文件 49 项通过（含 owner/过期输出、IPC 同步 capability、preload source gate、终端异步卸载/工作区/早到输出、折叠展开、两布局入口和 GM Enter 隔离）。
+- `npm run typecheck`、改动范围 ESLint/Prettier、`npm run build` 退出 0；构建产物确认普通 `preload.cjs` 无 `developerDebug` 暴露，`developer-preload.cjs` 存在且不在安装包 files 白名单，main 动态 `require("node-pty")`，xterm 为独立异步 chunk。
+- 隔离原生 `LINGTU_DESKTOP_CHECKS=business:developer-console node scripts/run-desktop.mjs`：1/1 通过，报告 `artifacts/desktop-selected-1794934378917/report.json`，截图 `developer-console.png`。使用临时 userData 和真实 Electron/ConPTY，验证：主窗无调试桥；监控 340×300→960×620、parent/非置顶；GM help；真实 CMD 中文、方向键历史、Ctrl+C、resize、收起再展开同一 session；关闭监控后新窗口新 shell，旧 session 写入被拒绝。stderr 仅有旧 session `pty-write` 的预期 IPC 拒绝日志，未影响报告/退出码。
+- 未运行全量 Release/上游/打包；本实现未修改 package.json、package-lock 或版本（依赖条目与版本递增由 Codex 负责）；未 commit/push/deploy/发布，未向真实买家发送，未打开真实 PDD 店铺验证 allow 新窗。下一步：Codex 审查并合并最新 main、递增一次 patch、打包确认 ASAR 无 developer-preload/node-pty、无 debug IPC，然后重启主项目；PDD allow/block 仍需在有登录态的 `mms.pinduoduo.com` 店铺页面单独实店验收，不能用本机合成页替代。
+
 ## 2026-11-17 进店欢迎开关布局与随机延迟（1.0.52，本机源码）
 
 按用户最新要求，进店欢迎标题右侧只保留一个启用开关（active-text 启用，aria-label 启用本店新会话欢迎，data-no-drag），删除原说明段落和欢迎面板的 RuntimePanel 说明；文字欢迎语下方新增“欢迎延迟 [下限] ～ [上限] 秒随机”，默认 1～3 秒，可保存 1～3600 整数秒有序范围（相等即固定）。欢迎面板移除普通“载入最新配置”，只在版本冲突时显示“重新载入”，草稿保留到用户显式点击；保存仍只有一个“保存配置”，把文字、启用和延迟随同一版本 CAS 原子保存。Enter 提交在入口再次校验范围与冲突，不能靠按钮 disabled 绕过。

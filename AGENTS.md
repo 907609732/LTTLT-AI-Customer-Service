@@ -36,3 +36,9 @@ Windows本机构建环境：主目录曾因可执行文件继承Low完整性标�
 正常软件启动/账号登录后，按当前账号与模型来源目录内保存的每店AI开关恢复；仅对有明确开启记录且当前平台登录身份重新验证一致的店铺启用，其他保持关闭。上次审核/自动发送模式沿用原规则，旧批准/候选不恢复。主动关闭/全部关闭取消恢复；退出、断线等临时停机不覆盖用户意愿。知识库清除/恢复维护重建不自动恢复AI。本条替代旧的正常新会话一律关闭AI约束，细节见docs/AI_STATE_RESTORE.md。
 
 2026-11-17 共用工作区整合：按用户新要求，本机/托管模式和账号共用本机 local-runtime 业务目录与 yunduo-local 平台分区，AI 开关记忆也随该本机目录保存。账号改变仍停止当前 AI 并要求重启；恢复仍核对当前平台身份，旧候选/批准不恢复。旧 managed-workspaces 保留、不自动合并。此条更新早先按账号/来源分别保存业务目录的描述；托管认证、计费和团队资格仍由当前账号校验。
+
+## 源码开发调试（2026-11-18）
+
+工作台和配置中心的左下“回复监控”是统一入口；源码版的 GM/CMD 只在同一监控子窗展开，不得另开任意命令窗口或把调试能力暴露给平台网页、其他渲染窗、agent 网关或远端。`app.isPackaged` 是唯一 gate：打包版不创建 `electron/developer-debug` controller、不注册 `developer-debug:*` IPC、不让普通 preload 暴露 `developerDebug`，`developer-preload.cjs` 也不进入安装包 files 白名单；禁止用环境变量、命令行或渲染层开关绕过。IPC 必须核对当前监控窗口的服务主 frame、实际窗口/owner、当前 workspace；关闭窗口、切换工作区或退出必须结束终端进程树，旧会话输出不得投递新窗口。
+
+新增 GM 命令时只扩展 `electron/developer-debug/gm.ts` 的固定注册表，先做输入/有界输出/脱敏/owner 失败测试，再实现；不恢复任意 JS eval 或单行 exec。PDD 弹窗策略沿用实际 store WebContents（不能以 `BrowserWindow.fromWebContents(...)===null` 判断内嵌页，WebContentsView 会返回父窗口），不改 vendor，正常重启恢复默认。CMD 继续使用真实 node-pty/ConPTY、动态加载 xterm，不降级为假终端。完整边界、文件入口和验收命令见 [docs/DEVELOPER_DEBUG.md](docs/DEVELOPER_DEBUG.md)，相关改动必须同步更新该文档与架构/运行日志说明。

@@ -11,6 +11,8 @@ import { createLocalRuntime, requireAppFrame } from './local-runtime'
 import { createWorkspaceRuntime } from './workspace-runtime'
 import { registerBusinessIpc } from './business-ipc'
 import { registerPlatformFeatureIpc } from './platform-feature-ipc'
+import { registerDeveloperDebugIpc } from './developer-debug/ipc'
+import { developerDebugChecks } from './developer-debug-checks'
 import { businessChecks } from './business-checks'
 import { domSendChecks } from './dom-send-checks'
 import { simChecks } from './sim-checks'
@@ -91,6 +93,10 @@ app
     })
     let disposeBusiness = registerBusinessIpc(runtime)
     let disposeFeatures = registerPlatformFeatureIpc({ runtime, authorize: requireAppFrame })
+    const disposeDeveloperDebug = registerDeveloperDebugIpc({
+      enabled: !app.isPackaged,
+      runtime: () => runtime,
+    })
     let pageSequence = 0
     let consoleErrors: string[] = []
     win.webContents.on('console-message', (_event, level, message) => {
@@ -603,6 +609,8 @@ app
       })
     await domSendChecks(check)
     await simChecks({ win, check, load })
+    if (!selectedChecks.length || selectedChecks.includes('business:developer-console'))
+      await developerDebugChecks({ win, runtime, check, outputDir: output, load })
     for (const name of selectedChecks) {
       if (!report.some((result) => result.name === name))
         report.push({ name, route: '', pass: false, error: '指定验收项不存在或未运行' })
@@ -612,6 +620,7 @@ app
     dispose()
     disposeBusiness()
     disposeFeatures()
+    disposeDeveloperDebug()
     await runtime.dispose()
     win.destroy()
     console.log(

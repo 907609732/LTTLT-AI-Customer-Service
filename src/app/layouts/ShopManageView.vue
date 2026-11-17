@@ -11,6 +11,7 @@ import { useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/shared/ui/BrandMark.vue'
 import AppVersion from '@/shared/ui/AppVersion.vue'
 import { notifyUnavailable } from '@/shared/ui/feedback'
+import { useTask } from '@/shared/ui/use-task'
 import {
   navGroups,
   panelRegistry,
@@ -22,6 +23,7 @@ const router = useRouter(),
   route = useRoute()
 const setup = useShopSetupStore()
 const runtime = useRuntimeStore()
+const task = useTask()
 // 兼容旧收藏和看板入口，接待配置只保留店铺设置向导。
 watch(
   [() => route.query.panel, () => runtime.selectedStoreId],
@@ -55,6 +57,11 @@ function select(key: PanelKey) {
 }
 function goHome() {
   void router.push('/')
+}
+async function openMonitor() {
+  await task.run(async () => {
+    await runtime.run({ action: 'open-reply-monitor' })
+  })
 }
 </script>
 
@@ -164,6 +171,26 @@ function goHome() {
               </template>
             </template>
           </nav>
+          <div class="sider__monitor">
+            <button
+              type="button"
+              class="sider__monitor-button"
+              aria-label="回复监控"
+              :disabled="task.pending.value"
+              @click="openMonitor"
+            >
+              回复监控<span
+                v-if="runtime.snapshot.review.replies.some((r) => r.status === 'pending')"
+              >
+                ·
+                {{ runtime.snapshot.review.replies.filter((r) => r.status === 'pending').length }}
+                待确认</span
+              >
+            </button>
+            <p v-if="task.error.value" class="sider__monitor-error" role="alert">
+              {{ task.error.value }}
+            </p>
+          </div>
           <AppVersion />
         </aside>
 
@@ -206,3 +233,31 @@ function goHome() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.sider__monitor {
+  margin-top: auto;
+  padding: 8px 12px 0;
+  border-top: 1px solid #edf0f4;
+}
+.sider__monitor-button {
+  width: 100%;
+  border: 1px solid #dfe6ef;
+  border-radius: 5px;
+  padding: 6px 8px;
+  background: #fff;
+  color: #56657a;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.sider__monitor-button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.sider__monitor-error {
+  margin: 5px 0 0;
+  color: #c65746;
+  font-size: 11px;
+}
+</style>

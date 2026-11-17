@@ -15,6 +15,7 @@ import { registerSchedulerIpc } from './scheduler-ipc'
 import { createWorkspaceRuntime } from './workspace-runtime'
 import { registerBusinessIpc } from './business-ipc'
 import { registerPlatformFeatureIpc } from './platform-feature-ipc'
+import { registerDeveloperDebugIpc } from './developer-debug/ipc'
 import { PRODUCT_NAME } from '../src/shared/brand'
 import { resolveAppUserData, WINDOWS_APP_USER_MODEL_ID } from './app-identity'
 import { createAssistWindowManager, type AssistWindowManager } from './assist-window'
@@ -91,6 +92,12 @@ app
       authorize: requireAppFrame,
     })
     app.once('will-quit', disposePlatformFeatures)
+    // app.isPackaged is the sole authority: no controller, IPC or preload bridge in a packaged app.
+    const disposeDeveloperDebug = registerDeveloperDebugIpc({
+      enabled: !app.isPackaged,
+      runtime: () => runtime,
+    })
+    app.once('will-quit', disposeDeveloperDebug)
     const knowledgeWindow = createKnowledgeWindow({
       create: () => createWindow({ knowledge: true }),
       load: async (win) => {

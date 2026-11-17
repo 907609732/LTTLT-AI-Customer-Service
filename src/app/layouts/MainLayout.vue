@@ -213,13 +213,6 @@ async function navigate(path: string) {
       </nav>
       <div class="titlebar-drag-region" aria-hidden="true"></div>
       <div class="top-actions">
-        <button class="top-pill" aria-label="回复监控" @click="openLogs">
-          回复监控<span v-if="runtime.snapshot.review.replies.some((r) => r.status === 'pending')">
-            ·
-            {{ runtime.snapshot.review.replies.filter((r) => r.status === 'pending').length }}
-            待确认</span
-          >
-        </button>
         <button class="top-pill login-trigger" @click="loginVisible = true">
           {{
             runtime.snapshot.managed.active.mode === 'managed' &&
@@ -372,6 +365,15 @@ async function navigate(path: string) {
         </button>
         <footer class="sidebar-footer">
           <button @click="quickReplyVisible = true">快捷回复</button>
+          <button aria-label="回复监控" @click="openLogs">
+            回复监控<span
+              v-if="runtime.snapshot.review.replies.some((r) => r.status === 'pending')"
+            >
+              ·
+              {{ runtime.snapshot.review.replies.filter((r) => r.status === 'pending').length }}
+              待确认</span
+            >
+          </button>
           <AppVersion />
         </footer>
       </aside>

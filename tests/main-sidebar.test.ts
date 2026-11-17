@@ -143,6 +143,8 @@ it('单店模式切换只调用指定命令，主入口打开回复监控', asyn
   await wrapper.get('[aria-label="回复监控"]').trigger('click')
   await flushPromises()
   expect(run).toHaveBeenLastCalledWith({ action: 'open-reply-monitor' })
+  expect(wrapper.find('header [aria-label="回复监控"]').exists()).toBe(false)
+  expect(wrapper.find('footer.sidebar-footer [aria-label="回复监控"]').exists()).toBe(true)
 })
 
 it('店铺导入知识携带点击店铺打开独立知识库，不切换接待', async () => {

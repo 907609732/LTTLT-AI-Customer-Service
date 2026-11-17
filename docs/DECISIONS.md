@@ -1,5 +1,11 @@
 # 架构决策
 
+## 2026-11-18：源码调试放进唯一监控子窗，owner/打包 gate 在主进程
+
+用户要求把右上回复监控移到左下，并在同一窗口提供 GM 与真实交互 CMD，打包版完全不需要。决定保留 340×300 紧凑单例子窗，源码底栏按需展开 960×620；不新增第二窗口，也不做全局置顶。GM 使用固定注册表而非 eval；CMD 使用 node-pty/ConPTY，xterm 只在首次进入 CMD 标签异步加载，避免日常监控承担终端开销。所有请求以当前监控窗口的服务主 frame、实际 owner WebContents 和 workspace 三重绑定；关闭/切换工作区杀进程树，旧宿主回调绑定旧 owner。
+
+打包 gate 以 `app.isPackaged` 为主进程唯一权威：不创建 controller、不注册 IPC；普通 preload 编译时固定关闭调试桥，监控专用的 `developer-preload.cjs` 只在源码窗口选择且不进入 electron-builder 白名单。没有环境变量/命令行开关。PDD 弹窗策略只在内存按店记录，复用厂家 `webContentsOf(storeId)` 的实际 WebContents 并核对 `mms.pinduoduo.com`；Electron WebContentsView 的 `BrowserWindow.fromWebContents` 会返回父窗口，不能按 null 判断内嵌页。代价是源码监控需要单独 native preload 构建和 node-pty 原生验证，且调试窗口关闭后不恢复 shell；真实 PDD 页面仍需另行实店验收。
+
 ## 2026-11-17：托管接待知识预算在 resolver 之后按 token 整条填充
 
 管理员的 `retrieval_budget` / `retrieval_order` 只控制已审核候选的预算填充，不参与冲突胜出。决定先复用 `repo.resolveKnowledge`（托管候选窗口 50 条 / 60,000 字符）确定审核、范围、SKU 覆盖、有效期和命中顺序，再按 binding 固定最前、template 固定最后、store/canonical 可交换的顺序选取完整 citation。预算按现有 cl100k tokenizer 对序列化 citation 在独立 worker 中批量计量，不按字符估算，也不在主线程处理病态 Unicode。超预算整条省略，并与 resolver omitted 合并计数。

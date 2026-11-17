@@ -20,6 +20,7 @@ import type {
   PlatformItemsSnapshot,
   RefreshAssistPlatformInput,
 } from './platform-items'
+import type { DeveloperDebugBridge } from './developer-debug'
 
 export interface ScreenPoint {
   screenX: number
@@ -76,6 +77,8 @@ export interface DesktopApi extends Partial<ReceptionBridge> {
   assistPlatformSnapshot?(): Promise<PlatformItemsSnapshot>
   refreshAssistPlatform?(input: RefreshAssistPlatformInput): Promise<PlatformItemsSnapshot>
   openAssistPlatformItem?(input: OpenAssistPlatformItemInput): Promise<void>
+  /** 仅源码运行的回复监控窗口存在；打包版由主进程 capability gate 完全不暴露。 */
+  developerDebug?: DeveloperDebugBridge
 }
 
 export interface RenderError {

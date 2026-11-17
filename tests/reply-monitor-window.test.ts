@@ -8,6 +8,9 @@ class Window extends EventEmitter {
   destroyed = false
   minimized = false
   visible = true
+  resizable = false
+  minimum = { width: 340, height: 300 }
+  maximum = { width: 340, height: 300 }
   showInactive = vi.fn(() => {
     this.visible = true
   })
@@ -26,8 +29,20 @@ class Window extends EventEmitter {
   getContentBounds() {
     return this.bounds
   }
+  getBounds() {
+    return this.bounds
+  }
   setBounds(bounds: typeof this.bounds) {
     this.bounds = bounds
+  }
+  setResizable(value: boolean) {
+    this.resizable = value
+  }
+  setMinimumSize(width: number, height: number) {
+    this.minimum = { width, height }
+  }
+  setMaximumSize(width: number, height: number) {
+    this.maximum = { width, height }
   }
   destroy() {
     this.destroyed = true
@@ -81,5 +96,39 @@ it('加载期间父窗口关闭或运行时销毁，不会迟到弹出窗口', a
   await opening
   expect(child.showInactive).not.toHaveBeenCalled()
   expect(child.destroyed).toBe(true)
+  manager.dispose()
+})
+
+it('展开到 960×620、可调整大小；收起恢复紧凑尺寸且不新建窗口', async () => {
+  const parent = new Window(),
+    child = new Window()
+  const create = vi.fn(() => asWindow(child))
+  const manager = createReplyMonitorWindow({
+    getParent: () => asWindow(parent),
+    create,
+    load: async () => {},
+  })
+  await manager.open()
+  let size = manager.setExpanded(true)
+  expect(size).toMatchObject({ expanded: true, width: 960, height: 620 })
+  expect(child.bounds).toEqual({ x: 112, y: 338, width: 960, height: 620 })
+  expect(child.resizable).toBe(true)
+  expect(child.maximum).toEqual({ width: 960, height: 620 })
+  parent.bounds = { x: 300, y: 20, width: 1000, height: 700 }
+  parent.emit('move')
+  expect(child.bounds.width).toBe(960)
+  expect(child.bounds.height).toBe(620)
+  expect(child.bounds.x).toBe(312)
+  expect(child.bounds.y).toBe(88)
+  parent.bounds = { x: 300, y: 20, width: 800, height: 500 }
+  parent.emit('resize')
+  expect(child.bounds.width).toBeLessThanOrEqual(776)
+  expect(child.bounds.height).toBeLessThanOrEqual(476)
+  size = manager.setExpanded(false)
+  expect(size).toMatchObject({ expanded: false, width: 340, height: 300 })
+  expect(child.resizable).toBe(false)
+  expect(create).toHaveBeenCalledTimes(1)
+  await manager.open()
+  expect(create).toHaveBeenCalledTimes(1)
   manager.dispose()
 })

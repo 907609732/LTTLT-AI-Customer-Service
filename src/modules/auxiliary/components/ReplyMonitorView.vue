@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { getDesktop } from '@/shared/platform/desktop'
 import { useTask } from '@/shared/ui/use-task'
+import { getDeveloperDebugBridge } from '@/modules/auxiliary/services/developer-debug'
 
+const DeveloperConsolePanel = defineAsyncComponent(
+  () => import('@/modules/auxiliary/components/DeveloperConsolePanel.vue'),
+)
 const runtime = useRuntimeStore(),
   task = useTask(),
-  desktop = getDesktop()
+  desktop = getDesktop(),
+  developerDebug = getDeveloperDebugBridge()
+const expanded = ref(false),
+  debugLoaded = ref(false)
 const pending = computed(() =>
   runtime.snapshot.review.replies.filter((row) => row.status === 'pending'),
 )
@@ -62,6 +69,9 @@ const detail = computed(
     latestLog.value?.text ||
     (runtime.available ? '开启店铺 AI 后显示回复进度' : '浏览器仅预览，操作需要桌面版'),
 )
+const selectedStoreId = computed(
+  () => store.value?.id || runtime.currentStore?.id || runtime.snapshot.stores[0]?.id || '',
+)
 async function decide(approve: boolean) {
   const id = reply.value?.id
   if (!id || !canReview.value) return
@@ -74,6 +84,19 @@ async function openLogs() {
     await runtime.run({ action: 'open-runtime-logs' })
   })
 }
+async function toggleDebug() {
+  if (!developerDebug) return
+  await task.run(async () => {
+    const next = !expanded.value
+    if (next) debugLoaded.value = true
+    const result = await developerDebug.expand({
+      workspaceId: runtime.snapshot.workspaceId,
+      expanded: next,
+    })
+    expanded.value = result.expanded
+    if (result.expanded) debugLoaded.value = true
+  })
+}
 async function close() {
   await task.run(async () => {
     await desktop.close()
@@ -82,46 +105,67 @@ async function close() {
 </script>
 
 <template>
-  <main class="reply-monitor">
+  <main :class="['reply-monitor', { expanded }]">
     <header data-window-drag>
       <b>回复监控</b>
       <span class="mode">{{ mode }}</span>
       <button data-no-drag class="close" aria-label="关闭监控" @click="close">×</button>
     </header>
-    <section class="monitor-content" aria-live="polite">
-      <div class="identity">
-        <strong>{{
-          reply?.storeName || latestLog?.storeName || store?.storeName || '暂无店铺'
-        }}</strong
-        ><span>{{ reply?.buyerName || latestLog?.buyerName || '等待买家消息' }}</span>
-      </div>
-      <div class="state">
-        <i :class="{ failed: reply?.status === 'failed' }" />{{ status
-        }}<span v-if="pending.length > 1"> · {{ pending.length }} 条待确认</span>
-      </div>
-      <p class="reply-text">{{ reply?.text || latestLog?.text || '暂无回复' }}</p>
-      <p class="detail" :class="{ error: task.error.value || runtime.error }" :title="detail">
-        {{ detail }}
-      </p>
-    </section>
-    <footer>
-      <button data-action="logs" class="logs" :disabled="task.pending.value" @click="openLogs">
-        高级日志
-      </button>
-      <template v-if="canReview">
-        <button data-action="cancel" :disabled="task.pending.value" @click="decide(false)">
-          取消
-        </button>
-        <button
-          data-action="approve"
-          class="primary"
-          :disabled="task.pending.value"
-          @click="decide(true)"
-        >
-          确认发送
-        </button>
-      </template>
-    </footer>
+    <div class="monitor-body">
+      <section class="monitor-pane">
+        <div class="monitor-content" aria-live="polite">
+          <div class="identity">
+            <strong>{{
+              reply?.storeName || latestLog?.storeName || store?.storeName || '暂无店铺'
+            }}</strong
+            ><span>{{ reply?.buyerName || latestLog?.buyerName || '等待买家消息' }}</span>
+          </div>
+          <div class="state">
+            <i :class="{ failed: reply?.status === 'failed' }" />{{ status
+            }}<span v-if="pending.length > 1"> · {{ pending.length }} 条待确认</span>
+          </div>
+          <p class="reply-text">{{ reply?.text || latestLog?.text || '暂无回复' }}</p>
+          <p class="detail" :class="{ error: task.error.value || runtime.error }" :title="detail">
+            {{ detail }}
+          </p>
+        </div>
+        <footer>
+          <button data-action="logs" class="logs" :disabled="task.pending.value" @click="openLogs">
+            高级日志
+          </button>
+          <button
+            v-if="developerDebug"
+            data-action="developer-toggle"
+            class="developer-toggle"
+            :disabled="task.pending.value"
+            @click="toggleDebug"
+          >
+            {{ expanded ? '收起调试' : '开发调试' }}
+          </button>
+          <template v-if="canReview">
+            <button data-action="cancel" :disabled="task.pending.value" @click="decide(false)">
+              取消
+            </button>
+            <button
+              data-action="approve"
+              class="primary"
+              :disabled="task.pending.value"
+              @click="decide(true)"
+            >
+              确认发送
+            </button>
+          </template>
+        </footer>
+      </section>
+      <section v-if="developerDebug && debugLoaded" v-show="expanded" class="debug-pane">
+        <DeveloperConsolePanel
+          :expanded="expanded"
+          :workspace-id="runtime.snapshot.workspaceId"
+          :stores="runtime.snapshot.stores"
+          :selected-store-id="selectedStoreId"
+        />
+      </section>
+    </div>
   </main>
 </template>
 
@@ -178,6 +222,18 @@ button:disabled {
   padding: 0 3px;
   font-size: 20px;
   line-height: 24px;
+}
+.monitor-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.monitor-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .monitor-content {
   flex: 1;
@@ -242,6 +298,7 @@ footer {
   align-items: center;
   justify-content: flex-end;
   gap: 7px;
+  flex: 0 0 auto;
   padding: 8px 12px;
   border-top: 1px solid #f0f2f5;
 }
@@ -251,9 +308,37 @@ footer {
   border: 0;
   color: #758399;
 }
+.developer-toggle {
+  color: #2563b8;
+}
 .primary {
   background: #397ff2;
   border-color: #397ff2;
   color: white;
+}
+.reply-monitor.expanded .monitor-body {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+}
+.reply-monitor.expanded .monitor-pane {
+  width: 340px;
+  border-right: 1px solid #e7ecf3;
+}
+.debug-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+@media (max-width: 719px) {
+  .reply-monitor.expanded .monitor-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(220px, 42%) minmax(0, 1fr);
+  }
+  .reply-monitor.expanded .monitor-pane {
+    width: auto;
+    border-right: 0;
+    border-bottom: 1px solid #e7ecf3;
+  }
 }
 </style>
