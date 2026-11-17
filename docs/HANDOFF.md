@@ -1,3 +1,13 @@
+## 2026-11-18：第二轮维护整理（1.0.60）
+
+本机 DeepSeek 在独立工作树执行，Codex 复核和整合。清除 63 个确认无外部消费者的还原残留（19 demo、39 图标、ShopPanelShell、GoodsRow 定义、sync 两个空转导、developer-debug 空 barrel），同步移除 GoodsRow 转导。引用核对覆盖代码、Vue 模板、动态加载、构建脚本、测试和打包入口；preload/MCP/fixture 等静态误报已排除，未改活组件模板、legacy CSS、server/vendor 或真实资料。
+
+知识库商品同款创建/元数据/删除预览/解绑/重关联移到 product-family-controller.ts；待学问题状态与处理移到 miss-controller.ts。manager 保留草稿、审核、分页/刷新、账号店铺租约、reset 和销毁；公开 126 项及顺序不变，迁出的 10 方法体经端口映射后 token 一致。原同款 revision 集合、SKU 限制、草稿/命令/关闭/刷新顺序和五项租约条件均保留，独立只读复审无新增阻断问题。
+
+本机相关 10 文件/108 项通过；Codex 独立核心 56 项及旧首页/紧凑监控/真实 CMD 3/3 通过。类型、变更 ESLint/Prettier、边界、构建和知识库原生 18+2+5 项通过；后置 Knip 文件候选为空（仅作静态佐证）。首次 Vitest 临时文件 EBUSY 和随后错误 worker 参数分别保留原日志，串行原断言复跑通过；不计为首轮通过。
+
+当前说明按职责互链，过期任务和 parallel 整合文档标明历史性质，未删除历史验收/设计。大文件中仍保留与生命周期强耦合的 manager 核心、运行时组合根及单领域平台适配器，不按行数强拆。完整范围和证据见 [维护计划](superpowers/plans/2026-11-18-maintenance-round2.md)；日志在 artifacts/maintenance-round2/。版本已统一 1.0.60，云端标准检查/产物核对及正常主目录重启待最终回执。未真实操作平台、付费模型或买家发送，未公开发布或部署。
+
 ## 2026-11-18：1.0.58 整理后最终验收与正常打开
 
 本机 DeepSeek 执行、Codex 独立复核。最终验收提交 fadc03d（1.0.58），[CI 44137539038](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44137539038) 全绿：源码 169 文件/1268 项、原生桌面 91/91、知识库与来源学习、打包及真实打包程序 10 项检查通过。初次 CI 的 cwd 断言误写本机目录名 client，最终仅验收脚本修正，另补真实 xterm 键盘及打包回复监控检查；未额外改产品行为、未重复升级版本。

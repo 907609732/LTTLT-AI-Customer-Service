@@ -10,6 +10,8 @@
 
 当前业务状态：本机自带 Key 的费用由模型服务商账户管理。托管模式使用实际账号快照显示累计调用额度；套餐和订单通过公开入口 `billingTransportKey` 注入的受限认证 transport 查询。缺少 transport 或商户配置时明确禁用支付，不展示虚构套餐、收款码或入账成功。
 
+2026-11-18 第二轮清理删除无消费者的 `OrdersPanel`、`ShopAccountPanel`、`ShopRechargeView`、`UsagePanel` 四个 demo 工厂；对应真实组件和服务入口不变。
+
 `contracts.ts` 校验服务端套餐/订单/checkout DTO；`services.ts` 定义 BillingTransport 并限制固定端点及 Stripe HTTPS checkout 来源；`use-billing.ts` 处理刷新、幂等checkout及账号切换迟到响应隔离；BillingDashboard 被充值/订单/额度三个页面复用。UI 内不访问网络、Electron 或凭据。服务端实现与准确公共装配要求见 `docs/parallel/billing-handoff.md`。
 
 当前仅实现单次购买调用额度，不是对公转账或自动续订服务；没有按店铺小时消费明细。支付返回不会标记成功，只有服务端签名校验和事务入账才能显示paid。部署、真实商户沙箱及退款/拒付流程仍需独立验收。

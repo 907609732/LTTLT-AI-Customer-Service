@@ -1,5 +1,16 @@
 # 客户端与独立服务端验证
 
+## 2026-11-18：第二轮维护整理（1.0.60）
+
+范围及证据索引见 [维护计划](superpowers/plans/2026-11-18-maintenance-round2.md)、HANDOFF 本轮条目和 artifacts/maintenance-round2/worker-summary.md。本机 DeepSeek 执行与修正文档两轮均退出 0、final.reason.kind=completed，Codex 核对实际文件与原生报告。63 项删除与审查清单精确匹配；现有 TypeScript/Vue 引用分析排除构建和动态入口误报。公开 126 属性及顺序、10 个迁出方法体与保留的生命周期方法均已独立对照；没有新增依赖、IPC 或持久化格式。
+
+- 相关 6 文件/81 项及删除涉及领域 4 文件/27 项通过，合计 10 文件/108 项。首次 Vitest 临时 web 文件 EBUSY、第二次仅 --maxWorkers 导致 min/max 冲突均有原文记录；串行重跑原 81 项通过，未改测试断言。
+- Codex 独立核心 2 文件/56 项、原生旧首页/紧凑监控/真实 CMD 3/3 通过；与上项重叠，不相加当新增覆盖数。
+- 类型检查、变更文件 ESLint/Prettier、模块边界、构建通过；知识库原生主专项 18 项、待学问题 2 项、内嵌进度 5 项通过。只使用临时数据和本机模拟模型，未触发真实平台/付费模型/买家发送。
+- 后置 Knip 6.39.0 的文件候选为空（按明确 entry 排除 preload、MCP、fixture 误报），日志 knip-files-after.json；不等于对全部动态行为的证明。
+
+云端标准 CI、下载产物校验和正常主目录版本核对待最终回执，不预写成功。未公开发布或部署。
+
 ## 2026-11-18：1.0.58 最终回归与产物验收
 
 验收基线 fadc03d，详见 [1.0.58-acceptance.md](1.0.58-acceptance.md)。本机 DeepSeek 执行并提交退出 0/completed 证据，Codex 独立复核代码、报告和实际应用。[CI 44137539038](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44137539038) 全部成功：169 文件/1268 项、原生桌面 91/91、知识库与来源学习、打包程序 10 项检查。主目录独立原生检查 3/3（自定义 PROMPT），真实键盘/ConPTY、旧首页与紧凑回复监控通过。初次 cwd 测试误报及未采用的备选补丁保留为历史，不冒充最终产品修复。

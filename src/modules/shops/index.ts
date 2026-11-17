@@ -1,6 +1,5 @@
 export { default as ShopGoodsPanel } from './components/ShopGoodsPanel.vue'
 export { default as AddShopDialog } from './components/AddShopDialog.vue'
-export type { GoodsRow } from './contracts'
 export { default as ShopsListPanel } from './components/ShopsListPanel.vue'
 export { default as GoodsDetailDialog } from './components/GoodsDetailDialog.vue'
 export { default as GoodsEditDialog } from './components/GoodsEditDialog.vue'

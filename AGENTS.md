@@ -8,7 +8,7 @@ Windows本机构建环境：主目录曾因可执行文件继承Low完整性标�
 
 每次交付修改或更新均递增package.json版本号（常规修正递增patch），同步package-lock.json；同一批交付只递增一次。主工作台和配置中心左下角显示从package.json构建注入的实际版本，禁止单独硬编码界面版本。构建、安装包和发布tag使用同一版本；保留已发布附件，新版本另建tag。尚未重新启动的实例继续显示其原构建版本，不把源码版本冒充当前进程版本。版本说明见docs/VERSIONING.md。
 
-2026-11-14：原整合与窗口修正已合入main基线3e159e2。当前在隔离分支codex/remaining-platform-features-20261114补齐平台学习、原生接待操作、平台订单及充值/计费，再统一源码验收；设计与最新状态见docs/REMAINING_FEATURES.md、docs/HANDOFF.md。保留Git历史和许可，安装包公开发布、生产部署和真实买家发送仍按既有授权边界执行。
+2026-11-14 历史记录：原整合与窗口修正已合入 main 基线 3e159e2；当时在隔离分支 codex/remaining-platform-features-20261114 补齐平台学习、原生接待操作、平台订单及充值/计费，再统一源码验收。该分支描述仅为历史，不代表当前任务或交付状态；当前状态以 docs/HANDOFF.md 为准。设计与历史状态见 docs/REMAINING_FEATURES.md、docs/HANDOFF.md。保留 Git 历史和许可，安装包公开发布、生产部署和真实买家发送仍按既有授权边界执行。
 
 产品名称为“灵兔AI电商客服”，名称与数据兼容规则先读 docs/BRANDING.md。本机品牌改名已获用户授权，包含界面、图片、打包、后台和文档；主目录不移动，既有 userData、安装 appId、登录分区与 IPC 标识按兼容规则保留。本轮提交、推送与 main 合并按最新授权执行，公开发布仍未授权。
 

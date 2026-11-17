@@ -4,18 +4,17 @@ import { useKnowledgeIngestion } from './ingestion-controller'
 import { useKnowledgeCatalog } from './catalog-controller'
 import { useKnowledgeMaintenance } from './maintenance-controller'
 import { useKnowledgeProductLearning } from './product-learning-controller'
+import { useKnowledgeMiss } from './miss-controller'
+import { useKnowledgeProductFamily } from './product-family-controller'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { getDesktop } from '@/shared/platform/desktop'
 import { downloadText } from '@/shared/platform/files'
 import { knowledgeDraftSchema, knowledgeScopeSchema } from '@/shared/contracts/knowledge'
 import type {
-  CanonicalProduct,
   KnowledgeDraftInput,
   KnowledgeEntry,
   KnowledgeJob,
-  KnowledgeMiss,
-  KnowledgeMissStatus,
   KnowledgeProductCard,
   KnowledgeScope,
   KnowledgeSettings,
@@ -38,11 +37,7 @@ import { createKnowledgeClient } from './manager-service'
 
 /** Local manager state is independent from reception selection; async results retain account/store leases. */
 export function useKnowledgeManager() {
-  const recommendations = ref<{ canonical: CanonicalProduct; reasons: string[]; score: number }[]>(
-    [],
-  )
   const entryHistory = ref<{ version: KnowledgeVersion; reviewed: boolean }[]>([])
-  const deleteReview = ref<KnowledgeDetail>()
   const runtime = useRuntimeStore(),
     desktop = getDesktop()
   const workspace = ref(''),
@@ -60,9 +55,6 @@ export function useKnowledgeManager() {
     total = ref(0),
     summary = ref<KnowledgeSummary>(),
     jobs = ref<KnowledgeJob[]>([]),
-    misses = ref<KnowledgeMiss[]>([]),
-    missStatus = ref<KnowledgeMissStatus>('open'),
-    missUpdating = ref(''),
     settings = ref<KnowledgeSettings>()
   const capabilities = ref<KnowledgePipelineCapabilities>(),
     selection = ref<string[]>([]),
@@ -113,22 +105,7 @@ export function useKnowledgeManager() {
     trial = ref<KnowledgeTrial>(),
     trialSku = ref(''),
     sources = ref<KnowledgeSource[]>([])
-  const removing = ref(false),
-    sourceVersions = ref<KnowledgeSource[]>([])
-  const addingProduct = ref(false),
-    newTitle = ref(''),
-    newProductId = ref(''),
-    canonicalId = ref(''),
-    canonicals = ref<CanonicalProduct[]>([])
-  const mappingReview = ref<{
-    root: ProductBinding
-    bindings: ProductBinding[]
-    target: CanonicalProduct
-    shops: string[]
-  }>()
-  const metadataTitle = ref(''),
-    metadataCode = ref('')
-  const mappingCanonical = ref('')
+  const sourceVersions = ref<KnowledgeSource[]>([])
   const {
     catalog,
     catalogIds,
@@ -170,11 +147,57 @@ export function useKnowledgeManager() {
   const importPreview = ingestion.preview
   const stores = computed(() => runtime.snapshot.stores),
     currentStore = computed(() => stores.value.find((s) => s.id === storeId.value))
+  const {
+    recommendations,
+    deleteReview,
+    removing,
+    addingProduct,
+    newTitle,
+    newProductId,
+    canonicalId,
+    canonicals,
+    mappingReview,
+    metadataTitle,
+    metadataCode,
+    mappingCanonical,
+    loadCanonicals,
+    previewDeleteFamily,
+    confirmDeleteFamily,
+    saveProductMetadata,
+    createProduct,
+    removeBinding,
+    bindShared,
+    confirmShared,
+  } = useKnowledgeProductFamily({
+    client,
+    storeId,
+    detail,
+    detailBinding,
+    stores,
+    saveDraft,
+    closeEditor,
+    refresh,
+    notice,
+  })
   let leaseRevision = 0,
     editGeneration = 0,
     draftSession = 0,
     contextRevision = -1
   let activeRun: symbol | undefined
+  const { misses, missStatus, missUpdating, changeMissStatus, updateMissDisposition } =
+    useKnowledgeMiss({
+      client,
+      workspace,
+      storeId,
+      page,
+      total,
+      notice,
+      error,
+      refresh,
+      leaseRevision: () => leaseRevision,
+      isDisposed: () => disposed,
+      runtimeWorkspaceId: () => runtime.snapshot.workspaceId,
+    })
   const replacementWaiters = new Set<() => void>()
   const maintenance = useKnowledgeMaintenance({
     client,
@@ -608,51 +631,6 @@ export function useKnowledgeManager() {
     page.value = 0
     await refresh()
   }
-  async function changeMissStatus(next: KnowledgeMissStatus) {
-    if (next === missStatus.value) return
-    missStatus.value = next
-    missUpdating.value = ''
-    notice.value = ''
-    error.value = ''
-    // Status is part of the server query; never paginate an already-fetched open-page slice.
-    page.value = 0
-    await refresh()
-  }
-  async function updateMissDisposition(miss: KnowledgeMiss, status: KnowledgeMissStatus) {
-    if (missUpdating.value) return
-    const w = workspace.value,
-      s = storeId.value,
-      revision = leaseRevision,
-      sameLease = () =>
-        !disposed &&
-        workspace.value === w &&
-        storeId.value === s &&
-        leaseRevision === revision &&
-        runtime.snapshot.workspaceId === w
-    missUpdating.value = miss.id
-    notice.value = ''
-    error.value = ''
-    try {
-      await client().command({ type: 'update-miss', missId: miss.id, status })
-      if (!sameLease()) return
-      misses.value = misses.value.filter((row) => row.id !== miss.id)
-      total.value = Math.max(0, total.value - 1)
-      page.value = Math.min(page.value, Math.max(0, Math.ceil(total.value / 20) - 1))
-      await refresh()
-      if (!sameLease()) return
-      notice.value =
-        status === 'resolved'
-          ? '已标记为已解决，仅记录处理状态，不会生成或发布答案；补充答案请另存草稿并审核。'
-          : status === 'ignored'
-            ? '已忽略该待学问题，仅记录处理状态，不会生成或发布答案。'
-            : '已重新打开，问题回到待处理列表。'
-    } catch (cause) {
-      // A store/account switch during the write must not paint its old failure onto the new shop.
-      if (sameLease()) throw cause
-    } finally {
-      if (sameLease()) missUpdating.value = ''
-    }
-  }
   async function showView(next: typeof view.value) {
     await run(() => setView(next))
   }
@@ -739,85 +717,6 @@ export function useKnowledgeManager() {
     dirty.value = false
     saved.value = undefined
     autosave.value = '填写问题和答案后自动保存草稿'
-  }
-  async function loadCanonicals() {
-    const values: CanonicalProduct[] = []
-    for (let offset = 0; ; offset += 100) {
-      const result = await client().query({ type: 'canonicals', page: { offset, limit: 100 } })
-      values.push(...result.items)
-      if (offset + result.items.length >= result.total) break
-      if (!result.items.length) throw Error('共享商品分页不完整')
-    }
-    canonicals.value = values
-    if (detailBinding.value)
-      recommendations.value = await client().recommendations(detailBinding.value.id)
-  }
-  async function previewDeleteFamily() {
-    await saveDraft()
-    if (!detailBinding.value) return
-    deleteReview.value = await client().query({
-      type: 'detail',
-      canonicalId: detailBinding.value.canonicalId,
-    })
-    removing.value = false
-  }
-  async function confirmDeleteFamily() {
-    const value = deleteReview.value
-    if (!value?.canonical) return
-    await client().deleteFamily({
-      canonicalId: value.canonical.id,
-      expectedRevision: value.canonical.revision,
-      bindings: value.bindings.map((b) => ({ id: b.id, expectedRevision: b.revision })),
-    })
-    deleteReview.value = undefined
-    await closeEditor()
-    await refresh()
-    notice.value = '已从全部店铺移除此同款；审核与来源历史保留，可从备份恢复。'
-  }
-  async function saveProductMetadata() {
-    await saveDraft()
-    const canonical = detail.value?.canonical
-    if (!canonical) throw Error('共享商品不存在')
-    await client().command({
-      type: 'save-canonical',
-      canonical: {
-        id: canonical.id,
-        expectedRevision: canonical.revision,
-        title: metadataTitle.value,
-        code: metadataCode.value,
-      },
-    })
-    notice.value = '共享商品名称与编码已保存，平台商品身份保持不变'
-    if (detail.value)
-      detail.value = await client().query({ type: 'detail', canonicalId: canonical.id })
-    await refresh()
-  }
-  async function createProduct() {
-    if (!newTitle.value.trim() || !newProductId.value.trim())
-      throw Error('请填写商品名称和平台商品编号')
-    const service = client()
-    const canonical = canonicalId.value
-      ? canonicals.value.find((c) => c.id === canonicalId.value)
-      : ((await service.command({
-          type: 'save-canonical',
-          canonical: { title: newTitle.value, code: '' },
-        })) as CanonicalProduct)
-    if (!canonical) throw Error('共享商品不存在')
-    await service.command({
-      type: 'bind-product',
-      binding: {
-        canonicalId: canonical.id,
-        storeId: storeId.value,
-        productId: newProductId.value,
-        title: newTitle.value,
-        skuId: '',
-      },
-    })
-    addingProduct.value = false
-    newTitle.value = ''
-    newProductId.value = ''
-    canonicalId.value = ''
-    await refresh()
   }
   function setScope(value: string) {
     if (!draft.value) return
@@ -1033,45 +932,6 @@ export function useKnowledgeManager() {
       ? [...new Set([...selection.value, id])]
       : selection.value.filter((value) => value !== id)
     allScope.value = false
-  }
-  async function removeBinding(binding: ProductBinding) {
-    await client().command({
-      type: 'unlink',
-      bindingId: binding.id,
-      expectedRevision: binding.revision,
-    })
-    notice.value = '已解除当前店铺商品及其SKU关联，共享内容仍保留'
-    await closeEditor()
-    await refresh()
-  }
-  async function bindShared() {
-    await saveDraft()
-    const root = detailBinding.value,
-      target = canonicals.value.find((c) => c.id === mappingCanonical.value)
-    if (!root || root.skuId || !target) throw Error('请选择根商品与目标共享商品')
-    const family =
-      detail.value?.bindings.filter(
-        (b) => b.storeId === root.storeId && b.productId === root.productId,
-      ) || []
-    const targetDetail = await client().query({ type: 'detail', canonicalId: target.id })
-    const shops = [...new Set([root.storeId, ...targetDetail.bindings.map((b) => b.storeId)])].map(
-      (id) => stores.value.find((s) => s.id === id)?.storeName || id,
-    )
-    mappingReview.value = { root, bindings: family, target, shops }
-  }
-  async function confirmShared() {
-    const review = mappingReview.value
-    if (!review) throw Error('请先预览整体同款关联')
-    await client().reassociate({
-      rootBindingId: review.root.id,
-      canonicalId: review.target.id,
-      expectedCanonicalRevision: review.target.revision,
-      bindings: review.bindings.map((b) => ({ id: b.id, expectedRevision: b.revision })),
-    })
-    mappingReview.value = undefined
-    notice.value = '根商品及全部SKU已整体关联；本店覆盖、来源与动态值保留，旧待发送引用已失效'
-    await closeEditor()
-    await refresh()
   }
   async function doTrial() {
     const w = workspace.value,

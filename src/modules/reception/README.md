@@ -8,6 +8,8 @@
 
 当前业务状态：ShopOpsPanel 保留分店/全局人工处理关键词、正文附加文字欢迎、全局超时配置和每店识图设置；另接独立平台事件规则和逐项批准组件。转接人工与进店欢迎仅通过店铺设置向导的接待设置进入，删除未使用的 TransferSettings/WelcomeSettings 旧页面及演示数据；ShopOpsPanel 保留为向导内嵌配置。平台能力由真实 provider 的当前证据决定，不根据本机归档补造访客、订单或客服名单。
 
+2026-11-18 第二轮清理删除无消费者的 `demo/ShopOpsPanel.ts`；真实 ShopOpsPanel、接待草稿、逐项批准和平台能力边界不变。
+
 接入流程见根目录 docs/LOCAL_INTEGRATION.md。demo 是旧视图数据，不是 API DTO；新增能力在所属模块建立服务与类型，经过本地运行时契约，不直接访问 IPC、网络或文件系统。
 
 修改前阅读根目录 AGENTS.md 和 docs/CONSTRAINTS.md。修改后运行相关类型、构建、单元与桌面检查，并更新 docs/HANDOFF.md。

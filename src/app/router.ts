@@ -3,8 +3,9 @@ import type { RouteRecordRaw } from 'vue-router'
 import { PRODUCT_NAME } from '@/shared/brand'
 
 /**
- * 路由表按原始应用还原（hash 模式，便于 Electron file:// 直接加载）
- * 所有页面均可直接访问：本工程只还原 UI，不做登录态校验。
+ * 路由表按原始应用还原使用 hash 模式，便于 Electron file:// 直接加载。
+ * 页面路由本身不做登录守卫；真实能力由主进程的受信窗口、工作区租约、
+ * 业务命令白名单和平台适配器校验，未接通能力必须明确提示。
  */
 export const routes: RouteRecordRaw[] = [
   { path: '/store-sync', redirect: '/shop/manage?panel=shops' },

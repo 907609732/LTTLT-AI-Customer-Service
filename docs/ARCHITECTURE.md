@@ -48,7 +48,9 @@ E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独�
 
 `electron/local-runtime.ts` 与 workspace runtime 仍是组合根：统一创建顺序、账号/店铺租约、AI/发送审批、维护替换和 `RuntimeResourceDisposer` 关闭顺序；拆出的 assembly 只接收显式端口，不自行新建全局客户端或 IPC。
 
-知识库渲染侧仍由 `manager-controller.ts` 作为唯一协调者和编辑/审核生命周期所有者；目录采集在 `catalog-controller.ts`（翻页 identityVersion/scopeToken 一致、未知总数不全选、缩略图两次读取后复核），备份/恢复/清空在 `maintenance-controller.ts`（自持预览与 restoreLease；恢复/清空使用未套旧租约 guard 的 `createKnowledgeClient`，由 owner 应用新 context），商品学习/识图在 `product-learning-controller.ts`。`useKnowledgeManager()` 返回对象、页面交互与文案不变。待学反馈等与视图、分页和刷新强耦合的状态仍留在 manager，主控制器未按行数目标强行压缩。
+知识库渲染侧仍由 `manager-controller.ts` 作为唯一协调者和编辑/审核生命周期所有者；目录采集在 `catalog-controller.ts`（翻页 identityVersion/scopeToken 一致、未知总数不全选、缩略图两次读取后复核），备份/恢复/清空在 `maintenance-controller.ts`（自持预览与 restoreLease；恢复/清空使用未套旧租约 guard 的 `createKnowledgeClient`，由 owner 应用新 context），商品学习/识图在 `product-learning-controller.ts`。2026-11-18 第二轮又把商品家族维护（同款创建/元数据/删除预览/解绑/整体重关联）移到 `product-family-controller.ts`，待学问题状态与处理移到 `miss-controller.ts`；两者只接收 manager 的显式端口和 refs，租约、草稿保存/关闭、刷新、client 守卫和销毁仍由 manager 唯一持有。`useKnowledgeManager()` 返回对象 126 项及顺序、页面交互与文案不变。
+
+2026-11-18 第二轮清理已删除无消费者还原残留，逐项清单和删除依据收在维护计划与最终验收回执；本节只保留职责和依赖结论。仍被模板、活组件、demo、构建入口或测试引用的图标/demo、legacy CSS、preload/MCP 和主进程同步服务/共享契约均保留；前端 `sync` 目录已无源码，旧 `/store-sync` 兼容跳转不变。
 
 ## 目录与职责
 

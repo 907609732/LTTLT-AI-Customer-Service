@@ -32,6 +32,8 @@ client/
 
 server 内的 overlay、patches.json、upstream.lock.json、scripts、tests、来源和许可文件属于可维护源码，并继续适用其 AGPL/上游声明；不得把根 Apache-2.0 套用于该目录。`vendor/lingtu-runtime/` 是实际运行依赖，不能当作缓存删除；`vendor/xianyu-bridge/` 保存未改动字节的桥接脚本、来源哈希和本地 Apache-2.0 许可。客户端与服务端独立构建，桌面安装包不内嵌 Go 服务、管理员账户、server/runtime 或任何私有运行数据。
 
+2026-11-18 第二轮清理后，`src/modules/sync/` 不再有前端源码，只保留本目录说明；跨店同步的共享契约、`shared/platform/store-sync.ts` 平台客户端、preload/主进程固定 IPC 及本机服务/备份回滚仍在。其余清理职责与保留边界见 [ARCHITECTURE.md](ARCHITECTURE.md)，逐项清单见维护计划与最终验收回执。
+
 ## 生成文件与私有数据
 
 | 路径                           | 用途                               | 提交要求                               |

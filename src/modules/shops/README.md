@@ -1,6 +1,6 @@
 # shops 模块
 
-职责：店铺、商品、配置同步与商品编辑界面。
+职责：店铺、商品与配置中心界面。
 
 基础设置现为六步整页店铺信息助手：客服风格/物流与发货/接待设置/售后/摘要，由setup-store管理当前工作区草稿，setup-rules复用模型方案命令保存为本店专用规则，保留其他店铺/全局及原字数上限。关闭暂存本次未保存内容，保存后回读；具体范围及限制见docs/SHOP_SETUP_WIZARD.md。
 
@@ -8,7 +8,7 @@
 
 公开入口：index.ts。跨模块必须从该入口引用，禁止访问 components 或 demo 的内部路径。
 
-界面入口：ShopGoodsPanel、ShopsListPanel、GoodsDetailDialog、GoodsEditDialog、GoodsLearnDialog、ShopPicker、ShopHomePanel。`/shop/home` 仅为兼容跳转到 `/shop/manage?panel=home`，原 ShopHomeView 营销假数据组件及其独占样式已删除；GoodsListPanel、ShopDeskPanel、ShopSyncConfigDialog 三个未接线还原子组件也已删除（2026-11-17 维护清理）。
+界面入口：ShopGoodsPanel、ShopsListPanel、GoodsDetailDialog、GoodsEditDialog、GoodsLearnDialog、ShopPicker、ShopHomePanel。`/shop/home` 仅为兼容跳转到 `/shop/manage?panel=home`，原 ShopHomeView 营销假数据组件及其独占样式已删除；GoodsListPanel、ShopDeskPanel、ShopSyncConfigDialog 三个未接线还原子组件也已删除（2026-11-17 维护清理）。2026-11-18 第二轮又删除无消费者的 ShopHomePanel/ShopsListPanel demo 工厂，以及仅由自身导出的 `contracts.ts`/`GoodsRow`；组件入口和真实数据路径不变，跨店同步仍由主进程服务、共享契约和 IPC 保留。
 
 当前业务状态：ShopGoodsPanel、AddShopDialog 和 ShopHomePanel 已接本机店铺/商品知识与真实计数。旧 GoodsDetailDialog 等还原子组件仍只保留还原结构、未承担新的领域服务；真实 DTO 以共享 backend 契约为准。平台能力仍需实际店铺验收。
 
