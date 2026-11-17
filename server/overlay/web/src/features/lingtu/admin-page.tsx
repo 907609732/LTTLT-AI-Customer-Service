@@ -4,6 +4,7 @@ import { isAxiosError } from 'axios'
 import {
   BarChart3,
   Boxes,
+  BrainCircuit,
   Users,
   ListChecks,
   KeyRound,
@@ -35,6 +36,12 @@ import {
 } from '@/lib/format'
 
 import { AdminBilling } from './admin-billing'
+import {
+  AdminContextPolicy,
+  type ContextPolicySave,
+  type ContextPolicySaveConflict,
+  type ManagedContextPolicy,
+} from './admin-context-policy'
 import { CostRecordCell, type CostRecord } from './admin-cost-record'
 import {
   AdminModels,
@@ -70,6 +77,7 @@ interface LoginProvider {
 }
 interface Config {
   policy: Policy
+  context_policy?: ManagedContextPolicy
   login_providers: LoginProvider[]
   model_catalog?: ModelProvider[]
   model_connections?: ModelConnection[]
@@ -96,6 +104,15 @@ interface Account {
   expires_at: number
 }
 type Save = (payload: Payload) => Promise<boolean>
+// Context policy saves need the new revision and an explicit conflict shape.
+// Keep this local so the shared model-connection contract stays unchanged.
+type ContextPolicySuccess = SaveResult & {
+  context_policy?: ManagedContextPolicy
+}
+type AdminSaveResult =
+  | ContextPolicySuccess
+  | SaveFailure
+  | ContextPolicySaveConflict
 function modelName(model: string) {
   if (!model || model.startsWith('managed-')) return 'Unknown model'
   if (model === 'qwen3-vl-plus') return 'Qwen3-VL · Image understanding'
@@ -132,6 +149,7 @@ function auditSection(section: string) {
         deepseek: 'DeepSeek settings',
         qwen: 'Qwen settings',
         'qwen-vision': 'Qwen3-VL settings',
+        context_policy: 'Hosted context policy',
       } as Record<string, string>
     )[section] || 'Other settings'
   )
@@ -1316,17 +1334,23 @@ export function AdminPage() {
   }
   async function save(
     payload: Payload
-  ): Promise<SaveResult | SaveFailure | false> {
+  ): Promise<AdminSaveResult | false> {
     if (saving.current) return false
     saving.current = true
     setBusy(true)
     setMessage('')
     let submitted = false
-    function apply(result: SaveResult) {
+    function apply(result: ContextPolicySuccess) {
       const connections = result.model_connections
       if (connections) {
         queryClient.setQueryData<Config>(['lingtu', 'config'], (previous) =>
           previous ? { ...previous, model_connections: connections } : previous
+        )
+      }
+      const contextPolicy = result.context_policy
+      if (contextPolicy) {
+        queryClient.setQueryData<Config>(['lingtu', 'config'], (previous) =>
+          previous ? { ...previous, context_policy: contextPolicy } : previous
         )
       }
     }
@@ -1346,7 +1370,7 @@ export function AdminPage() {
       })
       if (!proof) return false
       submitted = true
-      const result = await api.post<SaveResult>(
+      const result = await api.post<ContextPolicySuccess>(
         '/api/lingtu/admin/config',
         body,
         {
@@ -1371,13 +1395,33 @@ export function AdminPage() {
     } catch (error) {
       const data = isAxiosError(error) ? error.response?.data : undefined
       if (
+        payload.section === 'context_policy' &&
+        isAxiosError(error) &&
+        error.response?.status === 409 &&
+        data?.error === 'revision_conflict' &&
+        typeof data.revision === 'number'
+      ) {
+        // Preserve a typed conflict result for the context editor. Do not
+        // auto-invalidate or show the generic unconfirmed-save message; the
+        // editor keeps its draft and offers an explicit refresh action.
+        setMessage(
+          'The hosted context policy changed elsewhere. Refresh to review the latest revision.'
+        )
+        return {
+          saved: false,
+          unconfirmed: false,
+          conflict: true,
+          revision: data.revision,
+        }
+      }
+      if (
         payload.section === 'model_connection' &&
         data?.saved === true &&
         data?.tested === false &&
         data?.connection_id > 0 &&
         Array.isArray(data.model_connections)
       ) {
-        const result = data as SaveResult
+        const result = data as ContextPolicySuccess
         apply(result)
         await queryClient.invalidateQueries({ queryKey: ['lingtu'] })
         setMessage(
@@ -1407,6 +1451,14 @@ export function AdminPage() {
     return !!result && result.saved
   }
   const modelSave: ModelSave = save
+  const contextPolicySave: ContextPolicySave = save
+  const refreshContextPolicy = async (): Promise<
+    ManagedContextPolicy | undefined
+  > => {
+    const result = await query.refetch()
+    if (!result.isError) setMessage('')
+    return result.isError ? undefined : result.data?.context_policy
+  }
   const languageControl = (
     <div
       role='group'
@@ -1452,6 +1504,7 @@ export function AdminPage() {
   const sections = [
     ['overview', 'Overview', BarChart3],
     ['models', 'Model configuration', Boxes],
+    ['context', 'Hosted model context', BrainCircuit],
     ['accounts', 'Account management', Users],
     ['usage', 'Usage records', ListChecks],
     ['login', 'Sign-in methods', KeyRound],
@@ -1541,6 +1594,16 @@ export function AdminPage() {
                   save={modelSave}
                   busy={busy}
                 />
+              </TabsContent>
+              <TabsContent value='context' keepMounted>
+                {visitedTabs.has('context') && (
+                  <AdminContextPolicy
+                    policy={config.context_policy}
+                    busy={busy}
+                    save={contextPolicySave}
+                    refresh={refreshContextPolicy}
+                  />
+                )}
               </TabsContent>
               <TabsContent value='accounts' keepMounted>
                 {visitedTabs.has('accounts') && (
