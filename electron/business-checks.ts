@@ -702,6 +702,11 @@ export async function businessChecks(options: {
         )
         log('reuse-source-clicked')
         await wait(`Boolean(document.querySelector('[data-reuse-source-name]'))`)
+        fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/shop-setup-reuse-dialog.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
         assert.equal(
           await win.webContents.executeJavaScript(
             `document.querySelector('.reuse-dialog').innerText.includes('平台不同')`,
@@ -763,13 +768,54 @@ export async function businessChecks(options: {
         )
         await wait(`Boolean(document.querySelector('[data-save]'))`)
         log('target-save-click')
+        const previousWelcome = (await snapshot()).welcomeByStore[target]!
+        await execute({
+          action: 'save-welcome',
+          storeId: target,
+          values: { ...previousWelcome, text: '其他入口更新的欢迎语' },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 200))
         await win.webContents.executeJavaScript(`document.querySelector('[data-save]').click()`)
+        await wait(`Boolean(document.querySelector('[data-reuse-refresh-baseline]'))`)
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[data-reuse-refresh-baseline]').click()`,
+        )
+        await wait(`Boolean(document.querySelector('.el-message-box'))`)
+        await new Promise((resolve) => setTimeout(resolve, 250))
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/shop-setup-reuse-conflict.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+        console.log(
+          'confirmation-layer',
+          await win.webContents.executeJavaScript(
+            `(() => {const dialog=document.querySelector('.el-message-box');const r=dialog.getBoundingClientRect();return JSON.stringify({rect:r.toJSON(),overlay:document.querySelector('.el-overlay-message-box')?.parentElement?.outerHTML.slice(0,240),hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,240)})})()`,
+          ),
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `(() => {const dialog=document.querySelector('.el-message-box');const r=dialog.getBoundingClientRect();return Boolean(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('.el-message-box'))})()`,
+          ),
+          true,
+          '冲突确认框必须显示在店铺向导上方并可点击',
+        )
+        const cancel = `document.querySelector('.el-message-box__btns button').click()`
+        await win.webContents.executeJavaScript(cancel)
+        await wait(`!document.querySelector('.el-message-box')`)
+        assert.equal((await snapshot()).welcomeByStore[target]?.text, '其他入口更新的欢迎语')
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[data-reuse-refresh-baseline]').click()`,
+        )
+        await wait(`Boolean(document.querySelector('.el-message-box'))`)
+        await win.webContents.executeJavaScript(
+          `Array.from(document.querySelectorAll('.el-message-box__btns button')).at(-1).click()`,
+        )
         await wait(`document.body.innerText.includes('设置完成')`)
 
         const after = await snapshot()
         assert.equal(after.welcomeByStore[target]?.text, '复用后欢迎语')
         assert.equal(after.welcomeByStore[target]?.enabled, true)
-        assert.equal(after.welcomeByStore[target]?.version, 2)
+        assert.equal(after.welcomeByStore[target]?.version, 3)
         assert.equal(after.handoffByStore[target], undefined)
         assert.deepEqual(after.welcomeByStore[source], sourceBefore.welcomeByStore[source])
         assert.deepEqual(after.handoffByStore[source], sourceBefore.handoffByStore[source])

@@ -47,6 +47,7 @@ async function retryReuseSave() {
       confirmButtonText: '确认覆盖并重试',
       cancelButtonText: '取消',
       type: 'warning',
+      customClass: 'shop-setup-conflict-box',
     })
   } catch {
     return
@@ -948,6 +949,10 @@ const afterSales = [
   </div>
 </template>
 <style scoped>
+:global(.el-overlay:has(.shop-setup-conflict-box)) {
+  /* Element Plus 2.8.8 为遮罩分配内联层级；仅此确认框需高于固定店铺助手。 */
+  z-index: 4000 !important;
+}
 .shop-setup-page {
   position: fixed;
   inset: 72px 0 0 300px;
