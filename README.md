@@ -12,11 +12,14 @@
 [![Windows build](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml/badge.svg?branch=main)](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml)
 ![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)
 ![Electron](https://img.shields.io/badge/Electron-43-47848f)
-[![License](https://img.shields.io/badge/License-AGPL--3.0--only-blue)](LICENSE)
+[![License: Apache-2.0 (owner code)](<https://img.shields.io/badge/License-Apache--2.0%20(owner%20code)-blue>)](LICENSE)
+![License: mixed](https://img.shields.io/badge/License-Mixed-lightgrey)
 
 **[下载 Windows 安装包](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/LingtuAI-Setup-1.0.37-win-x64.exe)** · [下载 ZIP 便携版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/LingtuAI-1.0.37-win-x64.zip) · [v1.0.37 发布页](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.37) · [问题反馈](https://github.com/907609732/LTTLT-AI-Customer-Service/issues)
 
 </div>
+
+> [!IMPORTANT] > **许可范围：本仓库是混合许可项目，不是整体 Apache-2.0。** 根 [LICENSE](LICENSE) 的 Apache-2.0 仅覆盖 [许可范围矩阵](docs/legal/LICENSE_SCOPE.md) 列明、由权利人拥有且有权重新许可的原创代码和文档。`server/` 的 New API 派生部分适用 [AGPL-3.0-or-later](https://github.com/QuantumNous/new-api)，`vendor/lingtu-runtime/` 适用 [AGPL-3.0-only](vendor/lingtu-runtime/LICENSE)（[上游来源 PR #18](https://github.com/907609732/LTTLT-AI-Customer-Service/pull/18)）；第三方依赖、字体、图片、平台商标、历史还原素材和权属未确认的外部贡献不纳入 Apache-2.0。含 AGPL 组件的组合程序仍须按相应许可证履行源码等义务；对应源码与修改记录见[本仓库](https://github.com/907609732/LTTLT-AI-Customer-Service)。本项目不声称整个应用已可闭源交付或已完成普遍合规认证。
 
 ---
 
@@ -95,8 +98,10 @@ npm.cmd start
 
 ## 许可与第三方来源
 
-项目原创代码采用 [AGPL-3.0-only](LICENSE)。适用范围及单独商业授权说明见 [LICENSING.md](docs/legal/LICENSING.md)；AGPL 已授予的权利不因商用或再分发而被额外限制。
+根 [LICENSE](LICENSE) 是未经改写的 Apache License 2.0，但只适用于 [LICENSE_SCOPE.md](docs/legal/LICENSE_SCOPE.md) 明确列出的、由项目权利人拥有且有权重新许可的原创代码和文档。Apache-2.0 已授予的商业使用、修改、分发和闭源集成权利无需另行购买；企业部署、OEM/品牌和服务等级等额外合作见 [COMMERCIAL_LICENSE.md](docs/legal/COMMERCIAL_LICENSE.md)，该文件不是软件许可，也不限制 Apache 权利。
 
-第三方依赖、平台名称与图标、引用素材遵循各自的许可证或权利声明；闲鱼桥接脚本的来源与本地补丁见 [THIRD_PARTY_NOTICES.md](docs/legal/THIRD_PARTY_NOTICES.md)。本项目的软件许可不改变这些权利，也不表示获得相关平台的官方认可。
+`server/` 的 New API 派生代码适用 [AGPL-3.0-or-later](https://github.com/QuantumNous/new-api)，`vendor/lingtu-runtime/` 适用 [AGPL-3.0-only](vendor/lingtu-runtime/LICENSE)（[PR #18](https://github.com/907609732/LTTLT-AI-Customer-Service/pull/18)），其来源、修改记录和许可文本保持原样。第三方依赖、字体、平台名称与图标、测试夹具、图片和引用素材遵循各自的许可证或权利声明。本次许可证变更不撤回此前版本中依 AGPL 或其他有效许可证已经授予的权利。业务数据与源码分离、私有目录不发布，并不免除 AGPL 等许可证要求的对应源码或安装材料义务。
+
+完整边界见 [LICENSING.md](docs/legal/LICENSING.md)、[LICENSE_SCOPE.md](docs/legal/LICENSE_SCOPE.md) 和 [THIRD_PARTY_NOTICES.md](docs/legal/THIRD_PARTY_NOTICES.md)；闲鱼桥接脚本的来源、哈希与本维护副本的 Apache-2.0 许可见 [vendor/xianyu-bridge/PROVENANCE.md](vendor/xianyu-bridge/PROVENANCE.md)。本仓库的软件许可不改变第三方权利，也不表示获得相关平台的官方认可。
 
 BY 五成
