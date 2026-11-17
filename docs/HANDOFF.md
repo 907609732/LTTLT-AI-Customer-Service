@@ -623,3 +623,9 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 合并复验：18个直接相关Vitest文件158项通过；清空输入与统一保存的后续定向2文件6项通过，另有异步最终复核/最终发送guard两项先红后绿。Typecheck、lint、format:check、check:vendor通过；本轮没有真实买家发送、生产部署或新版Release发布。原生及本机运行验收记录随后补充。
 
 整合原生复验：business:shop-setup-reuse 与 business:welcome-timing-settings 2/2通过（退出0，artifacts/desktop-selected-1794927165859）。最终1.0.53构建通过；未安装或改写现有安装目录。
+
+1.0.53 本机运行验收：主目录构建、合入与推送完成（aee8da7）。已在原 yunduo-ui-restored/local-runtime 下备份欢迎/店铺/配置后重启；原实例最小化且窗口输入工具不可用，精确核对本项目进程路径后仅重启本项目。Node REPL 连接失效，使用可用的原生 CUA 入口读取并展开新版；实际版本v1.0.53、Root User、两家店铺仍在。进入米配匠进店欢迎卡片目视确认标题右侧开关、1～3秒范围、单一保存按钮、无普通载入及旧说明，范围在1440宽窗口成组且未溢出；未修改文字、开关或时间，重启前后保存的欢迎文字/启用状态一致，没有真实发送。
+
+云端 Actions 44108136749 全部成功：完整check、原生桌面、知识库/学习、EXE/ZIP与打包程序启动检查通过。新版未发布Release，安装目录未替换。
+
+本机产物验收完成：EXE、ZIP、RELEASE-MANIFEST的SHA256与云端清单一致，保存在E:/codex-builds/lingtu-cloud-1.0.53-44108136749。下载出现网络停顿，复用本机既有代理与curl重试；已存在的同源产物未覆盖，直接进行完整哈希核对。便携包在独立临时资料目录执行现有test:packaged，退出0且status=passed，包含ASAR运行时/许可/私有文件排除、真实窗口/preload/IPC、实际版本及文档解析检查。用户日常安装目录未改，当前源码版已打开欢迎设置卡片。
