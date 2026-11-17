@@ -382,12 +382,70 @@
     {
       "before": "placeholder={t('Enter password (8–128 characters)')}",
       "after": "placeholder={t('Enter password (15–128 characters)')}"
+    },
+    {
+      "before": "import { useStatus } from '@/hooks/use-status'\nimport { handleServerError } from '@/lib/handle-server-error'",
+      "after": "import type { AuthFormProps } from '@/features/auth/types'\nimport { useStatus } from '@/hooks/use-status'\nimport { handleServerError } from '@/lib/handle-server-error'"
+    },
+    {
+      "before": "export function SignUpForm({\n  className,\n  ...props\n}: React.HTMLAttributes<HTMLFormElement>) {",
+      "after": "export function SignUpForm({\n  className,\n  redirectTo,\n  ...props\n}: AuthFormProps) {"
+    },
+    {
+      "before": "        redirectToLogin()",
+      "after": "        redirectToLogin(redirectTo)"
+    },
+    {
+      "before": "if (await handleLoginResult(res.data)) {",
+      "after": "if (await handleLoginResult(res.data, redirectTo)) {"
+    },
+    {
+      "before": "          <OAuthProviders\n            status={status}\n            disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}",
+      "after": "          <OAuthProviders\n            status={status}\n            redirectTo={redirectTo}\n            disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}"
     }
   ],
   "web/src/features/auth/sign-in/index.tsx": [
     {
       "before": "          {!status?.self_use_mode_enabled &&\n            status?.register_enabled !== false && (",
       "after": "          {redirect === '/lingtu/admin' && (\n            <p className='text-muted-foreground text-left text-sm sm:text-base'>\n              {t('Sign in with the administrator username and password created during setup. No new registration or email verification is required.')}\n            </p>\n          )}\n          {redirect !== '/lingtu/admin' && !status?.self_use_mode_enabled &&\n            status?.register_enabled !== false && ("
+    },
+    {
+      "before": "                  to='/sign-up'\n                  className='hover:text-primary font-medium underline underline-offset-4'",
+      "after": "                  to='/sign-up'\n                  search={{ redirect }}\n                  className='hover:text-primary font-medium underline underline-offset-4'"
+    }
+  ],
+  "web/src/features/auth/sign-up/index.tsx": [
+    {
+      "before": "import { Link } from '@tanstack/react-router'",
+      "after": "import { Link, useSearch } from '@tanstack/react-router'"
+    },
+    {
+      "before": "  const { status } = useStatus()",
+      "after": "  const { status } = useStatus()\n  const { redirect } = useSearch({ from: '/(auth)/sign-up' })"
+    },
+    {
+      "before": "            <Link\n              to='/sign-in'\n              className='hover:text-primary font-medium underline underline-offset-4'",
+      "after": "            <Link\n              to='/sign-in'\n              search={{ redirect }}\n              className='hover:text-primary font-medium underline underline-offset-4'"
+    },
+    {
+      "before": "        <SignUpForm />",
+      "after": "        <SignUpForm redirectTo={redirect} />"
+    }
+  ],
+  "web/src/routes/(auth)/sign-up.tsx": [
+    {
+      "before": "import { createFileRoute, redirect } from '@tanstack/react-router'",
+      "after": "import { createFileRoute, redirect } from '@tanstack/react-router'\nimport { z } from 'zod'\n\nimport { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'"
+    },
+    {
+      "before": "export const Route = createFileRoute('/(auth)/sign-up')({\n  component: SignUp,\n  beforeLoad: async () => {\n    const { auth } = useAuthStore.getState()\n\n    // 如果已经有用户信息，说明已登录，注册页对其无意义，跳转到 dashboard\n    if (auth.user) {\n      throw redirect({ to: '/dashboard' })\n    }\n  },\n})",
+      "after": "const searchSchema = z.object({\n  redirect: z.string().optional(),\n})\n\nexport const Route = createFileRoute('/(auth)/sign-up')({\n  component: SignUp,\n  validateSearch: searchSchema,\n  beforeLoad: async ({ search }) => {\n    const { auth } = useAuthStore.getState()\n\n    // 已登录用户打开注册页时仍需回到原本要去的页面（例如设备授权），\n    // 但只允许经校验的同源路径，避免外部重定向。\n    if (auth.user) {\n      const target =\n        sanitizeAuthRedirect(search?.redirect, window.location.origin) ??\n        '/dashboard'\n      throw redirect({ href: target, replace: true })\n    }\n  },\n})"
+    }
+  ],
+  "web/src/features/auth/hooks/use-auth-redirect.ts": [
+    {
+      "before": "  const redirectToLogin = useCallback(() => {\n    void navigate({ to: '/sign-in', replace: true })\n  }, [navigate])",
+      "after": "  const redirectToLogin = useCallback(\n    (redirectTo?: string) => {\n      const redirect =\n        sanitizeAuthRedirect(redirectTo, window.location.origin) ?? undefined\n      void navigate({ to: '/sign-in', search: { redirect }, replace: true })\n    },\n    [navigate]\n  )"
     }
   ],
   "middleware/rate-limit.go": [

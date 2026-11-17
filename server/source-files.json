@@ -395,7 +395,7 @@
     {
       "path": "overlay/web/src/features/lingtu/admin-login-hint.test.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-login-hint.test.tsx",
-      "sha256": "6683fdec123e026dc0fa08b3143b34650d99bc3256416b84bd8a696e14edea51"
+      "sha256": "ac1ddfd82a3528916b03ccfb9e9ff9f9cca8f852211f5212e6a1ce287770265f"
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-models.tsx",
@@ -475,7 +475,7 @@
     {
       "path": "patches.json",
       "upstreamPath": "managed-server/patches.json",
-      "sha256": "9c6e2f98527b21cbb2a3fcf0bfa4ab94e0b6940d1df00c882730604814c4f7c8",
+      "sha256": "2cce598645bdcf4d5f27fc81cb0a0f12c5426c3bccf3788a5e5483477a56c6ab",
       "upstreamSha256": "edbf75acd4311588cf91b84e0377f76cd879d8c5c7a84a35ef88117d3b8120e8",
       "localPatch": "Explicit local HTTP uses same-origin loopback guard; remote HTTPS CORS unchanged.; Rename native page title and default display system name to 灵兔 AI, retaining source license and protocol.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
