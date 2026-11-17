@@ -294,9 +294,9 @@
     {
       "path": "overlay/lingtuhost/routes.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/routes.go",
-      "sha256": "dd7240b42f7509c78c97edfa5cf548a4c7579398e49c9afb946e033411236dc9",
+      "sha256": "b83c3555b0359c5196ea05bcbdc46342aa141e4c1fd5405323963587a3ad9727",
       "upstreamSha256": "06864f9097cc5e2c7010927b6f5ba3d3bba95e0099ff771abbaaebc73932d5c4",
-      "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors. Reuse bounded client body middleware; only exact POST /api/client/chat/completions permits 16MiB image envelopes, all other client routes retain 1MiB. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement."
+      "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors. Reuse bounded client body middleware; only exact POST /api/client/chat/completions permits 16MiB image envelopes, all other client routes retain 1MiB. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement. Add the managed context policy safe projection to the existing authenticated GET /api/client/config: keep default_model/models/max_tokens semantics, add top-level policy_version plus runtime_context/learning from ClientProjection only, use DefaultContextPolicy when no row exists, and fail closed with 503 on an unreadable setting."
     },
     {
       "path": "overlay/lingtuhost/vision.go",
