@@ -1,83 +1,86 @@
 <div align="center">
 
+<img src="src/assets/lingtu-ai-icon.png" width="88" alt="灵兔AI电商客服" />
+
 # 灵兔AI电商客服
 
 **让店铺知识融入每一次回复，让客服接待更有条理。**
 
 面向电商客服的 Windows 桌面工作台，集中管理店铺、商品知识、AI 回复与接待记录。
 
+[![Release v1.0.37](https://img.shields.io/badge/Release-v1.0.37-0071e3)](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.37)
 [![Windows build](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml/badge.svg?branch=main)](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml)
 ![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)
-![Vue 3](https://img.shields.io/badge/Vue-3-42b883)
 ![Electron](https://img.shields.io/badge/Electron-43-47848f)
 [![License](https://img.shields.io/badge/License-AGPL--3.0--only-blue)](LICENSE)
 
-**[构建与下载](docs/PACKAGING.md)** · [快速开始](#快速使用) · [开发文档](docs/DEVELOPMENT.md) · [问题反馈](https://github.com/907609732/LTTLT-AI-Customer-Service/issues)
+**[下载 Windows 安装包](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/LingtuAI-Setup-1.0.37-win-x64.exe)** · [下载 ZIP 便携版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/LingtuAI-1.0.37-win-x64.zip) · [v1.0.37 发布页](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.37) · [问题反馈](https://github.com/907609732/LTTLT-AI-Customer-Service/issues)
 
 </div>
 
 ---
 
-|     管理店铺     |         整理知识         |         辅助接待         |
-| :--------------: | :----------------------: | :----------------------: |
-| 选择店铺与工作区 | 维护商品、意图与回复规则 | 生成候选回复，确认后发送 |
+|         管理店铺         |         整理知识         |         辅助接待         |
+| :----------------------: | :----------------------: | :----------------------: |
+| 登录平台，配置模型与店铺 | 维护商品、意图与回复规则 | 生成候选回复，确认后发送 |
 
-[主要功能](#主要功能) · [接入与当前状态](#接入与当前状态) · [快速使用](#快速使用) · [数据说明](#数据与网络连接) · [源码运行](#从源码运行)
+[主要功能](#主要功能) · [平台接入](#平台与接入方式) · [快速使用](#快速使用) · [数据说明](#数据与网络连接) · [源码运行](#从源码运行)
 
-## 构建与下载
+## 下载安装
 
-当前已发布 **[灵兔AI电商客服 v1.0.1](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.1)**，包含商品知识库重构。Windows x64 可直接下载 [安装程序](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.1/LingtuAI-Setup-1.0.1-win-x64.exe) 或 [ZIP 版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.1/LingtuAI-1.0.1-win-x64.zip)，校验文件和更新说明在同一发布页。
+当前公开版本：**v1.0.37**。Windows x64 可直接下载[安装程序](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/LingtuAI-Setup-1.0.37-win-x64.exe)或 [ZIP 便携版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/LingtuAI-1.0.37-win-x64.zip)，并使用同一发布页的 [SHA256SUMS.txt](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.37/SHA256SUMS.txt) 校验。
 
-安装包无代码签名，需要手动下载安装。当前版本的[构建与成品验收记录](docs/RELEASE_V1.0.1.md)包含确切源码提交、全量检查结果和校验值。后续开发版仍可从 [GitHub Actions](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml) 的 Artifacts 下载，通常保留30天；GitHub 的 Source code ZIP 是源码，不是安装包。
+安装包未做代码签名，需要手动下载安装。当前 `main` 源码为 **1.0.39**，新增闲鱼接入、共用本机工作区和 1.0.38 起的知识库工具栏分组；尚未发布新的公开安装包。下载请使用上方明确的 v1.0.37 地址，源码运行请按 `main` 说明。GitHub 的 Source code ZIP 是源码，不是安装包。
+
+发布范围、确切源码和验证边界见 [v1.0.37 发布验收](docs/RELEASE_V1.0.37.md)。
 
 ## 主要功能
 
-| 能力              | 你可以做什么                                                                      |
-| ----------------- | --------------------------------------------------------------------------------- |
-| 🏪 店铺管理       | 管理店铺、分组与平台窗口；紧凑侧栏、右键基础设置引导与店铺后台入口，独立控制 AI。 |
-| 📚 商品与意图知识 | 采集平台商品详情与 SKU，读取平台商家编码和条形码来源；维护问答及按规格检索知识。  |
-| ⚙️ 模型与回复规则 | 配置自己的模型 Key 和兼容接口，测试连接，按店铺绑定规则；也可显式选择托管服务。   |
-| 💬 辅助回复       | 结合店铺知识生成候选回复，逐条确认后发送；查看会话、保存草稿与人工接管。          |
-| 🖼️ 图片识别       | 使用当前配置的多模态模型，按店铺开启识图并在训练场验证。                          |
-| 🧩 运营辅助       | 使用快捷回复、跨店同步与回滚、持久化定时任务及本机事件日报。                      |
-| 📋 工单与质检     | 登记本机工单、记录跟进状态，审核纠错知识。                                        |
-| 🧪 模拟演练       | 在本机模拟店铺和顾客页中验证消息、模型请求与发送确认流程。                        |
+以下按维护中的 `main` 1.0.39 说明；v1.0.37 安装包不包含闲鱼接入、共用本机工作区和 1.0.38 起的工具栏分组。
 
-以上为当前已接线的能力概览，实际接入范围、验证结果和缺口见[当前状态](docs/HANDOFF.md)及[整合记录](docs/parallel/INTEGRATION.md)。
+| 能力              | 你可以做什么                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| 🏪 店铺与平台     | 添加、分组和打开店铺，单独开关各店 AI；通过基础设置引导完成平台登录、资料配置和接待试答。   |
+| 📚 商品与意图知识 | 采集拼多多平台商品详情与 SKU，读取平台商家编码和条形码来源；维护问答及按规格检索知识。      |
+| 🧠 学习与审核     | 商品卡片显示内联学习进度；学习、人工审核和启用相互独立。知识库工具栏自 1.0.38 起分组展开。  |
+| ⚙️ 模型与回复规则 | 配置自己的模型 Key 和兼容接口，测试连接，按店铺绑定规则；也可显式选择托管服务。             |
+| 💬 AI 辅助回复    | 结合店铺知识生成候选；默认审核发送，可按店显式选择自动发送。启用 AI 不等于批准单条回复。    |
+| 🪵 回复监控与日志 | 查看待确认与发送状态；详细日志支持清除、置顶/取消置顶和原生拖动，清除保留待确认及活动请求。 |
+| 🧩 运营与演练     | 使用内置快捷话术、本机数据看板、工单与质检，以及本机模拟店铺和顾客页演练。                  |
 
-## 接入与当前状态
+一位买家的回复等待审核时，其他买家仍可继续定位和生成；同一买家保持独占，确认门和消息复核规则不变。
 
-| 入口或能力     | 当前说明                                                                       |
-| -------------- | ------------------------------------------------------------------------------ |
-| Windows 桌面端 | 主要运行入口，连接本机业务服务与平台适配器。                                   |
-| 浏览器预览     | 用于界面预览，不具备完整桌面接待能力。                                         |
-| 拼多多辅助中心 | 已有平台接入与部分实店只读核对；非空售后及多页工单仍待样本验收。               |
-| 自带模型 Key   | 默认模式，需自行配置模型接口和凭证。                                           |
-| 托管服务       | 可显式选择；团队与计费已有接线，大陆计费服务已升级；真实商户收款仍待配置验收。 |
+## 平台与接入方式
 
-平台商品/历史聊天学习、访客来源、媒体欢迎、催付、客服转接及订单采集已接线。拼多多商品详情、历史聊天和指定日期订单已进行实店只读核对；真实欢迎、发送、转接、催付及支付仍待业务样本验收。订单来源缺少的退款/时间字段保持未知，不将实收合计视为净营收。侧栏“导入知识”和“店铺设置”目前仅预留入口；现有商品页 CSV 导入仍可使用。详细范围及限制以[当前状态](docs/HANDOFF.md)为准。
+| 平台         | 当前接入                                                                                                                 |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| 拼多多       | 平台商品、历史会话和指定日期订单已做部分实店只读核对；商品详情、聊天学习和订单采集已接线。                               |
+| 闲鱼网页版   | `main` 1.0.39 新增。只采样当前打开/待回复会话，不监听未打开会话、不采集商品、不发送视频；文字/图片发送仍待真实买家验收。 |
+| 本机模拟店铺 | 在本机模拟店铺、客服台和顾客页验证消息、模型请求与发送确认流程，不连接真实平台，也不代表平台已送达。                     |
+
+拼多多的真实欢迎、发送、转接、催付及支付仍待业务样本验收；订单来源缺少的退款或时间字段保持未知，不将实收合计视为净营收。闲鱼和共用本机工作区是 `main` 1.0.39 的源码增量，尚未进入 v1.0.37 安装包。侧栏“导入知识”会打开知识库，“店铺设置”仍是未接入提示。
 
 ## 快速使用
 
-1. 按[构建与下载](#构建与下载)取得桌面产物，或按下文从源码启动。
-2. 在模型设置中配置服务商、接口与模型 Key，测试连接；使用托管模式时先配置相应服务账号。
-3. 添加店铺，按自动弹出的基础设置引导完成平台登录、知识配置及接待试答；也可右键店铺重新打开引导。
-4. 整理商品、意图知识与回复规则，先通过训练场或本机模拟店铺检查效果。
-5. 开启对应店铺 AI，核对生成的候选回复，逐条确认后发送。
+1. 按[下载安装](#下载安装)取得 v1.0.37，或按[从源码运行](#从源码运行)启动当前 `main`。
+2. 通过顶部“登录”入口选择本机 Key 或托管账号，并在配置中心完成模型接口、凭证与回复规则配置；保存前先测试连接。
+3. 添加店铺，按自动弹出的基础设置引导完成平台登录、资料配置和接待试答；也可右键店铺重新打开引导。
+4. 在知识库导入或维护商品与问答资料，完成学习后显式审核、启用；需要演练时使用训练场或本机模拟店铺。
+5. 确认平台登录身份后再开启对应店铺 AI，核对候选并按店铺模式处理。训练场和模拟演练不会触发真实买家发送。
 
-每次启动时 AI 默认关闭。启用 AI 不等于批准发送；发送结果不确定时，应先核对平台会话。
+店铺 AI 的显式开启选择会被记住；正常启动或登录后，只有当前平台店铺与客服身份重新核验一致才会恢复。没有有效记录或记录损坏时保持关闭，旧候选、旧批准和待发送任务不会恢复。
 
 ## 数据与网络连接
 
-默认桌面数据保存在 `%APPDATA%/yunduo-ui-restored/local-runtime`，保留旧目录以兼容已有资料与登录状态。托管模式按服务来源和已验证账号隔离工作区，详见[本地接入](docs/LOCAL_INTEGRATION.md)与[托管服务](docs/MANAGED_SERVICE.md)。
+当前 `main` 1.0.39 把本机模式与所有托管账号统一到同一个本机 `local-runtime` 业务目录和 `yunduo-local` 平台分区。旧 `managed-workspaces/` 目录保留在磁盘上，但不再读取或自动合并，没有自动迁移；同一台机器上的不同托管账号会看到同一份本机店铺、会话、知识、工单和平台登录态。
 
-模型 Key 由 Electron 主进程通过系统加密保存。生成回复和图片识别时，相关上下文会发送至所选模型服务；平台接入需要连接对应电商平台，托管模式还会连接配置的托管后端。
+模型 Key 由 Electron 主进程通过系统加密保存。生成回复和图片识别时，相关上下文会发送至所选模型服务；平台接入需要连接对应电商平台，托管模式还会连接配置的托管后端。日志只保留本次运行的有界内存记录，不记录 HTTP 头、API Key 或服务商完整错误响应。
 
-提交问题时请附复现步骤及脱敏日志，不要上传模型 Key、令牌、Cookie、买家资料或本机业务数据目录。日志和逐条发送确认机制见[运行日志说明](docs/RUNTIME_LOGS.md)。
+提交问题时请附版本、平台、复现步骤及脱敏日志，不要上传模型 Key、令牌、Cookie、买家资料或本机业务数据目录。日志和逐条发送确认机制见[运行日志说明](docs/RUNTIME_LOGS.md)。
 
 ## 从源码运行
 
-技术栈：Vue 3、TypeScript、Electron、Vite、Pinia、Element Plus。以下命令在 Windows PowerShell 中执行，先安装 Git、Node.js 24 及 npm。
+技术栈：Vue 3、TypeScript、Electron、Vite、Pinia、Element Plus。以下命令在 Windows PowerShell 中执行，建议使用 Node.js 24 与 npm，并先安装 Git。
 
 ```powershell
 git clone https://github.com/907609732/LTTLT-AI-Customer-Service.git
@@ -86,31 +89,14 @@ npm.cmd ci
 npm.cmd start
 ```
 
-已取得源码时，进入包含 `package.json` 的仓库根目录执行命令。首次安装或锁文件变化后运行 `npm.cmd ci`；依赖就绪时直接启动。
+开发模式使用 `npm.cmd run electron:dev`；浏览器预览使用 `npm.cmd run dev`。日常修改只验证直接影响的流程，Release 打包时执行全量检查和成品验收。
 
-| 命令                       | 用途                           |
-| -------------------------- | ------------------------------ |
-| `npm.cmd start`            | 构建并启动桌面应用             |
-| `npm.cmd run electron:dev` | 启动 Vite 与 Electron 开发模式 |
-| `npm.cmd run dev`          | 启动浏览器预览                 |
-| `npm.cmd run build`        | 构建网页与桌面源码             |
-
-日常修改仅验证直接影响的流程；Release 打包时执行全量检查和成品验收，具体规则见 [AGENTS.md](AGENTS.md)。独立服务端位于 `server/`，环境和启动方法见[服务端说明](server/README.md)。
-
-## 开发文档
-
-| 文档                                                                     | 用途                                   |
-| ------------------------------------------------------------------------ | -------------------------------------- |
-| [当前状态](docs/HANDOFF.md)                                              | 当前基线、验证证据、功能缺口及后续验收 |
-| [开发规则](AGENTS.md)                                                    | 修改边界与验证要求                     |
-| [目录说明](docs/PROJECT_LAYOUT.md)                                       | 源码、生成文件与私有数据边界           |
-| [项目约束](docs/CONSTRAINTS.md) / [架构](docs/ARCHITECTURE.md)           | 模块依赖、接口与数据流                 |
-| [开发说明](docs/DEVELOPMENT.md) / [本地运维](docs/OPERATIONS.md)         | 功能接入、运行环境与故障排查           |
-| [打包说明](docs/PACKAGING.md) / [云端构建](.github/README.md)            | Actions 产物、校验与成品验收           |
-| [辅助中心](docs/ASSIST_CENTER.md) / [辅助浏览器](docs/ASSIST_BROWSER.md) | 平台窗口与辅助业务接入                 |
+更多说明见 [当前状态](docs/HANDOFF.md)、[版本说明](docs/VERSIONING.md)、[架构](docs/ARCHITECTURE.md)、[AI 状态恢复](docs/AI_STATE_RESTORE.md)、[本地接入](docs/LOCAL_INTEGRATION.md)、[托管服务](docs/MANAGED_SERVICE.md)和[云端构建](.github/README.md)。
 
 ## 许可与第三方来源
 
-项目许可见 [LICENSE](LICENSE)，适用范围及单独商业授权说明见 [LICENSING.md](LICENSING.md)。第三方代码与素材按其自身条款使用，来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+项目原创代码采用 [AGPL-3.0-only](LICENSE)。适用范围及单独商业授权说明见 [LICENSING.md](LICENSING.md)；AGPL 已授予的权利不因商用或再分发而被额外限制。
+
+第三方依赖、平台名称与图标、引用素材遵循各自的许可证或权利声明；闲鱼桥接脚本的来源与本地补丁见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目的软件许可不改变这些权利，也不表示获得相关平台的官方认可。
 
 BY 五成
