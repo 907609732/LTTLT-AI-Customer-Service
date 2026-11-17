@@ -64,6 +64,17 @@ async function click(text: string) {
   )
   await delay(90)
 }
+/**
+ * refresh() replaces the whole panel with the loading placeholder in the misses view, so a
+ * filter click must wait for the target button to be mounted and re-enabled. The run() busy
+ * gate keeps the filter disabled until the disposition write and its follow-up refresh settle.
+ */
+async function waitMissFilter(status: 'open' | 'resolved' | 'ignored') {
+  await until(`(() => {
+    const button=document.querySelector('[data-testid="miss-filter-${status}"]');
+    return Boolean(button) && !button.disabled;
+  })()`)
+}
 async function input(selector: string, value: string) {
   await evaluate(
     `(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('input',{bubbles:true}))})()`,
@@ -241,6 +252,7 @@ app
         'resolved',
       )
       await screenshot('miss-resolved-feedback.png')
+      await waitMissFilter('resolved')
       await click('已解决')
       await until(
         `document.querySelector('.knowledge-card')?.textContent.includes('隔离验收：售后如何处理？')`,
@@ -253,12 +265,14 @@ app
         repo.listMisses({ storeId: a }).items.find((item) => item.id === miss.id)?.status,
         'open',
       )
+      await waitMissFilter('open')
       await click('待处理')
       await until(
         `document.querySelector('.knowledge-card')?.textContent.includes('隔离验收：售后如何处理？')`,
       )
       await click('忽略')
       await until(`!document.querySelector('.knowledge-card')`)
+      await waitMissFilter('ignored')
       await click('已忽略')
       await until(`document.querySelectorAll('.knowledge-card').length === 2`)
       await screenshot('miss-ignored-history.png')
