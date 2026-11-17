@@ -401,7 +401,7 @@ try {
           window.webContents.getURL().endsWith('#/reply-monitor'));
         if (!monitor) return false;
         return monitor.webContents.executeJavaScript(
-          "document.body.innerText.includes('回复监控') && typeof window.yunduoDesktop?.developerDebug === 'undefined' && !document.querySelector('[data-action=\\\"developer-toggle\\\"]')"
+          "document.body.innerText.includes('回复监控') && typeof window.yunduoDesktop?.developerDebug === 'undefined' && !document.querySelector('[data-action=developer-toggle]')"
         );
       })()`)) === true
     if (monitorReady) break
