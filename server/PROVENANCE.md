@@ -1,5 +1,7 @@
 # 来源与本地适配
 
+2026-11-17 托管上下文策略持久化：新增自有 overlay/lingtu/context_policy.go 与 context_policy_test.go，定义全局策略、严格校验、加密读取、基于 lingtu_settings 修订号的原子 CAS 保存和安全客户端投影；视觉学习允许开关仅表示策略允许，默认开启但学习任务默认关闭，真正调用仍需模型能力校验。context_policy_test.go 为 SHA256 `3069ff971be351bd976eaada4301d14aa9757be86996ac1d5d1ede674a1edeb4`，context_policy.go 为 SHA256 `9fee2ff5daaaa53ec491123b2bb36a6051eab62bc1f26c31bc07004f8986895c`。导入文件 overlay/lingtu/settings.go 仅为 ManagedSetting 增加 revision 列并保留旧数据默认值，实际 SHA256 更新为 `14632be1462930580c1f7308953a27d8ffcf67bfeea5e843b50d34b20a8f39ae`，原 upstreamSha256 `abe3a0d51749548fc1643503a89a0be8968d4ab09223dbcd2d9daac60c54d48d` 不变。新增文件不冒充上游导入；隐藏提示词与策略原文仍由既有 lingtu_secret 加密，客户端只取得安全投影。
+
 2026-11-16：多模型范围复用固定 New API 渠道、Gin/GORM 和原生 React（AGPL-3.0-or-later）。新增 model_policy.go/test.go，策略支持全部/指定多个，账号模型作为默认偏好；聊天显式模型参与去重摘要。仅迁移此功能，保留主干计费和其他功能，不引入旧工作区支付/摘要业务。导入文件实际 SHA256 已更新，upstreamSha256 保留。
 
 2026-11-14 计费修复：新增自有 `lingtuhost/billing_config.go`、配套测试和原生 `admin-billing.tsx`，复用固定 Stripe Go v81.4.0、GORM 的 `ManagedSetting/lingtu_secret`、`AdminAuth` 和精确请求安全证明。管理员配置只接收沙箱 Key，既有环境变量兼容保留；新增只读版本/能力和官方 SDK 商户账号检查，检查不创建订单或付款。导入的 proof section 白名单仅增加 billing；管理页增加计费入口与翻译，Nginx 参考配置补支付返回页精确转发。所有改动维护在 overlay/部署参考，导入文件保留 upstreamSha256 并更新实际 SHA256；`.upstream` 只由 prepare/构建生成。实际商户沙箱、生产部署和真实支付未验收，详见 BILLING_DEPLOYMENT.md。
