@@ -4,14 +4,19 @@ import { useRouter } from 'vue-router'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import { modelPresets } from '../model-presets'
+import { Refresh } from '@element-plus/icons-vue'
 import ModelSourceSettings from './ModelSourceSettings.vue'
 import { AccountBillingDetails } from '@/modules/billing'
 const visible = defineModel<boolean>({ default: false })
 const runtime = useRuntimeStore(),
   task = useTask(),
   router = useRouter()
-const provider = ref<keyof typeof modelPresets>('deepseek'),
-  apiKey = ref('')
+const provider = ref<keyof typeof modelPresets | 'custom'>('deepseek'),
+  apiKey = ref(''),
+  customBaseUrl = ref(''),
+  customModel = ref(''),
+  availableModels = ref<string[]>([]),
+  loadingModels = ref(false)
 const awaitingLogin = ref(false),
   activating = ref(false)
 const managed = computed(() => runtime.snapshot.managed)
@@ -42,6 +47,8 @@ watch(
 )
 watch(provider, () => {
   apiKey.value = ''
+  customModel.value = ''
+  availableModels.value = []
 })
 watch(visible, (open) => {
   if (!open) apiKey.value = ''
@@ -56,16 +63,28 @@ async function activate(mode: 'local' | 'managed') {
 }
 async function saveKey() {
   const key = apiKey.value.trim(),
-    preset = modelPresets[provider.value],
+    preset = provider.value === 'custom' ? null : modelPresets[provider.value],
+    baseUrl = (preset?.baseUrl ?? customBaseUrl.value).trim().replace(/\/+$/, ''),
+    model = (preset?.model ?? customModel.value).trim(),
     originalMode = managed.value.active.mode
   await task.run(async () => {
     if (!key) throw new Error('请填写 API Key')
+    if (!baseUrl) throw new Error('请填写 API 地址')
+    if (!model) throw new Error('请填写模型名称')
+    let endpoint: URL
+    try {
+      endpoint = new URL(baseUrl)
+    } catch {
+      throw new Error('API 地址格式无效，请填写完整的 http(s) 地址')
+    }
+    if (endpoint.protocol !== 'https:' && endpoint.protocol !== 'http:')
+      throw new Error('API 地址必须使用 http 或 https')
     if (managed.value.active.mode !== 'local' || managed.value.restartRequired)
       await activate('local')
     try {
       await runtime.run({
         action: 'save-model-settings',
-        values: { baseUrl: preset.baseUrl, model: preset.model, apiKey: key, testConnection: true },
+        values: { baseUrl, model, apiKey: key, testConnection: true },
       })
     } catch (validationError) {
       // 验证失败不能把原服务端账号留在本机工作区；恢复也失败时保留两项事实。
@@ -84,6 +103,37 @@ async function saveKey() {
     }
     apiKey.value = ''
     visible.value = false
+  })
+}
+async function fetchModels() {
+  const baseUrl = customBaseUrl.value.trim().replace(/\/+$/, '')
+  const key = apiKey.value.trim()
+  await task.run(async () => {
+    if (!baseUrl) throw new Error('请填写 API 地址')
+    if (!key) throw new Error('请先填写 API Key')
+    let endpoint: URL
+    try {
+      endpoint = new URL(baseUrl)
+    } catch {
+      throw new Error('API 地址格式无效，请填写完整的 http(s) 地址')
+    }
+    if (endpoint.protocol !== 'http:' && endpoint.protocol !== 'https:')
+      throw new Error('API 地址必须使用 http 或 https')
+    loadingModels.value = true
+    try {
+      const result = await runtime.run({
+        action: 'list-custom-models',
+        values: { baseUrl, apiKey: key },
+      })
+      const models = result.data.models
+      if (!Array.isArray(models) || !models.every((model) => typeof model === 'string'))
+        throw new Error('服务返回的模型列表格式无效')
+      availableModels.value = models
+      if (!models.includes(customModel.value)) customModel.value = ''
+      if (!models.length) throw new Error('该 API 未返回可用模型')
+    } finally {
+      loadingModels.value = false
+    }
   })
 }
 async function finishLogin() {
@@ -157,8 +207,49 @@ async function recharge() {
               <el-option value="deepseek" label="DeepSeek" /><el-option
                 value="qwen"
                 label="千问"
-              /><el-option value="qwenVision" label="千问识图" /> </el-select
+              /><el-option value="qwenVision" label="千问识图" /><el-option
+                value="custom"
+                label="自定义 API"
+              /> </el-select
           ></label>
+          <template v-if="provider === 'custom'">
+            <label
+              >API 地址<el-input
+                v-model="customBaseUrl"
+                aria-label="自定义 API 地址"
+                placeholder="https://api.example.com/v1"
+                autocomplete="url"
+                :disabled="task.pending.value"
+            /></label>
+            <label>模型名称</label>
+            <div class="model-picker">
+              <el-select
+                v-model="customModel"
+                aria-label="自定义模型名称"
+                filterable
+                allow-create
+                default-first-option
+                placeholder="获取列表后选择，也可手动输入"
+                :disabled="task.pending.value"
+              >
+                <el-option
+                  v-for="model in availableModels"
+                  :key="model"
+                  :value="model"
+                  :label="model"
+                />
+              </el-select>
+              <el-button
+                aria-label="获取模型列表"
+                title="获取可用模型"
+                :loading="loadingModels"
+                :disabled="task.pending.value || !customBaseUrl.trim() || !apiKey.trim()"
+                @click="fetchModels"
+              >
+                <el-icon><Refresh /></el-icon>
+              </el-button>
+            </div>
+          </template>
           <label
             >API Key<el-input
               v-model="apiKey"
@@ -171,7 +262,12 @@ async function recharge() {
           <el-button
             native-type="submit"
             :loading="task.pending.value"
-            :disabled="!runtime.available || !apiKey.trim() || session.status === 'authorizing'"
+            :disabled="
+              !runtime.available ||
+              !apiKey.trim() ||
+              (provider === 'custom' && (!customBaseUrl.trim() || !customModel.trim())) ||
+              session.status === 'authorizing'
+            "
             >保存并使用</el-button
           >
         </form>
@@ -302,6 +398,13 @@ async function recharge() {
 }
 .login-option form {
   gap: 20px;
+}
+.model-picker {
+  display: flex;
+  gap: 8px;
+}
+.model-picker :deep(.el-select) {
+  flex: 1;
 }
 .service-option {
   background: #f3f1ff;
