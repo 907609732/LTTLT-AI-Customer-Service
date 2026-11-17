@@ -48,6 +48,6 @@ ZIP 解压后运行 LingtuAI.exe；NSIS 为当前用户安装，可选择目录�
 
 旧 ICO 七个尺寸全部 alpha=255，四角是白色实心方块，因此源码运行的任务栏按钮呈方形；这不是图标缺失。`scripts/generate-windows-icon.py` 使用 Pillow 从现有 `src/assets/lingtu-ai-icon.png` 重新排版：保留完整兔子/气泡品牌内容，将外接矩形内缩到圆形半径的86%，再做圆形透明遮罩，避免裁掉兔子耳朵或气泡尾巴。输出仍为 `public/lingtu-ai.ico`，包含16/24/32/48/64/128/256七种PNG帧；生成脚本不参与CI，ICO 提交到仓库。
 
-`electron/windows.ts` 的图标路径改为显式区分源码与打包：源码/`electron:dev` 读取 `public/lingtu-ai.ico`（该命令只构建主进程，dist 可能缺失或过期），打包应用读取 `app.asar/dist/lingtu-ai.ico`。打包应用在创建窗口前调用 `app.setAppUserModelId('top.lttlt.yunduo.customer.service')`，与 NSIS 快捷方式的 AppUserModelID/builder appId 一致；此前运行进程没有应用身份，任务栏分组不能稳定落到品牌快捷方式。该调用只对打包应用生效，避免源码调试窗口被归到本机已安装的旧快捷方式并沿用旧图标。builder 配置继续保留 `signExecutable:false`，26.18.0 仍执行图标与版本资源编辑，不得改成 `signAndEditExecutable:false`。
+`electron/windows.ts` 的图标路径改为显式区分源码与打包：源码/`electron:dev` 读取 `public/lingtu-ai.ico`（该命令只构建主进程，dist 可能缺失或过期），打包应用读取 `app.asar/dist/lingtu-ai.ico`。打包应用在创建窗口前调用 `app.setAppUserModelId('top.lttlt.yunduo.customer.service')`，与 NSIS 快捷方式的 AppUserModelID/builder appId 一致，用于稳定任务栏分组。该调用只对打包应用生效，避免源码调试窗口被归到本机已安装的旧快捷方式并沿用旧图标。builder 配置继续保留 `signExecutable:false`，26.18.0 仍执行图标与版本资源编辑，不得改成 `signAndEditExecutable:false`。
 
 本机证据：旧安装目录实际是1.0.24（app.asar无 dist/lingtu-ai.ico，EXE 资源为 Electron 43.8.9 默认图标），所以“安装版不是品牌图标”来自旧安装包而非当前 builder 配置；1.0.45 便携版 EXE 已含七尺寸品牌 ICO（但仍为不透明方形）。1.0.47 只验证源码构建、ICO 尺寸/alpha 和针对性测试，未重新打包或复验安装包 EXE。

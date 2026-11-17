@@ -532,8 +532,8 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 
 ## 2026-11-17 Windows 任务栏圆形图标与身份（1.0.47，本地）
 
-用户报告安装版不显示品牌图标、源码运行图标为方形。诊断证据：旧 `public/lingtu-ai.ico` 七个尺寸 alpha 全为255，四角为白色实心；本机安装目录实际为1.0.24，app.asar 无 dist/lingtu-ai.ico，EXE 为 Electron 43.8.9 默认资源，故安装版问题来自旧包；1.0.45 便携版 EXE 已含品牌 ICO 但同样是不透明方形。`electron:dev` 只执行 build:desktop 后直接运行 Vite，dist 缺失时 windows.ts 仍只指向 dist，导致窗口回退默认图标；运行进程还报告“no application identity”，与 NSIS 快捷方式 AUMID 不匹配。
+用户报告安装版不显示品牌图标、源码运行图标为方形。诊断证据：旧 `public/lingtu-ai.ico` 七个尺寸 alpha 全为255，四角为白色实心；本机安装目录实际为1.0.24，app.asar 无 dist/lingtu-ai.ico，EXE 为 Electron 43.8.9 默认资源，故安装版问题来自旧包；1.0.45 便携版 EXE 已含品牌 ICO 但同样是不透明方形。`electron:dev` 只执行 build:desktop 后直接运行 Vite，dist 缺失时 windows.ts 仍只指向 dist，导致窗口回退默认图标；打包窗口显式设置与 NSIS 快捷方式一致的桌面 AUMID，以稳定任务栏分组。
 
-修复：用现有 Pillow 从 `src/assets/lingtu-ai-icon.png` 生成圆形透明七尺寸 ICO，完整品牌内容内缩86%半径避免裁切；windows.ts 源码读 public、打包读 app.asar/dist；打包应用在窗口前设置 builder appId 对应的 AppUserModelID（源码调试不设置，避免归到本机旧安装快捷方式）；保留 builder signExecutable:false 和现有图标配置。新增 ICO 尺寸/角 alpha/路径/AUMID 与 builder appId 一致性回归。
+修复：用现有 Pillow 从 `src/assets/lingtu-ai-icon.png` 生成圆形透明七尺寸 ICO，完整品牌内容内缩86%半径避免裁切；windows.ts 源码读 public、打包读 app.asar/dist；打包应用在窗口前设置 builder appId 对应的 AppUserModelID（源码调试不设置，避免归到本机旧安装快捷方式）；保留 builder signExecutable:false 和现有图标配置。新增 ICO 尺寸/路径/AUMID 与 builder appId 一致性回归，透明度复用 Pillow 生成脚本核对。
 
-验证：生成脚本 `--check` 七尺寸均四角 alpha=0、中心 alpha=255、透明占比7%-19%；针对性 Vitest、类型检查和构建见本轮结果。未重新打包安装包，安装版 EXE 外观仍需 supervisor 用实际产物验收；未推送、发布或重启现有实例。
+验证：Codex 独立复验 3 个文件9项测试、Electron TypeScript、修改范围 ESLint 和主目录 npm run build 通过；Pillow --check 七尺寸均四角 alpha=0、中心 alpha=255。已重新打开主目录源码，窗口显示v1.0.47。另用已安装 Electron 生成本机 --dir 解包测试产物（非Release），退出码0；已从EXE提取7个透明圆形尺寸；产品名与1.0.47.0版本元数据正确，asar/public图标逐字节一致，EXE提取图标各尺寸RGBA像素一致（ICO容器头重建后字节不同）。未制作或公开发布安装器，旧安装目录保留原样。测试不自写PNG解码器，透明度复用Pillow检查。
