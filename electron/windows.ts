@@ -1,11 +1,33 @@
-import { BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import path from 'node:path'
 import { isExternalUrl } from './policy'
 import { isRendererFileUrl } from './renderer-origin'
 import { PRODUCT_NAME } from '../src/shared/brand'
 
 export const rendererPath = path.join(__dirname, '..', 'dist', 'index.html')
-export const appIconPath = path.join(__dirname, '..', 'dist', 'lingtu-ai.ico')
+
+/**
+ * `electron:dev` only rebuilds the main process and then runs Vite, so dist/ can
+ * be absent or stale there. The source icon therefore comes from public/, while a
+ * packaged app reads the copy that Vite places inside app.asar. Keeping the two
+ * roots explicit prevents the window from silently falling back to the Electron
+ * icon when dist/lingtu-ai.ico is missing.
+ */
+export function resolveAppIconPath(options: {
+  packaged: boolean
+  resourcesPath: string
+  sourceRoot: string
+}): string {
+  return options.packaged
+    ? path.join(options.resourcesPath, 'app.asar', 'dist', 'lingtu-ai.ico')
+    : path.join(options.sourceRoot, 'public', 'lingtu-ai.ico')
+}
+
+export const appIconPath = resolveAppIconPath({
+  packaged: app?.isPackaged === true,
+  resourcesPath: process.resourcesPath,
+  sourceRoot: path.join(__dirname, '..'),
+})
 const appWebContents = new Set<number>()
 export const isAppWebContents = (id: number): boolean => appWebContents.has(id)
 
