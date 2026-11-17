@@ -1,5 +1,20 @@
 # 客户端与独立服务端验证
 
+## 2026-11-18 维护性清理与职责拆分（1.0.56，分阶段验证）
+
+本批由本机 DeepSeek 在两个独立工作树分别完成清理/知识拆分和主进程装配拆分，Codex 独立复验并整合；以下为各阶段实际执行证据，合计 26 文件 229 项，不表示整合后全量回归通过。未运行全量 `npm run check`、全量桌面或上游套件，未启动真实店铺、未调用真实付费模型、未向买家发送。
+
+- 第一批（清理与文档）：基线三文件 10 项、修改后 3 文件 15 项通过；`npm run typecheck`、`npm run build:desktop`、`node scripts/check-boundaries.mjs`、`git diff --check` 退出 0。原生仅运行旧 `/shop/home` 兼容检查 1/1 通过，报告与截图在 `artifacts/desktop-selected-1794931660094/shop-home.png`，Codex 已目视核对跳转后的数据看板面板。首次并发 Vitest 遇 Windows 临时文件 EBUSY，单 worker 重跑通过；一次漏 `.mjs` 导出声明导致 TS 失败，补充 `checkVueSource` 声明后 typecheck 通过。
+- 第二批（知识控制器）：`tests/knowledge-manager.test.ts` 等 6 文件 72 项通过（`--maxWorkers=1 --minWorkers=1`）；知识拆分前基线 6 文件 80 项为改前证据，不叠加为最终回归项数。Codex 用 TS AST 核对 `useKnowledgeManager()` 公开返回对象 126 项、顺序一致；typecheck、边界检查与变更文件 ESLint/Prettier 通过。
+- 第三批（主进程装配）：运行时 17 文件 142 项通过；新增 factory 测试覆盖注册、惰性、限速与详情发布；typecheck、边界检查通过。
+- 两处独立只读审查均未发现新的 P1/P2。
+
+整合后补验：最新主线自定义模型 API 保留，登录/导航等 4 文件 31 项与 typecheck 通过；构建、变更文件 ESLint、边界检查通过，AST 核对主进程 22 项公开方法及顺序不变。原生桌面定向 15/15 通过，证据在 artifacts/desktop-selected-1794932859415/；知识库主专项 18 项、待学问题 2 项、内嵌学习进度 5 项通过，报告在 artifacts/knowledge-manager-check/evidence/，执行日志在 artifacts/maintenance-20261118/。
+
+待学问题原生脚本首次因 loading 期间筛选区卸载而过早点击失败。同版本重跑及未拆控制器对照、模板与刷新逻辑核对定位为既存验收时序窗口；只增加目标筛选按钮已挂载且可交互的有界等待，原状态持久化、记录消失、跨店隔离和重新打开/忽略断言全部保留。修复后 DeepSeek 多次验证及 Codex 独立重跑通过；首次失败证据保存在 artifacts/maintenance-20261118/misses-first-failure/，不把初次失败记为通过。
+
+尚未执行：1.0.56 主目录最终版本重启、GitHub CI 与下载产物核对。版本 package.json/package-lock.json=1.0.56，未发布公开 Release、未部署生产。
+
 ## 2026-11-17：进店欢迎随机延迟与开关布局（1.0.52）
 
 独立 worktree 内只使用临时数据、本机模拟店铺和合成文字；未打开真实店铺、未调用真实付费模型、未向买家发送消息，也未修改真实 userData。日常定向验证，不表述为全量通过。

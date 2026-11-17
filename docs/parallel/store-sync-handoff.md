@@ -1,5 +1,7 @@
 # 跨店同步交接（2026-11-14，领域实现已完成）
 
+> **历史状态（2026-11-17 维护更新）**：跨店同步页面、配置中心菜单和店铺卡入口已于 1.0.33 移除，`installStoreSyncClient` 前端安装器也已在本次清理删除；当前**没有可见同步入口**，旧 `#/store-sync` 与 `panel=sync` 回到店铺列表。保留的是共享契约、preload/主进程固定 IPC、本机同步/备份/回滚服务及其测试，当前入口与服务说明见 [`src/modules/sync/README.md`](../../src/modules/sync/README.md)。以下为交付时的历史设计与验收记录，不代表现在仍有同步界面。
+
 实际项目根：`E:/~1awucheng/Plastic SCM/AI电商客服软件/client`。未修改任何公共装配文件，未修改 knowledge/reception/shops 组件，未提交、推送或部署。
 
 ## 给统筹的公共接入契约（可立即集成）

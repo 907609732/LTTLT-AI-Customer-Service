@@ -8,7 +8,7 @@ import {
   ShopBannedWordPanel,
   ShopTrainingPanel,
 } from '@/modules/knowledge'
-import { QcReplyPanel, ShopWorkOrderPanel, ShopWipPanel } from '@/modules/quality'
+import { QcReplyPanel, ShopWorkOrderPanel } from '@/modules/quality'
 
 /** 标题、面板和菜单共用此注册表；不再维护三份相互漂移的映射。 */
 export const panelRegistry = {
@@ -26,9 +26,6 @@ export const panelRegistry = {
   banned: { title: 'AI禁用词', component: ShopBannedWordPanel },
   workorder: { title: '工单登记', component: ShopWorkOrderPanel },
   qc: { title: '客服质检', component: QcReplyPanel },
-  learn: { title: '学习任务', component: ShopWipPanel },
-  supervise: { title: '接待监督', component: ShopWipPanel },
-  drill: { title: '训练演练', component: ShopWipPanel },
 } satisfies Record<string, { title: string; component: Component }>
 
 export type PanelKey = keyof typeof panelRegistry

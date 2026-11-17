@@ -9,8 +9,6 @@ import { installImageFallback } from '@/shared/platform/images'
 import { provideServices } from './services'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { getDesktop } from '@/shared/platform/desktop'
-import { createStoreSyncClient } from '@/shared/platform/store-sync'
-import { installStoreSyncClient } from '@/modules/sync'
 import { createTeamService, teamServiceKey } from '@/modules/account'
 import { billingTransportKey } from '@/modules/billing'
 import { platformLearningTransportKey } from '@/modules/knowledge'
@@ -58,24 +56,6 @@ if (desktop.isElectron && desktop.managedBusinessRequest) {
     },
   })
 }
-const disposeSync =
-  desktop.isElectron &&
-  desktop.storeSyncPreview &&
-  desktop.storeSyncApply &&
-  desktop.storeSyncRollback &&
-  desktop.storeSyncBackups
-    ? installStoreSyncClient(
-        createStoreSyncClient(
-          (channel, envelope) => {
-            if (channel === 'store-sync:preview') return desktop.storeSyncPreview!(envelope)
-            if (channel === 'store-sync:apply') return desktop.storeSyncApply!(envelope)
-            if (channel === 'store-sync:rollback') return desktop.storeSyncRollback!(envelope)
-            return desktop.storeSyncBackups!(envelope)
-          },
-          () => runtime.snapshot.workspaceId,
-        ),
-      )
-    : () => {}
 runtime.start()
 
 // 有界错误缓冲供故障定位和冒烟断言使用，避免长时间运行无限增长。
@@ -96,7 +76,6 @@ app.mount('#app')
 if (import.meta.hot)
   import.meta.hot.dispose(() => {
     disposeDrag()
-    disposeSync()
     disposeImages()
     runtime.dispose()
     app.unmount()

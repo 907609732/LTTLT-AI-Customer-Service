@@ -179,6 +179,14 @@ app
           assert.ok(artwork.source?.includes('lingtu-ai-login-promo'))
           assert.equal(artwork.loaded, true)
         }
+        if (route === '/shop/home') {
+          // 旧营销首页已删除，只保留 URL 兼容；必须落到配置中心数据看板面板。
+          const compat = (await win.webContents.executeJavaScript(
+            `({ hash: location.hash, panels: document.querySelector('.shop-main-panel-host')?.children.length ?? 0 })`,
+          )) as { hash: string; panels: number }
+          assert.ok(compat.hash.includes('/shop/manage?panel=home'), '旧店铺首页未兼容跳转')
+          assert.ok(compat.panels > 0, '旧店铺首页未落到数据看板面板')
+        }
         const shot = await win.webContents.capturePage()
         assert.ok(!shot.isEmpty(), '截图为空')
         fs.writeFileSync(path.join(output, `${name}.png`), shot.toPNG())

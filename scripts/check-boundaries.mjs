@@ -30,39 +30,58 @@ export function dependencyError(from, to) {
 export function checkSource(file, source) {
   const failures = []
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+  function checkSpecifier(node) {
+    const spec = node.text
+    const resolved = spec.startsWith('@/')
+      ? spec.slice(2)
+      : spec.startsWith('.')
+        ? path.posix.normalize(path.posix.join(path.posix.dirname(file), spec))
+        : spec
+    const error = dependencyError(file, resolved)
+    if (error) failures.push(`${file}: ${error} (${spec})`)
+    if (
+      file.endsWith('.vue') &&
+      (spec === 'electron' || spec.startsWith('node:') || spec === 'axios')
+    )
+      failures.push(`${file}: 组件不得直接导入系统/网络 API`)
+  }
   function visit(node) {
     if (
       (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
       node.moduleSpecifier &&
       ts.isStringLiteral(node.moduleSpecifier)
-    ) {
-      const spec = node.moduleSpecifier.text
-      const resolved = spec.startsWith('@/')
-        ? spec.slice(2)
-        : spec.startsWith('.')
-          ? path.posix.normalize(path.posix.join(path.posix.dirname(file), spec))
-          : spec
-      const error = dependencyError(file, resolved)
-      if (error) failures.push(`${file}: ${error} (${spec})`)
+    )
+      checkSpecifier(node.moduleSpecifier)
+    if (ts.isCallExpression(node)) {
+      // 动态 import('…') 与静态导入遵循同一依赖方向；字符串变量无法静态判定，保守跳过。
       if (
-        file.endsWith('.vue') &&
-        (spec === 'electron' || spec.startsWith('node:') || spec === 'axios')
+        node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+        node.arguments.length === 1 &&
+        ts.isStringLiteral(node.arguments[0])
       )
-        failures.push(`${file}: 组件不得直接导入系统/网络 API`)
-    }
-    if (file.endsWith('.vue') && ts.isCallExpression(node)) {
-      const expression = node.expression.getText(ast)
-      if (
-        /^(fetch|(?:window\.)?(?:localStorage|sessionStorage)\.|window\.yunduoDesktop\.)/.test(
-          expression,
+        checkSpecifier(node.arguments[0])
+      if (file.endsWith('.vue')) {
+        const expression = node.expression.getText(ast)
+        if (
+          /^(?:fetch|window\.fetch|globalThis\.fetch|(?:window\.)?(?:localStorage|sessionStorage)\.|window\.yunduoDesktop\.)/.test(
+            expression,
+          )
         )
-      )
-        failures.push(`${file}: 组件必须通过服务或平台适配访问环境 API`)
+          failures.push(`${file}: 组件必须通过服务或平台适配访问环境 API`)
+      }
     }
     ts.forEachChild(node, visit)
   }
   visit(ast)
   return failures
+}
+
+/** Vue 普通 script 与 script setup 都参与同一规则；只读模板不执行环境 API。 */
+export function checkVueSource(file, text) {
+  const { descriptor } = parse(text)
+  return [descriptor.script?.content, descriptor.scriptSetup?.content]
+    .filter((content) => typeof content === 'string')
+    .flatMap((content) => checkSource(file, content))
 }
 
 if (process.argv[1]?.replaceAll('\\', '/').endsWith('/check-boundaries.mjs')) {
@@ -71,10 +90,7 @@ if (process.argv[1]?.replaceAll('\\', '/').endsWith('/check-boundaries.mjs')) {
     .flatMap((file) => {
       const relative = path.relative(root, file).replaceAll('\\', '/')
       const text = fs.readFileSync(file, 'utf8')
-      const source = file.endsWith('.vue')
-        ? (parse(text).descriptor.scriptSetup?.content ?? '')
-        : text
-      return checkSource(relative, source)
+      return file.endsWith('.vue') ? checkVueSource(relative, text) : checkSource(relative, text)
     })
   if (failures.length) {
     console.error(failures.join('\n'))

@@ -32,6 +32,8 @@
 
 `panelRegistry.learn` 目前仍是 quality 的 ShopWipPanel，不能把此交付描述为后台自动学习任务已完成。如果统筹希望“学习任务”入口展示本次人工候选流程，可在公共 navigation.ts 将该键映射到已导入的 ShopIntentLearnPanel，并调整名称；这只是导航建议，不代表后台定时/自动采集已接入。
 
+2026-11-17 维护更新：ShopWipPanel 及 `learn/supervise/drill` 面板注册已删除，旧 `?panel=learn` 现在回落到店铺列表；上一段为交付时的导航状态。当前真实训练/学习入口是 `training`、`intent-doc`、`intent-chat`。
+
 来源字段长期应升级为受主进程验证的结构化 schema 与独立审核记录；如未来需要跨窗口原子去重、全量分页、持久化待审核任务或尺码唯一绑定，应由统筹扩展正式契约与主进程服务，不能推断私有平台接口。
 
 ## 验证

@@ -1,4 +1,4 @@
-## 2026-11-18 回复监控左下统一入口与源码 GM/CMD（1.0.53，源码工作树）
+## 2026-11-18 回复监控左下统一入口与源码 GM/CMD（1.0.58，源码工作树）
 
 已按批准的 `docs/superpowers/specs/2026-11-18-developer-console-design.md` 与 plan 完成实现，不只出计划。主工作台右上角监控按钮移除，工作台左下与“快捷回复”并列、版本独立下一行；配置中心左下也提供同一入口，均调用原 `open-reply-monitor`。默认仍是 340×300、parent 左下、`showInactive`、不置顶；源码版底栏“开发调试”在同窗展开 960×620，左 340 保留回复信息/确认/取消/高级日志，右侧 GM 指令/CMD，720px 以下上下排列。关闭窗口结束终端会话，收起保留，重新进入标签不重连/不重建 shell。
 
@@ -10,6 +10,20 @@
 - `npm run typecheck`、改动范围 ESLint/Prettier、`npm run build` 退出 0；构建产物确认普通 `preload.cjs` 无 `developerDebug` 暴露，`developer-preload.cjs` 存在且不在安装包 files 白名单，main 动态 `require("node-pty")`，xterm 为独立异步 chunk。
 - 隔离原生 `LINGTU_DESKTOP_CHECKS=business:developer-console node scripts/run-desktop.mjs`：1/1 通过，报告 `artifacts/desktop-selected-1794934378917/report.json`，截图 `developer-console.png`。使用临时 userData 和真实 Electron/ConPTY，验证：主窗无调试桥；监控 340×300→960×620、parent/非置顶；GM help；真实 CMD 中文、方向键历史、Ctrl+C、resize、收起再展开同一 session；关闭监控后新窗口新 shell，旧 session 写入被拒绝。stderr 仅有旧 session `pty-write` 的预期 IPC 拒绝日志，未影响报告/退出码。
 - 未运行全量 Release/上游/打包；本实现未修改 package.json、package-lock 或版本（依赖条目与版本递增由 Codex 负责）；未 commit/push/deploy/发布，未向真实买家发送，未打开真实 PDD 店铺验证 allow 新窗。下一步：Codex 审查并合并最新 main、递增一次 patch、打包确认 ASAR 无 developer-preload/node-pty、无 debug IPC，然后重启主项目；PDD allow/block 仍需在有登录态的 `mms.pinduoduo.com` 店铺页面单独实店验收，不能用本机合成页替代。
+
+## 2026-11-18 维护性清理与职责拆分（1.0.56，本机源码）
+
+按用户预先审查的顺序完成三批整理：旧 demo/兼容入口清理、知识库控制器拆分、主进程知识/辅助装配拆分。清理与知识拆分由本机 DeepSeek 在本工作树实现；主进程装配拆分由另一本机 DeepSeek 在独立工作树实现；两者均由 Codex 独立验证并整合提交（清理 206df4e、知识 ecbed7f、运行时装配 3070e00，最终工作树含合入的最新 origin/main 1bea5ad）。worker 未 commit/push/重启；1.0.55 的自定义模型 API 功能由主线合入并保留，不属于本批实现。
+
+清理范围：删除仅自身声明的 settings/shops demo 工厂、仅 barrel 导出的 GoodsListPanel/ShopDeskPanel/ShopSyncConfigDialog 及其 demo、无菜单入口的 ShopWipPanel 与 learn/supervise/drill 注册、旧 ShopHomeView 及独占样式；`/shop/home` 保留兼容跳转 `/shop/manage?panel=home`；移除无消费者的同步前端安装器。保留共享同步契约/platform 适配/preload 与主进程 IPC/备份回滚服务及测试、现有 demo 组件、共享 legacy CSS；未核实的页面不扩大清理。文档同步共用本机目录、AI 恢复、审核/显式自动发送和历史交接状态。
+
+知识拆分：`manager-controller.ts` 保留草稿/审核生命周期、跨视图协调与租约交接；`catalog-controller.ts`、`maintenance-controller.ts`、`product-learning-controller.ts` 分别持有目录采集、备份/恢复/清空、商品学习/识图；`useKnowledgeManager()` 返回对象由 Codex 用 TS AST 核对 126 项且顺序一致，页面与文案未改。主进程拆分：`electron/runtime/knowledge-pipeline-assembly.ts`、`knowledge-learning-assembly.ts`、`assist-runtime.ts`、`assist-detail-catalog.ts` 承担装配细节，`local-runtime.ts`/workspace runtime 仍是统一生命周期、审批与资源关闭的唯一所有者。
+
+验证（分阶段，合计 26 文件 229 项，不称为整合后全量通过）：第一批 3 文件 15 项、typecheck、build:desktop、边界检查、diff 检查通过；旧 `/shop/home` 原生检查 1/1 通过，证据 `artifacts/desktop-selected-1794931660094/shop-home.png` 已目视核对；知识 6 文件 72 项；运行时 17 文件 142 项，新增 factory 测试覆盖注册、惰性、限速和详情发布；两处独立只读审查未发现新 P1/P2。改前知识基线 6 文件 80 项仅作为拆分前证据，不叠加为最终回归数。首批曾遇 Windows 临时文件 EBUSY，单 worker 重跑通过；一次漏 `.mjs` 导出声明导致 TS 失败，补 `checkVueSource` 声明后通过。
+
+整合复验：保留 1.0.55 自定义模型 API 后，登录/导航等 4 文件 31 项、typecheck、构建、变更文件 ESLint 与边界检查通过；主进程公开返回方法用 AST 核对为 22 项且顺序不变。1.0.56 原生桌面定向 15/15、知识库主专项 18 项、待学问题 2 项、内嵌学习进度 5 项通过。待学问题原生脚本首次遇到刷新 loading 卸载筛选按钮的时序窗口；核对拆分前相同逻辑并做对照，仅在验收脚本增加按钮已挂载且可交互的有界等待，保留全部原断言，Codex 独立重跑通过，未修改产品逻辑。首次失败及后续日志保存在 artifacts/maintenance-20261118/。
+
+后续：1.0.56 主目录最终版本重启和 GitHub CI/下载产物仍待 Codex 完成。版本 package.json/package-lock.json=1.0.56；未发布公开 Release、未部署生产、未向真实买家发送。原始任务日志保留在系统 TEMP/lingtu-maintenance-cleanup-20261117。
 
 ## 2026-11-17 进店欢迎开关布局与随机延迟（1.0.52，本机源码）
 
@@ -642,3 +656,7 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 云端 Actions 44108136749 全部成功：完整check、原生桌面、知识库/学习、EXE/ZIP与打包程序启动检查通过。新版未发布Release，安装目录未替换。
 
 本机产物验收完成：EXE、ZIP、RELEASE-MANIFEST的SHA256与云端清单一致，保存在E:/codex-builds/lingtu-cloud-1.0.53-44108136749。下载出现网络停顿，复用本机既有代理与curl重试；已存在的同源产物未覆盖，直接进行完整哈希核对。便携包在独立临时资料目录执行现有test:packaged，退出0且status=passed，包含ASAR运行时/许可/私有文件排除、真实窗口/preload/IPC、实际版本及文档解析检查。用户日常安装目录未改，当前源码版已打开欢迎设置卡片。
+
+## 2026-11-17 GitHub 首页生态互链（1.0.54）
+
+基于 1.0.53 主线，仅在 README 加入灵兔拆包智录、采购订单导出与本项目的套件介绍和互链。按仓库规则同步递增 package.json 和 package-lock.json；未修改业务代码。用户已明确授权直接更新 GitHub 默认首页。公开下载版本仍以 Releases 为准，本次不发布安装包；日常运行实例不代表已切换到此源码版本。

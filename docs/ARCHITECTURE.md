@@ -1,5 +1,7 @@
 # 架构导航
 
+自定义模型目录沿 `LoginDialog → list-custom-models 业务命令 → local-runtime → electron/list-custom-models.ts → 用户提供的 /models` 查询；Bearer Key 仅由主进程临时使用，不记录日志或持久化，组件不直接联网。模型返回只接受 `data[].id` 或 `models[].id`，去重并限制最多 5000 项；用户仍可手动输入模型名。查询失败不更改已保存的模型配置。该能力面向兼容 OpenAI Models API 的服务，不保证所有自定义 API 都提供相同目录端点。
+
 1.0.13 图片识别：`local-runtime → knowledge/image-ocr → windows-ocr → Windows.Media.Ocr`，复用既有图片分块、来源资产和元数据缓存。source-pipeline 在学习估算前识别，learning 将缓存 OCR 作为不可信辅助材料与实际像素一同提交；预览沿原 knowledge/pipeline 增加 recognize-images 动作，无新增 IPC 或外部 MCP 工具。取消、店铺/来源版本和账号租约保护延续至异步完成。
 
 模型批量节奏沿 `KnowledgeModelPort.minimumIntervalMs → knowledge.modelMinimumIntervalMs → source-pipeline → learner` 转发，托管默认 13000 毫秒、本机 0。等待在付费提交检查点之前，取消会结束等待。失败已收到响应的片段可用同一内部 pipeline 的 retry-received 动作归档并重新生成，不能用于未知提交/已取消/已完成任务，不向外部 AI MCP 开放。
@@ -32,6 +34,21 @@ E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独�
 
 浏览器：`index.html → src/app/main.ts → App.vue → router.ts`。
 桌面：`electron/main.ts → windows.ts → dist/index.html`；`ipc.ts` 注册能力，`preload.ts` 只暴露 `DesktopApi`。构建后的桌面文件位于 `dist-electron`。
+
+## 维护性职责拆分（1.0.56）
+
+本轮只调整装配与控制器归属，不新增 IPC、依赖、持久化格式或发送权限；公开业务命令、数据目录、审批门和页面文案保持不变。1.0.55 的自定义模型目录（`list-custom-models` → `electron/list-custom-models.ts`）由主线功能合入，仍走原命令和受限 `/models` 查询，不属于本轮拆分实现。
+
+原 `local-runtime.ts` 的知识/辅助装配拆到 `electron/runtime/`：
+
+- `knowledge-pipeline-assembly.ts`：组装 knowledge/collector、daily、image-ocr、source-pipeline 与 pipeline coordinator，并向已注册的 knowledge runtime 提供实时端口；管道的注册/替换仍由 knowledge runtime 负责。
+- `knowledge-learning-assembly.ts`：组装本店草稿写入、collected-products 与 platform learning service；共享 pdd learning provider 仍由组合根创建和销毁，装配不接管其生命周期。
+- `assist-runtime.ts`：辅助中心平台页、读取器与采集快照；只有出现在成功发布快照中的行才可解析详情入口。
+- `assist-detail-catalog.ts`：有界保存已观察/已发布详情 URL，未发布前不向渲染层暴露。
+
+`electron/local-runtime.ts` 与 workspace runtime 仍是组合根：统一创建顺序、账号/店铺租约、AI/发送审批、维护替换和 `RuntimeResourceDisposer` 关闭顺序；拆出的 assembly 只接收显式端口，不自行新建全局客户端或 IPC。
+
+知识库渲染侧仍由 `manager-controller.ts` 作为唯一协调者和编辑/审核生命周期所有者；目录采集在 `catalog-controller.ts`（翻页 identityVersion/scopeToken 一致、未知总数不全选、缩略图两次读取后复核），备份/恢复/清空在 `maintenance-controller.ts`（自持预览与 restoreLease；恢复/清空使用未套旧租约 guard 的 `createKnowledgeClient`，由 owner 应用新 context），商品学习/识图在 `product-learning-controller.ts`。`useKnowledgeManager()` 返回对象、页面交互与文案不变。待学反馈等与视图、分页和刷新强耦合的状态仍留在 manager，主控制器未按行数目标强行压缩。
 
 ## 目录与职责
 
@@ -77,13 +94,13 @@ message-diagnostics.ts 将采集消息与引擎 decision、正式请求 submitte
 
 上下文在 AiClient 完整组装 messages 后交给注入的 electron/context-compression.ts：16K 估算触发，原系统及近期消息保护，使用当前模型摘要旧资料，正式请求目标 8K。摘要与正式请求各自 trace，review 契约携带计量与摘要元数据；待发送候选只关联正式回复 trace。全程不新增 IPC 或跨会话摘要缓存。细节见 CONTEXT_COMPRESSION.md。
 
-桌面由 electron/local-runtime.ts 装配固定运行时，默认 local，可按公开来源配置显式选择 managed。managed-controller 复用受限设备会话协议，按服务/已验证账号定位独立数据与平台分区；模式/账号切换需停 AI 并重启。server/ 独立保留 Go 与原生管理网页，不替换 Vue。business-ipc 继续提供白名单 snapshot/execute/event，契约过滤凭据；见 MANAGED_SERVICE.md。
+桌面由 electron/local-runtime.ts 装配固定运行时，默认 local，可按公开来源配置显式选择 managed。managed-controller 复用受限设备会话协议；本机与所有托管账号共用同一本机 `local-runtime` 业务目录和 `yunduo-local` 平台分区，登录只决定托管 AI、团队与计费资格，模式/账号切换需停 AI 并重启。旧 `managed-workspaces` 目录保留但不读取、不自动合并。server/ 独立保留 Go 与原生管理网页，不替换 Vue。business-ipc 继续提供白名单 snapshot/execute/event，契约过滤凭据；见 MANAGED_SERVICE.md。
 
 渲染层由 shared/platform/backend.ts 适配桌面桥，shared/state/runtime.ts 的 Pinia store 共享快照、店铺选择及平台展示。模块组件保留自己的编辑草稿；商品服务在模块内转换分页和校验响应。真实保存使用后端版本检查，不将页面显示或夹具结果视为真实买家操作成功。
 
 app/services.ts 兼容原有页面查询及浏览器预览，新增真实业务以 backend 契约为准，不继续向旧演示接口增加网络操作。未接线的 demo 工厂仅用于旧视图，不能用作真实 DTO。
 
-local 模式资料与服务商密钥留在本机独立目录，模型请求交给用户配置的服务商；managed 模式使用显式配置的账号/额度服务，只加密保存受限会话。调用所需上下文发往选定托管服务，不额外上传调试快照；原始本机资料不迁移进托管账号。完整能力和步骤见 LOCAL_INTEGRATION.md、MANAGED_SERVICE.md。
+local 模式资料与服务商密钥留在本机独立目录，模型请求交给用户配置的服务商；managed 模式使用显式配置的账号/额度服务，只加密保存受限会话。业务资料本机与托管共用同一 `local-runtime` 目录，不向托管账号复制、迁移或额外上传本机原始资料；调用所需上下文发往选定托管服务，不额外上传调试快照。完整能力和步骤见 LOCAL_INTEGRATION.md、MANAGED_SERVICE.md。
 
 ## 平台采集、订单与操作审批
 
@@ -138,7 +155,7 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 
 ## 导航与兼容
 
-路由仍用 hash，兼容 Electron 的 file 加载。既有路由和重定向保留；配置中心的 `?panel=` 参数选择注册面板，非法值回到店铺页。
+路由仍用 hash，兼容 Electron 的 file 加载。既有路由和重定向保留：旧 `/shop/home` 兼容跳转到 `/shop/manage?panel=home`（不再有独立营销首页组件），`/store-sync` 回到店铺列表；配置中心的 `?panel=` 参数选择注册面板，`transfer`/`welcome` 旧键打开接待向导对应步骤，已删除的 `sync`、`learn`、`supervise`、`drill` 回落到店铺列表，其他非法值也回到店铺页。
 
 菜单、标题与组件由 `app/navigation.ts` 注册。新增面板时在此登记，并为模块公开入口添加导出。当前不做真实鉴权守卫；接入登录时需一起设计会话恢复与失效行为。
 

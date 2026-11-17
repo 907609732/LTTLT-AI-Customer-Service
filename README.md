@@ -37,6 +37,16 @@
 
 发布范围、确切源码和验证边界见 [v1.0.48 发布验收](docs/RELEASE_V1.0.48.md)。
 
+## 灵兔电商工具套件
+
+|                                                                                                                     Logo                                                                                                                     | 项目与用途                                                                                                                 |
+| :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------------- |
+|                 <a href="https://github.com/907609732/lingtu-recorder"><img src="https://raw.githubusercontent.com/907609732/lingtu-recorder/main/docs/assets/logo.png" width="96" height="96" alt="灵兔拆包智录 Logo"></a>                  | **[灵兔拆包智录](https://github.com/907609732/lingtu-recorder)**<br>Windows 拆包/打包录像与记录管理。                      |
+|           <a href="https://github.com/907609732/lingtu-order-export"><img src="https://raw.githubusercontent.com/907609732/lingtu-order-export/master/build/icon.png" width="96" height="96" alt="电商平台采购订单导出 Logo"></a>            | **[电商平台采购订单导出](https://github.com/907609732/lingtu-order-export)**<br>买家采购订单整理及 Excel/CSV 导出。        |
+| <a href="https://github.com/907609732/LTTLT-AI-Customer-Service"><img src="https://raw.githubusercontent.com/907609732/LTTLT-AI-Customer-Service/main/src/assets/lingtu-ai-icon.png" width="96" height="96" alt="灵兔 AI 电商客服 Logo"></a> | **[本项目：灵兔 AI 电商客服](https://github.com/907609732/LTTLT-AI-Customer-Service)**<br>店铺知识管理与 AI 客服辅助接待。 |
+
+以上工具可按需要选用，功能、版本和许可请以各项目说明为准。
+
 ## 主要功能
 
 以下按 v1.0.48 说明；独立托管服务端不包含在 Windows 安装包内。

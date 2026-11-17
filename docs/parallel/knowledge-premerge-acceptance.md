@@ -20,6 +20,8 @@
 | 审核启用/检索    | ShopIntentPanel 已支持人工启用并强制来源条目保持停用；来源审计不参加检索。此前真实 Electron 专项已验证经 UI 入库/启用后的实际训练请求含知识，跨店与商品范围隔离。                                                                                                               | 子集已验收；使用合成数据和本机固定测试模型，不证明实店或模型回答质量              |
 | 界面入口         | `src/app/navigation.ts:31–32` 的 intent-doc / intent-chat 指向 ShopIntentLearnPanel；kb 指向尺码页；同文件 learn 仍映射 ShopWipPanel。`src/app/layouts/ShopManageView.vue:49` 的“商品自动学习”调用 notifyUnavailable 别名 \_\_stub。ShopWipPanel 展示“开发中”。                 | 人工候选入口已接；“商品自动学习”“学习任务”未接                                    |
 
+2026-11-17 维护更新：上表“learn 仍映射 ShopWipPanel”为核查时历史状态。该占位面板及其 demo、`learn/supervise/drill` 注册已删除，旧键回落到店铺列表；“商品自动学习”入口保持原状。
+
 ## 通过项及证据边界
 
 本次只读源码核查后执行：

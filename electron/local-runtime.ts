@@ -1,10 +1,3 @@
-import { createKnowledgeSourcePipeline } from './knowledge/source-pipeline'
-import { createKnowledgeImageOcr } from './knowledge/image-ocr'
-import { readFile, stat } from 'node:fs/promises'
-import { createKnowledgePipelineCoordinator } from './knowledge/pipeline'
-import { createKnowledgeCollector } from './knowledge/collector'
-import { createKnowledgeDailyCheck } from './knowledge/daily'
-import { createCollectedProductWriter } from './collected-products'
 import { createKnowledgePlatformProducts } from './knowledge-platform-products'
 import { selectProductSpecContext } from './product-spec-context'
 import { createKnowledgeCompatibilityPorts } from './knowledge-compatibility'
@@ -48,7 +41,6 @@ import {
   commandSchema,
   snapshotSchema,
   resultSchema,
-  intentsSchema,
   emptySnapshot,
   type BackendCommand,
   type BackendEvent,
@@ -62,6 +54,7 @@ import {
   appIconPath,
 } from './windows'
 import { localVisionCapability } from './model-capabilities'
+import { listCustomModels } from './list-custom-models'
 import { ReviewConsole, type SendProposal } from './review-console'
 import { configureDomTextAdapter } from './dom-text-adapter'
 import { createAssistedContext } from './generic-phrases'
@@ -85,23 +78,12 @@ import {
   type XianyuAdapter,
 } from './xianyu'
 import { createSimServer } from './sim-server'
-import {
-  assistCollectionUrl,
-  assistBackendUrl,
-  isAllowedAssistUrl,
-  createAssistPlatformHost,
-  type AssistPlatform,
-} from './assist-platform-host'
-import { createAssistPlatformCollector } from './assist-platform-collector'
-import { createAssistPlatformReader } from './assist-platform-reader'
-import { pddDetailId } from './assist-platform-pdd'
 import { registerStoreBrowserEnvironment } from './store-browser'
 import { createReportingPipeline } from './reporting-pipeline'
 import { createStoreSync } from './store-sync-service'
 import { createFileScheduler } from './scheduler-storage'
 import { createFileReceptionAutomation } from './reception-automation-storage'
 import { ReceptionOperationsService } from './reception-operation-service'
-import { createPlatformLearningService } from './platform-learning-service'
 import { PlatformOrderService } from './platform-order-service'
 import { createPddOrderProvider } from './pdd-order-provider'
 import { createPddLearningProvider } from './pdd-learning-provider'
@@ -110,11 +92,15 @@ import { platformLearningOpenSourceSchema } from '../src/shared/contracts/platfo
 import { RuntimeResourceDisposer } from './runtime-disposal'
 import { PlatformWriteCoordinator } from './platform-write-coordinator'
 import {
-  openAssistPlatformItemSchema,
-  refreshAssistPlatformSchema,
   type OpenAssistPlatformItemInput,
   type RefreshAssistPlatformInput,
 } from '../src/shared/contracts/platform-items'
+import { createAssistRuntime } from './runtime/assist-runtime'
+import {
+  createKnowledgePipelineAssembly,
+  type KnowledgeImageRecognizer,
+} from './runtime/knowledge-pipeline-assembly'
+import { createKnowledgeLearningAssembly } from './runtime/knowledge-learning-assembly'
 
 interface UpstreamBackend {
   engine?: { worker(storeId: string): WorkerObservation | null }
@@ -175,7 +161,7 @@ export function createLocalRuntime(options: {
   /** Test-only dependency injection; production has no environment or renderer override. */
   managedTransport?: ManagedTransport
   /** Native acceptance can supply a recognizer without requiring OS language packs. */
-  recognizeKnowledgeImage?: Parameters<typeof createKnowledgeImageOcr>[0]['recognize']
+  recognizeKnowledgeImage?: KnowledgeImageRecognizer
 }) {
   const workspaceId = randomUUID()
   const listeners = new Set<(event: BackendEvent) => void>()
@@ -320,25 +306,6 @@ export function createLocalRuntime(options: {
     chromiumVersion: process.versions.chrome,
     userDataDir: app.getPath('userData'),
   })
-  const assistHost = createAssistPlatformHost({
-    namespace: managed.partitionNamespace,
-    getParent: options.getWindow,
-    createWindow: (partition) =>
-      new BrowserWindow({
-        width: 1200,
-        height: 850,
-        icon: appIconPath,
-        show: false,
-        autoHideMenuBar: true,
-        webPreferences: {
-          partition,
-          sandbox: true,
-          contextIsolation: true,
-          nodeIntegration: false,
-          backgroundThrottling: false,
-        },
-      }),
-  })
   let logWindow: BrowserWindow | undefined
   const notifyReview = () => {
     scheduleReporting()
@@ -385,53 +352,38 @@ export function createLocalRuntime(options: {
       identityId: store.mallId || undefined,
     }))
   }
-  const assistDetails = new Map<string, string>()
-  const observedAssistDetails = new Map<string, string>()
-  const assistCollector = createAssistPlatformCollector({
-    timeoutMs: 60000,
+  const assist = createAssistRuntime({
     workspaceId,
+    namespace: managed.partitionNamespace,
+    getParent: options.getWindow,
     stores: assistStores,
+    isActive: () => !closed && managed.canAccessWorkspace(),
     changed: () => {
       if (!closed) for (const listener of listeners) listener({ type: 'assist-platform:changed' })
     },
-    read: createAssistPlatformReader({
-      page: assistHost.page,
-      collectionPage: assistHost.collectionPage,
-      refreshQuery: assistHost.refreshQuery,
-      turnPage: assistHost.turnPage,
-      observeAfterSaleDetail: assistHost.observeAfterSaleDetail,
-      observeTicketDetail: assistHost.observeTicketDetail,
-      rememberDetail: (storeId, kind, id, url) => {
-        observedAssistDetails.set(`${storeId}:${kind}:${id}`, url)
-        if (observedAssistDetails.size > 1000)
-          observedAssistDetails.delete(observedAssistDetails.keys().next().value!)
-      },
-      identityScript: () =>
-        loadFactory<{
-          buildIdentityScript(options: { timeoutMs: number; refresh?: boolean }): string
-        }>('desk-v1/src/adapters/pdd-identity.js', 'buildIdentityScript').buildIdentityScript({
-          timeoutMs: 5000,
-          refresh: true,
-        }),
-    }),
+    createWindow: (partition) =>
+      new BrowserWindow({
+        width: 1200,
+        height: 850,
+        icon: appIconPath,
+        show: false,
+        autoHideMenuBar: true,
+        webPreferences: {
+          partition,
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          backgroundThrottling: false,
+        },
+      }),
+    identityScript: () =>
+      loadFactory<{
+        buildIdentityScript(options: { timeoutMs: number; refresh?: boolean }): string
+      }>('desk-v1/src/adapters/pdd-identity.js', 'buildIdentityScript').buildIdentityScript({
+        timeoutMs: 5000,
+        refresh: true,
+      }),
   })
-  const assistSnapshot = () => {
-    const snapshot = assistCollector.snapshot()
-    const published = new Set(
-      snapshot.stores.flatMap((store) =>
-        store.items.map((item) => `${store.storeId}:${store.kind}:${item.id}`),
-      ),
-    )
-    for (const key of published) {
-      const target = observedAssistDetails.get(key)
-      if (target) {
-        assistDetails.set(key, target)
-        observedAssistDetails.delete(key)
-      }
-    }
-    for (const key of assistDetails.keys()) if (!published.has(key)) assistDetails.delete(key)
-    return snapshot
-  }
   const review = new ReviewConsole(
     read,
     notifyReview,
@@ -845,8 +797,8 @@ export function createLocalRuntime(options: {
   const openStoreBackend = createStoreBackendOpener({
     assertActive,
     getStore: providerStore,
-    open: (store) => assistHost.open(store, assistBackendUrl(store.platform)),
-    close: assistHost.closeStore,
+    open: (store) => assist.openBackend(store),
+    close: assist.closeStore,
   })
   const providerOptions = {
     namespace: managed.partitionNamespace,
@@ -861,84 +813,16 @@ export function createLocalRuntime(options: {
       ).buildIdentityScript({ timeoutMs: 5000, refresh: true }),
   }
   const learningProvider = createPddLearningProvider(providerOptions)
-  const knowledgePipeline = createKnowledgePipelineCoordinator()
-  knowledgePipeline.register(
-    createKnowledgeCollector({
-      repository: knowledgeRepository,
-      provider: learningProvider,
-      readImage: learningProvider.readProductImage,
-      assertActive,
-      getStore: providerStore,
-      changed: () => {
-        if (!closed) for (const listener of listeners) listener({ type: 'knowledge:changed' })
-      },
-    }),
-  )
-  knowledgePipeline.register(
-    createKnowledgeSourcePipeline({
-      repository: knowledgeRepository,
-      imageOcr: createKnowledgeImageOcr({
-        repository: knowledgeRepository,
-        assertActive,
-        assertStore: knowledge.assertStore,
-        recognize: options.recognizeKnowledgeImage,
-      }),
-      assertStore: knowledge.assertStore,
-      model: {
-        complete: knowledge.complete,
-        vision: knowledge.vision,
-        identity: knowledge.modelIdentity,
-        minimumIntervalMs: knowledge.modelMinimumIntervalMs,
-      },
-      assertActive,
-      changed: () => {
-        if (!closed) for (const listener of listeners) listener({ type: 'knowledge:changed' })
-      },
-      chats: () => read().conversations,
-      chooseFiles: async () => {
-        const result = await dialog.showOpenDialog({
-          title: '选择知识资料',
-          properties: ['openFile', 'multiSelections'],
-          filters: [
-            {
-              name: '知识资料',
-              extensions: [
-                'pdf',
-                'docx',
-                'xlsx',
-                'csv',
-                'txt',
-                'md',
-                'png',
-                'jpg',
-                'jpeg',
-                'webp',
-                'gif',
-                'bmp',
-                'json',
-              ],
-            },
-          ],
-        })
-        assertActive()
-        if (result.canceled) return []
-        if (result.filePaths.length > 100) throw Error('一次最多100份资料')
-        return Promise.all(
-          result.filePaths.map(async (file) => {
-            const info = await stat(file)
-            if (!info.isFile() || info.size > 100 * 1024 * 1024)
-              throw Error('仅接受100MB以内普通文件')
-            return { name: path.basename(file), bytes: await readFile(file) }
-          }),
-        )
-      },
-    }),
-  )
-  knowledge.setPipeline(knowledgePipeline)
-  const knowledgeDaily = createKnowledgeDailyCheck({
+  const { daily: knowledgeDaily } = createKnowledgePipelineAssembly({
+    workspaceId,
     repository: knowledgeRepository,
-    available: () => runtimeStarted && !closed && managed.canAccessWorkspace(),
-    stores: () =>
+    knowledge,
+    provider: learningProvider,
+    assertActive,
+    getStore: providerStore,
+    conversations: () => read().conversations,
+    dailyAvailable: () => runtimeStarted && !closed && managed.canAccessWorkspace(),
+    dailyStores: () =>
       read()
         .stores.filter(
           (store) =>
@@ -947,93 +831,21 @@ export function createLocalRuntime(options: {
             store.runtime.open,
         )
         .map((store) => store.id),
-    start: (storeId, bindingIds) =>
-      knowledgePipeline.request({ action: 'start', kind: 'daily-check', storeId, bindingIds }),
+    changed: () => {
+      if (!closed) for (const listener of listeners) listener({ type: 'knowledge:changed' })
+    },
+    recognizeImage: options.recognizeKnowledgeImage,
   })
-  const productWriter = createCollectedProductWriter({
-    savePlatformProduct: platformProducts.upsert,
-    execute: async (command) => {
-      if (command.action !== 'list-products') return localBackend.execute(command)
-      assertActive()
-      if (!providerStore(command.storeId)) throw Error('店铺已移除')
-      const offset = typeof command.values.offset === 'number' ? command.values.offset : 0,
-        limit = typeof command.values.limit === 'number' ? command.values.limit : 100
-      const result = knowledgeRepository.listProducts({ storeId: command.storeId, offset, limit })
-      return {
-        status: 'ok',
-        message: '',
-        data: {
-          ...result,
-          items: result.items.map((row) => ({
-            id: row.binding.id,
-            storeId: row.binding.storeId,
-            productId: row.binding.productId,
-            title: row.binding.title || row.canonical.title,
-            description: '',
-            specifications: '',
-            price: '',
-            enabled: false,
-            version: row.binding.revision,
-            updatedAt: row.binding.updatedAt,
-          })),
-        },
-      }
-    },
-    assertActive,
-    assertStore: (storeId) => {
-      if (!providerStore(storeId)) throw Error('店铺已移除')
-    },
-    assertIdentity: async (expected) => {
-      assertActive()
-      const actual = await learningProvider.identity(expected.storeId)
-      assertActive()
-      if (
-        actual.accountId !== expected.accountId ||
-        actual.platformStoreId !== expected.platformStoreId ||
-        actual.storeId !== expected.storeId ||
-        actual.platform !== expected.platform
-      )
-        throw Error('采集商品保存前账号或店铺身份已变化')
-    },
-  })
-  const learning = createPlatformLearningService({
+  const { learning } = createKnowledgeLearningAssembly({
     directory: dataDir,
     workspaceId,
-    port: {
-      ...learningProvider,
-      async identity(storeId) {
-        const store = providerStore(storeId)
-        if (!store) throw Error('店铺已移除')
-        if (store.platform !== 'pdd-web') throw Error('此平台的主动学习采集尚未接入')
-        // 重启后保留登录分区但尚未建立适配器；采集入口复用正常打开店铺流程。
-        if (!platformAdapters.has(storeId)) {
-          await localBackend.execute({ action: 'open-store', storeId })
-          assertActive()
-          if (!providerStore(storeId)) throw Error('店铺已移除')
-        }
-        return learningProvider.identity(storeId)
-      },
-      storeProducts: productWriter.write,
-      assertActive,
-      async listPacks() {
-        assertActive()
-        const result = resultSchema.parse(
-          await localBackend.execute({ action: 'list-intent-packs', values: {} }),
-        )
-        assertActive()
-        return intentsSchema.parse(result.data).packs
-      },
-      async savePack(pack) {
-        assertActive()
-        const result = resultSchema.parse(
-          await localBackend.execute({ action: 'save-intent-pack', values: pack }),
-        )
-        assertActive()
-        const id = typeof result.data.id === 'string' ? result.data.id : ''
-        if (!id) throw Error('知识包未返回有效ID')
-        return { id }
-      },
-    },
+    repository: knowledgeRepository,
+    platformProducts,
+    provider: learningProvider,
+    backend: { execute: (command) => localBackend.execute(command) },
+    getStore: providerStore,
+    hasAdapter: (storeId) => platformAdapters.has(storeId),
+    assertActive,
   })
   const orderProvider = createPddOrderProvider(providerOptions)
   const orders = new PlatformOrderService({ directory: dataDir, workspaceId, port: orderProvider })
@@ -1134,13 +946,10 @@ export function createLocalRuntime(options: {
     () => platformAdapters.clear(),
     () => operationAdapters.clear(),
     () => scheduler.dispose(),
-    () => assistCollector.dispose(),
+    () => assist.disposeCollection(),
     () => disposeBrowserEnvironment(),
-    () => {
-      assistDetails.clear()
-      observedAssistDetails.clear()
-    },
-    () => assistHost.dispose(),
+    () => assist.clearDetails(),
+    () => assist.disposeHost(),
     () => managed.dispose(),
     () => review.dispose(),
     () => developerDebug?.dispose(),
@@ -1174,7 +983,7 @@ export function createLocalRuntime(options: {
         ...read(),
         review: managed.canAccessWorkspace() ? review.snapshot() : emptyReview(),
         reporting: managed.canAccessWorkspace()
-          ? reporting.snapshot(assistCollector.snapshot())
+          ? reporting.snapshot(assist.collectorSnapshot())
           : null,
       }),
     dataDirectory() {
@@ -1306,6 +1115,10 @@ export function createLocalRuntime(options: {
         }
       }
       if (command.action === 'open-store-backend') return openStoreBackend(command.storeId)
+      if (command.action === 'list-custom-models') {
+        const models = await listCustomModels(command.values)
+        return { status: 'ok', message: '模型列表已获取', data: { models } }
+      }
       if (command.action === 'review-reply') {
         await review.decide(command.values)
         return { status: 'ok' as const, message: '确认操作已处理；以平台发送结果为准。', data: {} }
@@ -1340,90 +1153,21 @@ export function createLocalRuntime(options: {
       if (command.action === 'remove-store' && command.storeId) {
         knowledge.removeStore(command.storeId)
         simHub.forget(command.storeId)
-        assistHost.closeStore(command.storeId)
+        assist.closeStore(command.storeId)
       }
       return result
     },
     assistPlatformSnapshot() {
-      return assistSnapshot()
+      return assist.snapshot()
     },
     setAssistPlatformActive(active: boolean) {
-      assistCollector.setActive(active)
-      if (!active) assistHost.stopCollecting()
+      assist.setActive(active)
     },
-    async refreshAssistPlatform(input: RefreshAssistPlatformInput) {
-      const request = refreshAssistPlatformSchema.parse(input)
-      if (closed || request.workspaceId !== workspaceId || !managed.canAccessWorkspace())
-        throw new Error('店铺工作区已改变，请重新打开辅助中心')
-      await assistCollector.refresh(request.storeId, request.kind)
-      return assistSnapshot()
+    refreshAssistPlatform(input: RefreshAssistPlatformInput) {
+      return assist.refresh(input)
     },
-    async openAssistPlatformItem(input: OpenAssistPlatformItemInput) {
-      const request = openAssistPlatformItemSchema.parse(input)
-      if (closed || request.workspaceId !== workspaceId || !managed.canAccessWorkspace())
-        throw new Error('店铺工作区已改变，请重新打开辅助中心')
-      const store = assistStores().find((item) => item.id === request.storeId)
-      if (!store || !['pdd-web', 'doudian-client'].includes(store.platform))
-        throw new Error('此店铺尚未接入平台后台')
-      if (store.platform !== 'pdd-web') throw new Error('抖店平台工单和售后暂未接入')
-      if (request.id) {
-        const record = assistSnapshot().stores.find(
-          (item) => item.storeId === request.storeId && item.kind === request.kind,
-        )
-        const row = record?.items.find((item) => item.id === request.id)
-        const target = assistDetails.get(`${request.storeId}:${request.kind}:${request.id}`)
-        if (
-          !row ||
-          record?.status !== 'success' ||
-          !target ||
-          pddDetailId(request.kind, target) !== request.id ||
-          (request.kind === 'aftersale' &&
-            new URL(target).searchParams.get('orderSn') !== row.orderNo)
-        )
-          throw new Error('此记录的详情页面不可用，请先刷新平台列表')
-        const page =
-          assistHost.page(store.id) ?? assistHost.collectionContents(store.id, request.kind)
-        if (!page || !isAllowedAssistUrl('pdd-web', page.getURL()))
-          throw new Error('平台后台已关闭，请先刷新同步后查看详情')
-        const identity: unknown = await page.executeJavaScript(
-          loadFactory<{
-            buildIdentityScript(options: { timeoutMs: number; refresh: boolean }): string
-          }>('desk-v1/src/adapters/pdd-identity.js', 'buildIdentityScript').buildIdentityScript({
-            timeoutMs: 5000,
-            refresh: true,
-          }),
-        )
-        const matches =
-          identity &&
-          typeof identity === 'object' &&
-          Reflect.get(identity, 'authenticated') === true &&
-          (store.identityId
-            ? Reflect.get(identity, 'mallId') === store.identityId
-            : Boolean(store.storeName) && Reflect.get(identity, 'storeName') === store.storeName)
-        if (!matches) {
-          assistCollector.invalidateStore(
-            store.id,
-            '后台登录或店铺身份已改变，请核对店铺后手动刷新',
-          )
-          throw new Error('后台登录或店铺身份已改变，未打开旧工单详情')
-        }
-        if (closed || !managed.canAccessWorkspace())
-          throw new Error('店铺工作区已改变，请重新打开辅助中心')
-        await assistHost.open({ id: store.id, platform: 'pdd-web' }, target)
-        return
-      }
-      await assistHost.open(
-        { id: store.id, platform: store.platform as AssistPlatform },
-        assistCollectionUrl(store.platform as AssistPlatform, request.kind),
-        assistSnapshot().stores.some(
-          (row) =>
-            row.storeId === store.id &&
-            row.kind === request.kind &&
-            row.status === 'login_required',
-        )
-          ? request.kind
-          : undefined,
-      )
+    openAssistPlatformItem(input: OpenAssistPlatformItemInput) {
+      return assist.openItem(input)
     },
     simulatorStatus(): SimulatorStatus {
       const status = simServer.status()
