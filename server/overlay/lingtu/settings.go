@@ -54,15 +54,30 @@ type TrialPolicy struct {
 	GlobalConcurrent     int      `json:"global_concurrent"`
 }
 
-func DefaultTrialPolicy() TrialPolicy {
+// legacyTrialPolicy is the pre-scope baseline used to decode saved rows. A row
+// written before model scopes existed must not gain fields it never stored:
+// decoding on today's default would silently widen a legacy policy to the new
+// scope and fill an intentionally omitted allowed_models list.
+func legacyTrialPolicy() TrialPolicy {
 	return TrialPolicy{Calls: 20, Days: 7, DefaultModel: "deepseek-flash", DailyCalls: 200, MaxTokens: 512, PerAccountConcurrent: 1, RequestsPerMinute: 5, GlobalConcurrent: 4}
 }
+
+// New deployments admit exactly one text model and one visual model, and grant
+// 100 calls. This default applies only while no policy row exists; an
+// administrator's saved policy is never rewritten by it.
+func DefaultTrialPolicy() TrialPolicy {
+	policy := legacyTrialPolicy()
+	policy.Calls = 100
+	policy.ModelScope = "selected"
+	policy.AllowedModels = []string{"deepseek-flash", "qwen3-vl-plus"}
+	return policy
+}
 func LoadTrialPolicy(db *gorm.DB) (TrialPolicy, error) {
-	policy := DefaultTrialPolicy()
+	policy := legacyTrialPolicy()
 	var row ManagedSetting
 	err := db.First(&row, "name = ?", "trial_policy").Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return policy, nil
+		return DefaultTrialPolicy(), nil
 	}
 	if err != nil {
 		return policy, err

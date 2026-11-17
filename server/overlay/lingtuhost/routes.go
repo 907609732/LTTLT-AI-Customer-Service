@@ -214,6 +214,14 @@ func (h *Host) accountResponse(c *gin.Context, uid int) {
 		return
 	}
 	selected := selection.DefaultModel
+	// capability reports what this account can actually send. Image-bearing
+	// requests are routed to an allowed visual model, so a text-only default
+	// (DeepSeek) does not remove image support; the reported model stays the
+	// text default because managed traces label text replies with it.
+	capability := visionCapability(selected)
+	if _, ok := imageModel(selection); ok {
+		capability["vision"] = true
+	}
 	quota, err := lingtu.NewBillingStore(model.DB).Quota(uid, time.Now())
 	if err != nil {
 		clientFailure(c, 503, "billing_unavailable")
@@ -221,7 +229,7 @@ func (h *Host) accountResponse(c *gin.Context, uid int) {
 	}
 	// Keep the historical account field as an aggregate admission snapshot for old
 	// desktop sessions; the billing catalog exposes the independent source pools.
-	c.JSON(200, gin.H{"capabilities": visionCapability(selected), "user_id": uid, "display_name": user.DisplayName, "status": account.Status, "quota": quota, "trial": gin.H{"limit": quota.Trial.Limit + quota.Paid.Limit, "used": quota.Trial.Used + quota.Paid.Used, "reserved": quota.Trial.Reserved + quota.Paid.Reserved, "remaining": quota.Remaining, "expires_at": max(quota.Trial.ExpiresAt, quota.Paid.ExpiresAt)}})
+	c.JSON(200, gin.H{"capabilities": capability, "user_id": uid, "display_name": user.DisplayName, "status": account.Status, "quota": quota, "trial": gin.H{"limit": quota.Trial.Limit + quota.Paid.Limit, "used": quota.Trial.Used + quota.Paid.Used, "reserved": quota.Trial.Reserved + quota.Paid.Reserved, "remaining": quota.Remaining, "expires_at": max(quota.Trial.ExpiresAt, quota.Paid.ExpiresAt)}})
 }
 func (h *Host) config(c *gin.Context) {
 	policy, err := lingtu.LoadTrialPolicy(model.DB)

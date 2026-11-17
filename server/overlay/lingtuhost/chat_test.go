@@ -340,6 +340,8 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 	// InitLogDB also initializes native SQL identifier quoting; keep it on this
 	// already-verified isolated fixture connection and skip unrelated migrations.
 	db := chatFixtureDB(t)
+	// These native-channel tests explicitly select arbitrary tested defaults.
+	saveLegacyTrialPolicy(t, db)
 	oldLogDB, oldMaster, oldType := model.LOG_DB, common.IsMasterNode, common.MainDatabaseType()
 	common.IsMasterNode = false
 	switch db.Dialector.Name() {

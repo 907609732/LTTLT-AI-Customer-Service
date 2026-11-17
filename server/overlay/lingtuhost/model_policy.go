@@ -37,6 +37,32 @@ func (selection modelSelection) allows(id string) bool {
 	return false
 }
 
+// imageModel reports the model that image-bearing requests are routed to. The
+// server, not the client, decides this: text keeps the policy default/account
+// preference, while any request with image parts must be seen by an allowed and
+// ready visual model. Models are ID-sorted, so multiple visual connections are
+// resolved deterministically without exposing provider routing to the client.
+func imageModel(selection modelSelection) (string, bool) {
+	for _, model := range selection.Models {
+		if channel, err := selectedChannel(model.ID); err == nil && channel.Models == visionModel {
+			return model.ID, true
+		}
+	}
+	return "", false
+}
+
+// shippedTextPinned identifies the factory text+visual pair. General scoped
+// policies keep the documented fallback to another ready allowed model, but the
+// shipped pair must never answer text or free summaries with the visual model:
+// if DeepSeek is unavailable those requests fail closed before any reservation.
+// An administrator's explicit account preference still wins when it is allowed
+// and ready, because that is an explicit choice rather than a silent fallback.
+func shippedTextPinned(policy lingtu.TrialPolicy) bool {
+	factory := lingtu.DefaultTrialPolicy()
+	return policy.ModelScope == "selected" && policy.DefaultModel == factory.DefaultModel &&
+		len(policy.AllowedModels) == 2 && hasModel(policy.AllowedModels, "deepseek-flash") && hasModel(policy.AllowedModels, visionModel)
+}
+
 // Legacy policies intentionally retain their single-model behavior. New scopes
 // enumerate only managed bindings, never arbitrary native channels or secrets.
 func resolveModelPolicy(db *gorm.DB, policy lingtu.TrialPolicy, accountModel string) (modelSelection, error) {
@@ -71,6 +97,13 @@ func resolveModelPolicy(db *gorm.DB, policy lingtu.TrialPolicy, accountModel str
 	}
 	if selection.allows(accountModel) {
 		selection.DefaultModel = accountModel
+	}
+	if shippedTextPinned(policy) {
+		intended := policy.DefaultModel
+		if selection.allows(accountModel) {
+			intended = accountModel
+		}
+		selection.DefaultModel = intended
 	}
 	return selection, nil
 }
@@ -131,7 +164,10 @@ func validateModelPolicy(db *gorm.DB, policy lingtu.TrialPolicy) error {
 			}
 		}
 		retained := previous.ModelScope == policy.ModelScope && (policy.ModelScope == "all" && previous.DefaultModel == id || policy.ModelScope == "selected" && hasModel(previous.AllowedModels, id))
-		if !found || !ready && !retained {
+		// A model the previous policy already allowed may still be unconfigured
+		// (for example a fresh install that has only set up DeepSeek). Keeping it
+		// in scope is allowed; resolution simply ignores it until it is ready.
+		if (!found || !ready) && !retained {
 			return lingtu.ErrInvalidTrialInput
 		}
 	}

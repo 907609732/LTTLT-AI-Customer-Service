@@ -32,8 +32,24 @@ func modelPolicyFixture(t *testing.T) (*gorm.DB, lingtu.TrialPolicy) {
 	return db, lingtu.DefaultTrialPolicy()
 }
 
+// saveLegacyTrialPolicy pins the pre-scope single-model policy. Suites that
+// verify legacy compatibility must not depend on today's new-install defaults.
+func saveLegacyTrialPolicy(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	policy := lingtu.DefaultTrialPolicy()
+	policy.ModelScope, policy.AllowedModels = "", nil
+	raw, err := common.Marshal(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Save(&lingtu.ManagedSetting{Name: "trial_policy", Value: string(raw)}).Error; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLingtuModelPolicyScopeAndFallback(t *testing.T) {
 	db, policy := modelPolicyFixture(t)
+	policy.ModelScope, policy.AllowedModels = "", nil
 	legacy, err := resolveModelPolicy(db, policy, "qwen-plus")
 	if err != nil || legacy.DefaultModel != "qwen-plus" || len(legacy.Models) != 1 {
 		t.Fatal(legacy, err)
@@ -138,7 +154,7 @@ func TestLingtuModelPolicyReferencesAndUnavailableDefault(t *testing.T) {
 
 func TestLingtuModelPolicyConfigAndModelDigest(t *testing.T) {
 	db, policy := modelPolicyFixture(t)
-	policy.ModelScope = "all"
+	policy.ModelScope, policy.AllowedModels = "all", nil
 	raw, _ := common.Marshal(policy)
 	db.Save(&lingtu.ManagedSetting{Name: "trial_policy", Value: string(raw)})
 	db.Create(&lingtu.ManagedAccount{UserID: 42, Status: "enabled", Model: "qwen-plus"})
@@ -214,7 +230,7 @@ func TestLingtuModelPolicyRetryConflictAndLegacyDigest(t *testing.T) {
 
 func TestLingtuModelPolicyDispatchAndDynamicCatalog(t *testing.T) {
 	db, policy := modelPolicyFixture(t)
-	policy.ModelScope = "all"
+	policy.ModelScope, policy.AllowedModels = "all", nil
 	raw, _ := common.Marshal(policy)
 	if err := db.Save(&lingtu.ManagedSetting{Name: "trial_policy", Value: string(raw)}).Error; err != nil {
 		t.Fatal(err)
@@ -259,5 +275,43 @@ func TestLingtuModelPolicyDispatchAndDynamicCatalog(t *testing.T) {
 	selected, err := resolveModelPolicy(db, policy, "")
 	if err != nil || len(selected.Models) != 3 || !selected.allows(visionModel) {
 		t.Fatal("all scope did not include newly enabled model", selected, err)
+	}
+}
+
+// A fresh install keeps the shipped two-model scope while only DeepSeek is
+// configured yet; the visual model may stay allowed until its connection is
+// ready. A newly introduced unknown model is still rejected.
+func TestLingtuModelPolicyRetainsPreviouslyAllowedUnconfiguredModel(t *testing.T) {
+	db, _ := modelPolicyFixture(t)
+	h := &Host{}
+	request := configurationRequest{Section: "trial", Calls: 100, Days: 7, DailyCalls: 200, MaxTokens: 512, Model: "deepseek-flash", ModelScope: "selected", AllowedModels: []string{"deepseek-flash", visionModel}}
+	if err := h.saveTrialConfiguration(request); err != nil {
+		t.Fatalf("shipped scope not retained: %v", err)
+	}
+	policy, err := lingtu.LoadTrialPolicy(db)
+	if err != nil || !reflect.DeepEqual(policy.AllowedModels, request.AllowedModels) || policy.Calls != 100 {
+		t.Fatal(policy, err)
+	}
+	bad := request
+	bad.AllowedModels = []string{"deepseek-flash", "managed-unconfigured"}
+	if err := h.saveTrialConfiguration(bad); err == nil {
+		t.Fatal("new unconfigured model accepted")
+	}
+}
+
+// A saved "all enabled models" policy intentionally omits allowed_models.
+// Loading it must not inherit the shipped list, which would make it invalid.
+func TestLingtuModelPolicyAllScopeOmittingAllowedModelsStaysValid(t *testing.T) {
+	db, _ := modelPolicyFixture(t)
+	if err := db.Save(&lingtu.ManagedSetting{Name: "trial_policy", Value: `{"calls":20,"days":7,"default_model":"deepseek-flash","model_scope":"all","daily_calls":200,"max_tokens":512,"per_account_concurrent":1,"requests_per_minute":5,"global_concurrent":4}`}).Error; err != nil {
+		t.Fatal(err)
+	}
+	policy, err := lingtu.LoadTrialPolicy(db)
+	if err != nil || policy.AllowedModels != nil {
+		t.Fatal(policy, err)
+	}
+	selection, err := resolveModelPolicy(db, policy, "")
+	if err != nil || len(selection.Models) != 2 || selection.DefaultModel != "deepseek-flash" {
+		t.Fatal(selection, err)
 	}
 }

@@ -78,7 +78,7 @@ func TestTrialIdentitySocialCaseScopeAndLaterBind(t *testing.T) {
 		}
 		var grant TrialGrant
 		db.First(&grant, uid)
-		if grant.Limit != 20 {
+		if grant.Limit != DefaultTrialPolicy().Calls {
 			t.Fatal(grant)
 		}
 	}
@@ -103,7 +103,7 @@ func TestTrialIdentitySocialCaseScopeAndLaterBind(t *testing.T) {
 	}
 	grant = TrialGrant{}
 	db.First(&grant, 1)
-	if grant.Limit != 20 {
+	if grant.Limit != DefaultTrialPolicy().Calls {
 		t.Fatal(grant)
 	}
 	db.Where("id = ?", 1).Delete(&identityUser{})
@@ -141,7 +141,7 @@ func TestTrialIdentityConcurrentRegrantAndFailClosed(t *testing.T) {
 			}
 			var g TrialGrant
 			db.First(&g, uid)
-			if g.Limit == 20 {
+			if g.Limit == DefaultTrialPolicy().Calls {
 				grants.Add(1)
 			}
 		}(uid)

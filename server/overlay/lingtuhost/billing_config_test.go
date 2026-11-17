@@ -196,6 +196,8 @@ func TestBillingAdminWriteBindsExactBodyAndRejectsProofReplay(t *testing.T) {
 
 func TestBillingHTTPAuthenticatedCatalogAndOrdersUseSameRestrictedSession(t *testing.T) {
 	db := hostDB(t)
+	// Billing/session isolation does not configure model connections.
+	saveLegacyTrialPolicy(t, db)
 	t.Setenv("LINGTU_BILLING_STRIPE_SECRET_KEY", "")
 	t.Setenv("LINGTU_BILLING_STRIPE_WEBHOOK_SECRET", "")
 	t.Setenv("LINGTU_BILLING_PLANS", "")

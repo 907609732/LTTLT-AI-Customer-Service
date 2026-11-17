@@ -403,6 +403,14 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
       ...selectedModels,
     ]),
   ]
+  // Image requests are routed server-side to a ready visual model, so the
+  // administrator needs to know when the scope currently has none.
+  const visionReady = availableModels.some(
+    (row) =>
+      row.upstream_model === 'qwen3-vl-plus' &&
+      (policy.model_scope === 'all' ||
+        (policy.model_scope === 'selected' && selectedModels.includes(row.model_id)))
+  )
   function choiceName(id: string): string {
     if (id === 'deepseek-flash') return t('DeepSeek')
     if (id === 'qwen-plus') return t('Qwen')
@@ -450,6 +458,11 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
         <p className='text-sm text-slate-500'>
           {t(
             'Changes apply to newly granted trials. Existing accounts keep their grants.'
+          )}
+        </p>
+        <p className='text-sm text-slate-500'>
+          {t(
+            'A request containing both text and images is charged once, not once per model. Failures, paid quota and internal summaries follow the existing billing rules.'
           )}
         </p>
         <p className='text-sm text-slate-500'>
@@ -507,9 +520,25 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
           </select>
           <p className='text-sm text-slate-500'>
             {t(
-              'Accounts can switch between allowed models. The account model is only a default preference.'
+              'This scope limits the models the service can call. The account model is a default preference.'
             )}
           </p>
+          {policy.model_scope && (
+            <>
+              <p className='text-sm text-slate-500'>
+                {t(
+                  'Requests without an explicit model use the account or global default for text and an authorized, ready Qwen3-VL for images. Explicit models still require authorization and image support.'
+                )}
+              </p>
+              {!visionReady && (
+                <p role='status' className='text-sm text-amber-700'>
+                  {t(
+                    'No visual model in this scope is ready. Requests with images will be rejected until an authorized Qwen3-VL connection is ready.'
+                  )}
+                </p>
+              )}
+            </>
+          )}
         </div>
         {policy.model_scope === 'selected' && (
           <fieldset

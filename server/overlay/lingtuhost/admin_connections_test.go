@@ -21,6 +21,7 @@ import (
 
 func TestLingtuConnectionCatalogMigratesLegacyWithoutSecrets(t *testing.T) {
 	db := managedModelDB(t)
+	saveLegacyTrialPolicy(t, db)
 	old := qwenModelFixture()
 	if err := persistManagedModel(old, true); err != nil {
 		t.Fatal(err)
@@ -148,6 +149,7 @@ func TestLingtuConnectionRejectsInvalidEndpointAndUnknownProvider(t *testing.T) 
 
 func TestLingtuConnectionProbeFailureNeverReportsSavedAsTested(t *testing.T) {
 	db := managedModelDB(t)
+	saveLegacyTrialPolicy(t, db)
 	h := &Host{}
 	r := connectionRequest(t, `{"section":"model_connection","action":"save","provider":"vllm","name":"local","base_url":"http://127.0.0.1:12345","upstream_model":"fixture-model","enabled":true}`)
 	if err := h.saveModel(nil, r); err != nil {
@@ -207,6 +209,7 @@ func TestLingtuConnectionProbeFailureNeverReportsSavedAsTested(t *testing.T) {
 
 func TestLingtuConnectionMigrationSurvivesOldSaveSection(t *testing.T) {
 	db := managedModelDB(t)
+	saveLegacyTrialPolicy(t, db)
 	old := qwenModelFixture()
 	base := "https://dashscope.aliyuncs.com/compatible-mode"
 	old.BaseURL = &base

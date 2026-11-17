@@ -444,6 +444,7 @@ func TestLingtuChatContextPolicyLearning(t *testing.T) {
 		saveContextPolicyForTest(t, db, 0, func(input *lingtu.ContextPolicyInput) { *input = learningContextPolicy() })
 		body := contextPolicyRequest(t, map[string]any{
 			"client_request_id": "learning-vision-model",
+			"model":             "deepseek-flash",
 			"purpose":           "learning",
 			"policy_version":    1,
 			"learning_source":   "pdd_detail_image",

@@ -156,6 +156,7 @@ func TestLingtuCNYConfigRetainsRatesForOldClientsAndRejectsPartialRates(t *testi
 
 func TestLingtuCNYLegacySavePreservesRates(t *testing.T) {
 	db := managedModelDB(t)
+	saveLegacyTrialPolicy(t, db)
 	old := qwenModelFixture()
 	base := "https://dashscope.aliyuncs.com/compatible-mode"
 	old.BaseURL = &base

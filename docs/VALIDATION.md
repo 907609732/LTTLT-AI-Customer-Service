@@ -1,5 +1,21 @@
 # 客户端与独立服务端验证
 
+## 2026-11-17：文字 DeepSeek / 图片 Qwen3-VL（1.0.48，生产未部署）
+
+隔离 SQLite、合成渠道、假 relay；不调用付费模型，不发送买家消息。固定上游提交 48a6c87f9e7757fdc58e5be9bcb4f8281ad0dfd0，复用已有库和账本。陈旧回环代理造成的 GitHub 连接问题通过仅本次进程移除代理变量解决，系统配置未改。
+
+- RED：旧 JSON 被新默认污染、文字错误回退视觉、/me 错报文字默认的回归用例先失败；修正后定向通过。前端“视觉已配置但未授权”回归在旧判断下失败，恢复授权过滤后通过。
+- 独立验收 3 项通过：文字/纯图/图文实际目标、文字/图片学习用途、重放无重复调用/扣次；98→99（文字）→100（图片），第101次两类均拒绝。已用唯一测试会话 ID 避免共享数据库碰撞。
+- `go test ./lingtu ./lingtuhost -run 'TestTrial(Default|Saved|NoSaved)|TestLingtu(ModelPolicy|Vision|TextVisionAcceptance)' -count=1 -timeout=300s`：两个包退出0（0.701s/32.147s）。
+- 完整 lingtu/lingtuhost 一次运行发现旧单模型/20次测试夹具假设（完整运行未通过）；仅修正相关夹具，不削弱授权/账本断言。所有失败项及独立验收重跑退出0（63.175s），日志 server/text-vision-compatibility.log。未重复无关全量测试。
+- `bun run test src/features/lingtu/admin-page.test.tsx --maxWorkers=2`：28/28通过；授权状态修正另做单例红绿验证。
+- `bun run typecheck`：1436文件/2项目通过；改动两文件 oxlint通过。
+- `node --test server/tests/preparation.test.mjs`：翻译/生成2项通过。
+- 原生网页以 http://127.0.0.1:3000 作为本机 API 构建通过；Windows amd64服务端编译通过，不将此本机页面包用于生产。
+- 未运行完整桌面测试、完整 server:verify 或本机MySQL/PostgreSQL；GitHub CI与Linux构建结果另行记录，不冒充已经通过。
+
+版本 package.json/package-lock.json=1.0.48。来源清单保留上游原始摘要并刷新实际哈希。生产未部署、未保存线上策略；仅升级不覆盖已有策略，新账号100次与指定双模型须在部署后明确保存。
+
 ## 2026-11-17：托管模型上下文策略（源码 1.0.44）
 
 本轮在独立 Git 工作树用合成知识、隔离 SQLite 和本机模型夹具验证，不读取真实店铺资料、不调用付费模型或发送买家消息。管理员策略加密保存/CAS、客户端安全投影、桌面用途/版本/来源白名单、服务端学习准入与隐藏接待规则、知识引用预算均有针对性用例。接待知识预算 3 文件 46 项通过；固定桌面运行时 235 项通过；桌面 `typecheck`、生产构建与两份固定来源清单校验通过。服务端 `lingtuhost` 完整包一次 177.878 秒通过；合并后的策略/免费摘要专项通过；固定上游与自有计费重试、旧收据迁移专项通过。原生管理页策略编辑测试 7 项、翻译生成检查 2 项通过。

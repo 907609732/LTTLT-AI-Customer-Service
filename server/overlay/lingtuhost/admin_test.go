@@ -96,7 +96,7 @@ func TestLingtuAdminAccountListUsesRealTrialLedger(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest("GET", "/api/lingtu/admin/accounts?page=1", nil)
 	(&Host{}).adminAccounts(c)
-	if recorder.Code != 200 || !strings.Contains(recorder.Body.String(), `"limit":20`) {
+	if recorder.Code != 200 || !strings.Contains(recorder.Body.String(), `"limit":100`) {
 		t.Fatalf("%d %s", recorder.Code, recorder.Body.String())
 	}
 }

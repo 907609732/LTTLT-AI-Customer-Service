@@ -97,6 +97,9 @@ func assertClientContextPolicyKeys(t *testing.T, raw json.RawMessage, want ...st
 
 func TestLingtuClientContextPolicyProjection(t *testing.T) {
 	db := modelPolicyFixtureDB(t)
+	// The pre-scope single-model shape is what this projection test documents;
+	// new installs default to a scoped text/visual pair instead.
+	saveLegacyTrialPolicy(t, db)
 	host, token := clientContextPolicyHost(t, db)
 
 	first := lingtu.DefaultContextPolicyInput()
@@ -170,6 +173,8 @@ func TestLingtuClientContextPolicyDefaultsAndLegacyFields(t *testing.T) {
 	host, token := clientContextPolicyHost(t, db)
 
 	policy := lingtu.DefaultTrialPolicy()
+	// Existing installs keep an explicit legacy policy without a model scope.
+	policy.ModelScope, policy.AllowedModels = "", nil
 	policy.MaxTokens = 777
 	raw, err := json.Marshal(policy)
 	if err != nil {
@@ -236,6 +241,7 @@ func TestLingtuClientContextPolicyCorruptSetting(t *testing.T) {
 
 	t.Run("damaged ciphertext", func(t *testing.T) {
 		db := hostDB(t)
+		saveLegacyTrialPolicy(t, db)
 		host, token := clientContextPolicyHost(t, db)
 		prompt := savePolicy(t, db)
 		var sealed string
@@ -260,6 +266,7 @@ func TestLingtuClientContextPolicyCorruptSetting(t *testing.T) {
 
 	t.Run("unreadable setting", func(t *testing.T) {
 		db := hostDB(t)
+		saveLegacyTrialPolicy(t, db)
 		host, token := clientContextPolicyHost(t, db)
 		prompt := savePolicy(t, db)
 

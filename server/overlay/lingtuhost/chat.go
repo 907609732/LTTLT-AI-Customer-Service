@@ -552,12 +552,24 @@ func (h *Host) prepareChat(c *gin.Context) {
 		}
 		selected = in.Model
 	}
+	images := containsImages(in.Messages)
+	// The desktop never picks a model. Keep text on the policy default (DeepSeek
+	// for the shipped defaults) and route image-bearing requests to a visual
+	// model inside the allowed scope. An explicit client model is still honoured
+	// as asked and is never silently replaced.
+	if images && in.Model == "" {
+		routed, ok := imageModel(selection)
+		if !ok {
+			clientFailure(c, 400, "vision_unavailable")
+			return
+		}
+		selected = routed
+	}
 	channel, binding, err := selectedChannelSnapshot(selected)
 	if err != nil {
 		clientFailure(c, 503, "model_not_ready")
 		return
 	}
-	images := containsImages(in.Messages)
 	if images && channel.Models != visionModel {
 		clientFailure(c, 400, "vision_unavailable")
 		return

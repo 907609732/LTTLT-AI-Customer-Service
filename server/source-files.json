@@ -103,7 +103,7 @@
     {
       "path": "overlay/lingtu/identity_test.go",
       "upstreamPath": "managed-server/overlay/lingtu/identity_test.go",
-      "sha256": "4d3d0cfa783d36cc3b8a79ac8f12429905380a55950b98757aee0ff6147f3476"
+      "sha256": "da43c16a27d7bca7fb8a3ec4d4fa718ad0d4f84c06fc6a7ccfd6effa0d66908b"
     },
     {
       "path": "overlay/lingtu/limits.go",
@@ -147,7 +147,7 @@
     {
       "path": "overlay/lingtu/settings.go",
       "upstreamPath": "managed-server/overlay/lingtu/settings.go",
-      "sha256": "14632be1462930580c1f7308953a27d8ffcf67bfeea5e843b50d34b20a8f39ae",
+      "sha256": "11b180ae75cc1cad233cab071852473bec3c43520678f5c9a6e5291f10fc67d3",
       "upstreamSha256": "abe3a0d51749548fc1643503a89a0be8968d4ab09223dbcd2d9daac60c54d48d"
     },
     {
@@ -196,13 +196,13 @@
     {
       "path": "overlay/lingtuhost/admin_connections_review_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_connections_review_test.go",
-      "sha256": "186f68ee6b1ca503de83f759896c46c3db263fa6c9a0077ee183d4b243bf98c4",
+      "sha256": "c73ac32cc6524b9af6e235c62c730a88e51ad0a874f18b302a150b7967764e81",
       "upstreamSha256": "ffeb366f2e15e1a04b7bb695c9657887768a328beaf34b74586e6b47a9b626cc"
     },
     {
       "path": "overlay/lingtuhost/admin_connections_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_connections_test.go",
-      "sha256": "3cad37acfee0a384918bc27cdc531118009efbd79bccbddd54e118f697ec8189",
+      "sha256": "105e0cd4d0be90e16ee486ab802c50f79b53536f7771dd8d2765e1404514f66a",
       "upstreamSha256": "9e0eb7846a20901e2eda8f98db61ff8dccaa9b6427fd705a0241b5e7dad8e88f"
     },
     {
@@ -215,7 +215,7 @@
     {
       "path": "overlay/lingtuhost/admin_model_default_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_model_default_test.go",
-      "sha256": "db4e9a5f13f2ea14dafa80098cafc898fb232e4743c2357c5526736ac7a94663"
+      "sha256": "8f1a9fdc615c1632653df3c7cf4d92d2d17173beba4cfc8eedd47d93ffbadd3d"
     },
     {
       "path": "overlay/lingtuhost/admin_save_test_test.go",
@@ -226,7 +226,7 @@
     {
       "path": "overlay/lingtuhost/admin_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_test.go",
-      "sha256": "db0127fdb7e16122b6d702cd8c6515aac73d84d98f12b700a38a10bd01026f42",
+      "sha256": "eb84f6e08b8dbf3cf7118474e9d916fa6761747bcf04fc8129878005c7c8327e",
       "upstreamSha256": "449bcdc0686398980572603b969a6365ece81412578ab79e6131dd9fbf375bf4",
       "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
@@ -264,14 +264,14 @@
     {
       "path": "overlay/lingtuhost/chat.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat.go",
-      "sha256": "5ba3a18df6d3f603d4f89ea6feabe6764ba03182eda7d5c7ae6b21e444479d53",
+      "sha256": "be2655f64fc74128fd0f74dadd32284f5604e13ed099fc61da230e2e7cc6080c",
       "upstreamSha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650",
       "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
     {
       "path": "overlay/lingtuhost/chat_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat_test.go",
-      "sha256": "077f7d18a33705ac61f1b8b226a0259f227aa840a2cbe754ac634cea5cd7f75c",
+      "sha256": "2526188dd9fd5ba746ee684a76c21d1a99df2fa3357eaf5b658a44db68181461",
       "upstreamSha256": "68d971b36114e9bb06682511db70b011cac71b784037b1dd161446e2195d768f",
       "localPatch": " Add configured CNY estimates and frozen admission rates without changing balances.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
@@ -300,7 +300,7 @@
     {
       "path": "overlay/lingtuhost/routes.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/routes.go",
-      "sha256": "31964dae445702f711f4e44a1ed4f1a3411c14b86d4a607c98f9dcbea2ce0138",
+      "sha256": "9b198f6a4c21f6bfbe366105304e0eed26cba26d94b69f4416fd8c5d0cfe0e45",
       "upstreamSha256": "06864f9097cc5e2c7010927b6f5ba3d3bba95e0099ff771abbaaebc73932d5c4",
       "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors. Reuse bounded client body middleware; only exact POST /api/client/chat/completions permits 16MiB image envelopes, all other client routes retain 1MiB. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs Add the managed context policy safe projection to the existing authenticated GET /api/client/config: keep default_model/models/max_tokens semantics, add top-level policy_version plus runtime_context/learning from ClientProjection only, use DefaultContextPolicy when no row exists, and fail closed with 503 on an unreadable setting."
     },
@@ -314,7 +314,7 @@
     {
       "path": "overlay/lingtuhost/vision_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/vision_test.go",
-      "sha256": "e96636a4cd37d9e1559c74b13e1efbe3b94fdd9ef4297d4eae915f9cbd689c47",
+      "sha256": "cfd724af6f119da54a5bec00a282e450f00be9e5964dc7ece7e3586e0219ca62",
       "upstreamSha256": "ebfe3a1bc0ced501e1ec2cfef23a91f561fcea5b06d882e271505dbb02adac27",
       "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits."
     },
@@ -407,14 +407,14 @@
     {
       "path": "overlay/web/src/features/lingtu/admin-page.test.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.test.tsx",
-      "sha256": "7deef96eb97a88e7ea1cd0ed20bf481bd93f7e624709ab05be206d826ff11b44",
+      "sha256": "ec613dcefe03ccebbdb76859398792f9321fd91c514f95eaf838b5cdb65c4c73",
       "upstreamSha256": "31faaa4b3b87915c7a18bf03df0114717110648dd169606c741b749785c0aabf",
       "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, exact proof/POST and 409 draft-preservation tests"
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-page.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.tsx",
-      "sha256": "3cb846b3f45a82b19b0c5aad31c23aac1d8a83c29b4319309aa80d04d766ad11",
+      "sha256": "c79d02e8b8eb3c51e4288fbbcbfffed12b28aa6581a17512d53fbd091b9aa944",
       "upstreamSha256": "47c9d379bc0749edd50d6dd598452074525a69308d3f9702eb65b3d16837111a",
       "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, typed 409 conflict and secure-save integration without changing model-connection behavior"
     },
@@ -502,9 +502,21 @@
       "localPatch": "Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization."
     },
     {
+      "path": "overlay/lingtu/default_policy_test.go",
+      "upstreamPath": "managed-server/overlay/lingtu/default_policy_test.go",
+      "sha256": "fe9b9148965f753c5879b9269afb777785ca9c94ec40fd5e03d7c305df1e0e91",
+      "localPatch": "Self-owned test added 2026-11-17; shipped text/visual defaults and saved-policy decoding."
+    },
+    {
+      "path": "overlay/lingtuhost/text_vision_acceptance_test.go",
+      "upstreamPath": "managed-server/overlay/lingtuhost/text_vision_acceptance_test.go",
+      "sha256": "2e814c1ab7f3454b293c4c5cbad5968d9d76024b3a1cf607c558f6a89eaa3369",
+      "localPatch": "Self-owned acceptance test added 2026-11-17; text DeepSeek/visual Qwen3-VL routing and capability projection."
+    },
+    {
       "path": "translations.json",
       "upstreamPath": "managed-server/translations.json",
-      "sha256": "ce0fec3391b6a82b0d921dadf4f72c0114793cf567165afe6179fdaa377be0f3",
+      "sha256": "fd50c68da75e92631d52f1a3b68b53353930472292677e54c96fe4ee021d7ba6",
       "upstreamSha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149",
       "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: add stable daily/monthly amount, historical current-rate, cache-detail and report-estimate translation keys. 2026-11-17: add hosted context policy editor, validation and conflict messages"
     },

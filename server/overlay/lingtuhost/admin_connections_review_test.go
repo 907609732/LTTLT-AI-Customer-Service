@@ -115,6 +115,9 @@ func TestLingtuReviewExplicitEndpointNeverFallsBack(t *testing.T) {
 func savedReviewConnection(t *testing.T) (*gorm.DB, *Host, lingtu.ModelConnection, model.Channel) {
 	t.Helper()
 	db := managedModelDB(t)
+	// The legacy single-model policy is required here: this suite changes the
+	// default through saveModelPolicy without maintaining a model scope.
+	saveLegacyTrialPolicy(t, db)
 	h := &Host{}
 	if err := h.saveModelConnection(nil, configurationRequest{Section: "model_connection", Provider: "vllm", Action: "save", Name: "review", Secret: "fixture", BaseURL: "http://127.0.0.1:12345", UpstreamModel: "fixture-model", Enabled: true}); err != nil {
 		t.Fatal(err)

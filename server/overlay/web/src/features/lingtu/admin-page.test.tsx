@@ -608,6 +608,89 @@ it('provides default caps and translated friendly model selection in trial setti
   ).toBeTruthy()
 })
 
+it('explains the routing split and warns when the scope has no ready visual model', async () => {
+  installFixture({
+    ...config,
+    policy: {
+      ...config.policy,
+      calls: 100,
+      model_scope: 'selected',
+      allowed_models: ['deepseek-flash', 'qwen3-vl-plus'],
+    },
+    model_connections: [
+      {
+        connection_id: 1,
+        model_id: 'deepseek-flash',
+        name: 'DeepSeek',
+        upstream_model: 'deepseek-flash',
+        ready: true,
+        enabled: true,
+      },
+    ],
+  })
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('tab', { name: '试用设置' }))
+  await screen.findByRole('combobox', { name: '可用模型范围' })
+  expect(screen.getByText(/一次图文请求不会因模型路由重复扣次/)).toBeTruthy()
+  expect(screen.getByText(/文字使用账号默认偏好或全局默认模型/)).toBeTruthy()
+  expect(screen.getByText(/没有已就绪的视觉模型/)).toBeTruthy()
+})
+
+it('warns when a ready visual model is outside the authorized scope', async () => {
+  installFixture({
+    ...config,
+    policy: {
+      ...config.policy,
+      model_scope: 'selected',
+      allowed_models: ['deepseek-flash'],
+    },
+    model_connections: [
+      { connection_id: 1, model_id: 'deepseek-flash', name: 'DeepSeek', upstream_model: 'deepseek-flash', ready: true, enabled: true },
+      { connection_id: 2, model_id: 'qwen3-vl-plus', name: 'Qwen3-VL', upstream_model: 'qwen3-vl-plus', ready: true, enabled: true },
+    ],
+  })
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('tab', { name: '试用设置' }))
+  await screen.findByRole('combobox', { name: '可用模型范围' })
+  expect(screen.getByText(/没有已就绪的视觉模型/)).toBeTruthy()
+})
+
+it('hides the visual routing warning when a ready visual model is in scope', async () => {
+  installFixture({
+    ...config,
+    policy: {
+      ...config.policy,
+      model_scope: 'selected',
+      allowed_models: ['deepseek-flash', 'qwen3-vl-plus'],
+    },
+    model_connections: [
+      {
+        connection_id: 1,
+        model_id: 'deepseek-flash',
+        name: 'DeepSeek',
+        upstream_model: 'deepseek-flash',
+        ready: true,
+        enabled: true,
+      },
+      {
+        connection_id: 2,
+        model_id: 'qwen3-vl-plus',
+        name: 'Qwen3-VL',
+        upstream_model: 'qwen3-vl-plus',
+        ready: true,
+        enabled: true,
+      },
+    ],
+  })
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('tab', { name: '试用设置' }))
+  await screen.findByRole('combobox', { name: '可用模型范围' })
+  expect(screen.queryByText(/没有已就绪的视觉模型/)).toBeNull()
+})
+
 it('saves all or selected models and limits the default to the chosen range', async () => {
   allowProtectedSave()
   const configuration = {

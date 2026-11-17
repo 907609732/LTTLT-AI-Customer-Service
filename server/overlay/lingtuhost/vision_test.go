@@ -89,8 +89,7 @@ func TestLingtuVisionModelChannelAndCapabilityAreExplicit(t *testing.T) {
 	}
 }
 
-func TestLingtuVisionCapabilityRecognizesConfiguredConnectionAliases(t *testing.T) {
-	db := managedModelDB(t)
+func TestLingtuVisionCapabilityRecognizesConfiguredConnectionAliases(t *testing.T) {	db := managedModelDB(t)
 	channel := qwenModelFixture()
 	channel.Name = "vision-alias-test"
 	channel.Models = visionModel
@@ -220,5 +219,239 @@ func TestLingtuVisionGatewayKeepsImagesAndRequestLedger(t *testing.T) {
 				t.Fatal(grant)
 			}
 		})
+	}
+}
+
+// The desktop never chooses a model. Text stays on the shipped default
+// (DeepSeek) while image-bearing requests are routed to the allowed visual
+// model, with the image parts preserved for the admitted upstream call.
+func TestLingtuVisionAutoRoutesImagesAndKeepsTextOnDefault(t *testing.T) {
+	db := managedModelDB(t)
+	for _, channel := range []*model.Channel{
+		{Name: "lingtu-deepseek", Type: 1, Group: "default", Models: "deepseek-flash", Status: common.ChannelStatusEnabled, Key: "fixture-deepseek"},
+		{Name: "lingtu-qwen-vision", Type: 1, Group: "default", Models: visionModel, Status: common.ChannelStatusEnabled, Key: "fixture-vision"},
+	} {
+		if err := persistManagedModel(channel, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := &Host{trials: lingtu.NewTrialStore(db)}
+	if err := h.migrateChat(); err != nil {
+		t.Fatal(err)
+	}
+	seedManagedChatIdentity(t, db)
+	if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	dispatched := []map[string]any{}
+	router := gin.New()
+	router.POST("/chat", func(c *gin.Context) { c.Set("lingtu_identity", lingtu.ClientIdentity{UserID: 99}) }, h.prepareChat, func(c *gin.Context) {
+		raw, _ := io.ReadAll(c.Request.Body)
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Error(err)
+		}
+		dispatched = append(dispatched, body)
+		// Reject at the isolated fake relay boundary: never contact a provider.
+		c.AbortWithStatus(500)
+	})
+	call := func(body string) {
+		t.Helper()
+		router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/chat", strings.NewReader(body)))
+	}
+	call(`{"client_request_id":"text","messages":[{"role":"user","content":"hi"}]}`)
+	call(`{"client_request_id":"image","messages":[{"role":"user","content":[{"type":"text","text":"what"},{"type":"image_url","image_url":{"url":"https://images.example.com/a.png"}}]}]}`)
+	if len(dispatched) != 2 {
+		t.Fatalf("dispatched %d requests", len(dispatched))
+	}
+	if dispatched[0]["model"] != "deepseek-flash" {
+		t.Fatalf("text routed to %v", dispatched[0]["model"])
+	}
+	if dispatched[1]["model"] != visionModel {
+		t.Fatalf("image routed to %v", dispatched[1]["model"])
+	}
+	encoded, _ := json.Marshal(dispatched[1]["messages"])
+	if !strings.Contains(string(encoded), `"image_url"`) {
+		t.Fatalf("image parts lost: %s", encoded)
+	}
+	var usage managedUsage
+	if err := db.First(&usage, "user_id = ? AND request_id = ?", 99, "image").Error; err != nil || usage.Model != visionModel || usage.UpstreamModel != visionModel {
+		t.Fatal(usage, err)
+	}
+}
+
+// An allowed scope without a ready visual model must fail closed before any
+// quota reservation, and an explicit text model is never silently replaced.
+func TestLingtuVisionRejectsImagesWithoutVisualRoute(t *testing.T) {
+	db := managedModelDB(t)
+	if err := persistManagedModel(&model.Channel{Name: "lingtu-deepseek", Type: 1, Group: "default", Models: "deepseek-flash", Status: common.ChannelStatusEnabled, Key: "fixture-deepseek"}, false); err != nil {
+		t.Fatal(err)
+	}
+	policy := lingtu.DefaultTrialPolicy()
+	policy.AllowedModels = []string{"deepseek-flash"}
+	raw, _ := common.Marshal(policy)
+	if err := db.Save(&lingtu.ManagedSetting{Name: "trial_policy", Value: string(raw)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	h := &Host{trials: lingtu.NewTrialStore(db)}
+	if err := h.migrateChat(); err != nil {
+		t.Fatal(err)
+	}
+	seedManagedChatIdentity(t, db)
+	if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	router := gin.New()
+	router.POST("/chat", func(c *gin.Context) { c.Set("lingtu_identity", lingtu.ClientIdentity{UserID: 99}) }, h.prepareChat, func(c *gin.Context) {
+		calls++
+		c.AbortWithStatus(500)
+	})
+	for _, body := range []string{
+		`{"client_request_id":"image-auto","messages":[{"role":"user","content":[{"type":"text","text":"what"},{"type":"image_url","image_url":{"url":"https://images.example.com/a.png"}}]}]}`,
+		`{"client_request_id":"image-explicit","model":"deepseek-flash","messages":[{"role":"user","content":[{"type":"text","text":"what"},{"type":"image_url","image_url":{"url":"https://images.example.com/a.png"}}]}]}`,
+	} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest("POST", "/chat", strings.NewReader(body)))
+		if recorder.Code != 400 || !strings.Contains(recorder.Body.String(), `"error":"vision_unavailable"`) {
+			t.Fatalf("image without visual route = %d: %s", recorder.Code, recorder.Body.String())
+		}
+	}
+	if calls != 0 {
+		t.Fatal("image reached an upstream model that cannot see it")
+	}
+	var count int64
+	db.Model(&lingtu.TrialRequest{}).Count(&count)
+	if count != 0 {
+		t.Fatal("rejected image request reserved quota")
+	}
+}
+
+// The account capability reflects the routed image model, not the text default.
+func TestLingtuVisionAccountCapabilityFollowsImageRoute(t *testing.T) {
+	db := managedModelDB(t)
+	for _, channel := range []*model.Channel{
+		{Name: "lingtu-deepseek", Type: 1, Group: "default", Models: "deepseek-flash", Status: common.ChannelStatusEnabled, Key: "fixture-deepseek"},
+		{Name: "lingtu-qwen-vision", Type: 1, Group: "default", Models: visionModel, Status: common.ChannelStatusEnabled, Key: "fixture-vision"},
+	} {
+		if err := persistManagedModel(channel, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedManagedChatIdentity(t, db)
+	if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("lingtu_identity", lingtu.ClientIdentity{UserID: 99})
+	(&Host{}).me(c)
+	if recorder.Code != 200 {
+		t.Fatal(recorder.Code, recorder.Body.String())
+	}
+	var account struct {
+		Capabilities map[string]any `json:"capabilities"`
+	}
+	if json.Unmarshal(recorder.Body.Bytes(), &account) != nil {
+		t.Fatal(recorder.Body.String())
+	}
+	if account.Capabilities["vision"] != true || account.Capabilities["model"] != "deepseek-flash" || account.Capabilities["max_images"] != float64(4) {
+		t.Fatal(account.Capabilities)
+	}
+	if strings.Contains(recorder.Body.String(), "fixture-vision") || strings.Contains(recorder.Body.String(), "fixture-deepseek") {
+		t.Fatal("provider credentials leaked in account projection")
+	}
+}
+
+// The shipped text+visual pair keeps text on DeepSeek. If DeepSeek is not
+// ready, text and free summaries fail closed instead of silently using the
+// visual model; images still route to the visual model.
+func TestLingtuVisionTextNeverFallsBackToVisualModel(t *testing.T) {
+	db := managedModelDB(t)
+	if err := persistManagedModel(&model.Channel{Name: "lingtu-qwen-vision", Type: 1, Group: "default", Models: visionModel, Status: common.ChannelStatusEnabled, Key: "fixture-vision"}, false); err != nil {
+		t.Fatal(err)
+	}
+	h := &Host{trials: lingtu.NewTrialStore(db)}
+	if err := h.migrateChat(); err != nil {
+		t.Fatal(err)
+	}
+	seedManagedChatIdentity(t, db)
+	if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	relayed := []string{}
+	terminal := func(c *gin.Context) {
+		raw, _ := io.ReadAll(c.Request.Body)
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Error(err)
+		}
+		if modelName, ok := body["model"].(string); ok {
+			relayed = append(relayed, modelName)
+		}
+		c.AbortWithStatus(500)
+	}
+	router := gin.New()
+	router.POST("/chat", func(c *gin.Context) { c.Set("lingtu_identity", lingtu.ClientIdentity{UserID: 99}) }, h.prepareChat, terminal)
+	router.POST("/summary", func(c *gin.Context) {
+		c.Set("lingtu_identity", lingtu.ClientIdentity{UserID: 99})
+		c.Set("lingtu_summary_input", chatInput{RequestID: "summary-pinned", Messages: []chatMessage{{Role: "user", Content: "history"}}})
+	}, h.prepareChat, terminal)
+	for _, call := range []struct{ path, body string }{
+		{"/chat", `{"client_request_id":"text-pinned","messages":[{"role":"user","content":"hi"}]}`},
+		{"/summary", `{}`},
+	} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest("POST", call.path, strings.NewReader(call.body)))
+		if recorder.Code != 503 || !strings.Contains(recorder.Body.String(), `"error":"model_not_ready"`) {
+			t.Fatalf("%s text fallback = %d: %s", call.path, recorder.Code, recorder.Body.String())
+		}
+	}
+	if len(relayed) != 0 {
+		t.Fatalf("text reached an upstream model: %v", relayed)
+	}
+	var count int64
+	db.Model(&lingtu.TrialRequest{}).Count(&count)
+	if count != 0 {
+		t.Fatal("failed text or summary reserved quota")
+	}
+	// Images still use the ready visual model.
+	image := `{"client_request_id":"image-pinned","messages":[{"role":"user","content":[{"type":"text","text":"what"},{"type":"image_url","image_url":{"url":"https://images.example.com/a.png"}}]}]}`
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest("POST", "/chat", strings.NewReader(image)))
+	if len(relayed) != 1 || relayed[0] != visionModel {
+		t.Fatalf("image route = %v", relayed)
+	}
+}
+
+// Account capability keeps the text model name even when only the visual model
+// is ready, so the desktop never mislabels text replies.
+func TestLingtuVisionCapabilityKeepsTextModelWhenTextUnavailable(t *testing.T) {
+	db := managedModelDB(t)
+	if err := persistManagedModel(&model.Channel{Name: "lingtu-qwen-vision", Type: 1, Group: "default", Models: visionModel, Status: common.ChannelStatusEnabled, Key: "fixture-vision"}, false); err != nil {
+		t.Fatal(err)
+	}
+	seedManagedChatIdentity(t, db)
+	if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("lingtu_identity", lingtu.ClientIdentity{UserID: 99})
+	(&Host{}).me(c)
+	if recorder.Code != 200 {
+		t.Fatal(recorder.Code, recorder.Body.String())
+	}
+	var account struct {
+		Capabilities map[string]any `json:"capabilities"`
+	}
+	if json.Unmarshal(recorder.Body.Bytes(), &account) != nil {
+		t.Fatal(recorder.Body.String())
+	}
+	if account.Capabilities["model"] != "deepseek-flash" || account.Capabilities["vision"] != true {
+		t.Fatal(account.Capabilities)
+	}
+	if strings.Contains(recorder.Body.String(), "fixture-vision") {
+		t.Fatal("provider credential leaked")
 	}
 }

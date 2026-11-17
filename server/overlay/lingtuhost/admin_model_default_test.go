@@ -39,6 +39,10 @@ func qwenModelFixture() *model.Channel {
 func putModelPolicy(t *testing.T, db *gorm.DB) lingtu.TrialPolicy {
 	t.Helper()
 	policy := lingtu.DefaultTrialPolicy()
+	// This suite covers the legacy single-model path, where any tested channel
+	// may become the default without a model scope. New installs start scoped,
+	// so the legacy shape must be written explicitly.
+	policy.ModelScope, policy.AllowedModels = "", nil
 	policy.Calls = 37
 	policy.Days = 4
 	policy.MaxTokens = 777
