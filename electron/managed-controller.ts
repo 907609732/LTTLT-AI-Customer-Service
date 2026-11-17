@@ -4,6 +4,11 @@ import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { validateManagedServiceRequest } from './managed-service-request'
 import {
+  MANAGED_CONTEXT_POLICY_TTL_MS,
+  managedContextPolicySchema,
+  type ManagedContextPolicy,
+} from './managed-context-policy'
+import {
   defaultModelSource,
   emptyManagedSession,
   managedSessionSchema,
@@ -21,6 +26,8 @@ export interface ManagedSession {
     endpoint: string,
     options: { method: string; body?: unknown; signal?: AbortSignal },
   ): Promise<unknown>
+  /** Fixed authenticated GET /api/client/config; never a caller-selected URL. */
+  config(options?: { signal?: AbortSignal }): Promise<unknown>
   init(): Promise<unknown>
   snapshot(): unknown
   beginLogin(): Promise<unknown>
@@ -28,7 +35,13 @@ export interface ManagedSession {
   logout(): Promise<unknown>
   refresh(): Promise<unknown>
   chat(
-    payload: { client_request_id: string; messages: unknown },
+    payload: {
+      client_request_id: string
+      messages: unknown
+      purpose?: 'reply' | 'learning'
+      policy_version?: number
+      learning_source?: 'pdd_detail_text' | 'pdd_detail_image'
+    },
     options: { signal?: AbortSignal },
   ): Promise<unknown>
   dispose(): void
@@ -86,6 +99,22 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const identitySchema = z
   .object({ userId: z.union([z.number().int().positive(), z.string().min(1).max(512)]) })
   .strict()
+// Unknown transport fields (for example a client max_tokens claim) are stripped;
+// only the typed purpose/revision/source may accompany the legacy chat body.
+const managedChatPayloadSchema = z
+  .object({
+    client_request_id: z.string().min(1).max(128),
+    messages: z.unknown(),
+    purpose: z.enum(['reply', 'learning']).optional(),
+    policy_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+    learning_source: z.enum(['pdd_detail_text', 'pdd_detail_image']).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.learning_source !== undefined && value.purpose !== 'learning')
+      ctx.addIssue({ code: 'custom', message: '学习来源只能用于学习请求' })
+    if (value.policy_version !== undefined && value.purpose === undefined)
+      ctx.addIssue({ code: 'custom', message: '策略版本必须随用途一起发送' })
+  })
 
 /** Reuse the pinned encrypted device/session protocol. No bearer or refresh token enters the DTO. */
 export function createManagedController(options: {
@@ -116,6 +145,17 @@ export function createManagedController(options: {
   const requiresRestart = () =>
     JSON.stringify(active) !== JSON.stringify(configured) ||
     (active.mode === 'managed' && state.account !== null && state.account.userId !== workspaceUser)
+  // The policy is account/source scoped and short-lived. A logout, account
+  // switch, source change or restart state invalidates it immediately.
+  let policyCache: { key: string; expiresAt: number; value: ManagedContextPolicy } | null = null
+  const clearPolicyCache = () => {
+    policyCache = null
+  }
+  const policyIdentity = () => {
+    if (active.mode !== 'managed' || state.status !== 'signed_in' || !state.account) return null
+    if (identityError || requiresRestart()) return null
+    return active.apiOrigin + '\n' + String(state.account.userId)
+  }
   const session = options.factory.createManagedSession({
     origin: active.apiOrigin,
     portalOrigin: active.portalOrigin,
@@ -149,6 +189,7 @@ export function createManagedController(options: {
           identityError = '无法保存托管账号工作区标识，请检查本机目录权限后重试'
         }
       }
+      if (policyCache && policyCache.key !== policyIdentity()) clearPolicyCache()
       if (
         active.mode === 'managed' &&
         (state.status !== 'signed_in' || requiresRestart() || identityError)
@@ -197,12 +238,14 @@ export function createManagedController(options: {
       if (action === 'save-model-source') {
         const next = validateModelSource(values)
         options.stopAi()
+        clearPolicyCache()
         writeAtomic(sourceFile, next)
         configured = next
       } else {
         z.object({}).strict().parse(values)
         if (['managed-login', 'managed-logout', 'managed-cancel-login'].includes(action))
           options.stopAi()
+        if (['managed-logout', 'managed-cancel-login'].includes(action)) clearPolicyCache()
         if (action === 'managed-logout') await session.logout()
         else if (action === 'managed-cancel-login') await session.cancelLogin()
         else {
@@ -228,19 +271,62 @@ export function createManagedController(options: {
       }
     },
     async chat(
-      payload: { client_request_id: string; messages: unknown },
+      payload: {
+        client_request_id: string
+        messages: unknown
+        purpose?: 'reply' | 'learning'
+        policy_version?: number
+        learning_source?: 'pdd_detail_text' | 'pdd_detail_image'
+      },
       requestOptions: { signal?: AbortSignal; traceId?: string },
     ) {
       ready()
-      if (requestOptions.traceId) submissions.set(payload.client_request_id, requestOptions.traceId)
+      const request = managedChatPayloadSchema.parse(payload)
+      if (requestOptions.traceId) submissions.set(request.client_request_id, requestOptions.traceId)
       try {
-        return await session.chat(payload, requestOptions)
+        return await session.chat(request, requestOptions)
       } finally {
-        submissions.delete(payload.client_request_id)
+        submissions.delete(request.client_request_id)
       }
     },
     capabilities() {
       return state.account?.capabilities ?? {}
+    },
+    async contextPolicy(): Promise<ManagedContextPolicy | null> {
+      if (closed) return null
+      const key = policyIdentity()
+      if (!key) {
+        clearPolicyCache()
+        return null
+      }
+      if (policyCache?.key === key && policyCache.expiresAt > Date.now()) return policyCache.value
+      try {
+        requireAccount()
+        const raw = await session.config({})
+        // The account and source may change while the config request is in
+        // flight; recheck both and discard any late projection.
+        requireAccount()
+        if (closed || policyIdentity() !== key || requiresRestart()) {
+          clearPolicyCache()
+          return null
+        }
+        const parsed = managedContextPolicySchema.safeParse(raw)
+        if (!parsed.success) {
+          // Old servers omit the policy fields; a damaged projection is never
+          // replaced by an invented enabled policy.
+          clearPolicyCache()
+          return null
+        }
+        policyCache = {
+          key,
+          expiresAt: Date.now() + MANAGED_CONTEXT_POLICY_TTL_MS,
+          value: parsed.data,
+        }
+        return parsed.data
+      } catch {
+        clearPolicyCache()
+        return null
+      }
     },
     async serviceRequest(
       endpoint: string,
@@ -260,6 +346,7 @@ export function createManagedController(options: {
     },
     dispose() {
       closed = true
+      clearPolicyCache()
       session.dispose()
     },
   }

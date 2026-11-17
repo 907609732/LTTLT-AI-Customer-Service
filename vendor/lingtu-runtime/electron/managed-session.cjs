@@ -40,6 +40,10 @@ const error = (code, kind, status) => new ManagedSessionError(code, kind, status
 const finite = v => Number.isSafeInteger(v) && v >= 0;
 const userId = v => (Number.isSafeInteger(v) && v > 0) || (typeof v === 'string' && v.length > 0 && v.length <= 512);
 const text = (v, max = 512) => typeof v === 'string' && v.length > 0 && v.length <= max;
+// The policy fields are a closed set: arbitrary renderer output claims are
+// stripped before the fixed chat endpoint sees them.
+const purposes = new Set(['reply', 'learning']);
+const learningSources = new Set(['pdd_detail_text', 'pdd_detail_image']);
 function httpsOrigin(value) {
   const u = new URL(value);
   // Local HTTP is restricted to an explicitly configured numeric loopback and port.
@@ -258,7 +262,14 @@ function createManagedSession(options = {}) {
     if (!payload || !text(payload.client_request_id, 128)) throw error('invalid_request');
     let messages;try{messages=validateMessages(payload.messages);}catch{throw error('invalid_request');}
     if(messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==='image_url'))&&!state.account?.capabilities?.vision)throw error('vision_unavailable');
+    let purpose,policyVersion,learningSource;
+    if(payload.purpose!==undefined){if(!purposes.has(payload.purpose))throw error('invalid_request');purpose=payload.purpose;}
+    if(payload.policy_version!==undefined){if(!finite(payload.policy_version))throw error('invalid_request');policyVersion=payload.policy_version;}
+    if(payload.learning_source!==undefined){if(!learningSources.has(payload.learning_source))throw error('invalid_request');learningSource=payload.learning_source;}
+    if((policyVersion!==undefined||learningSource!==undefined)&&purpose===undefined)throw error('invalid_request');
+    if(learningSource!==undefined&&purpose!=='learning')throw error('invalid_request');
     const body = { client_request_id: payload.client_request_id, messages };
+    if(purpose!==undefined){body.purpose=purpose;if(policyVersion!==undefined)body.policy_version=policyVersion;if(learningSource!==undefined)body.learning_source=learningSource;}
     if (Buffer.byteLength(JSON.stringify(body)) > 16*1024*1024) throw error('invalid_request');
     const e = epoch;
     try {
@@ -268,6 +279,23 @@ function createManagedSession(options = {}) {
       if (credential.expiresAt <= now()) throw error('session_expired');
       return result;
     } catch (err) { failure(err, e); throw err; }
+  }
+  // Fixed authenticated policy projection for the main process. This is not a
+  // general request adapter and never accepts a caller-supplied path.
+  async function config({ signal } = {}) {
+    const e = epoch;
+    try {
+      if (disposed || !credential || credential.expiresAt <= now()) throw error('session_expired');
+      if (!access || access.expiresAt <= now() + 30) await refresh(); check(e);
+      const result = await request('/config', { bearer: access.token, signal }); check(e);
+      if (credential.expiresAt <= now()) throw error('session_expired');
+      return result;
+    } catch (err) {
+      // A policy read is optional for existing replies: only auth failures may
+      // change the shared session state.
+      if (err?.code === 'session_expired' || err?.code === 'account_disabled') failure(err, e);
+      throw err;
+    }
   }
   // Main-process service adapter reuses the session without exporting credentials.
   async function serviceRequest(endpoint, { method = 'GET', body, signal } = {}) {
@@ -283,7 +311,7 @@ function createManagedSession(options = {}) {
     } catch (err) { failure(err, e); throw err; }
   }
   function dispose() { stop(); credential = null; disposed = true; }
-  return { init, snapshot, beginLogin, cancelLogin, logout, refresh, chat, serviceRequest, dispose };
+  return { init, snapshot, beginLogin, cancelLogin, logout, refresh, chat, config, serviceRequest, dispose };
 }
 module.exports = { createManagedSession, ManagedSessionError };
 

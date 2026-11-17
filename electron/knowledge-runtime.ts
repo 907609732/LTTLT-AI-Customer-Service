@@ -47,6 +47,13 @@ export interface KnowledgeModelPort {
     signal?: AbortSignal
     isCurrent?: () => boolean
     traceId?: string
+    /**
+     * Opt-in managed-policy metadata for an approved direct-learning caller.
+     * Existing reply/trial calls omit all three, so their wire body is unchanged.
+     */
+    purpose?: 'reply' | 'learning'
+    policyVersion?: number
+    learningSource?: 'pdd_detail_text' | 'pdd_detail_image'
   }): Promise<string>
 }
 export function createKnowledgeRuntime(options: {

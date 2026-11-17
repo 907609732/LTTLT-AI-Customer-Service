@@ -52,3 +52,10 @@
 - 整合已完成的多模型权限范围迁移，同时保留受限 PNG / OCR 兼容。生产更新仍按 server/AGENTS.md 单独授权，不因源码合入而自动部署。
 
 参考核查：[New API 定价](https://docs.newapi.pro/zh/docs/guide/feature-guide/user/pricing)、[DeepSeek 定价](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)、[Qwen3-VL-Plus](https://help.aliyun.com/zh/model-studio/qwen3-vl-plus)。原生定价是配额/售价用途，本功能分离为管理成本估算，避免把钱包金额误认作供应商成本。
+
+## 2026-11-17 托管上下文策略读取
+
+- `/api/client/config` 的 `policy_version`、`runtime_context`、`learning` 及原有 `default_model`/`models`/`max_tokens` 由 `electron/managed-context-policy.ts` 的严格 Zod 契约校验。隐藏 `system_prompt`、未知服务端字段、畸形顺序/预算/来源或关闭人工审核都使新学习不可用；不会用本地默认值伪造启用状态。
+- `ManagedController.contextPolicy()` 只在主进程读取；vendor `managed-session.cjs` 的 `config()` 仅执行固定鉴权 `GET /api/client/config`，不接受调用方 URL。缓存最多 60 秒并绑定当前 `apiOrigin` + 已登录 `userId`，账号变化、来源保存、注销、过期/需重启状态立即清除；等待响应前后复核账号，晚到结果直接丢弃。
+- 聊天正文只允许类型化 `purpose=reply|learning`、非负整数 `policy_version` 和 `learning_source=pdd_detail_text|pdd_detail_image`。vendor 按白名单重建正文，客户端 `max_tokens` 或其他任意字段不会发出；旧正文保持原语义并省略新字段。`backend.cjs` 仅从显式标记的 `KnowledgeModelPort.complete` 输入转发用途/版本/来源，现有回复和试问调用保持省略。
+- 旧服务端缺少策略字段或配置读取失败时，新学习显示未开通，既有聊天继续由服务端约束；不会停用或伪造本机 Key 路径。`serviceRequest` 仍只允许既有团队/计费端点。当前没有获批的直接详情页学习调用方，因此只交付可选透传能力，不宣称页面学习已经启用。

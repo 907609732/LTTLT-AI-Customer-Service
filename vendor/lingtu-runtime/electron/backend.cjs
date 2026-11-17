@@ -175,7 +175,7 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
   modelClient.onGenerationFailure=(error,context)=>{if(disposed)return;reportConversationIssue(new ManagedSessionError(error?.code||'generation_failed'),{...context,storeName:registry.get(context?.storeId)?.storeName||''});};
   modelClient.onDeliveryFailure=result=>{if(disposed)return;reportConversationIssue(new ManagedSessionError(result.reason==='send_unconfirmed'?'delivery_unconfirmed':result.throttled?'delivery_blocked':'delivery_failed'),{...result,storeName:registry.get(result.storeId)?.storeName||''});};
   let managedQueue=Promise.resolve();
-  modelClient.complete=({messages,timeoutMs,reviewContext,isCurrent,traceId,signal})=>{
+  modelClient.complete=({messages,timeoutMs,reviewContext,isCurrent,traceId,signal,purpose,policyVersion,learningSource})=>{
    const operation=managedQueue.then(async()=>{
    if(disposed)throw Error('服务已关闭');
    if(typeof isCurrent==='function'&&!isCurrent())throw Object.assign(Error('排队任务已取消'),{code:'queued_canceled'});
@@ -184,7 +184,15 @@ function createBackend({dataDir,onEvent=()=>{},adapterFactory,managerFactory,aiC
    if(!managedChat)throw Error('托管服务尚未连接');
    const c=new AbortController();const abort=()=>c.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)c.abort();generations.add(c);const timer=setTimeout(()=>c.abort(),timeoutMs||60000);timer.unref?.();
    const requestId=randomUUID();
-   try{managedReady();const result=await managedChat({client_request_id:requestId,messages},{signal:c.signal,traceId});if(disposed||c.signal.aborted)throw Error('生成已取消');const content=result?.choices?.[0]?.message?.content;if(typeof content!=='string'||!content.trim())throw Error('托管模型未返回可用回复');return content;}
+   // Only an explicitly marked main-process caller may add policy metadata.
+   // Unknown input fields (including client output limits) never reach the wire.
+   const payload={client_request_id:requestId,messages};
+   if(purpose==='reply'||purpose==='learning'){
+    payload.purpose=purpose;
+    if(Number.isSafeInteger(policyVersion)&&policyVersion>=0)payload.policy_version=policyVersion;
+    if(purpose==='learning'&&['pdd_detail_text','pdd_detail_image'].includes(learningSource))payload.learning_source=learningSource;
+   }
+   try{managedReady();const result=await managedChat(payload,{signal:c.signal,traceId});if(disposed||c.signal.aborted)throw Error('生成已取消');const content=result?.choices?.[0]?.message?.content;if(typeof content!=='string'||!content.trim())throw Error('托管模型未返回可用回复');return content;}
    catch(e){if(!disposed){reportConversationIssue(e instanceof ManagedSessionError?e:new ManagedSessionError('generation_failed'),{...reviewContext,requestId,storeName:registry.get(reviewContext?.storeId)?.storeName||''});}throw e;}
    finally{clearTimeout(timer);generations.delete(c);signal?.removeEventListener('abort',abort);}
    });
