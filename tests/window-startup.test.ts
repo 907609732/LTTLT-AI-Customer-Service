@@ -1,10 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
-const windows = vi.hoisted(() => [] as { ready?: () => void; calls: string[] }[])
+const windows = vi.hoisted(
+  () => [] as { ready?: () => void; calls: string[]; options?: { icon?: string } }[],
+)
 vi.mock('electron', () => ({
+  app: { isPackaged: false },
   BrowserWindow: class {
     calls: string[] = []
     ready?: () => void
+    options?: { icon?: string }
     webContents = {
       id: 1,
       once: vi.fn(),
@@ -12,7 +16,8 @@ vi.mock('electron', () => ({
       setWindowOpenHandler: vi.fn(),
       session: { setPermissionRequestHandler: vi.fn() },
     }
-    constructor() {
+    constructor(options?: { icon?: string }) {
+      this.options = options
       windows.push(this)
     }
     once(event: string, callback: () => void) {
@@ -27,7 +32,9 @@ vi.mock('electron', () => ({
   },
   shell: { openExternal: vi.fn() },
 }))
-import { createWindow } from '../electron/windows'
+import { createWindow, appIconPath } from '../electron/windows'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 afterEach(() => {
   windows.length = 0
 })
@@ -45,4 +52,10 @@ it('辅助窗口与离屏验收不会自动最大化', () => {
   createWindow({ auxiliary: true, startMaximized: true })
   createWindow({ smoke: true, startMaximized: true })
   expect(windows.map((win) => win.ready)).toEqual([undefined, undefined])
+})
+it('源码窗口使用 public 中存在的圆形图标，不依赖可能缺失的 dist', () => {
+  createWindow()
+  expect(windows[0]!.options?.icon).toBe(appIconPath)
+  expect(appIconPath.endsWith(`${path.sep}public${path.sep}lingtu-ai.ico`)).toBe(true)
+  expect(existsSync(appIconPath)).toBe(true)
 })

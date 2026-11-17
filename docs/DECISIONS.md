@@ -191,3 +191,9 @@ Qwen 实测存在重复结束括号与漏回 sourceId。资料身份由单来源
 ## 2026-11-16 人民币估算边界
 
 管理成本使用每 API 配置单价与供应商实际返回 Token，复用上游 shopspring/decimal 精确十进制。供应商存在缓存、分时和阶梯定价，故不默认为官方实付费用，也不把现有按次授权或原生钱包改成人民币扣费。调用选定配置时冻结价格；既有调用有明确实际渠道/模型才允许当前价回算并标记。无价格/无返回用量不作零元。改价保留连接检测有效性；旧接口同步保留新增价格列。
+
+## 2026-11-17：Windows 任务栏图标与 AppUserModelID
+
+任务栏图标必须有圆形透明四角，否则 Windows 会在深浅任务栏上绘制白色方块。继续以 `src/assets/lingtu-ai-icon.png` 为唯一品牌源，只做圆形排版，不绘制新图案；为完整保留兔子与气泡，内容按外接半径内缩，而非直接裁切方形四角。生成物 `public/lingtu-ai.ico` 入库，Pillow 仅作为本机生成工具，不进入运行时依赖或 CI 安装步骤。
+
+源码与打包图标根目录分开：`electron:dev` 不运行 Vite 构建，dist 可能不存在，源码必须读 public；打包读 app.asar/dist。打包应用的 AUMID 必须与 builder appId/NSIS 快捷方式一致，并在创建窗口前设置；否则进程没有应用身份，任务栏分组可能落到默认 Electron 身份。源码调试不设置该 AUMID，避免被 Windows 归到本机已安装的旧快捷方式并显示其旧图标。保留 `signExecutable:false`，不改成会同时禁用资源编辑的 `signAndEditExecutable:false`。

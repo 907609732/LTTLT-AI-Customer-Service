@@ -14,7 +14,7 @@
 | 后台中文标题                     | 灵兔 AI 管理后台                                            |
 | 后台英文名称                     | Lingtu AI                                                   |
 
-src/shared/brand.ts 是主界面的产品名称入口。登录宣传位已使用新名称的图片，旧图备份在 artifacts/branding-before-20261114；首页和登录宣传位统一使用现有 BrandMark 与 lingtu-ai-icon.png；移除旧首页图标的 CSS 覆盖。public/lingtu-ai.ico 为随构建复制到 dist 的多尺寸 Windows 图标，主窗口、平台窗口、网页与 NSIS 使用同一图标。electron-builder 26.18.0 使用 signExecutable:false 保留资源写入并关闭代码签名；EXE、安装器与卸载器图标仍须以实际打包产物验收为准。原产品官网 URL 不作为灵兔AI电商客服 官网继续打开，当前入口如实提示未接入，等待正式地址。
+src/shared/brand.ts 是主界面的产品名称入口。登录宣传位已使用新名称的图片，旧图备份在 artifacts/branding-before-20261114；首页和登录宣传位统一使用现有 BrandMark 与 lingtu-ai-icon.png；移除旧首页图标的 CSS 覆盖。public/lingtu-ai.ico 为随构建复制到 dist 的多尺寸 Windows 图标，主窗口、平台窗口、网页与 NSIS 使用同一图标。ICO 由 scripts/generate-windows-icon.py 从现有 lingtu-ai-icon.png 生成：完整品牌内容内缩后套圆形透明遮罩，四角必须透明，不得回退为白底方块；源码运行读取 public/，打包后读取 app.asar/dist/。electron-builder 26.18.0 使用 signExecutable:false 保留资源写入并关闭代码签名；EXE、安装器与卸载器图标仍须以实际打包产物验收为准。原产品官网 URL 不作为灵兔AI电商客服 官网继续打开，当前入口如实提示未接入，等待正式地址。
 
 ## 必须保留的兼容范围
 

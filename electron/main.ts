@@ -16,10 +16,15 @@ import { createWorkspaceRuntime } from './workspace-runtime'
 import { registerBusinessIpc } from './business-ipc'
 import { registerPlatformFeatureIpc } from './platform-feature-ipc'
 import { PRODUCT_NAME } from '../src/shared/brand'
-import { resolveAppUserData } from './app-identity'
+import { resolveAppUserData, WINDOWS_APP_USER_MODEL_ID } from './app-identity'
 import { createAssistWindowManager, type AssistWindowManager } from './assist-window'
 
 app.setName(PRODUCT_NAME)
+// Match the AppUserModelID written into the installer shortcut (builder appId).
+// Only packaged builds own that shortcut: applying it to a source run would make
+// Windows group the dev window under an installed shortcut and use that shortcut's
+// (possibly stale) icon instead of the window icon under verification.
+if (app.isPackaged && process.platform === 'win32') app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID)
 // Set before the single-instance lock; preserve explicit isolated profiles used by packaged checks.
 const userData = resolveAppUserData(
   app.getPath('appData'),
