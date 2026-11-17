@@ -5,3 +5,10 @@
 2026-11-17 只读检查正式服务为 2026.11.17-cost.3，systemd 已加载微信配置；使用相同锁定 GoPay SDK 和运行进程环境，在服务器内验证公钥解析、微信客户端初始化及公钥验签配置均成功。未输出或下载商户凭据，未创建订单或付款，未修改正式服务配置。
 
 发布版本为1.0.46。构建、测试、产物及发布链接以最终交付证据为准；本文件不把初始化成功表述为本版真实付款到账验收。
+
+## 最终交付
+
+- 源码：3288ccb644b61b1f783b385b40966913cbc49797；[云端完整检查与打包](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44069606843)通过，包含完整check、桌面、知识库专项和实际成品启动。
+- [附件上传核验](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44071336834)通过；[v1.0.46](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.46)已于北京时间2026-11-17 19:10公开并设为Latest。
+- 本机下载EXE、ZIP及manifest与SHA256SUMS逐项一致；解压ZIP后实际运行成品隔离验收通过，证据为artifacts/packaged/report.json。安装包SHA256为f9e9ff702845f54c8cad51a00c736c508ffe52b1bac267ae764dbf5f37fbc6a1。
+- 本机全量检查曾因esbuild临时文件拒绝访问而失败（146个测试文件通过，2个文件受影响），未跳过测试；同提交云端完整检查全部成功。生产配置未修改，新版尚未创建真实付款订单。
