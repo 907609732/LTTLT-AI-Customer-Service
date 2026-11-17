@@ -9,14 +9,27 @@ import { useReceptionOperations } from '../services/operations'
 import OperationApprovalPanel from './OperationApprovalPanel.vue'
 import ReceptionRulesPanel from './ReceptionRulesPanel.vue'
 import { useReceptionDraftCache, type ReceptionSettingsDraft } from '../draft-cache'
+import type { ReceptionHandoff, ReceptionSetupDraft, ReceptionWelcome } from '../setup'
 const props = withDefaults(
-  defineProps<{ viewKey?: string; storeId?: string; embedded?: boolean }>(),
-  { viewKey: 'transfer', storeId: '', embedded: false },
+  defineProps<{
+    viewKey?: string
+    storeId?: string
+    embedded?: boolean
+    /** 复用模式下接待内容随向导统一保存，不得单独写盘。 */
+    deferredSave?: boolean
+    setupDraft?: ReceptionSetupDraft | null
+  }>(),
+  { viewKey: 'transfer', storeId: '', embedded: false, deferredSave: false, setupDraft: null },
 )
-const emit = defineEmits<{ busy: [value: boolean] }>()
+const emit = defineEmits<{
+  busy: [value: boolean]
+  'update:welcome': [value: ReceptionWelcome]
+  'update:handoff': [value: ReceptionHandoff]
+}>()
 const runtime = useRuntimeStore(),
   task = useTask(),
   router = useRouter()
+const deferred = computed(() => props.embedded && props.deferredSave && Boolean(props.setupDraft))
 const drafts = props.embedded ? useReceptionDraftCache() : undefined
 let draftLease = {
   workspaceId: runtime.snapshot.workspaceId,
@@ -130,8 +143,18 @@ function load(restoreDraft = false) {
       manualExpected.value = [...(previous.manualExpectedKeywords ?? latestManualKeywords)]
     }
   }
+  // 复用草稿以向导状态为准；平台规则、全局及客服接管关键词仍读真实配置。
+  if (deferred.value && props.setupDraft) {
+    welcome.value = {
+      ...props.setupDraft.welcome,
+      version: snap.welcomeByStore[id]?.version || 0,
+    }
+    inherited.value = props.setupDraft.handoff.inherited
+    keywords.value = props.setupDraft.handoff.keywords.join('\n')
+  }
 }
 onBeforeUnmount(() => {
+  if (deferred.value) return
   drafts?.putSettings(draftLease.workspaceId, draftLease.storeId, draftLease.view, {
     ...(JSON.stringify(welcome.value) !== JSON.stringify(baseline.welcome)
       ? { welcome: { ...welcome.value } }
@@ -156,8 +179,9 @@ watch(
 )
 const welcomeConflict = computed(
   () =>
+    !deferred.value &&
     welcome.value.version !==
-    (runtime.snapshot.welcomeByStore[selectedStoreId.value]?.version || 0),
+      (runtime.snapshot.welcomeByStore[selectedStoreId.value]?.version || 0),
 )
 const visionConflict = computed(
   () =>
@@ -186,7 +210,33 @@ const lines = (text: string) => [
       .filter(Boolean),
   ),
 ]
+watch([() => props.setupDraft, () => props.deferredSave], () => load(true))
+// 统一保存模式下只把本组件负责的接待字段向上同步，避免两个面板互相覆盖。
+watch(
+  [welcome, inherited, keywords],
+  () => {
+    if (!deferred.value || !props.setupDraft) return
+    if (props.viewKey === 'welcome') {
+      const value = { text: welcome.value.text, enabled: welcome.value.enabled }
+      if (
+        value.text !== props.setupDraft.welcome.text ||
+        value.enabled !== props.setupDraft.welcome.enabled
+      )
+        emit('update:welcome', value)
+      return
+    }
+    if (props.viewKey !== 'transfer') return
+    const value = { inherited: inherited.value, keywords: lines(keywords.value) }
+    if (
+      value.inherited !== props.setupDraft.handoff.inherited ||
+      JSON.stringify(value.keywords) !== JSON.stringify(props.setupDraft.handoff.keywords)
+    )
+      emit('update:handoff', value)
+  },
+  { deep: true },
+)
 async function save() {
+  if (deferred.value) return
   const storeId = selectedStoreId.value,
     key = props.viewKey
   await task.run(async () => {
@@ -356,7 +406,7 @@ async function saveManualKeywords() {
             type="textarea"
             :rows="embedded ? 3 : 6" /></label
       ></template>
-      <div class="runtime-actions">
+      <div v-if="!deferred" class="runtime-actions">
         <el-button
           type="primary"
           native-type="submit"
@@ -379,6 +429,9 @@ async function saveManualKeywords() {
           >载入最新配置</el-button
         >
       </div>
+      <p v-else class="reception-deferred" role="status">
+        导入内容将在最后统一保存；这里仍可修改，不会单独写入本店配置。
+      </p>
     </form>
     <section v-if="viewKey === 'transfer'" class="reception-advanced">
       <h2 v-if="!embedded">全局人工处理关键词</h2>
@@ -580,6 +633,15 @@ async function saveManualKeywords() {
   margin: 8px 0 0;
   font-size: 12px;
   color: #98a3b2;
+}
+.embedded-reception .reception-deferred {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: #f2f7ff;
+  color: #3678db;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .embedded-reception .reception-visible-error {
   margin: 12px 0 0;

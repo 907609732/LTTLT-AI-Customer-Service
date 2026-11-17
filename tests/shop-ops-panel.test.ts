@@ -60,4 +60,55 @@ describe('ShopOpsPanel', () => {
     expect(wrapper.find('.el-switch').classes()).toContain('is-checked')
     wrapper.unmount()
   })
+
+  it('统一保存模式隐藏接待独立写入按钮，编辑内容向上传递且不落盘', async () => {
+    setActivePinia(createPinia())
+    const runtime = useRuntimeStore()
+    runtime.snapshot = {
+      ...emptySnapshot(),
+      workspaceId: 'workspace-a',
+      stores: [
+        {
+          id: 'store-a',
+          platform: 'sim-local',
+          storeName: '测试店铺',
+          group: '',
+          aiEnabled: false,
+          runtime: { open: false, online: false },
+        },
+      ],
+      selection: { storeId: 'store-a', conversationId: '' },
+      welcomeByStore: { 'store-a': { text: '本店欢迎', enabled: false, version: 1 } },
+      handoffByStore: { 'store-a': { keywords: ['本店人工'] } },
+    }
+    runtime.available = true
+    const run = vi.spyOn(runtime, 'run')
+    const wrapper = mount(ShopOpsPanel, {
+      props: {
+        storeId: 'store-a',
+        viewKey: 'welcome',
+        embedded: true,
+        deferredSave: true,
+        setupDraft: {
+          welcome: { text: '导入欢迎', enabled: true },
+          handoff: { inherited: true, keywords: [] },
+        },
+      },
+      global: { plugins: [ElementPlus] },
+    })
+    expect(
+      (wrapper.get('textarea[aria-label="文字欢迎语"]').element as HTMLTextAreaElement).value,
+    ).toBe('导入欢迎')
+    expect(wrapper.findAll('button').filter((button) => button.text() === '保存配置')).toHaveLength(
+      0,
+    )
+    expect(wrapper.text()).toContain('最后统一保存')
+    await wrapper.get('textarea[aria-label="文字欢迎语"]').setValue('导入后修改')
+    expect(wrapper.emitted('update:welcome')?.at(-1)).toEqual([
+      { text: '导入后修改', enabled: true },
+    ])
+    await wrapper.get('form').trigger('submit')
+    expect(run).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 })

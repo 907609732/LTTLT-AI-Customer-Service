@@ -550,6 +550,18 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 
 以a4f4090为基线保留主线新版功能，补齐辅助窗定向导航、Logo/ICO、微信/支付宝支付客户端、免扣内部摘要、拼多多goodsId透传和桌面诊断；Stripe重开、未知创建、摘要记录数量/请求ID及浮窗就绪顺序均经失败复现后回归。20个专项Vitest文件132项、直接相关运行时101项、类型/修改范围lint/边界/来源/构建及6项隔离桌面检查通过。详细范围、备份和未验收项见[本地整合记录](LOCAL_MERGE_20261117.md)。保留AGPL；未部署生产、发布Release或操作真实买家。
 
+## 2026-11-17 店铺向导复用其他店铺配置（1.0.49，本地 worktree）
+
+按已批准方案 `docs/superpowers/plans/2026-11-17-shop-setup-reuse.md` 在独立 worktree `codex/shop-setup-reuse-20261117` 完成引导首页“复用其他店铺配置”。仅在当前工作区存在其他店铺时显示；弹窗四类默认全选（客服风格、物流与发货政策、接待设置、售后政策），允许跨平台并显示核对提醒、来源名称/平台、各类缺项提示和已有草稿的明确替换确认；取消不改草稿。一次性复制到本店草稿，不建立关联、不修改来源店铺、不复制凭据/商品/平台账号/媒体/平台规则/AI 开关，也不执行平台动作。
+
+实现：新增 `shops/setup-reuse.ts`（四类选择、字段映射、缺项保留、显式 false/空欢迎记录、继承显式状态和替换判定）与 `reception/setup.ts`（typed 接待草稿、目标欢迎版本/转人工基线、只读来源合并、逐项保存回读）；`setup-rules.readSource` 只读来源且不改目标保存基线，向导用独立实例读取来源。`setup-store` 以工作区/目标店/来源店/弹窗租约协调读取、应用、撤销、关闭重开保留和工作区切换清空；来源/目标移除与迟到响应不落入其他店。复用模式最终保存先预检目标欢迎版本与转人工基线，再按既有命令克隆本店策略方案、保存欢迎语（使用目标版本）与转人工，政策/欢迎/转人工逐项记录成功/失败；部分失败保留草稿并仅重试未完成项，完全成功才显示完成，后续编辑取消对应成功标记；冲突提供用户显式“以最新接待配置为基线重试”。`ShopOpsPanel` 通过 `deferredSave`/`setupDraft`（公开入口 typed 契约）延后接待保存、隐藏独立写入并显示待保存提示，编辑经 `update:welcome`/`update:handoff` 上送；全局关键词、客服接管关键词、平台规则与逐项批准不变，非复用路径行为不变。
+
+独立复审补充五个边界并已回归：重复导入未勾选接待时保留已编辑未保存的接待草稿、统一保存状态与冲突基线；来源本次缺少欢迎记录时保留既有欢迎草稿与基线；保存进行中不能撤销复用；任一项目开始写入后不再允许撤销，避免界面与已保存数据分叉；来源 B→C→B 乱序读取只接收最后一次选择的响应。
+
+验证：新增/更新 6 个测试文件，相关 12 个文件 101 项通过（shop-setup-reuse 6、reception-setup 9、reuse-wizard 13、独立复审边界 5、setup-rules 14、shop-ops-panel 2、shop-setup-wizard 27、shop-setup 8、reception-rules 6、operation-approval 5、configuration-navigation 4、reply-pacing 2）。`vue-tsc --noEmit`、`tsc -p config/tsconfig.electron.json --noEmit`、修改文件 ESLint/Prettier、`npm run build` 通过。新增隔离桌面场景 `business:shop-setup-reuse` 实际运行 1/1 通过，覆盖来源选择→导入（四类全选、跨平台提醒）→检查（风格/欢迎语/延后保存提示）→编辑欢迎→统一保存→回读（欢迎版本 2、转人工恢复继承）、来源店欢迎/转人工/规则不变、AI 未开启；报告见 `artifacts/desktop-selected-1794925509693/report.json`。未运行全量 `npm run check`/`npm run test:desktop`，未打包、发布或部署。
+
+限制/未验证：真实平台店铺与真实模型未参与本批验收；未替用户保存任何真实店铺配置或发送消息；未执行安装包/Release。按任务约定未修改 package.json/lock 版本（Codex 整合时统一递增一次），未提交、推送或合并。
+
 ## 2026-11-17 Windows 任务栏圆形图标与身份（1.0.47，本地）
 
 用户报告安装版不显示品牌图标、源码运行图标为方形。诊断证据：旧 `public/lingtu-ai.ico` 七个尺寸 alpha 全为255，四角为白色实心；本机安装目录实际为1.0.24，app.asar 无 dist/lingtu-ai.ico，EXE 为 Electron 43.8.9 默认资源，故安装版问题来自旧包；1.0.45 便携版 EXE 已含品牌 ICO 但同样是不透明方形。`electron:dev` 只执行 build:desktop 后直接运行 Vite，dist 缺失时 windows.ts 仍只指向 dist，导致窗口回退默认图标；打包窗口显式设置与 NSIS 快捷方式一致的桌面 AUMID，以稳定任务栏分组。

@@ -41,6 +41,11 @@ const draftSchema = z
   .strict()
 
 export type SetupDraft = z.infer<typeof draftSchema>
+export interface SetupSource {
+  /** 来源是否存在指向本店的向导区块；false 表示从未通过向导保存。 */
+  configured: boolean
+  draft: SetupDraft
+}
 type Profiles = z.infer<typeof profilesSchema>
 export function createBlankSetupDraft(): SetupDraft {
   return {
@@ -158,6 +163,28 @@ export function createSetupRules(options: {
       ...(block?.storeId === storeId ? structuredClone(block.draft) : createBlankSetupDraft()),
       customPrompt: base.trim(),
       maxReplyChars: source.maxReplyChars,
+    }
+  }
+  /**
+   * 只读另一个店铺的规则，供向导“复用其他店铺配置”使用。
+   * 不修改实例的 loaded 基线：来源读取失败或晚到都不得影响目标店铺的保存校验。
+   */
+  async function readSource(storeId: string): Promise<SetupSource> {
+    options.assertCurrent()
+    if (saving) throw Error('设置正在保存，请稍候')
+    z.string().min(1).max(64).parse(storeId)
+    const state = await list()
+    options.assertCurrent()
+    const source = effective(state, storeId)
+    const { base, block } = readBlock(source.prompt)
+    const configured = block?.storeId === storeId
+    return {
+      configured,
+      draft: {
+        ...(configured && block ? structuredClone(block.draft) : createBlankSetupDraft()),
+        customPrompt: base.trim(),
+        maxReplyChars: source.maxReplyChars,
+      },
     }
   }
   async function save(storeId: string, input: SetupDraft): Promise<void> {
@@ -281,5 +308,5 @@ export function createSetupRules(options: {
       saving = false
     }
   }
-  return { load, save }
+  return { load, save, readSource }
 }

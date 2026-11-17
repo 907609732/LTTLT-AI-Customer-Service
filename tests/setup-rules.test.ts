@@ -354,6 +354,26 @@ describe('店铺向导规则适配', () => {
     expect(f.state.bindings.a).toBe('shared')
   })
 })
+it('只读来源店铺规则不覆盖目标保存基线，并标明是否已配置', async () => {
+  const f = fixture()
+  const draft = ready(await f.service.load('a'))
+  const source = await f.service.readSource('b')
+  expect(source.configured).toBe(false)
+  expect(source.draft.style).toBe('practical')
+  expect(source.draft.customPrompt).toBe('原有规则')
+  // 同一实例读取来源后仍能按目标原始基线保存，不得提示“请先载入”。
+  await f.service.save('a', draft)
+  expect(f.state.bindings.a).toBe('new')
+  expect(f.state.bindings.b).toBe('shared')
+
+  const seeded = fixture()
+  const seededDraft = ready(await seeded.service.load('b'))
+  await seeded.service.save('b', seededDraft)
+  const configured = await seeded.service.readSource('b')
+  expect(configured.configured).toBe(true)
+  expect(configured.draft.origins).toEqual(['测试发货地'])
+  expect(configured.draft.designatedCourier).toBe(false)
+})
 // @vitest-environment node
 import { createRequire } from 'node:module'
 import { mkdtempSync, rmSync } from 'node:fs'

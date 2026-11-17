@@ -513,6 +513,252 @@ export async function businessChecks(options: {
         }
       }
     })
+    await check('business:shop-setup-reuse', '/', async () => {
+      const log = (step: string) => console.log(`[shop-setup-reuse] ${step}`)
+      await load('/')
+      const previousStoreId = (await snapshot()).selection.storeId
+      const created: string[] = []
+      const clickText = (selector: string, text: string) =>
+        win.webContents.executeJavaScript(
+          `(() => {const node=Array.from(document.querySelectorAll(${JSON.stringify(selector)})).find(el=>el.textContent.trim()===${JSON.stringify(text)}); if(!node) throw Error('缺少可点击项：'+${JSON.stringify(text)}); node.click()})()`,
+        )
+      const chooseSelect = async (label: string, option: string) => {
+        await win.webContents.executeJavaScript(
+          `(() => {const field=document.querySelector(${JSON.stringify(`[aria-label="${label}"]`)}); const root=field?.closest('.el-select'); if(!root) throw Error('缺少下拉框：'+${JSON.stringify(label)}); root.querySelector('.el-select__wrapper').click()})()`,
+        )
+        await wait(
+          `Array.from(document.querySelectorAll('.el-select-dropdown__item')).some(node => node.textContent.trim()===${JSON.stringify(option)})`,
+        )
+        await clickText('.el-select-dropdown__item', option)
+      }
+      const chooseRadio = (label: string, text: string) =>
+        win.webContents.executeJavaScript(
+          `(() => {const group=document.querySelector(${JSON.stringify(`[aria-label="${label}"]`)}); if(!group) throw Error('缺少选项组：'+${JSON.stringify(label)}); const node=Array.from(group.querySelectorAll('.el-radio')).find(el=>el.textContent.trim()===${JSON.stringify(text)}); if(!node) throw Error('缺少选项：'+${JSON.stringify(text)}); node.click()})()`,
+        )
+      try {
+        const source = String(
+          (
+            await execute({
+              action: 'add-store',
+              values: { platform: 'pdd-web', storeName: '复用来源测试店' },
+            })
+          ).data.id,
+        )
+        const target = String(
+          (
+            await execute({
+              action: 'add-store',
+              values: { platform: 'sim-local', storeName: '复用目标测试店' },
+            })
+          ).data.id,
+        )
+        created.push(source, target)
+        log('stores-created')
+        // 目标店先有独立欢迎和自定义转人工，验证导入后统一保存与继承状态。
+        await execute({
+          action: 'save-welcome',
+          storeId: target,
+          values: { text: '目标原欢迎', enabled: true, version: 0 },
+        })
+        await execute({
+          action: 'save-store-handoff',
+          storeId: target,
+          values: { mode: 'custom', keywords: ['目标人工'] },
+        })
+        await execute({
+          action: 'save-welcome',
+          storeId: source,
+          values: { text: '来源欢迎语', enabled: true, version: 0 },
+        })
+
+        // 通过真实向导配置来源店：风格、物流并最终统一保存。
+        log('source-welcome-saved')
+        await load('/shop/manage?panel=shops')
+        await wait(
+          `Boolean(document.querySelector(${JSON.stringify(`.shop-card[data-store="${source}"] [data-action="basic-settings"]`)}))`,
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelector(${JSON.stringify(`.shop-card[data-store="${source}"] [data-action="basic-settings"]`)}).click()`,
+        )
+        log('source-wizard-open')
+        await wait(`Boolean(document.querySelector('button.wizard-step:not(:disabled)'))`)
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.wizard-step')[1].click()`,
+        )
+        await wait(`Boolean(document.querySelector('[data-style="cool"]'))`)
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[data-style="cool"]').click()`,
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.wizard-step')[2].click()`,
+        )
+        await wait(`Boolean(document.querySelector('[aria-label="发货地"]'))`)
+        await chooseSelect('发货地', '浙江')
+        await chooseSelect('常用快递', '顺丰速运')
+        await chooseRadio('支持指定快递', '否')
+        await chooseRadio('发货时效', '24小时内')
+        await chooseRadio('提供运费险', '否')
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.wizard-step')[4].click()`,
+        )
+        await wait(`Boolean(document.querySelector('[data-save]'))`)
+        log('source-save-click')
+        await win.webContents.executeJavaScript(`document.querySelector('[data-save]').click()`)
+        await wait(`document.body.innerText.includes('设置完成')`)
+        await win.webContents.executeJavaScript(`document.querySelector('[data-dismiss]').click()`)
+        await wait(`!document.querySelector('.shop-setup-page')`)
+        log('source-saved')
+        const sourceBefore = await snapshot()
+        const profilesBefore = await execute({ action: 'list-model-profiles' })
+        const sourceProfileId = (profilesBefore.data.bindings as Record<string, string>)[source]
+        assert.ok(sourceProfileId)
+        const sourcePrompt = (
+          profilesBefore.data.profiles as { id: string; prompt: string }[]
+        ).find((row) => row.id === sourceProfileId)?.prompt
+        assert.ok(sourcePrompt)
+
+        // 目标店打开复用弹窗，跨平台提醒、来源名称与四类默认全选。
+        log('target-wizard-click')
+        await load('/shop/manage?panel=shops')
+        await wait(
+          `Boolean(document.querySelector(${JSON.stringify(`.shop-card[data-store="${target}"] [data-action="basic-settings"]`)}))`,
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelector(${JSON.stringify(`.shop-card[data-store="${target}"] [data-action="basic-settings"]`)}).click()`,
+        )
+        await wait(`Boolean(document.querySelector('.shop-setup-page'))`)
+        // 店铺列表“基础设置”直接进入第 2 步，复用入口在引导首页。
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.wizard-step')[0].click()`,
+        )
+        await wait(`Boolean(document.querySelector('[data-reuse-open]'))`)
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[data-reuse-open]').click()`,
+        )
+        await wait(`Boolean(document.querySelector('.reuse-dialog'))`)
+        log('reuse-dialog-open')
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.querySelectorAll('.reuse-options .el-checkbox').length`,
+          ),
+          4,
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[data-reuse-source] .el-select__wrapper').click()`,
+        )
+        await wait(
+          `Array.from(document.querySelectorAll('.el-select-dropdown__item')).some(node => node.textContent.trim().includes('复用来源测试店'))`,
+        )
+        await win.webContents.executeJavaScript(
+          `(() => {const node=Array.from(document.querySelectorAll('.el-select-dropdown__item')).find(el=>el.textContent.trim().includes('复用来源测试店')); if(!node) throw Error('缺少来源选项'); node.click()})()`,
+        )
+        log('reuse-source-clicked')
+        await wait(`Boolean(document.querySelector('[data-reuse-source-name]'))`)
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.querySelector('.reuse-dialog').innerText.includes('平台不同')`,
+          ),
+          true,
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[data-reuse-apply]').click()`,
+        )
+        // 目标店规则若已有全局提示词，则需用户明确确认替换。
+        if (
+          await win.webContents.executeJavaScript(
+            `Boolean(document.querySelector('.reuse-dialog [data-reuse-confirm]'))`,
+          )
+        ) {
+          await win.webContents.executeJavaScript(
+            `document.querySelector('.reuse-dialog [data-reuse-confirm]').click()`,
+          )
+          await win.webContents.executeJavaScript(
+            `document.querySelector('[data-reuse-apply]').click()`,
+          )
+        }
+        await wait(`!document.querySelector('.reuse-dialog')`)
+        log('reuse-applied')
+        await wait(`Boolean(document.querySelector('[data-style="cool"]'))`)
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.querySelector('[data-style="cool"]').getAttribute('aria-checked')`,
+          ),
+          'true',
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.wizard-step')[3].click()`,
+        )
+        await wait(`Boolean(document.querySelector('textarea[aria-label="文字欢迎语"]'))`)
+        log('target-step3')
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.querySelector('textarea[aria-label="文字欢迎语"]').value`,
+          ),
+          '来源欢迎语',
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.querySelectorAll('.reception-settings .reception-deferred').length`,
+          ),
+          2,
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Array.from(document.querySelectorAll('.reception-settings .runtime-page'))[1].querySelectorAll('button').length>0 && Array.from(Array.from(document.querySelectorAll('.reception-settings .runtime-page'))[1].querySelectorAll('button')).some(b=>b.textContent.trim()==='保存配置')`,
+          ),
+          false,
+        )
+        await setInput('文字欢迎语', '复用后欢迎语')
+        log('target-welcome-edited')
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.wizard-step')[4].click()`,
+        )
+        await wait(`Boolean(document.querySelector('[data-save]'))`)
+        log('target-save-click')
+        await win.webContents.executeJavaScript(`document.querySelector('[data-save]').click()`)
+        await wait(`document.body.innerText.includes('设置完成')`)
+
+        const after = await snapshot()
+        assert.equal(after.welcomeByStore[target]?.text, '复用后欢迎语')
+        assert.equal(after.welcomeByStore[target]?.enabled, true)
+        assert.equal(after.welcomeByStore[target]?.version, 2)
+        assert.equal(after.handoffByStore[target], undefined)
+        assert.deepEqual(after.welcomeByStore[source], sourceBefore.welcomeByStore[source])
+        assert.deepEqual(after.handoffByStore[source], sourceBefore.handoffByStore[source])
+        const profilesAfter = await execute({ action: 'list-model-profiles' })
+        assert.equal(
+          (profilesAfter.data.profiles as { id: string; prompt: string }[]).find(
+            (row) => row.id === sourceProfileId,
+          )?.prompt,
+          sourcePrompt,
+        )
+        const targetProfileId = (profilesAfter.data.bindings as Record<string, string>)[target]
+        assert.ok(targetProfileId)
+        const targetPrompt = (profilesAfter.data.profiles as { id: string; prompt: string }[]).find(
+          (row) => row.id === targetProfileId,
+        )?.prompt
+        assert.ok(targetPrompt)
+        assert.ok(targetPrompt.includes('浙江'))
+        assert.ok(targetPrompt.includes('24小时内'))
+        assert.ok(after.stores.every((store) => !store.aiEnabled))
+        fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/shop-setup-reuse.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+      } finally {
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.shop-setup-page [data-dismiss]')?.click()`,
+        )
+        for (const storeId of created)
+          await execute({ action: 'remove-store', storeId, values: { confirmed: true } })
+        const after = await snapshot()
+        assert.ok(created.every((storeId) => !after.stores.some((store) => store.id === storeId)))
+        if (previousStoreId && after.stores.some((store) => store.id === previousStoreId)) {
+          await execute({ action: 'select-store', storeId: previousStoreId })
+        }
+      }
+    })
     await check('business:context-compression-16k-to-8k', '/logs', async () => {
       const before = calls.length
       await execute({
