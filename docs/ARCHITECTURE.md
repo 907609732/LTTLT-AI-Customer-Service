@@ -33,6 +33,21 @@ E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独�
 浏览器：`index.html → src/app/main.ts → App.vue → router.ts`。
 桌面：`electron/main.ts → windows.ts → dist/index.html`；`ipc.ts` 注册能力，`preload.ts` 只暴露 `DesktopApi`。构建后的桌面文件位于 `dist-electron`。
 
+## 维护性职责拆分（1.0.56）
+
+本轮只调整装配与控制器归属，不新增 IPC、依赖、持久化格式或发送权限；公开业务命令、数据目录、审批门和页面文案保持不变。1.0.55 的自定义模型目录（`list-custom-models` → `electron/list-custom-models.ts`）由主线功能合入，仍走原命令和受限 `/models` 查询，不属于本轮拆分实现。
+
+原 `local-runtime.ts` 的知识/辅助装配拆到 `electron/runtime/`：
+
+- `knowledge-pipeline-assembly.ts`：组装 knowledge/collector、daily、image-ocr、source-pipeline 与 pipeline coordinator，并向已注册的 knowledge runtime 提供实时端口；管道的注册/替换仍由 knowledge runtime 负责。
+- `knowledge-learning-assembly.ts`：组装本店草稿写入、collected-products 与 platform learning service；共享 pdd learning provider 仍由组合根创建和销毁，装配不接管其生命周期。
+- `assist-runtime.ts`：辅助中心平台页、读取器与采集快照；只有出现在成功发布快照中的行才可解析详情入口。
+- `assist-detail-catalog.ts`：有界保存已观察/已发布详情 URL，未发布前不向渲染层暴露。
+
+`electron/local-runtime.ts` 与 workspace runtime 仍是组合根：统一创建顺序、账号/店铺租约、AI/发送审批、维护替换和 `RuntimeResourceDisposer` 关闭顺序；拆出的 assembly 只接收显式端口，不自行新建全局客户端或 IPC。
+
+知识库渲染侧仍由 `manager-controller.ts` 作为唯一协调者和编辑/审核生命周期所有者；目录采集在 `catalog-controller.ts`（翻页 identityVersion/scopeToken 一致、未知总数不全选、缩略图两次读取后复核），备份/恢复/清空在 `maintenance-controller.ts`（自持预览与 restoreLease；恢复/清空使用未套旧租约 guard 的 `createKnowledgeClient`，由 owner 应用新 context），商品学习/识图在 `product-learning-controller.ts`。`useKnowledgeManager()` 返回对象、页面交互与文案不变。待学反馈等与视图、分页和刷新强耦合的状态仍留在 manager，主控制器未按行数目标强行压缩。
+
 ## 目录与职责
 
 | 目录                      | 职责                                                  |

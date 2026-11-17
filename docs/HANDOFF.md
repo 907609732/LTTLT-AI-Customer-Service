@@ -1,3 +1,17 @@
+## 2026-11-18 维护性清理与职责拆分（1.0.56，本机源码）
+
+按用户预先审查的顺序完成三批整理：旧 demo/兼容入口清理、知识库控制器拆分、主进程知识/辅助装配拆分。清理与知识拆分由本机 DeepSeek 在本工作树实现；主进程装配拆分由另一本机 DeepSeek 在独立工作树实现；两者均由 Codex 独立验证并整合提交（清理 206df4e、知识 ecbed7f、运行时装配 3070e00，最终工作树含合入的最新 origin/main 1bea5ad）。worker 未 commit/push/重启；1.0.55 的自定义模型 API 功能由主线合入并保留，不属于本批实现。
+
+清理范围：删除仅自身声明的 settings/shops demo 工厂、仅 barrel 导出的 GoodsListPanel/ShopDeskPanel/ShopSyncConfigDialog 及其 demo、无菜单入口的 ShopWipPanel 与 learn/supervise/drill 注册、旧 ShopHomeView 及独占样式；`/shop/home` 保留兼容跳转 `/shop/manage?panel=home`；移除无消费者的同步前端安装器。保留共享同步契约/platform 适配/preload 与主进程 IPC/备份回滚服务及测试、现有 demo 组件、共享 legacy CSS；未核实的页面不扩大清理。文档同步共用本机目录、AI 恢复、审核/显式自动发送和历史交接状态。
+
+知识拆分：`manager-controller.ts` 保留草稿/审核生命周期、跨视图协调与租约交接；`catalog-controller.ts`、`maintenance-controller.ts`、`product-learning-controller.ts` 分别持有目录采集、备份/恢复/清空、商品学习/识图；`useKnowledgeManager()` 返回对象由 Codex 用 TS AST 核对 126 项且顺序一致，页面与文案未改。主进程拆分：`electron/runtime/knowledge-pipeline-assembly.ts`、`knowledge-learning-assembly.ts`、`assist-runtime.ts`、`assist-detail-catalog.ts` 承担装配细节，`local-runtime.ts`/workspace runtime 仍是统一生命周期、审批与资源关闭的唯一所有者。
+
+验证（分阶段，合计 26 文件 229 项，不称为整合后全量通过）：第一批 3 文件 15 项、typecheck、build:desktop、边界检查、diff 检查通过；旧 `/shop/home` 原生检查 1/1 通过，证据 `artifacts/desktop-selected-1794931660094/shop-home.png` 已目视核对；知识 6 文件 72 项；运行时 17 文件 142 项，新增 factory 测试覆盖注册、惰性、限速和详情发布；两处独立只读审查未发现新 P1/P2。改前知识基线 6 文件 80 项仅作为拆分前证据，不叠加为最终回归数。首批曾遇 Windows 临时文件 EBUSY，单 worker 重跑通过；一次漏 `.mjs` 导出声明导致 TS 失败，补 `checkVueSource` 声明后通过。
+
+整合复验：保留 1.0.55 自定义模型 API 后，登录/导航等 4 文件 31 项、typecheck、构建、变更文件 ESLint 与边界检查通过；主进程公开返回方法用 AST 核对为 22 项且顺序不变。1.0.56 原生桌面定向 15/15、知识库主专项 18 项、待学问题 2 项、内嵌学习进度 5 项通过。待学问题原生脚本首次遇到刷新 loading 卸载筛选按钮的时序窗口；核对拆分前相同逻辑并做对照，仅在验收脚本增加按钮已挂载且可交互的有界等待，保留全部原断言，Codex 独立重跑通过，未修改产品逻辑。首次失败及后续日志保存在 artifacts/maintenance-20261118/。
+
+后续：1.0.56 主目录最终版本重启和 GitHub CI/下载产物仍待 Codex 完成。版本 package.json/package-lock.json=1.0.56；未发布公开 Release、未部署生产、未向真实买家发送。原始任务日志保留在系统 TEMP/lingtu-maintenance-cleanup-20261117。
+
 ## 2026-11-17 进店欢迎开关布局与随机延迟（1.0.52，本机源码）
 
 按用户最新要求，进店欢迎标题右侧只保留一个启用开关（active-text 启用，aria-label 启用本店新会话欢迎，data-no-drag），删除原说明段落和欢迎面板的 RuntimePanel 说明；文字欢迎语下方新增“欢迎延迟 [下限] ～ [上限] 秒随机”，默认 1～3 秒，可保存 1～3600 整数秒有序范围（相等即固定）。欢迎面板移除普通“载入最新配置”，只在版本冲突时显示“重新载入”，草稿保留到用户显式点击；保存仍只有一个“保存配置”，把文字、启用和延迟随同一版本 CAS 原子保存。Enter 提交在入口再次校验范围与冲突，不能靠按钮 disabled 绕过。
