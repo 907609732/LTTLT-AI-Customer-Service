@@ -140,13 +140,17 @@ func validateModelPolicy(db *gorm.DB, policy lingtu.TrialPolicy) error {
 
 func chatDigest(in chatInput) string {
 	canonical, _ := json.Marshal(in.Messages)
-	// Preserve the historical digest for old clients; explicit selection must
-	// participate in idempotency so another model cannot reuse the same result.
-	if in.Model != "" {
+	// Preserve the historical digest for old clients. An explicit model,
+	// purpose, policy version or learning source must participate in
+	// idempotency so one request ID cannot replay a different operation.
+	if in.Model != "" || in.Purpose != "" || in.PolicyVersion != nil || in.LearningSource != "" {
 		canonical, _ = json.Marshal(struct {
-			Model    string        `json:"model"`
-			Messages []chatMessage `json:"messages"`
-		}{in.Model, in.Messages})
+			Model          string        `json:"model,omitempty"`
+			Messages       []chatMessage `json:"messages"`
+			Purpose        string        `json:"purpose,omitempty"`
+			PolicyVersion  *int          `json:"policy_version,omitempty"`
+			LearningSource string        `json:"learning_source,omitempty"`
+		}{in.Model, in.Messages, in.Purpose, in.PolicyVersion, in.LearningSource})
 	}
 	digest := sha256.Sum256(canonical)
 	return hex.EncodeToString(digest[:])

@@ -260,9 +260,9 @@
     {
       "path": "overlay/lingtuhost/chat.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat.go",
-      "sha256": "c9338a87e77e733e4feea8e7e0ac8e4f344f700d039be0b7b0ef1409e1629d0c",
+      "sha256": "5ca29b01e35f8eb445a61dc2c895bb4304f7fc8f49c3a639fb6acf206638f70d",
       "upstreamSha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650",
-      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
+      "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: execute the managed context policy per request with strictly typed purpose/policy_version/learning_source, digest binding, stale-version 409 before reservation, upstream-only hidden reply system prompt, server-owned output budgets, learning source/vision gates, purpose persisted on lingtu_usage, and a tokenkit text ceiling for explicit policy-aware calls and legacy calls with active hidden prompts"
     },
     {
       "path": "overlay/lingtuhost/chat_test.go",
