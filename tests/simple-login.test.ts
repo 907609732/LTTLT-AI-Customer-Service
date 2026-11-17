@@ -14,7 +14,13 @@ it('间隔控件不再包含高级模型配置或账号入口', () => {
   const wrapper = mount(SettingsView, {
     global: { plugins: [ElementPlus], stubs: { ElTag: true } },
   })
-  expect(wrapper.find('[aria-label="同一买家回复间隔（秒）"]').exists()).toBe(true)
+  expect(wrapper.find('[aria-label="回复间隔模式"]').exists()).toBe(true)
+  expect(wrapper.find('label[for="reply-pacing-mode"]').exists()).toBe(true)
+  expect(wrapper.find('[aria-label="随机间隔下限（秒）"]').exists()).toBe(false)
+  expect(wrapper.text()).toContain('1～3 秒随机')
+  expect(wrapper.text()).toContain('当前：')
+  expect(wrapper.text()).toContain('模型生成和审核耗时另计')
+  expect(wrapper.text()).not.toContain('未保存')
   expect(wrapper.find('h3').exists()).toBe(false)
   expect(wrapper.text()).not.toContain('载入已保存间隔')
   expect(wrapper.text()).not.toContain('间隔单独保存，保存不会开启 AI 或发送消息。')
@@ -183,15 +189,70 @@ it.each([false, true])(
     wrapper.unmount()
   },
 )
+it('普通快照刷新不丢未保存草稿', async () => {
+  setActivePinia(createPinia())
+  const runtime = useRuntimeStore()
+  const wrapper = mount(SettingsView, { global: { plugins: [ElementPlus] } })
+  wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'custom')
+  await flushPromises()
+  const input = wrapper.findComponent({ name: 'ElInputNumber' })
+  input.vm.$emit('update:modelValue', 7)
+  input.vm.$emit('change', 7)
+  await flushPromises()
+  expect(wrapper.text()).toContain('未保存')
+  runtime.snapshot.config.reply.pacing = {
+    mode: 'fixed-1',
+    customMinSeconds: 1,
+    customMaxSeconds: 3,
+  }
+  await flushPromises()
+  expect(input.props('modelValue')).toBe(7)
+  expect(wrapper.text()).toContain('当前：固定 1 秒')
+  wrapper.unmount()
+})
+
+it('CAS 冲突保留草稿并可显式重新载入已保存设置', async () => {
+  setActivePinia(createPinia())
+  const runtime = useRuntimeStore()
+  runtime.snapshot.config.reply.pacing = {
+    mode: 'custom',
+    customMinSeconds: 4,
+    customMaxSeconds: 9,
+  }
+  vi.spyOn(runtime, 'run').mockRejectedValue(
+    new Error('回复间隔配置已更新，请载入已保存设置后再修改'),
+  )
+  const wrapper = mount(SettingsView, { global: { plugins: [ElementPlus] } })
+  const select = wrapper.findComponent({ name: 'ElSelect' })
+  select.vm.$emit('update:modelValue', 'random-2-3')
+  await flushPromises()
+  await wrapper.find('form').trigger('submit')
+  await flushPromises()
+  expect(wrapper.find('[role="alert"]').text()).toContain('已更新')
+  expect(wrapper.find('[aria-label="重新载入已保存设置"]').exists()).toBe(true)
+  expect(select.props('modelValue')).toBe('random-2-3')
+  await wrapper.find('[aria-label="重新载入已保存设置"]').trigger('click')
+  await flushPromises()
+  expect(select.props('modelValue')).toBe('custom')
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  wrapper.unmount()
+})
+
 it('间隔控件切工作区清空旧草稿', async () => {
   setActivePinia(createPinia())
   const runtime = useRuntimeStore()
   const wrapper = mount(SettingsView, { global: { plugins: [ElementPlus] } })
+  wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'custom')
+  await flushPromises()
   const input = wrapper.findComponent({ name: 'ElInputNumber' })
   input.vm.$emit('update:modelValue', 120)
   input.vm.$emit('change', 120)
   await flushPromises()
-  runtime.snapshot.config.reply.perUidMinIntervalMs = 30000
+  runtime.snapshot.config.reply.pacing = {
+    mode: 'custom',
+    customMinSeconds: 30,
+    customMaxSeconds: 60,
+  }
   runtime.snapshot.workspaceId = 'new-workspace'
   await flushPromises()
   expect(input.props('modelValue')).toBe(30)

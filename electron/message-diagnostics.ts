@@ -14,6 +14,8 @@ export interface WorkerObservation {
   lastMerchantAt: Map<string, number>
   sendWindow: number[]
   cfg: { perUidMinIntervalMs?: number; perStorePerMinuteMax?: number; maxInflight?: number }
+  /** 引擎已确定的本次买家间隔（随机节奏只抽取一次）；缺失时回退旧版固定值。 */
+  pacingIntervalMs?: (uid: string) => number
 }
 interface Ref {
   msgId?: string
@@ -106,14 +108,21 @@ export class MessageDiagnostics {
         'adapter_unavailable',
         '尚未交给 AI：平台页面/队列适配器暂时不可用。',
       )
-    const wait =
-      (worker.lastSentAt.get(uid) || 0) + (worker.cfg.perUidMinIntervalMs ?? 1000) - Date.now()
-    if (worker.lastSentAt.has(uid) && wait > 0)
-      return aiState(
-        'waiting',
-        'uid_interval',
-        `尚未交给 AI：同一买家回复间隔为 ${(worker.cfg.perUidMinIntervalMs ?? 1000) / 1000} 秒，约 ${Math.ceil(wait / 1000)} 秒后重试。`,
-      )
+    if (worker.lastSentAt.has(uid)) {
+      let intervalMs = worker.cfg.perUidMinIntervalMs ?? 1000
+      try {
+        intervalMs = worker.pacingIntervalMs?.(uid) ?? intervalMs
+      } catch {
+        // 节奏策略异常只影响这条说明，回退到配置值，不阻断诊断刷新。
+      }
+      const wait = (worker.lastSentAt.get(uid) || 0) + intervalMs - Date.now()
+      if (wait > 0)
+        return aiState(
+          'waiting',
+          'uid_interval',
+          `尚未交给 AI：同一买家回复节奏本次间隔 ${Math.round(intervalMs / 100) / 10} 秒，约 ${Math.ceil(wait / 1000)} 秒后重试。`,
+        )
+    }
     const limit = worker.cfg.perStorePerMinuteMax ?? 20
     if (limit > 0 && worker.sendWindow.filter((t) => Date.now() - t < 60000).length >= limit)
       return aiState(

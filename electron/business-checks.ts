@@ -365,11 +365,15 @@ export async function businessChecks(options: {
       )
     })
     await check('business:reply-pacing-settings', '/', async () => {
-      if (!(await snapshot()).stores.length)
+      // 单独选择本用例时前面的路由检查不会加载文档；先装载应用页面，preload 快照才可用。
+      await load('/')
+      const initialStores = await snapshot()
+      if (!initialStores.stores.length) {
         await execute({
           action: 'add-store',
           values: { platform: 'sim-local', storeName: '间隔验证店' },
         })
+      }
       await load('/shop/manage?panel=shops')
       await wait(`Boolean(document.querySelector('[data-action="basic-settings"]'))`)
       await win.webContents.executeJavaScript(
@@ -379,36 +383,80 @@ export async function businessChecks(options: {
       await win.webContents.executeJavaScript(
         `document.querySelectorAll('button.wizard-step')[1].click()`,
       )
-      await wait(`Boolean(document.querySelector('.reply-pacing input'))`)
+      await wait(`Boolean(document.querySelector('.reply-pacing .el-select'))`)
       const footer = await win.webContents.executeJavaScript(
         `document.querySelector('.sidebar-footer').innerText`,
       )
       assert.match(footer, /快捷回复/)
       assert.doesNotMatch(footer, /设置|定时任务/)
-      assert.equal((await snapshot()).config.reply.perUidMinIntervalMs, 1000)
-      const change = async (seconds: number) => {
+      // 桌面检查可能在同一数据目录重复运行，先把节奏显式恢复为默认随机模式。
+      const before = (await snapshot()).config.reply.pacing
+      await execute({
+        action: 'save-config',
+        screenId: 'REPLY_PACING',
+        values: {
+          mode: 'random-1-3',
+          customMinSeconds: before.customMinSeconds,
+          customMaxSeconds: before.customMaxSeconds,
+          expected: before,
+        },
+      })
+      const initialPacing = (await snapshot()).config.reply.pacing
+      assert.equal(initialPacing.mode, 'random-1-3')
+      assert.equal(initialPacing.customMinSeconds, 1)
+      assert.equal(initialPacing.customMaxSeconds, 3)
+      assert.match(
         await win.webContents.executeJavaScript(
-          `(()=>{const input=document.querySelector('.reply-pacing input');input.value=${seconds};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('.reply-pacing button[type="submit"]').click()})()`,
-        )
-        await wait(
-          `document.querySelector('.reply-pacing .pacing-current').textContent.includes('当前 ${seconds} 秒')`,
-        )
-      }
-      await change(15)
+          `document.querySelector('.reply-pacing .pacing-current').textContent`,
+        ),
+        /1～3 秒随机/,
+      )
+      assert.equal(
+        await win.webContents.executeJavaScript(
+          `Boolean(document.querySelector('[aria-label="随机间隔下限（秒）"]'))`,
+        ),
+        false,
+      )
+      // 旧版固定秒数只保留审计：设置页保存新节奏不得改写它。
+      const legacyInterval = (await snapshot()).config.reply.perUidMinIntervalMs
+      await execute({
+        action: 'save-config',
+        screenId: 'REPLY_PACING',
+        values: {
+          mode: 'custom',
+          customMinSeconds: 5,
+          customMaxSeconds: 9,
+          expected: initialPacing,
+        },
+      })
+      await wait(
+        `document.querySelector('.reply-pacing .pacing-current').textContent.includes('5～9 秒随机')`,
+      )
+      await wait(`Boolean(document.querySelector('[aria-label="随机间隔下限（秒）"]'))`)
+      assert.equal((await snapshot()).config.reply.perUidMinIntervalMs, legacyInterval)
+      const savedPacing = (await snapshot()).config.reply.pacing
       await assert.rejects(
         execute({
           action: 'save-config',
           screenId: 'REPLY_PACING',
-          values: { seconds: 0, expectedMs: 15000 },
+          values: {
+            mode: 'custom',
+            customMinSeconds: 9,
+            customMaxSeconds: 5,
+            expected: savedPacing,
+          },
         }),
       )
-      await change(1)
-      assert.equal((await snapshot()).config.reply.perUidMinIntervalMs, 1000)
       await assert.rejects(
         execute({
           action: 'save-config',
           screenId: 'REPLY_PACING',
-          values: { seconds: 30, expectedMs: 15000 },
+          values: {
+            mode: 'custom',
+            customMinSeconds: 1,
+            customMaxSeconds: 3601,
+            expected: savedPacing,
+          },
         }),
       )
       fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })

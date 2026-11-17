@@ -11,7 +11,7 @@ import { profileSchema, type ModelProfile } from '../src/shared/contracts/backen
 import type { SchedulerRun } from '../src/shared/contracts/scheduler'
 import { getDesktop } from '../src/shared/platform/desktop'
 const wrappers: ReturnType<typeof mount>[] = []
-it('客服风格编辑并保存全局间隔，最少1秒且保留并发版本校验', async () => {
+it('客服风格提供四种回复间隔，默认随机且保存携带已载入版本', async () => {
   const { wrapper, runtime } = await fixture()
   runtime.available = true
   const run = vi
@@ -20,20 +20,121 @@ it('客服风格编辑并保存全局间隔，最少1秒且保留并发版本校
   await wrapper.find('[data-start]').trigger('click')
   const pacing = wrapper.find('.reply-pacing')
   expect(pacing.exists()).toBe(true)
-  const input = pacing.findComponent({ name: 'ElInputNumber' })
-  expect(input.props('min')).toBe(1)
-  expect(input.props('modelValue')).toBe(1)
-  input.vm.$emit('update:modelValue', 2)
-  input.vm.$emit('change', 2)
+  const select = pacing.findComponent({ name: 'ElSelect' })
+  expect(select.props('modelValue')).toBe('random-1-3')
+  await select.find('.el-select__wrapper').trigger('click')
+  await flushPromises()
+  expect(
+    [...document.querySelectorAll('.el-select-dropdown__item')].map((option) =>
+      option.textContent?.trim(),
+    ),
+  ).toEqual(['1～3 秒随机（默认）', '2～3 秒随机', '自定义随机范围', '固定 1 秒'])
+  expect(pacing.findComponent({ name: 'ElInputNumber' }).exists()).toBe(false)
+  const expected = { ...runtime.snapshot.config.reply.pacing }
+  select.vm.$emit('update:modelValue', 'random-2-3')
+  await flushPromises()
+  expect(pacing.find('.pacing-dirty').text()).toBe('未保存')
+  expect(pacing.find('.pacing-current').text()).toContain('1～3 秒随机')
   await pacing.trigger('submit')
   await flushPromises()
   expect(run).toHaveBeenCalledWith({
     action: 'save-config',
     screenId: 'REPLY_PACING',
-    values: { seconds: 2, expectedMs: 1000 },
+    values: { mode: 'random-2-3', customMinSeconds: 1, customMaxSeconds: 3, expected },
   })
   expect(wrapper.text()).toContain('全局生效')
 })
+it('自定义随机间隔才显示起止输入，保存后显示实际新值', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  const expected = { ...runtime.snapshot.config.reply.pacing }
+  const run = vi.spyOn(runtime, 'run').mockImplementation(async (command) => {
+    expect(command.values).toEqual({
+      mode: 'custom',
+      customMinSeconds: 2,
+      customMaxSeconds: 6,
+      expected,
+    })
+    runtime.snapshot.config.reply.pacing = {
+      mode: 'custom',
+      customMinSeconds: 2,
+      customMaxSeconds: 6,
+    }
+    return { status: 'ok', message: '已保存', data: {} }
+  })
+  await wrapper.find('[data-start]').trigger('click')
+  const pacing = wrapper.find('.reply-pacing')
+  pacing.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'custom')
+  await flushPromises()
+  const inputs = pacing.findAllComponents({ name: 'ElInputNumber' })
+  expect(inputs).toHaveLength(2)
+  expect(inputs[0]!.props('min')).toBe(1)
+  expect(inputs[1]!.props('max')).toBe(3600)
+  inputs[0]!.vm.$emit('update:modelValue', 2)
+  inputs[1]!.vm.$emit('update:modelValue', 6)
+  await flushPromises()
+  expect(pacing.find('.pacing-current').text()).toContain('1～3 秒随机')
+  await pacing.trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledOnce()
+  expect(pacing.find('.pacing-current').text()).toContain('2～6 秒随机')
+  expect(pacing.find('.pacing-dirty').exists()).toBe(false)
+})
+
+it('非法随机范围即使直接提交表单也不调用保存', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  const run = vi.spyOn(runtime, 'run')
+  await wrapper.find('[data-start]').trigger('click')
+  const pacing = wrapper.find('.reply-pacing')
+  pacing.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'custom')
+  await flushPromises()
+  const inputs = pacing.findAllComponents({ name: 'ElInputNumber' })
+  inputs[0]!.vm.$emit('update:modelValue', 10)
+  inputs[1]!.vm.$emit('update:modelValue', 3)
+  await flushPromises()
+  expect(pacing.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+  await pacing.trigger('submit')
+  await flushPromises()
+  expect(run).not.toHaveBeenCalled()
+  expect(wrapper.find('[role="alert"]').text()).toContain('下限不能大于上限')
+})
+
+it('并发更新保留间隔草稿，明确重新载入才替换', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  vi.spyOn(runtime, 'run').mockRejectedValue(
+    new Error('回复间隔配置已更新，请载入已保存设置后再修改'),
+  )
+  await wrapper.find('[data-start]').trigger('click')
+  const pacing = wrapper.find('.reply-pacing')
+  const select = pacing.findComponent({ name: 'ElSelect' })
+  select.vm.$emit('update:modelValue', 'custom')
+  await flushPromises()
+  const inputs = pacing.findAllComponents({ name: 'ElInputNumber' })
+  inputs[0]!.vm.$emit('update:modelValue', 2)
+  inputs[1]!.vm.$emit('update:modelValue', 5)
+  await flushPromises()
+  await pacing.trigger('submit')
+  await flushPromises()
+  runtime.snapshot.config.reply.pacing = {
+    mode: 'fixed-1',
+    customMinSeconds: 8,
+    customMaxSeconds: 9,
+  }
+  await flushPromises()
+  expect(select.props('modelValue')).toBe('custom')
+  expect(
+    inputs.map((input: { props(name: string): unknown }) => input.props('modelValue')),
+  ).toEqual([2, 5])
+  expect(pacing.find('.pacing-current').text()).toContain('固定 1 秒')
+  await wrapper.get('button[aria-label="重新载入已保存设置"]').trigger('click')
+  await flushPromises()
+  expect(select.props('modelValue')).toBe('fixed-1')
+  expect(pacing.findAllComponents({ name: 'ElInputNumber' })).toHaveLength(0)
+  expect(wrapper.find('.pacing-error').exists()).toBe(false)
+})
+
 it('客服风格统一编辑自定义回复要求和字数上限，不触发真实请求', async () => {
   const { wrapper, setup, runtime } = await fixture()
   const run = vi.spyOn(runtime, 'run')
@@ -98,7 +199,10 @@ async function fixture() {
   })
   await router.push('/')
   setup.open('shop-a')
-  const wrapper = mount(ShopSetupGuide, { global: { plugins: [ElementPlus, router] } })
+  const wrapper = mount(ShopSetupGuide, {
+    attachTo: document.body,
+    global: { plugins: [ElementPlus, router] },
+  })
   wrappers.push(wrapper)
   await flushPromises()
   return { wrapper, runtime, setup }
@@ -273,7 +377,7 @@ it('恢复草稿后保存成功，再次打开以已保存规则为准', async (
   expect(setup.step).toBe(0)
 })
 
-it('恢复步骤点击和最少1秒间隔控件，保存时锁定跳转', async () => {
+it('恢复步骤点击和固定1秒选项，保存时锁定跳转', async () => {
   const { wrapper, setup, runtime } = await fixture()
   const steps = wrapper.findAll('button.wizard-step')
   expect(steps).toHaveLength(6)
@@ -284,20 +388,21 @@ it('恢复步骤点击和最少1秒间隔控件，保存时锁定跳转', async 
   expect(setup.step).toBe(1)
   expect(setup.draft.origins).toEqual(['浙江'])
   const pacing = wrapper.find('.reply-pacing')
-  const input = pacing.findComponent({ name: 'ElInputNumber' })
-  expect(input.props('min')).toBe(1)
-  expect(input.props('modelValue')).toBe(1)
+  const select = pacing.findComponent({ name: 'ElSelect' })
+  expect(select.props('modelValue')).toBe('random-1-3')
+  const expected = { ...runtime.snapshot.config.reply.pacing }
   runtime.available = true
   const run = vi
     .spyOn(runtime, 'run')
     .mockResolvedValue({ status: 'ok', message: '已保存', data: {} })
-  input.vm.$emit('update:modelValue', 2)
+  select.vm.$emit('update:modelValue', 'fixed-1')
+  await flushPromises()
   await pacing.trigger('submit')
   await flushPromises()
   expect(run).toHaveBeenCalledWith({
     action: 'save-config',
     screenId: 'REPLY_PACING',
-    values: { seconds: 2, expectedMs: 1000 },
+    values: { mode: 'fixed-1', customMinSeconds: 1, customMaxSeconds: 3, expected },
   })
   setup.saving = true
   await flushPromises()

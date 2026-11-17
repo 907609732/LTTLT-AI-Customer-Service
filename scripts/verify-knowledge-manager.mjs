@@ -66,6 +66,7 @@ try {
   await run(executable, [
     path.join(output, 'dist-electron/knowledge-manager-check.cjs'),
     ...(process.argv.includes('--inline-progress-only') ? ['--inline-progress-only'] : []),
+    ...(process.argv.includes('--misses-only') ? ['--misses-only'] : []),
   ])
 } catch (error) {
   failure = error

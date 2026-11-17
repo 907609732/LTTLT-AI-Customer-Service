@@ -101,3 +101,7 @@ backend.cjs 的既有 save-config 仅新增 MANUAL_REPLY_KEYWORDS 分支：按 k
 ## 2026-11-17 本地遗漏改动整合
 
 保留当前知识端口、用途/策略版本透传和取消链路，在拼多多消息、待处理队列及回复上下文透传 goodsId；精确商品ID优先，标题与问题检索去重后补充。hook版本从9递增到10，保留已有会话定位修复。backend仅新增可选 resolveManagedRequestId 注入，在记录失败诊断前确定摘要父回复ID，保证实际HTTP正文和诊断一致。保留原始来源哈希，更新实际文件哈希与对应回归测试。
+
+## 2026-11-17：同一买家随机回复节奏
+
+reply-engine 与 backend.cjs 新增可选 resolveUidIntervalMs：ReplyEngine 保存并转发给每个 StoreWorker，Worker 把 storeId、uid、lastSentAt 与自身随机源交给该函数。抽样、缓存、随保存失效和范围校验全部在本工程 TypeScript，vendor 不保存节奏业务规则；未注入时每次动态读取上游 perUidMinIntervalMs（旧 save-config 改值立即生效）。注入时不再叠加旧 0.5~2s 发送抖动，只保留所选的一套间隔；解析异常时退到 1 秒下限，不回退旧 60 秒。决策文案显示本次实际间隔，pacingIntervalMs(uid) 供本工程消息诊断读取同一值。发送审批、取消、发送前复核、重试与单店分钟上限均未改动；REPLY_PACING 旧保存分支保留但桌面端不再使用。随机模式、范围校验与旧值迁移在 electron/reply-pacing.ts（reply-pacing.json），config.json 的旧固定值原样保留用于审计/回退。source-files.json 保留 upstreamGitBlob/upstreamSha256，仅更新这两个文件的实际 sha256 与 localPatch。

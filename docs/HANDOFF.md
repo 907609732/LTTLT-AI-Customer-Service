@@ -1,3 +1,11 @@
+## 2026-11-17 待学问题处理反馈与历史（1.0.50）
+
+修复标记解决后无反馈、记录仍混在待学列表及无历史入口。默认待处理，新增已解决/已忽略分类与重新打开；中文状态、处理中禁用、成功/失败反馈。标记只记录状态，不生成或发布知识；补充答案仍走草稿审核。按状态在仓储过滤后分页，支持搜索和超过100条，顶栏只计open；末页移除最后项自动回退。旧查询不指定status仍返回全部。更新按ID读取并校验店铺，修复首100项之外跳过校验的边界。无新依赖、IPC或数据库迁移，不改真实业务数据。
+
+复用已有 Vue/controller/run/notice、Zod schema、SQLite 仓储和原生验收脚本。DeepSeek 独立工作树实现，Codex 检查及补充边界修复；只读审查已复核无剩余 P1/P2。相关4文件97项测试、类型检查、改动范围ESLint通过，Windows构建通过。新增 --misses-only 原生流程通过真实preload/IPC/SQLite验收解决反馈、历史、重新打开、忽略及店铺隔离，并保存截图。首次原生运行因渲染求值失败已记录，增加求值错误上下文后复测通过；未称首次成功。验收使用临时账号、合成记录与本机模拟模型，不调用真实付费模型或买家发送。
+
+后续：若需要把待学问题与已发布答案建立关联，应另行定义关系与审核规则；当前处理状态不代表答案已生成。云端检查以对应Actions实际结果为准；未发布Release或部署生产。
+
 ## 2026-11-17 自有代码 Apache-2.0 与第三方许可保留（1.0.49）
 
 按用户明确授权，根 LICENSE 使用 Apache-2.0 官方标准原文，自有原创范围见 docs/legal/LICENSE_SCOPE.md；第三方运行时、server 导入及其派生代码仍适用各自 AGPL，不将组合应用宣称为可任意闭源。添加 NOTICE、贡献规则，并同步 README、商业服务模板与桥接来源记录。复用现有 electron-builder 和 @electron/asar，不新增依赖。
@@ -569,3 +577,19 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 修复：用现有 Pillow 从 `src/assets/lingtu-ai-icon.png` 生成圆形透明七尺寸 ICO，完整品牌内容内缩86%半径避免裁切；windows.ts 源码读 public、打包读 app.asar/dist；打包应用在窗口前设置 builder appId 对应的 AppUserModelID（源码调试不设置，避免归到本机旧安装快捷方式）；保留 builder signExecutable:false 和现有图标配置。新增 ICO 尺寸/路径/AUMID 与 builder appId 一致性回归，透明度复用 Pillow 生成脚本核对。
 
 验证：Codex 独立复验 3 个文件9项测试、Electron TypeScript、修改范围 ESLint 和主目录 npm run build 通过；Pillow --check 七尺寸均四角 alpha=0、中心 alpha=255。已重新打开主目录源码，窗口显示v1.0.47。另用已安装 Electron 生成本机 --dir 解包测试产物（非Release），退出码0；已从EXE提取7个透明圆形尺寸；产品名与1.0.47.0版本元数据正确，asar/public图标逐字节一致，EXE提取图标各尺寸RGBA像素一致（ICO容器头重建后字节不同）。未制作或公开发布安装器，旧安装目录保留原样。测试不自写PNG解码器，透明度复用Pillow检查。
+
+## 2026-11-17 同一买家随机回复节奏（1.0.49，本地）
+
+按用户最终要求完成：基础设置“客服风格”页回复间隔保留原卡片与保存按钮，改为下拉四项——1～3 秒随机（默认）、2～3 秒随机、自定义随机范围（选中才显示起止整数秒输入）、固定 1 秒。范围校验 1≤min≤max≤3600，随机结果至少 1 秒；只作用于同一买家连续回复的排队节奏，不是模型生成耗时承诺。界面显示真实“当前：…·全局生效”，脏草稿标“未保存”，CAS 冲突保留草稿并提供“重新载入已保存设置”，普通快照刷新不丢草稿；说明“模型生成和审核耗时另计”，窄屏按组换行不溢出。
+
+实现：`electron/reply-pacing.ts` 的 `ReplyPacingStore` 独立保存本机业务目录 `reply-pacing.json`（版本 1，原子写入 0600）；`createUidIntervalResolver` 在自有 TypeScript 抽样并按“店铺+买家+上次发送时间+模式/范围指纹”缓存，保存后指纹变化使当前等待立即重算，同一等待只抽一次。`electron/local-runtime.ts` 在快照叠加 `config.reply.pacing`、拦截 REPLY_PACING 保存（CAS 必填）并把 resolver 注入厂商；`electron/message-diagnostics.ts` 读取引擎本次已确定的间隔。厂商仅两处最小补丁：ReplyEngine 接收并转发 resolver 到每个 StoreWorker（Worker 不缓存业务节奏，注入时不再叠加旧 0.5～2 秒发送抖动，异常退 1 秒下限），未注入时每次动态读取 `perUidMinIntervalMs` 并保留原抖动；backend.cjs 只透传该可选函数。双哈希与 PROVENANCE 已更新。
+
+迁移与错误边界：首次没有 `reply-pacing.json` 的旧账号（含旧 60 秒或其他固定值）迁移为 1～3 秒随机并记录迁移来源；旧值继续留在 `config.json` 的 `perUidMinIntervalMs` 供审计/回退，保存新模式不改写它，已有新配置不会被启动流程覆盖。坏 JSON、反序/越界配置、首次迁移写失败都会明确报错并保留原文件，不静默回默认。未改动店铺、账号、Key、AI 开启状态、旧批准或发送审批。
+
+验证（均为本机实际执行）：Vitest 7 个相关文件 60 项通过（含审查者新增 `tests/reply-pacing-factory.test.ts` 7 项真实工厂链路）；相关上游 89 项通过；`npm run typecheck`、变更文件 ESLint/Prettier、`npm run check:vendor`、`npm run build` 通过；`LINGTU_DESKTOP_CHECKS=business:reply-pacing-settings npm run test:desktop` 1/1 通过并查看截图。未运行全量 `npm run check`、全量桌面检查、真实买家发送、安装包发布或生产部署；未提交推送。未重启/打开真实资料实例：本轮为独立 worktree 的源码修改与隔离桌面验收，是否切换运行实例由整合方按版本规则决定（运行中的实例仍显示其原构建版本）。
+
+整合方补充（1.0.51）：合并 de3cd79 主线，保留知识库反馈与许可更新；8 文件 90 项专项测试、typecheck、build、原生节奏专项 1/1 通过。提交入口额外校验非法范围，防止回车绕过禁用按钮，回归已验证。最终集成及本机运行验收记录随后补充。
+
+最终本机验收（1.0.51）：已快进合入并推送 main（功能与整合提交 7d4ba10），主目录构建成功。重启前备份本机节奏相关配置；旧实例只剩知识库窗口，关闭知识库刷新草稿后仍保留无窗口进程，按准确主进程路径停止本项目进程，再从主目录启动新版，未处理其他 Electron 软件。原账号 Root User 与两家店铺仍在，实际窗口和设置页显示 v1.0.51，米配匠基础设置的客服风格页当前显示 1～3 秒随机·全局生效，下拉可读取四个准确选项。本机 reply-pacing.json 为 random-1-3，旧1000ms保留迁移记录。未修改实店 AI 开关或执行真实买家发送；未公开发布新版安装器。云端构建运行号 44098904369，结果以实际 Actions 状态为准。
+
+云端及产物验收：Actions 44098904369 全部成功（源码完整 check、实际桌面、知识库/学习、NSIS/ZIP 打包、包内检查及打包程序启动）。Windows 产物下载到 E:/codex-builds/lingtu-cloud-1.0.51-44098904369，EXE/ZIP/清单的 SHA256 全部匹配。下载便携包在本机独立临时资料目录执行现有 test:packaged，退出码0且status=passed（ASAR运行时/许可/隐私排除、真实preload/IPC、版本和文档解析），未安装或替换日常安装目录，未发布新版Release。主目录当前运行的源码仍为1.0.51。

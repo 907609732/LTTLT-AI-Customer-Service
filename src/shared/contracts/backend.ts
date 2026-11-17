@@ -82,6 +82,31 @@ export const commandSchema = z
   })
   .strict()
 export type BackendCommand = z.infer<typeof commandSchema>
+
+/**
+ * 同一买家两次回复之间的等待节奏。随机范围只影响排队/发送时点，
+ * 不是模型生成耗时保证；旧版固定秒数（config.reply.perUidMinIntervalMs）
+ * 继续保留在配置文件中用于审计与回退，但不再决定新的等待时长。
+ */
+export const replyPacingModeSchema = z.enum(['random-1-3', 'random-2-3', 'custom', 'fixed-1'])
+export type ReplyPacingMode = z.infer<typeof replyPacingModeSchema>
+export const replyPacingSchema = z
+  .object({
+    mode: replyPacingModeSchema,
+    customMinSeconds: z.number().int().min(1).max(3600),
+    customMaxSeconds: z.number().int().min(1).max(3600),
+  })
+  // 反序范围既不能保存也不能进入快照，避免界面显示“10～1 秒随机”。
+  .superRefine((value, context) => {
+    if (value.customMinSeconds > value.customMaxSeconds)
+      context.addIssue({ code: 'custom', message: '随机间隔下限不能大于上限' })
+  })
+export type ReplyPacing = z.infer<typeof replyPacingSchema>
+export const defaultReplyPacing: ReplyPacing = {
+  mode: 'random-1-3',
+  customMinSeconds: 1,
+  customMaxSeconds: 3,
+}
 export type Action = (typeof actions)[number]
 export type CommandInput = Omit<BackendCommand, 'workspaceId' | 'values'> & {
   values?: Record<string, unknown>
@@ -256,7 +281,9 @@ export const snapshotSchema = z.object({
   config: z.object({
     ai: z.object({ baseUrl: z.string(), model: z.string(), systemPrompt: z.string() }),
     reply: z.object({
-      perUidMinIntervalMs: z.number().int().min(1000).max(3600000).default(1000),
+      // 旧版同一买家固定间隔：只作为审计/回退依据保留，不再由设置页写入。
+      perUidMinIntervalMs: z.number().int().min(0).max(3600000).default(60000),
+      pacing: replyPacingSchema.default(defaultReplyPacing),
       enabled: z.boolean(),
       maxReplyChars: z.number(),
       fallbackAfterMs: z.number(),
@@ -348,7 +375,8 @@ export function emptySnapshot(): BackendSnapshot {
         maxReplyChars: 200,
         fallbackAfterMs: 0,
         fallbackText: '',
-        perUidMinIntervalMs: 1000,
+        perUidMinIntervalMs: 60000,
+        pacing: { ...defaultReplyPacing },
       },
       safety: { handoffKeywords: [], manualReplyKeywords: [] },
     },

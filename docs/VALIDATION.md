@@ -146,3 +146,17 @@ Windows 工具链适配：本机旧 Bun 1.3.14 出现安装崩溃，改用固定
 ## 2026-11-16 多模型与人民币整合（1.0.18）
 
 server:verify 已通过全部 10 个编排步骤（SQLite 的 9 个目标 Go 包、依赖锁、翻译、路由、类型、lint、8 文件 41 项前端测试、管理网页和 Linux 构建）。额外价格保存交互覆盖后 admin-page 22 项通过。无 MySQL/PostgreSQL 实例验收、供应商真实金额对账、生产迁移或部署声明。新增字段只做本机临时 SQLite 迁移验证。桌面 build 通过，1.0.18 源码已打开、版本及米配匠账号/AI关闭状态目视验收。
+
+## 2026-11-17 同一买家随机回复节奏（1.0.49，局部验证）
+
+- `tests/reply-pacing.test.ts`（10 项，exit 0）：首次迁移默认 1～3 秒随机并记录旧值、已保存模式不被覆盖、1～3600 整数秒与 min<=max 校验、CAS 必填与旧值拒绝、坏 JSON/反序/缺字段明确报错且原文件不变、首次迁移写失败报错、共享契约拒绝反序、按“店铺+买家+上次发送时间+策略指纹”每轮只抽一次且保存后当前等待立即重算、至少 1 秒。
+- `tests/reply-pacing-factory.test.ts`（7 项，审查者新增，保留原文件，exit 0）：真实 `ReplyEngine → startStore → StoreWorker` 链路收到 resolver；不再有旧 60 秒与旧抖动；每买家独立抽样；保存后当前等待立即生效；未注入路径动态读取固定值并保留原抖动；审批仍必需；停止后旧批准不发送；单店分钟上限保留。
+- `tests/message-diagnostics.test.ts`（6 项）与 `tests/simple-login.test.ts`（12 项）：等待原因读取本次已确定间隔；“未保存”草稿、快照刷新不丢草稿、CAS 冲突保留草稿并可重新载入。
+- 其余直接相关：`tests/backend-contract.test.ts`、`tests/manual-reply-keywords.test.ts`、`tests/review-engine.test.ts` 通过；合计 7 文件 60 项（`--maxWorkers=1 --no-file-parallelism`，exit 0，无未处理错误）。
+- 上游针对性套件 `desk-v1/test/reply-engine.test.js`、`tests/managed-backend.test.mjs`、`tests/backend-integration.test.mjs` 共 89 项通过（`--test-concurrency=1`，exit 0）。
+- `npm run typecheck`、变更文件 ESLint（exit 0，仅 package\*.json 无匹配配置警告）、Prettier check、`npm run check:vendor`（vendor 80 / server 94 文件）、`npm run build` 均通过。
+- 隔离桌面验收：`LINGTU_DESKTOP_CHECKS=business:reply-pacing-settings npm run test:desktop` 1/1 通过（exit 0）。用例先加载应用页面以启用 preload，再验证默认 1～3 秒、保存自定义 5～9 秒、旧固定值未被改写、反序与 3601 被拒绝、自定义输入按条件出现；截图 `artifacts/desktop/reply-pacing-settings.png` 已查看，1440 宽下无溢出。
+
+未运行全量 `npm run check`、全量桌面检查、真实买家发送、安装包或发布；未改动店铺/账号/Key/AI 开关/发送审批。首次并行 Vitest 出现 Windows 临时目录 EBUSY，随后按要求用单 worker 重跑，全部通过。
+
+整合复验（1.0.51）：保留主线 Apache 许可范围及知识库缺口反馈修改；8 个相关 Vitest 文件 90 项通过，含店铺向导 30 项（四选项、自定义、固定 1 秒、非法范围提交、冲突保留草稿）。非法范围回车提交已做红绿验证。合并后 typecheck、build 和隔离原生节奏检查 1/1 通过。

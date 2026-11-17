@@ -18,6 +18,7 @@ import {
   fieldLabel,
   sourceLabel,
   productStatusLabel,
+  missStatusLabel,
 } from '../manager-labels'
 import { useKnowledgeManager } from '../manager-controller'
 const runtime = useRuntimeStore()
@@ -40,6 +41,10 @@ const {
   jobAction,
   jobs,
   misses,
+  missStatus,
+  missUpdating,
+  changeMissStatus,
+  updateMissDisposition,
   settings,
   capabilities,
   selection,
@@ -145,6 +150,11 @@ const {
   hide,
   changed,
 } = useKnowledgeManager()
+const missFilters = [
+  { value: 'open', label: '待处理' },
+  { value: 'resolved', label: '已解决' },
+  { value: 'ignored', label: '已忽略' },
+] as const
 </script>
 
 <template>
@@ -239,7 +249,11 @@ const {
       知识迁移失败，当前只读：{{ summary.migration.error }}。原文件已保留，请核对迁移备份。
     </p>
     <div class="knowledge-toolbar">
-      <input v-model="search" aria-label="搜索商品或问答" placeholder="搜索商品名称、编号或问答" />
+      <input
+        v-model="search"
+        aria-label="搜索商品或问答"
+        :placeholder="view === 'misses' ? '搜索待学问题（问题原文）' : '搜索商品名称、编号或问答'"
+      />
       <KnowledgeToolbar
         :busy="busy"
         :store-id="storeId"
@@ -432,14 +446,31 @@ const {
           当前范围没有问答。可手写问题和标准答案，保存草稿后单独审核发布。
         </p></template
       >
-      <template v-else-if="view === 'misses'"
-        ><article v-for="miss in misses" :key="miss.id" class="knowledge-card">
+      <template v-else-if="view === 'misses'">
+        <section class="knowledge-miss-heading" aria-label="待学问题状态">
+          <nav class="knowledge-miss-filters">
+            <button
+              v-for="option in missFilters"
+              :key="option.value"
+              :data-testid="`miss-filter-${option.value}`"
+              :class="{ active: missStatus === option.value }"
+              :disabled="busy"
+              @click="run(() => changeMissStatus(option.value))"
+            >
+              {{ option.label }}
+            </button>
+          </nav>
+          <p class="knowledge-muted">
+            标记解决或忽略只记录处理状态，不会生成或发布答案；“补充答案”会保存为草稿，仍需在待审核中明确发布。
+          </p>
+        </section>
+        <article v-for="miss in misses" :key="miss.id" class="knowledge-card">
           <div class="knowledge-card-body">
             <b>{{ miss.question }}</b>
             <p>
               出现 {{ miss.count }} 次 · 商品 {{ miss.productId || '未识别' }} · SKU
               {{ miss.skuId || '未识别' }} · {{ miss.conversationIds.length }} 个真实会话 ·
-              {{ miss.status }}
+              {{ missStatusLabel(miss.status) }}
             </p>
             <p>
               缺口原因：{{
@@ -458,44 +489,59 @@ const {
               </p>
             </details>
           </div>
-          <button
-            @click="
-              run(async () => {
-                await saveDraft()
-                tab = 'general'
-                await writeOne()
-                if (draft) {
-                  draft.question = miss.question
-                  changed()
-                }
-              })
-            "
-          >
-            补充答案</button
-          ><button
-            @click="
-              run(async () => {
-                await client().command({ type: 'update-miss', missId: miss.id, status: 'resolved' })
-                await refresh()
-              })
-            "
-          >
-            标记解决</button
-          ><button
-            @click="
-              run(async () => {
-                await client().command({ type: 'update-miss', missId: miss.id, status: 'ignored' })
-                await refresh()
-              })
-            "
-          >
-            忽略
-          </button>
+          <div class="knowledge-card-actions">
+            <button
+              :disabled="busy || Boolean(missUpdating)"
+              @click="
+                run(async () => {
+                  await saveDraft()
+                  tab = 'general'
+                  await writeOne()
+                  if (draft) {
+                    draft.question = miss.question
+                    changed()
+                  }
+                })
+              "
+            >
+              补充答案
+            </button>
+            <template v-if="miss.status === 'open'">
+              <button
+                data-testid="miss-resolve"
+                :disabled="busy || Boolean(missUpdating)"
+                @click="run(() => updateMissDisposition(miss, 'resolved'))"
+              >
+                {{ missUpdating === miss.id ? '处理中…' : '标记解决' }}
+              </button>
+              <button
+                data-testid="miss-ignore"
+                :disabled="busy || Boolean(missUpdating)"
+                @click="run(() => updateMissDisposition(miss, 'ignored'))"
+              >
+                {{ missUpdating === miss.id ? '处理中…' : '忽略' }}
+              </button>
+            </template>
+            <button
+              v-else
+              data-testid="miss-reopen"
+              :disabled="busy || Boolean(missUpdating)"
+              @click="run(() => updateMissDisposition(miss, 'open'))"
+            >
+              {{ missUpdating === miss.id ? '处理中…' : '重新打开' }}
+            </button>
+          </div>
         </article>
         <p v-if="!misses.length" class="knowledge-empty">
-          当前没有待学问题。仅正式接待未覆盖的问题进入此处，试问不计入。
-        </p></template
-      >
+          {{
+            missStatus === 'open'
+              ? '当前没有待处理问题。仅正式接待未覆盖的问题进入此处，试问不计入。'
+              : missStatus === 'resolved'
+                ? '当前没有已解决的问题。'
+                : '当前没有已忽略的问题。'
+          }}
+        </p>
+      </template>
       <form v-else-if="settings" class="knowledge-settings" @submit.prevent="run(saveSettings)">
         <label
           >动态资料有效期（分钟）<input
@@ -543,8 +589,13 @@ const {
         </section>
       </form>
     </section>
-    <footer v-if="view === 'library' || view === 'review'" class="knowledge-pagination">
-      <span>共 {{ total }} 项 · 每页20项</span
+    <footer
+      v-if="view === 'library' || view === 'review' || view === 'misses'"
+      class="knowledge-pagination"
+    >
+      <span
+        >{{ view === 'misses' ? `${missStatusLabel(missStatus)} · ` : '' }}共 {{ total }} 项 ·
+        每页20项</span
       ><button :disabled="page === 0" @click="page--">上一页</button
       ><span>{{ page + 1 }} / {{ Math.max(1, Math.ceil(total / 20)) }}</span
       ><button :disabled="(page + 1) * 20 >= total" @click="page++">下一页</button

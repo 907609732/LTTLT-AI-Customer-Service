@@ -29,6 +29,7 @@ import {
   type KnowledgeSettings,
   type KnowledgePageInput,
   type KnowledgePage,
+  type KnowledgeMissPageInput,
   type KnowledgeJob,
   type KnowledgeMiss,
   type KnowledgeBackupManifest,
@@ -874,7 +875,8 @@ export class KnowledgeRepository {
       ).length,
       pending: this.listEntries({ storeId, status: 'draft', limit: 1 }).total,
       jobs: this.listJobs({ storeId, limit: 1 }).total,
-      misses: this.listMisses({ storeId, limit: 1 }).total,
+      // The header badge is actionable work only; history remains queryable by explicit status.
+      misses: this.listMisses({ storeId, status: 'open', limit: 1 }).total,
       readOnly: this.readOnly,
       migration: this.getMigrationState(),
     }
@@ -1066,6 +1068,9 @@ export class KnowledgeRepository {
       })
     })
   }
+  getMiss(id: string) {
+    return this.row<KnowledgeMiss>('misses', id)
+  }
   updateMiss(id: string, status: KnowledgeMiss['status']) {
     return this.transaction(() => {
       const old = this.row<KnowledgeMiss>('misses', id)
@@ -1076,16 +1081,20 @@ export class KnowledgeRepository {
       })
     })
   }
-  listMisses(input: KnowledgePageInput = {}) {
+  listMisses(input: KnowledgeMissPageInput = {}) {
+    const { status, ...pageInput } = input
+    const page = knowledgePageSchema.parse(pageInput),
+      search = page.search?.toLocaleLowerCase() ?? ''
     return this.page(
       this.rows<KnowledgeMiss>('misses')
         .filter(
           (miss) =>
-            (!input.storeId || miss.storeId === input.storeId) &&
-            (!input.search || miss.question.includes(input.search)),
+            (!page.storeId || miss.storeId === page.storeId) &&
+            (!status || miss.status === status) &&
+            (!search || miss.question.toLocaleLowerCase().includes(search)),
         )
         .sort((a, b) => b.lastSeenAt - a.lastSeenAt),
-      input,
+      page,
     )
   }
   createBackup(
