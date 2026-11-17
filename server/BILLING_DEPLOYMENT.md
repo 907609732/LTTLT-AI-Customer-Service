@@ -1,5 +1,21 @@
 # 计费服务部署与核对
 
+## 2026-11-17 成本与生产支付/额度/摘要合并（未部署）
+
+本轮以共同来源提交 `209f7b77d27fea6ad4aea89c0674d954a4e44649` 做三方合并：当前分支的微元成本（缓存价、价格快照、未知状态、后台费用页）与生产 `2026.11.16-wechat.1` 的微信/支付宝 Native 支付、试用/付费独立额度、免费摘要逐段融合。候选版本为 `2026.11.17-cost.1`，计费协议仍为 `2`；能力名保留生产全部项（`billing-orders`、`stripe-signed-credit`、`encrypted-billing-settings`、`billing-merchant-check`、`native-signed-credit`、`billing-order-reconciliation`、`trial-paid-quota`、`summary-no-call-charge`），并新增 `token-cny-cost-estimates`。未改动商户配置和密钥字段、Stripe/原生回调验签、账本唯一键与扣次幂等；未新增支付 SDK，继续使用固定 GoPay v1.5.123 和 Stripe Go v81.4.0。
+
+Native 支付沿用现有环境入口（密钥只放服务器受限环境文件，不写数据库明文、不进仓库）：
+
+- `LINGTU_BILLING_NOTIFY_ORIGIN`：HTTPS 回调源，服务据此拼出 `/api/lingtu/billing/{alipay,wechat}/webhook`。
+- 微信：`LINGTU_BILLING_WECHAT_APP_ID`、`_MERCHANT_ID`、`_PRIVATE_KEY`、`_PUBLIC_KEY`、`_API_V3_KEY`、`_CERT_SERIAL`、`_PUBLIC_KEY_ID`。
+- 支付宝：`LINGTU_BILLING_ALIPAY_APP_ID`、`_MERCHANT_ID`、`_PRIVATE_KEY`、`_PUBLIC_KEY`。
+
+未配置的渠道在套餐/渠道响应中保持 `ready:false` 和 `payment_not_configured`，不会创建订单。回调只接受签名校验通过的商户、AppID、订单号、金额与币种；重复通知按订单和渠道交易号幂等入账。微信 Native 商户订单号保持 16 字节十六进制（32 字符）以符合官方长度限制。真实商户验证仍须由 Codex 上线时单独执行，本机只做模拟测试，没有连接生产数据库、真实回调或付款。
+
+摘要路由 `POST /api/client/chat/summaries` 复用主聊天的鉴权、限流、额度预留和模型分发；摘要调用免扣付费/试用次数，但按同一价格快照记录实际 token 用量和微元成本，重放不会重复记录。主聊天图片 16 MiB 正文限制和其他 client 路由 1 MiB 限制保持原样。
+
+本文件下方 2026-11-14 部署记录描述的是上一版生产状态，保留作历史；当前候选未部署、未提交，验收命令和结果见本轮交接报告及 `SERVICE_TESTS.md`。
+
 本文件对应服务版本 `2026.11.14-billing.2`、计费协议 `2`。2026-11-14 用户明确授权仅升级大陆现有客服服务；已于北京时间 21:14 完成实际部署、备份和路由验证。商户仍未配置，没有创建订单、付款或启用正式收款。
 
 ## 2026-11-14 大陆部署记录

@@ -78,7 +78,7 @@ func TestLingtuRejectedProviderContentRetainsReportedUsage(t *testing.T) {
 			if err := db.Where("user_id = ? AND request_id = ?", 99, "rejected").First(&ledger).Error; err != nil {
 				t.Fatal(err)
 			}
-			expected := "uncertain"
+			expected := "failed"
 			if scenario == "provider_400" {
 				expected = "failed"
 			}

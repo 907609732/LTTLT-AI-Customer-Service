@@ -17,22 +17,26 @@ var (
 )
 
 type TrialGrant struct {
-	UserID    int   `gorm:"primaryKey;autoIncrement:false"`
-	Limit     int   `gorm:"column:call_limit;not null"`
-	Used      int   `gorm:"not null"`
-	Reserved  int   `gorm:"not null"`
-	CreatedAt int64 `gorm:"autoCreateTime:false;not null"`
-	ExpiresAt int64 `gorm:"not null"`
+	UserID     int    `gorm:"primaryKey;autoIncrement:false"`
+	Limit      int    `gorm:"column:call_limit;not null"`
+	Used       int    `gorm:"not null"`
+	Reserved   int    `gorm:"not null"`
+	CreatedAt  int64  `gorm:"autoCreateTime:false;not null"`
+	ExpiresAt  int64  `gorm:"not null"`
+	Provenance string `gorm:"type:varchar(32)"`
 }
 
 func (TrialGrant) TableName() string { return "lingtu_trial_grants" }
 
 type TrialRequest struct {
+	Auxiliary bool   `gorm:"not null;default:false"`
+	PoolEpoch int64  `gorm:"not null;default:0"`
 	ID        uint64 `gorm:"primaryKey"`
 	UserID    int    `gorm:"not null;uniqueIndex:lingtu_request_identity,priority:1"`
 	RequestID string `gorm:"type:varchar(128);not null;uniqueIndex:lingtu_request_identity,priority:2"`
 	Digest    string `gorm:"type:varchar(128);not null"`
 	State     string `gorm:"type:varchar(16);not null"`
+	Source    string `gorm:"type:varchar(16)"`
 	CreatedAt int64  `gorm:"autoCreateTime:false;not null"`
 }
 
@@ -46,7 +50,7 @@ type TrialStore struct{ db *gorm.DB }
 
 func NewTrialStore(db *gorm.DB) *TrialStore { return &TrialStore{db: db} }
 func (s *TrialStore) Migrate() error {
-	if err := s.db.AutoMigrate(&TrialGrant{}, &TrialRequest{}, &trialLimitGate{}, &trialDailyBudget{}, &trialLimitedRequest{}); err != nil {
+	if err := s.db.AutoMigrate(&TrialGrant{}, &PaidGrant{}, &TrialRequest{}, &trialLimitGate{}, &trialDailyBudget{}, &trialLimitedRequest{}); err != nil {
 		return err
 	}
 	return s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&trialLimitGate{ID: 1}).Error
@@ -81,14 +85,11 @@ func (s *TrialStore) Reserve(userID int, requestID, digest string, now time.Time
 		return r, err
 	}
 	err := s.transaction(func(tx *gorm.DB) error {
-		result := tx.Model(&TrialGrant{}).Where("user_id = ? AND expires_at > ? AND used + reserved < call_limit", userID, now.Unix()).UpdateColumn("reserved", gorm.Expr("reserved + 1"))
-		if result.Error != nil {
-			return result.Error
+		if err := lockTrialLimits(tx); err != nil {
+			return err
 		}
-		if result.RowsAffected != 1 {
-			return ErrTrialUnavailable
-		}
-		return tx.Create(&TrialRequest{UserID: userID, RequestID: requestID, Digest: digest, State: "pending", CreatedAt: now.Unix()}).Error
+		return reserveQuota(tx, userID, requestID, digest, now)
+
 	})
 	if err != nil {
 		// A concurrent duplicate may have committed while this transaction was waiting.
@@ -107,6 +108,17 @@ func (s *TrialStore) Settle(userID int, requestID, outcome string) error {
 	if userID <= 0 || requestID == "" || (outcome != "success" && outcome != "failed" && outcome != "uncertain") {
 		return ErrInvalidTrialInput
 	}
+	return s.settle(userID, requestID, outcome, true)
+}
+
+func (s *TrialStore) SettleAuxiliary(userID int, requestID, outcome string) error {
+	if userID <= 0 || requestID == "" || (outcome != "success" && outcome != "failed" && outcome != "uncertain") {
+		return ErrInvalidTrialInput
+	}
+	return s.settle(userID, requestID, outcome, false)
+}
+
+func (s *TrialStore) settle(userID int, requestID, outcome string, charge bool) error {
 	return s.transaction(func(tx *gorm.DB) error {
 		if err := lockTrialLimits(tx); err != nil {
 			return err
@@ -135,11 +147,32 @@ func (s *TrialStore) Settle(userID int, requestID, outcome string) error {
 		if outcome == "uncertain" {
 			return nil
 		}
+		var request TrialRequest
+		if err := tx.Where("user_id = ? AND request_id = ?", userID, requestID).First(&request).Error; err != nil {
+			return err
+		}
+		if request.Auxiliary {
+			charge = false
+		}
 		updates := map[string]any{"reserved": gorm.Expr("reserved - 1")}
-		if outcome == "success" {
+		if outcome == "success" && charge {
 			updates["used"] = gorm.Expr("used + 1")
 		}
-		result = tx.Model(&TrialGrant{}).Where("user_id = ? AND reserved > 0", userID).Updates(updates)
+		model := any(&TrialGrant{})
+		if request.Source == "paid" {
+			model = &PaidGrant{}
+			var paid PaidGrant
+			if err := tx.First(&paid, "user_id = ?", userID).Error; err != nil {
+				return err
+			}
+			// Releasing a reservation from an expired generation must not restore
+			// old spendable calls into a later recharge.
+			if request.PoolEpoch < paid.Epoch && (outcome != "success" || !charge) {
+				updates["call_limit"] = gorm.Expr("call_limit - 1")
+			}
+
+		}
+		result = tx.Model(model).Where("user_id = ? AND reserved > 0", userID).Updates(updates)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -165,4 +198,25 @@ func (s *TrialStore) transaction(fn func(*gorm.DB) error) error {
 		time.Sleep(time.Duration(1<<attempt) * 5 * time.Millisecond)
 	}
 	return err
+}
+
+// MarkAuxiliary is internal-only and must commit before invoking the model.
+// Persisting this classification makes later uncertain-result reconciliation free.
+func (s *TrialStore) MarkAuxiliary(uid int, id string) error {
+	if uid <= 0 || id == "" || len(id) > 128 {
+		return ErrInvalidTrialInput
+	}
+	return s.transaction(func(tx *gorm.DB) error {
+		if err := lockTrialLimits(tx); err != nil {
+			return err
+		}
+		r := tx.Model(&TrialRequest{}).Where("user_id = ? AND request_id = ? AND state = ?", uid, id, "pending").UpdateColumn("auxiliary", true)
+		if r.Error != nil {
+			return r.Error
+		}
+		if r.RowsAffected != 1 {
+			return ErrSettlementConflict
+		}
+		return nil
+	})
 }

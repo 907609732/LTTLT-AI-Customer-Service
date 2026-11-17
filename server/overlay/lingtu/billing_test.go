@@ -63,7 +63,8 @@ func TestBillingPaymentCreditsExactlyOnceAndUsesExistingReservationLedger(t *tes
 	if err := db.First(&grant, "user_id = ?", 42).Error; err != nil {
 		t.Fatal(err)
 	}
-	if grant.Limit != 12 {
+	quota, _ := store.Quota(42, now)
+	if grant.Limit != 2 || quota.Paid.Limit != 10 {
 		t.Fatalf("double credit: %+v", grant)
 	}
 	if _, err := trials.Reserve(42, "model-1", "digest", now); err != nil {
@@ -111,7 +112,8 @@ func TestBillingExpiredGrantDoesNotReviveOldUnusedCalls(t *testing.T) {
 	}
 	var grant TrialGrant
 	db.First(&grant, "user_id = ?", 7)
-	if grant.Limit != 5 || grant.ExpiresAt != now.Add(24*time.Hour).Unix() {
+	quota, _ := store.Quota(7, now)
+	if grant.Limit != 100 || quota.Paid.Limit != 5 || quota.Paid.ExpiresAt != now.Add(365*24*time.Hour).Unix() {
 		t.Fatalf("unexpected grant %+v", grant)
 	}
 	if _, err = store.Orders(8, 0, 20); err != nil {
@@ -157,7 +159,8 @@ func TestBillingCreditRollsBackGrantWhenReceiptCannotCommit(t *testing.T) {
 	}
 	var grant TrialGrant
 	db.First(&grant, "user_id = ?", 42)
-	if grant.Limit != 7 {
+	quota, _ := store.Quota(42, now)
+	if grant.Limit != 2 || quota.Paid.Limit != 5 {
 		t.Fatalf("failed transaction leaked credit: %+v", grant)
 	}
 	orders, err := store.Orders(42, 0, 20)
@@ -172,5 +175,45 @@ func TestBillingCreditRollsBackGrantWhenReceiptCannotCommit(t *testing.T) {
 	}
 	if paid != 1 {
 		t.Fatalf("unexpected paid count %d", paid)
+	}
+}
+
+func TestBillingCheckoutAttachmentRetriesAreIdempotent(t *testing.T) {
+	for _, channel := range []string{"stripe", "wechat"} {
+		t.Run(channel, func(t *testing.T) {
+			db := trialDB(t)
+			if err := NewTrialStore(db).Migrate(); err != nil {
+				t.Fatal(err)
+			}
+			store := NewBillingStore(db)
+			if err := store.Migrate(); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now()
+			order, err := store.CreateChannelOrder(42, "attachment-retry", BillingPlan{ID: "p", Name: "测试", Currency: "cny", Amount: 100, Calls: 5, ValidDays: 1}, channel, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			attach := func(value string) error {
+				if channel == "stripe" {
+					return store.AttachCheckout(order.ID, value)
+				}
+				return store.AttachNativeCheckout(order.ID, value, now.Add(time.Minute).Unix())
+			}
+			for attempt := 0; attempt < 2; attempt++ {
+				if err := attach("same-provider-reference"); err != nil {
+					t.Fatalf("identical attachment retry %d rejected: %v", attempt, err)
+				}
+			}
+			if err := attach("different-provider-reference"); !errors.Is(err, ErrBillingConflict) {
+				t.Fatal("conflicting provider reference accepted", err)
+			}
+			if err := db.Model(&order).UpdateColumn("state", "paid").Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := attach("same-provider-reference"); !errors.Is(err, ErrBillingConflict) {
+				t.Fatal("paid order attachment changed", err)
+			}
+		})
 	}
 }

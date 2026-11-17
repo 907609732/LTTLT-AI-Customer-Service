@@ -184,7 +184,7 @@ func TestLingtuChatLifecycle(t *testing.T) {
 			switch scenario {
 			case "success", "revoke", "disable":
 				expected = "success"
-			case "4xx", "mapped4xx", "before-start":
+			case "4xx", "mapped4xx", "before-start", "malformed":
 				expected = "failed"
 			}
 			var ledger lingtu.TrialRequest
@@ -217,6 +217,17 @@ func TestLingtuChatLifecycle(t *testing.T) {
 				response = call()
 				if response.Code != 200 || invocations != 1 {
 					t.Fatal(response.Code, invocations)
+				}
+				// Replaying an admitted request returns the stored reply and must not
+				// append a second usage/cost row or spend another call.
+				var usageCount int64
+				db.Model(&managedUsage{}).Where("user_id = ?", 99).Count(&usageCount)
+				if usageCount != 1 {
+					t.Fatalf("replay duplicated cost row: %d", usageCount)
+				}
+				db.First(&grant, 99)
+				if grant.Used != 1 {
+					t.Fatalf("replay spent another call: %+v", grant)
 				}
 				db.Model(&managedResult{}).Where("user_id = ?", 99).UpdateColumn("expires_at", 0)
 				if r := call(); r.Code != 410 {
@@ -504,7 +515,7 @@ func testLingtuNativeGateway(t *testing.T, managed bool, providers ...string) {
 			t.Fatal("admitted credential not redacted, or retried", response.Code, invocations.Load())
 		}
 		var usage managedUsage
-		if err := db.First(&usage, "user_id = ? AND request_id = ?", 99, "native-one").Error; err != nil || !usage.UsageKnown || usage.InputTokens != 2 || usage.OutputTokens != 3 || usage.ChannelID != channel.Id || usage.UpstreamModel != channel.Models || usage.Diagnostic != "upstream_uncertain" {
+		if err := db.First(&usage, "user_id = ? AND request_id = ?", 99, "native-one").Error; err != nil || !usage.UsageKnown || usage.InputTokens != 2 || usage.OutputTokens != 3 || usage.ChannelID != channel.Id || usage.UpstreamModel != channel.Models || usage.Diagnostic != "invalid_model_reply" {
 			t.Fatal("redacted response lost admitted usage snapshot", err)
 		}
 		return

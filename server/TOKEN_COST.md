@@ -15,6 +15,8 @@
 
 `cost_status`：estimated、pending、unknown_usage、missing_price、cache_usage_unknown、missing_snapshot、cost_overflow。旧记录缺价格快照时保持未知，不用当前报价追算历史。失败、拒绝向客户端交付但已产生用量的调用都保留成本；重放不会重复计费。连接测试不在客户端成本账本中。
 
+摘要压缩调用同样保存成本：它复用主聊天的限定价格快照，写入实际 token 用量与 `cost_micros`/`cost_status`，但按生产规则不扣试用/付费次数，重放仍只保留一条成本记录。主聊天继续使用生产原生额度扣费。服务探针版本为 `2026.11.17-cost.1`，能力名包含 `token-cny-cost-estimates`。
+
 此处是运营模型成本估算，与客户套餐扣次、充值和服务商最终账单独立。图像/音频/工具附加费、阶梯报价、缓存写入费等未能从当前输入/输出/缓存读取单价推导的项目不包含在估算中。
 
 ## 兼容与验证
