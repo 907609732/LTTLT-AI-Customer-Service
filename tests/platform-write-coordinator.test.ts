@@ -37,6 +37,74 @@ describe('原有文字发送与平台动作共用店铺互斥', () => {
     )
     expect(focused).toEqual(['a', 'b'])
   })
+  it('文字发送在店铺锁内先定位本次买家，避免排队期间被另一位买家切走', async () => {
+    const coordinator = new PlatformWriteCoordinator()
+    const calls: string[] = []
+    let activeUid = '222222'
+    const raw = {
+      async focusConversation(uid: string) {
+        activeUid = uid
+        calls.push('focus:' + uid)
+        return { ok: true }
+      },
+      async sendText() {
+        return { ok: true }
+      },
+      _wc() {
+        return { focus() {}, sendInputEvent() {} }
+      },
+      async _callHook(method: string, args: unknown[]) {
+        if (method === 'reviewHistory')
+          return activeUid === String(args[0])
+            ? {
+                known: true,
+                uid: String(args[0]),
+                page: 'page-a',
+                messages: [{ from: 'buyer', content: '问题', media: [] }],
+              }
+            : {
+                known: false,
+                uid: String(args[0]),
+                page: 'page-a',
+                messages: [],
+                reason: 'different_conversation',
+              }
+        if (method === 'prepareNativeTextSend') {
+          if (activeUid !== String(args[0])) return { ok: false, reason: 'conversation_not_found' }
+          calls.push('prepare:' + String(args[0]))
+          return { ok: true, token: 'token-a', point: { x: 5, y: 6 } }
+        }
+        if (method === 'confirmNativeTextSend') {
+          calls.push('confirm:' + String(args[0]))
+          return { ok: true, msgId: 'msg-a' }
+        }
+        return true
+      },
+      _sendFailOrThrow(_method: string, error: unknown) {
+        throw error
+      },
+    }
+    const { backend } = coordinator.bind('store-a', configureDomTextAdapter('pdd-web', raw))
+    let release!: () => void
+    const hold = coordinator.exclusive(
+      'store-a',
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        }),
+    )
+    await Promise.resolve()
+    const sending = (backend as { sendText(uid: string, text: string): Promise<unknown> }).sendText(
+      '111111',
+      '回复正文',
+    )
+    await Promise.resolve()
+    activeUid = '222222'
+    release()
+    await hold
+    await expect(sending).resolves.toMatchObject({ ok: true, msgId: 'msg-a' })
+    expect(calls).toEqual(['focus:111111', 'prepare:111111', 'confirm:111111'])
+  })
   it('旧手动回复定位买家也排队，不能在媒体执行期间先切换页面', async () => {
     const coordinator = new PlatformWriteCoordinator(),
       order: string[] = []

@@ -119,6 +119,12 @@ export function configureDomTextAdapter(
       : undefined
     try {
       if (options.isCurrent && !options.isCurrent()) return { ok: false, reason: 'cancelled' }
+      // 引擎的定位与发送是两次独立排队；进入本次店铺写锁后另一位买家可能已切到前台。
+      // 因此必须在同一锁内用捕获的原始定位先回到本次 uid，再读取基线/填写/点击。
+      const focused = await focusConversation(String(uid))
+      if (!focused?.ok)
+        return { ok: false, reason: 'conversation_not_found', detail: 'focus_failed' }
+      if (options.isCurrent && !options.isCurrent()) return { ok: false, reason: 'cancelled' }
       // 复用页面已有的一次性 setEditor 分支；整段填写前后仍核对消息，不能因提速放过新消息。
       let baseline: string | undefined
       if (interval === 0) {

@@ -36,9 +36,9 @@
     {
       "path": "desk-v1/src/injections/pdd-web-hook.js",
       "upstreamGitBlob": "225f299fcb9651b460fd717d4649a8c4d468abb8",
-      "sha256": "7887259ff83b4911a83dedfcd40800e71e9cc20268228e55ee27287576877fe9",
+      "sha256": "2aa58baec8711579b566c186bc340dc83789f9ecd3c87bb876a92c66de42b441",
       "upstreamSha256": "3ee592e6a0d07daca778ad2083b22a4d8d039fc1d7b916e6db7224570a3f6baf",
-      "localPatch": "v6 guarded browser button mode: DOM locator + Chromium internal click, exact 2000-char text, single attempt, echo check; native keyboard default retained; v7 DOM approval snapshot with page/uid binding independent of private history endpoint; v8 optional grapheme-by-grapheme input with draft, buyer and page-message guards; v9 conversation selection dispatches mousedown/up before click, matches exact UID and verifies actual active buyer before success; 2026-11-17: preserve PDD goodsId through claim/event/reply context, exact product lookup priority and optional summary parent request ID resolver; keep current knowledge ports, policy metadata, cancellation and source tests."
+      "localPatch": "v6 guarded browser button mode: DOM locator + Chromium internal click, exact 2000-char text, single attempt, echo check; native keyboard default retained; v7 DOM approval snapshot with page/uid binding independent of private history endpoint; v8 optional grapheme-by-grapheme input with draft, buyer and page-message guards; v9 conversation selection dispatches mousedown/up before click, matches exact UID and verifies actual active buyer before success; 2026-11-17: preserve PDD goodsId through claim/event/reply context, exact product lookup priority and optional summary parent request ID resolver; keep current knowledge ports, policy metadata, cancellation and source tests; v11: message-panel identity must agree across selectingChatUid/currentUserInfo/selected list box and visible bubbles must map to the same buyers known message list and middlePanel_list_<msgId> ids before DOM ingest or reviewHistory baseline; WS frames with unknown sender role fail closed instead of defaulting to buyer; merchantMessage seller detection unchanged."
     },
     {
       "path": "desk-v1/src/main/ai-client.js",

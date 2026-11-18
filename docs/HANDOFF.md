@@ -668,3 +668,9 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 ## 2026-11-17 GitHub 首页生态互链（1.0.54）
 
 基于 1.0.53 主线，仅在 README 加入灵兔拆包智录、采购订单导出与本项目的套件介绍和互链。按仓库规则同步递增 package.json 和 package-lock.json；未修改业务代码。用户已明确授权直接更新 GitHub 默认首页。公开下载版本仍以 Releases 为准，本次不发布安装包；日常运行实例不代表已切换到此源码版本。
+
+## 2026-11-18 拼多多多买家会话错归属与发送定位（1.0.59）
+
+已复现旧代码在 selected 先更新而气泡仍旧时错归属、同文旧气泡误作基线，以及定位与发送分开排队导致 hook_not_ready。复用现有 PDD hook/DOM adapter/PlatformWriteCoordinator 修正，来源与哈希见 vendor/lingtu-runtime/PROVENANCE.md。Codex 独立验证相关 11 文件 89 项通过、Electron 类型与变更文件 ESLint 通过；DeepSeek 退出码 0、final completed，另执行上游 242 项和 vendor 完整性通过。实店重启验收待进行，不能据此声称真实发送已修复；现场两个会话保持 handoff，旧候选不恢复、不自动补发。下一步核对实际版本并用两位测试买家的新消息验收，仅该链路，不运行全量桌面套件。
+
+本机启动核验：2026-11-18 02:23（北京时间）从主项目 client 重启，主进程 PID 115828，真实窗口显示 v1.0.59；build 与 vendor 检查通过。实店双买家新消息验收已请用户配合，尚未完成，不宣称实店通过。
