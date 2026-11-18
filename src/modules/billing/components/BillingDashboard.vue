@@ -10,6 +10,7 @@ const {
   catalog,
   orders,
   pending,
+  visiblePending,
   signedIn,
   catalogError,
   ordersError,
@@ -18,7 +19,7 @@ const {
   paymentError,
   catalogPending,
   checkoutPending,
-  paymentPending,
+  paymentActionPending,
   ordersLoaded,
   activePayment,
   pollingExpired,
@@ -186,7 +187,7 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
           {{ section === 'orders' ? '充值订单' : section === 'usage' ? '额度与计费' : '支持我们' }}
         </h1>
       </div>
-      <el-button :loading="pending" :disabled="!signedIn" @click="refresh">刷新</el-button>
+      <el-button :loading="visiblePending" :disabled="!signedIn" @click="refresh">刷新</el-button>
     </div>
     <el-alert v-if="!signedIn" type="info" :closable="false" :title="signedOutReason" />
     <el-alert
@@ -317,7 +318,7 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
             v-if="nativeReady"
             type="primary"
             :disabled="!catalog?.ready || !signedIn || Boolean(catalogError)"
-            :loading="checkoutPending || paymentPending"
+            :loading="checkoutPending || paymentActionPending"
             @click="choose(plan)"
             >支持我们</el-button
           >
@@ -368,12 +369,12 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
           >
         </fieldset>
         <p v-if="checkoutPending" role="status">正在加载支付二维码…</p>
-        <p v-else-if="paymentPending" role="status">正在查询支付结果…</p>
+        <p v-else-if="paymentActionPending" role="status">正在查询支付结果…</p>
         <el-alert v-if="checkoutError" type="error" :closable="false" :title="checkoutError" />
         <el-alert v-if="paymentError" type="error" :closable="false" :title="paymentError" />
         <el-button
           v-if="ordersError || !ordersLoaded"
-          :loading="pending"
+          :loading="visiblePending"
           @click="refreshCashierOrders"
         >
           刷新订单并重试
@@ -412,7 +413,7 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
             渠道结果尚未确认，请勿重复付款；可重试查询，确认关闭前不能更换渠道。
           </p>
           <p v-if="pollingExpired">自动查询已暂停，可手动重试；请勿重复付款。</p>
-          <el-button :loading="paymentPending" @click="billing.checkPayment(true)"
+          <el-button :loading="paymentActionPending" @click="billing.checkPayment(true)"
             >重试查询结果</el-button
           >
           <el-button

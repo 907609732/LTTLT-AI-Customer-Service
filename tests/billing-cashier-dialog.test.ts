@@ -90,9 +90,49 @@ function dialog() {
 afterEach(() => {
   mounted.splice(0).forEach((w) => w.unmount())
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('扫码收银台弹窗', () => {
+  it('自动查单不闪按钮或重建二维码，手动查询才显示加载状态', async () => {
+    vi.useFakeTimers()
+    const { wrapper, request } = setup()
+    await flushPromises()
+    await wrapper.get('.billing-plan button').trigger('click')
+    await flushPromises()
+    const qr = dialog().querySelector('img[alt="支付二维码"]')
+    const src = qr?.getAttribute('src')
+    let release!: (value: unknown) => void
+    request.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve
+        }),
+    )
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(wrapper.findAll('.billing-plan button.is-loading')).toHaveLength(0)
+    expect(wrapper.find('.page-head button.is-loading').exists()).toBe(false)
+    expect(dialog().textContent).not.toContain('正在查询支付结果')
+    expect(dialog().querySelector('img[alt="支付二维码"]')).toBe(qr)
+    release(payment)
+    await flushPromises()
+    expect(dialog().querySelector('img[alt="支付二维码"]')?.getAttribute('src')).toBe(src)
+    request.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve
+        }),
+    )
+    const query = [...dialog().querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('重试查询结果'),
+    )!
+    query.click()
+    await flushPromises()
+    expect(query.classList.contains('is-loading')).toBe(true)
+    expect(dialog().textContent).toContain('正在查询支付结果')
+    release(payment)
+    await flushPromises()
+  })
   it('点击支持按钮直接创建扫码订单并显示二维码', async () => {
     const { wrapper, request } = setup()
     await flushPromises()
