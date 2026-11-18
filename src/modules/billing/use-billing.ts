@@ -38,6 +38,19 @@ export function useBilling() {
   // 扫码收银台状态：活动订单只保留最近一笔，关闭弹窗后仍继续查单直到离开本页。
   const activePayment = ref<BillingPayment | null>(null)
   const pollingExpired = ref(false)
+  // Automatic payment checks keep the concurrency lock without animating the UI.
+  const automaticPaymentPending = ref(false)
+  const paymentActionPending = computed(
+    () => paymentPending.value && !automaticPaymentPending.value,
+  )
+  const visiblePending = computed(
+    () =>
+      catalogPending.value ||
+      ordersPending.value ||
+      ledgerPending.value ||
+      checkoutPending.value ||
+      paymentActionPending.value,
+  )
   const pending = computed(
     () =>
       catalogPending.value ||
@@ -85,6 +98,7 @@ export function useBilling() {
       ordersLoaded.value = false
       ledgerSyncedAt.value = null
       pollingExpired.value = false
+      automaticPaymentPending.value = false
       deadline = 0
       for (const state of [catalogError, ordersError, ledgerError, checkoutError, paymentError])
         state.value = ''
@@ -200,6 +214,7 @@ export function useBilling() {
     }
     const id = activePayment.value.order.id,
       ticket = generation
+    automaticPaymentPending.value = !retry
     paymentPending.value = true
     paymentError.value = ''
     try {
@@ -218,6 +233,7 @@ export function useBilling() {
     } finally {
       if (ticket === generation) {
         paymentPending.value = false
+        automaticPaymentPending.value = false
         schedule()
       }
     }
@@ -358,6 +374,8 @@ export function useBilling() {
     catalog,
     orders,
     pending,
+    visiblePending,
+    paymentActionPending,
     catalogPending,
     ordersPending,
     ledgerPending,
