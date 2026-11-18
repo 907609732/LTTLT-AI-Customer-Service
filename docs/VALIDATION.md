@@ -26,7 +26,7 @@ GREEN（最小修正后）：hook 升至 v13，`messageRows()/rowMessageId()/row
 
 未验证：真实网页新消息、真实商品上下文、真实发送/回显；未重启实店、未注入新 hook、未调用模型、未改 AI 模式、未转接、未发送。1.0.62 的既有 CI/产物回执只对应旧基线，不覆盖 v13/1.0.64；标准 CI 由 Codex 决定。本地提交已完成（分支 `codex/pdd-live-fix-20261118`，父 `c11bd6b`），未推送/发布/部署；确切提交号见 ignored worker-report。
 
-CI 44267374589 首次桌面 83/91：8 项失败均在离线 `electron/dom-send-checks.ts`，原因是旧夹具没有真实 `middlePanel_list_`/Vuex，也未声明 `.chatMessage` 消息区边界，v13 legacy 兜底因此读到 0 行、`reviewHistory known:false`。这是夹具假阴性，不是产品回归；hook 保持 v13 未改。修正仅为夹具：两处消息容器补 `.chatMessage` 边界（保留全部整段/逐字/改写/新消息/切买家/无 echo/单次点击断言），并新增 `dom-send:v13-real-middle-row` 真实结构正例（`middlePanel_list_` 行 + 同 UID Vuex 角色 + 点击后新增 seller 行/角色）。本机仅运行相关原生：8 项+新正例 9/9、全部 dom-* 18/18，退出 0；typecheck、变更 TS ESLint/Prettier、build:desktop 通过；未跑本机全量，云端由 Codex 复核后重跑。诊断见 ignored `artifacts/pdd-live-fix-20261118/fixture-diagnosis.md`。
+CI 44267374589 首次桌面 83/91：8 项失败均在离线 `electron/dom-send-checks.ts`，原因是旧夹具没有真实 `middlePanel_list_`/Vuex，也未声明 `.chatMessage` 消息区边界，v13 legacy 兜底因此读到 0 行、`reviewHistory known:false`。这是夹具假阴性，不是产品回归；hook 保持 v13 未改。修正仅为夹具：两处消息容器补 `.chatMessage` 边界（保留全部整段/逐字/改写/新消息/切买家/无 echo/单次点击断言），并新增 `dom-send:v13-real-middle-row` 真实结构正例（`middlePanel_list_` 行 + 同 UID Vuex 角色 + 点击后新增 seller 行/角色）。本机仅运行相关原生：8 项+新正例 9/9、全部 dom-\* 18/18，退出 0；typecheck、变更 TS ESLint/Prettier、build:desktop 通过；未跑本机全量，云端由 Codex 复核后重跑。诊断见 ignored `artifacts/pdd-live-fix-20261118/fixture-diagnosis.md`。
 
 ## 2026-11-18：1.0.62 最终组合、云端/同次产物与正常主目录验收
 
