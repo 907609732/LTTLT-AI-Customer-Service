@@ -113,8 +113,16 @@ func syncLegacyModelBinding(tx *gorm.DB, ch *model.Channel) error {
 			next.CostRateModel, next.InputCNY, next.OutputCNY, next.CacheReadCNY = old.CostRateModel, old.InputCNY, old.OutputCNY, old.CacheReadCNY
 			next.Name = old.Name
 			next.Revision = old.Revision
-			if old.ConfigHash != next.ConfigHash || old.Enabled != next.Enabled {
+			sameConfig := old.ConfigHash == next.ConfigHash && old.Enabled == next.Enabled
+			if sameConfig {
+				// Legacy importers rebuild the row from the native channel, which
+				// does not carry the independent image probe. A no-op save must not
+				// erase a still-valid image verification.
+				next.TestStatus, next.TestedHash, next.TestedAt = old.TestStatus, old.TestedHash, old.TestedAt
+				next.ImageTestStatus, next.ImageTestedHash, next.ImageTestedAt = old.ImageTestStatus, old.ImageTestedHash, old.ImageTestedAt
+			} else {
 				next.Revision++
+				next.ImageTestStatus, next.ImageTestedHash, next.ImageTestedAt = "never", "", 0
 			}
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -179,7 +187,8 @@ func modelConnectionViews(db *gorm.DB, selected string) ([]modelConnectionView, 
 			imageTestedAt = 0
 		}
 		visionVerified := ready && imageStatus == "success" && row.ImageTestedHash != "" && row.ImageTestedHash == hash && row.ImageTestedAt > 0
-		v := modelConnectionView{CacheReadCNY: row.CacheReadCNY, InputCNY: row.InputCNY, OutputCNY: row.OutputCNY, CostRateModel: row.CostRateModel, ConnectionID: ch.Id, Provider: row.Provider, Name: row.Name, ModelID: row.ModelID, BaseURL: ch.GetBaseURL(), UpstreamModel: ch.Models, Configured: credentialConfigured(p, ch), Enabled: row.Enabled, Ready: ready, IsDefault: selected == row.ModelID, Revision: row.Revision, TestStatus: status, TestedAt: testedAt, ConfigHash: hash, ImageTestStatus: imageStatus, ImageTestedAt: imageTestedAt, VisionVerified: visionVerified, VisionReady: ready && visionVerified}
+		textVerified := textConnectionVerified(row, hash)
+		v := modelConnectionView{CacheReadCNY: row.CacheReadCNY, InputCNY: row.InputCNY, OutputCNY: row.OutputCNY, CostRateModel: row.CostRateModel, ConnectionID: ch.Id, Provider: row.Provider, Name: row.Name, ModelID: row.ModelID, BaseURL: ch.GetBaseURL(), UpstreamModel: ch.Models, Configured: credentialConfigured(p, ch), Enabled: row.Enabled, Ready: ready, IsDefault: selected == row.ModelID, Revision: row.Revision, TestStatus: status, TestedAt: testedAt, ConfigHash: hash, ImageTestStatus: imageStatus, ImageTestedAt: imageTestedAt, VisionVerified: visionVerified, VisionReady: ready && textVerified && visionVerified}
 		switch row.Provider {
 		case "azure":
 			v.APIVersion = ch.Other
@@ -461,6 +470,31 @@ func (h *Host) saveModelConnection(c *gin.Context, r configurationRequest) error
 	return h.executeModelConnection(c, r, controller.TestManagedChannel)
 }
 
+// commitVisionVerification is a database CAS, not a whole-row Save. Another
+// process may update the binding or native channel while the relay probe is in
+// flight; only the image-test fields owned by this operation may be written.
+func commitVisionVerification(db *gorm.DB, expected lingtu.ModelConnection, testedHash, status string, testedAt int64) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var native model.Channel
+		if err := tx.First(&native, expected.ChannelID).Error; err != nil {
+			return err
+		}
+		if channelHash(native) != testedHash || native.Status != common.ChannelStatusEnabled || !expected.Enabled {
+			return errVisionVerificationStale
+		}
+		result := tx.Model(&lingtu.ModelConnection{}).
+			Where("channel_id = ? AND revision = ? AND config_hash = ? AND enabled = ?", expected.ChannelID, expected.Revision, testedHash, true).
+			Updates(map[string]any{"image_test_status": status, "image_tested_hash": testedHash, "image_tested_at": testedAt})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errVisionVerificationStale
+		}
+		return nil
+	})
+}
+
 // A probe is an external boundary. Production always supplies the native adapter test.
 // Tests supply a non-network probe to prove persistence and failure semantics.
 func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, probe func(context.Context, *model.Channel, int) error) error {
@@ -499,6 +533,9 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 				return err
 			}
 			if r.Revision > 0 && row.Revision != r.Revision {
+				if r.Action == "verify_vision" {
+					return errVisionVerificationStale
+				}
 				return errors.New("connection changed")
 			}
 		}
@@ -744,30 +781,13 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 		}
 		testedHash := channelHash(ch)
 		probeErr := probe(ctx, &ch, uid)
-		err = model.DB.Transaction(func(tx *gorm.DB) error {
-			var current lingtu.ModelConnection
-			var native model.Channel
-			if err := tx.First(&current, row.ChannelID).Error; err != nil {
-				return err
-			}
-			if err := tx.First(&native, row.ChannelID).Error; err != nil {
-				return err
-			}
-			if current.Revision != row.Revision || current.ConfigHash != testedHash || channelHash(native) != testedHash {
-				return errVisionVerificationStale
-			}
-			// The image probe is independent from the text connection state and
-			// from all trial/account ledgers. Do not change channel status,
-			// abilities, TestStatus, or any managedUsage/quota row here.
-			current.ImageTestedHash = testedHash
-			current.ImageTestedAt = time.Now().Unix()
-			current.ImageTestStatus = "failed"
-			if probeErr == nil {
-				current.ImageTestStatus = "success"
-			}
-			return tx.Save(&current).Error
-		})
-		if err != nil {
+		status := "failed"
+		if probeErr == nil {
+			status = "success"
+		}
+		// The image probe is independent from the text connection state and from
+		// all trial/account ledgers. This CAS writes only image verification fields.
+		if err := commitVisionVerification(model.DB, row, testedHash, status, time.Now().Unix()); err != nil {
 			return err
 		}
 		if probeErr != nil {

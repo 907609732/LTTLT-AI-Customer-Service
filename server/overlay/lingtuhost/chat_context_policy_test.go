@@ -441,12 +441,6 @@ func TestLingtuChatContextPolicyLearning(t *testing.T) {
 
 	t.Run("vision-model-unsupported", func(t *testing.T) {
 		db, _, token, engine, upstream := newContextPolicyChat(t)
-		// Explicit client text models cannot override the image route. With no
-		// ready visual route, image learning must still fail closed.
-		if err := db.Model(&model.Channel{}).Where("name = ?", "lingtu-qwen-vision").Update("status", common.ChannelStatusManuallyDisabled).Error; err != nil {
-			t.Fatal(err)
-		}
-		model.InitChannelCache()
 		saveContextPolicyForTest(t, db, 0, func(input *lingtu.ContextPolicyInput) { *input = learningContextPolicy() })
 		body := contextPolicyRequest(t, map[string]any{
 			"client_request_id": "learning-vision-model",

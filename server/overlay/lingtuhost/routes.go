@@ -223,8 +223,10 @@ func (h *Host) accountResponse(c *gin.Context, uid int) {
 	// (DeepSeek) does not remove image support; the reported model stays the
 	// text default because managed traces label text replies with it.
 	capability := visionCapability(selected)
-	if visionRouteAvailable(policy, selection) {
-		capability["vision"] = true
+	visionAvailable := visionRouteAvailable(policy, selection)
+	capability["vision"] = visionAvailable
+	if !visionAvailable {
+		capability["max_images"] = 0
 	}
 	quota, err := lingtu.NewBillingStore(model.DB).Quota(uid, time.Now())
 	if err != nil {

@@ -208,7 +208,7 @@
     {
       "path": "overlay/lingtuhost/admin_models.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_models.go",
-      "sha256": "8c05c9352f697a90922492a3af41e565ffa5e1e2b221e36f6d17f15eefd49e34",
+      "sha256": "7369eb98e2c2b367f9e1e023f90d937303160859873b0f99a7cf1d5768d3432d",
       "upstreamSha256": "f6508c9bc6ac755deb30b563315572f32ca5c4480b5dff33ee7f700f62d41015",
       "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
@@ -264,7 +264,7 @@
     {
       "path": "overlay/lingtuhost/chat.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/chat.go",
-      "sha256": "53ee6c9759c5977c8d933626e935660fbec9cc3cd0548f3c02afd636c4089899",
+      "sha256": "58b1583752aa095c80617404eae5c2aa63f0c840ac9db4ba9d4c2dc76ceed080",
       "upstreamSha256": "dfabbd7d7f4caa486443c3cda593221c3e9f15a1bf4dae9806f6d54b0bc2a650",
       "localPatch": "Bounded PNG knowledge tile input (1400px, 8MiB decoded per image, 16MiB total request); keep HTTPS-only buyer image URLs, model authorization and existing text payload limits. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
     },
@@ -300,7 +300,7 @@
     {
       "path": "overlay/lingtuhost/routes.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/routes.go",
-      "sha256": "f83b79a0017c0feb0cf97f75ecbfd17bd0cf0d06b9d2c5265e7204669fc0be5a",
+      "sha256": "1dd580f3df58300ef8247fb9341f5333fb955dd688dc86cacc4b6d024c01ab82",
       "upstreamSha256": "06864f9097cc5e2c7010927b6f5ba3d3bba95e0099ff771abbaaebc73932d5c4",
       "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors. Reuse bounded client body middleware; only exact POST /api/client/chat/completions permits 16MiB image envelopes, all other client routes retain 1MiB. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs Add the managed context policy safe projection to the existing authenticated GET /api/client/config: keep default_model/models/max_tokens semantics, add top-level policy_version plus runtime_context/learning from ClientProjection only, use DefaultContextPolicy when no row exists, and fail closed with 503 on an unreadable setting."
     },
@@ -412,14 +412,14 @@
     {
       "path": "overlay/web/src/features/lingtu/admin-models.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-models.tsx",
-      "sha256": "e771c08c84547e88b312c5266c88e4b940399d55bb41fbcccfcb2600e456bb95",
+      "sha256": "ff504ad017fbb7abee714b9da9ec2690e5cdd9dbefa1df9c2d469492ef5e4a45",
       "upstreamSha256": "ab82b618d1b731bfd6cd46dde8bcd4dcc25bac75ed3ca31c8dd60881cb585f72",
       "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-page.test.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.test.tsx",
-      "sha256": "9f90dfc69a1e969d9bf93532ea081e5421e4b403f384991b10b3759ead3dd621",
+      "sha256": "b20ecdd3d88d9987053fc561cde0909eb1bd460a95a1e7c2b22819a2bcfeb53f",
       "upstreamSha256": "31faaa4b3b87915c7a18bf03df0114717110648dd169606c741b749785c0aabf",
       "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, exact proof/POST and 409 draft-preservation tests"
     },
@@ -528,7 +528,7 @@
     {
       "path": "translations.json",
       "upstreamPath": "managed-server/translations.json",
-      "sha256": "4be7c2bfacc1b1a66f967457027da6971dd6fa29e47d51d2bfa5b6d9a68f48b1",
+      "sha256": "6d809a0cda893be1586248e003d268032cc4c52d0b35d2c18a0762414398cfcf",
       "upstreamSha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149",
       "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: add stable daily/monthly amount, historical current-rate, cache-detail and report-estimate translation keys. 2026-11-17: add hosted context policy editor, validation and conflict messages"
     },

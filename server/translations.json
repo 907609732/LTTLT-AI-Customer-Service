@@ -447,6 +447,7 @@
   "Image verified": "图片已验证",
   "Image verification failed": "图片验证失败",
   "Image verification expired": "图片验证已失效",
+  "Text connection test required": "需要先通过文字连接测试",
   "Image not verified": "图片未验证",
   "Verify image": "验证图片",
   "unavailable": "不可用",

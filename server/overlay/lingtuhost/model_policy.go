@@ -63,11 +63,16 @@ func imageModel(selection modelSelection) (string, bool) {
 	return "", false
 }
 
+func textConnectionVerified(binding lingtu.ModelConnection, configHash string) bool {
+	return binding.TestStatus == "success" && binding.TestedHash != "" &&
+		binding.TestedHash == binding.ConfigHash && binding.ConfigHash == configHash
+}
+
 // visionRoute keeps the legacy Qwen route when no explicit visual model is
 // configured. An explicit route is stricter: it must already be inside the
-// administrator's model scope, ready, and carry a successful image probe bound
-// to the current channel configuration hash. Verification never expands the
-// allowed_models list; authorization and image capability are separate gates.
+// administrator's model scope, pass both the text connection test and the
+// independent image probe, and both hashes must bind to the current channel
+// configuration. Verification never expands allowed_models.
 func visionRoute(policy lingtu.TrialPolicy, selection modelSelection) (visionRouteSelection, error) {
 	if policy.VisionModel == "" {
 		modelID, ok := imageModel(selection)
@@ -87,7 +92,7 @@ func visionRoute(policy lingtu.TrialPolicy, selection modelSelection) (visionRou
 	if err != nil {
 		return visionRouteSelection{}, errVisionUnavailable
 	}
-	if binding.ImageTestStatus != "success" || binding.ImageTestedHash == "" || binding.ImageTestedHash != binding.ConfigHash || binding.ImageTestedAt <= 0 {
+	if !textConnectionVerified(binding, channelHash(channel)) || binding.ImageTestStatus != "success" || binding.ImageTestedHash == "" || binding.ImageTestedHash != binding.ConfigHash || binding.ImageTestedAt <= 0 {
 		return visionRouteSelection{}, errVisionUnavailable
 	}
 	return visionRouteSelection{Model: policy.VisionModel, Channel: channel, Binding: binding}, nil

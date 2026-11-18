@@ -1105,6 +1105,17 @@ it('offers only authorized ready image-verified routes and saves the optional ro
         vision_ready: true,
         image_test_status: 'success',
       },
+      {
+        connection_id: 5,
+        model_id: 'managed-no-text',
+        name: 'Missing text test',
+        upstream_model: 'vision-no-text',
+        ready: true,
+        enabled: true,
+        vision_verified: true,
+        vision_ready: false,
+        image_test_status: 'success',
+      },
     ],
   }
   api.defaults.adapter = async (request) => {
@@ -1138,6 +1149,7 @@ it('offers only authorized ready image-verified routes and saves the optional ro
   expect(options.some((text) => text.includes('vision-verified'))).toBe(true)
   expect(options.some((text) => text.includes('vision-unverified'))).toBe(false)
   expect(options.some((text) => text.includes('vision-other'))).toBe(false)
+  expect(options.some((text) => text.includes('vision-no-text'))).toBe(false)
   fireEvent.change(route, { target: { value: 'managed-vision' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save' }))
   await waitFor(() =>

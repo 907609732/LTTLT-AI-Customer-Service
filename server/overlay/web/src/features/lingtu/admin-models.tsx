@@ -134,8 +134,15 @@ function connectionStatus(rows: ModelConnection[], draft: boolean) {
   return draft ? 'Unsaved draft' : 'Not configured'
 }
 function imageVerificationStatus(row: ModelConnection | undefined) {
-  if (row?.vision_verified && row.image_test_status === 'success') {
+  if (
+    row?.vision_ready &&
+    row.vision_verified &&
+    row.image_test_status === 'success'
+  ) {
     return 'Image verified'
+  }
+  if (row?.image_test_status === 'success') {
+    return 'Text connection test required'
   }
   if (row?.image_test_status === 'failed') return 'Image verification failed'
   if (row?.image_test_status === 'stale') return 'Image verification expired'

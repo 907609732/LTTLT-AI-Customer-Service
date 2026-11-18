@@ -550,25 +550,44 @@ func (h *Host) prepareChat(c *gin.Context) {
 	}
 	images := containsImages(in.Messages)
 	selected := selection.DefaultModel
+	if in.Model != "" {
+		selected = in.Model
+	}
 	var channel model.Channel
 	var binding lingtu.ModelConnection
-	if images {
-		// The client never selects the visual upstream. Explicit text model
-		// choices remain authorized above but cannot replace the verified image
-		// route. Legacy policies still resolve the first ready Qwen3-VL route.
+	if images && policy.VisionModel != "" {
 		route, routeErr := visionRoute(policy, selection)
 		if routeErr != nil {
 			clientFailure(c, 400, "vision_unavailable")
 			return
 		}
+		// An explicit client model may confirm the administrator's visual route,
+		// but it can never replace it. The old empty-field policy keeps its
+		// separate compatibility path below.
+		if in.Model != "" && in.Model != route.Model {
+			clientFailure(c, 400, "vision_unavailable")
+			return
+		}
 		selected, channel, binding = route.Model, route.Channel, route.Binding
 	} else {
-		if in.Model != "" {
-			selected = in.Model
+		if images && in.Model == "" {
+			routed, ok := imageModel(selection)
+			if !ok {
+				clientFailure(c, 400, "vision_unavailable")
+				return
+			}
+			selected = routed
 		}
 		channel, binding, err = selectedChannelSnapshot(selected)
 		if err != nil {
 			clientFailure(c, 503, "model_not_ready")
+			return
+		}
+		// Legacy empty vision_model keeps the original rule: an explicitly
+		// selected and authorized Qwen alias is honoured, while a text model
+		// with image parts fails before reservation. No implicit replacement.
+		if images && channel.Models != visionModel {
+			clientFailure(c, 400, "vision_unavailable")
 			return
 		}
 	}
