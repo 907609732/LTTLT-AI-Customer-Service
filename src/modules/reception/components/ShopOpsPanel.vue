@@ -17,6 +17,7 @@ import {
   welcomeSettingSchema,
   type NormalizedWelcomeSetting,
 } from '@/shared/contracts/welcome'
+import type { ReceptionCommand } from '@/shared/contracts/platform-operations'
 import type { ReceptionHandoff, ReceptionSetupDraft, ReceptionWelcome } from '../setup'
 const props = withDefaults(
   defineProps<{
@@ -53,9 +54,11 @@ const titles: Record<string, string> = {
 }
 const title = computed(() => titles[props.viewKey] || '接待配置')
 const operations = useReceptionOperations(() => runtime.snapshot.workspaceId)
+// 自动保存不冻结欢迎输入，但仍允许父级向导在保存期间锁定离开步骤。
+const welcomeSaving = ref(false)
 watch(
-  () => task.pending.value || operations.busy.value,
-  (value) => emit('busy', value),
+  [() => task.pending.value, () => operations.busy.value, welcomeSaving],
+  ([pending, busy, saving]) => emit('busy', pending || busy || saving),
   { immediate: true },
 )
 const ruleTrigger = computed(() =>
@@ -144,6 +147,14 @@ interface HandoffQueue {
   running: boolean
   queued: HandoffSave | null
 }
+/** 欢迎自动保存只排队最新一份有效意图；版本在真正发送时读取，避免回执后仍用旧 CAS。 */
+type WelcomeIntent = Omit<NormalizedWelcomeSetting, 'version'>
+interface WelcomeQueue {
+  generation: number
+  running: boolean
+  queued: WelcomeIntent | null
+  inFlight: WelcomeIntent | null
+}
 const textQueues: Record<KeywordField, KeywordTextQueue> = {
   handoff: { generation: 0, running: false, queued: null },
   manual: { generation: 0, running: false, queued: null },
@@ -159,6 +170,13 @@ const textConfirmed: Record<KeywordField, { text: string; expected: string[] }> 
 const switchConfirmed: Record<KeywordField, boolean> = { handoff: true, manual: true }
 const handoffQueue: HandoffQueue = { generation: 0, running: false, queued: null }
 let handoffConfirmed: HandoffSave = { inherited: true, keywords: [] }
+const welcomeQueue: WelcomeQueue = {
+  generation: 0,
+  running: false,
+  queued: null,
+  inFlight: null,
+}
+let welcomeConfirmed = normalizeWelcomeSetting()
 function resetKeywordAutosave(input: {
   globalKeywords: string[]
   globalExpected?: string[]
@@ -431,7 +449,127 @@ function requestStoreHandoffSave() {
   handoffQueue.queued = submitted
   void pumpStoreHandoff()
 }
+function welcomeIntent(): WelcomeIntent {
+  return {
+    text: welcome.value.text,
+    enabled: welcome.value.enabled,
+    delayMinSeconds: welcome.value.delayMinSeconds,
+    delayMaxSeconds: welcome.value.delayMaxSeconds,
+  }
+}
+function sameWelcomeIntent(left: WelcomeIntent, right: WelcomeIntent) {
+  return (
+    left.text === right.text &&
+    left.enabled === right.enabled &&
+    left.delayMinSeconds === right.delayMinSeconds &&
+    left.delayMaxSeconds === right.delayMaxSeconds
+  )
+}
+function resetWelcomeAutosave(confirmed: NormalizedWelcomeSetting) {
+  welcomeConfirmed = { ...confirmed }
+  welcomeQueue.generation += 1
+  welcomeQueue.running = false
+  welcomeQueue.queued = null
+  welcomeQueue.inFlight = null
+}
+async function pumpWelcome() {
+  if (deferred.value || welcomeQueue.running) return
+  welcomeQueue.running = true
+  welcomeSaving.value = true
+  const generation = welcomeQueue.generation
+  try {
+    while (generation === welcomeQueue.generation && welcomeQueue.queued && !unmounted) {
+      const submitted = welcomeQueue.queued
+      welcomeQueue.queued = null
+      if (sameWelcomeIntent(submitted, welcomeConfirmed)) continue
+      const issue = welcomeDelayIssue(submitted.delayMinSeconds, submitted.delayMaxSeconds)
+      if (issue) {
+        if (keywordLeaseCurrent(keywordLease())) task.error.value = issue
+        return
+      }
+      if (welcomeConflict.value) {
+        if (keywordLeaseCurrent(keywordLease()))
+          task.error.value = '配置已更新，当前草稿仍保留；请重新载入后再保存。'
+        return
+      }
+      const lease = keywordLease()
+      const expectedVersion = welcome.value.version
+      task.error.value = ''
+      task.message.value = ''
+      welcomeQueue.inFlight = submitted
+      let result
+      try {
+        result = await runtime.run({
+          action: 'save-welcome',
+          storeId: lease.storeId,
+          values: { ...submitted, version: expectedVersion },
+        })
+      } catch (cause) {
+        if (generation === welcomeQueue.generation && keywordLeaseCurrent(lease))
+          task.error.value = keywordError(cause)
+        return
+      } finally {
+        if (welcomeQueue.inFlight === submitted) welcomeQueue.inFlight = null
+      }
+      if (generation !== welcomeQueue.generation || !keywordLeaseCurrent(lease)) return
+      if (!result || result.status !== 'ok') {
+        task.error.value = '无法确认保存结果，当前草稿仍保留；请稍后重试。'
+        return
+      }
+      // save-welcome 的 result.data 是后端 CAS 后实际落库的权威记录；
+      // 仅接受通过欢迎契约和版本前进校验的回执，不能用提交值代替。
+      const receipt = welcomeSettingSchema.safeParse(result?.data)
+      if (!receipt.success || normalizeWelcomeSetting(receipt.data).version <= expectedVersion) {
+        task.error.value = '无法确认保存结果，当前草稿仍保留；请重新载入后再保存。'
+        return
+      }
+      const stored = normalizeWelcomeSetting(receipt.data)
+      welcomeConfirmed = { ...stored }
+      receipts.putWelcomeReceipt(lease.workspaceId, lease.storeId, stored)
+      baseline.welcome = { ...stored }
+      if (sameWelcomeIntent(welcomeIntent(), submitted)) {
+        welcome.value = { ...stored }
+        cached.set(cacheKey(lease.workspaceId, lease.storeId), { ...stored })
+      } else {
+        // 保存期间的新编辑保留；CAS 基线推进到后端实际提交的版本。
+        welcome.value.version = stored.version
+      }
+      task.message.value = result.message
+      ElMessage.success('保存成功')
+    }
+  } finally {
+    if (generation === welcomeQueue.generation) welcomeQueue.running = false
+    welcomeSaving.value = false
+  }
+}
+function requestWelcomeSave() {
+  if (deferred.value || !runtime.available) return
+  const intent = welcomeIntent()
+  if (!welcomeQueue.running && sameWelcomeIntent(intent, welcomeConfirmed)) return
+  if (welcomeQueue.running && welcomeQueue.queued && sameWelcomeIntent(intent, welcomeQueue.queued))
+    return
+  // Element Plus 在测试环境会同时从 wrapper/focus controller 触发 blur；
+  // 同一份在途意图不得重复提交，但 A->B->A 的最终 A 仍会在 B 完成后重存。
+  if (welcomeQueue.inFlight && sameWelcomeIntent(intent, welcomeQueue.inFlight)) return
+  if (welcomeDelayInvalid.value) {
+    task.error.value = welcomeDelayInvalid.value
+    return
+  }
+  if (welcomeConflict.value) {
+    task.error.value = '配置已更新，当前草稿仍保留；请重新载入后再保存。'
+    return
+  }
+  welcomeQueue.queued = intent
+  void pumpWelcome()
+}
+async function saveWelcomeMedia(command: ReceptionCommand) {
+  return operations.executeConfirmed(command)
+}
 function submitForm() {
+  if (props.viewKey === 'welcome') {
+    requestWelcomeSave()
+    return
+  }
   if (props.viewKey === 'transfer') {
     requestStoreHandoffSave()
     return
@@ -452,6 +590,7 @@ function load(restoreDraft = false) {
       receipts.deleteWelcomeReceipt(snap.workspaceId, id)
     else confirmed = normalizeWelcomeSetting(receipt)
   }
+  resetWelcomeAutosave(confirmed)
   const latestManualKeywords = [...snap.config.safety.manualReplyKeywords]
   const latestGlobalKeywords = [...snap.config.safety.handoffKeywords]
   const latestHandoffKeywords = [...(snap.handoffByStore[id]?.keywords ?? [])]
@@ -517,6 +656,9 @@ function load(restoreDraft = false) {
 }
 onBeforeUnmount(() => {
   unmounted = true
+  welcomeQueue.generation += 1
+  welcomeQueue.queued = null
+  welcomeQueue.inFlight = null
   if (deferred.value) return
   drafts?.putSettings(draftLease.workspaceId, draftLease.storeId, draftLease.view, {
     ...(JSON.stringify(welcome.value) !== JSON.stringify(baseline.welcome)
@@ -659,29 +801,14 @@ async function save() {
   if (deferred.value) return
   const storeId = selectedStoreId.value,
     key = props.viewKey
-  if (key === 'welcome') {
-    // 冲突与非法范围在提交入口再次拦截；按钮禁用不覆盖 Enter 提交。
-    if (welcomeConflict.value) {
-      task.error.value = '配置已更新，当前草稿仍保留；请重新载入后再保存。'
-      return
-    }
-    if (welcomeDelayInvalid.value) {
-      task.error.value = welcomeDelayInvalid.value
-      return
-    }
-  }
   const lease = {
     workspaceId: runtime.snapshot.workspaceId,
     storeId,
     view: props.viewKey,
   }
-  const revision = loadRevision
-  const submitted = { ...welcome.value }
   await task.run(async () => {
     let result
-    if (key === 'welcome')
-      result = await runtime.run({ action: 'save-welcome', storeId, values: { ...welcome.value } })
-    else if (key === 'image')
+    if (key === 'image')
       result = await runtime.run({
         action: 'save-vision-settings',
         storeId,
@@ -704,42 +831,6 @@ async function save() {
           ? { mode: 'inherit' }
           : { mode: 'custom', keywords: lines(keywords.value) },
       })
-    if (key === 'welcome') {
-      // 仅欢迎权威回执使用完整租约；其他设置保持原有 store/view 成功判断。
-      if (
-        runtime.snapshot.workspaceId !== lease.workspaceId ||
-        selectedStoreId.value !== lease.storeId ||
-        props.viewKey !== lease.view ||
-        revision !== loadRevision ||
-        unmounted
-      )
-        return
-      // save-welcome 的 result.data 是后端 CAS 后实际落库的权威记录。
-      // 不能用提交值代替回执，也不能立即 load 一个可能仍落后的快照。
-      const receipt = welcomeSettingSchema.safeParse(result?.data)
-      if (!receipt.success) {
-        task.error.value = '无法确认保存结果，当前草稿仍保留；请重新载入后再保存。'
-        return
-      }
-      const stored = normalizeWelcomeSetting(receipt.data)
-      receipts.putWelcomeReceipt(lease.workspaceId, storeId, stored)
-      baseline.welcome = { ...stored }
-      const unchanged =
-        welcome.value.text === submitted.text &&
-        welcome.value.enabled === submitted.enabled &&
-        welcome.value.delayMinSeconds === submitted.delayMinSeconds &&
-        welcome.value.delayMaxSeconds === submitted.delayMaxSeconds
-      if (unchanged) {
-        welcome.value = { ...stored }
-        cached.set(cacheKey(lease.workspaceId, storeId), { ...stored })
-      } else {
-        // Preserve edits typed while the request was in flight, but advance CAS
-        // to the version the backend actually committed.
-        welcome.value.version = stored.version
-      }
-      task.message.value = result.message
-      return
-    }
     if (storeId === selectedStoreId.value && key === props.viewKey) {
       cached.delete(cacheKey(lease.workspaceId, storeId))
       load()
@@ -767,19 +858,16 @@ async function save() {
           v-model="welcome.enabled"
           active-text="启用"
           aria-label="启用本店新会话欢迎"
-          :disabled="task.pending.value || welcomeConflict"
+          :disabled="welcomeConflict"
+          @change="requestWelcomeSave"
         />
       </span>
     </template>
     <StoreSelect v-if="!embedded" :disabled="task.pending.value" />
     <p v-if="viewKey !== 'auto' && !selectedStoreId">请先在店铺与商品中添加店铺。</p>
-    <form
-      v-if="selectedStoreId || viewKey === 'auto'"
-      class="runtime-form"
-      @submit.prevent="submitForm"
-    >
-      <template v-if="viewKey === 'welcome'"
-        ><el-alert
+    <div v-if="viewKey === 'welcome' && selectedStoreId" class="welcome-layout">
+      <form class="runtime-form welcome-text-form" @submit.prevent="requestWelcomeSave">
+        <el-alert
           v-if="welcomeConflict"
           title="配置已更新，当前草稿仍保留；请重新载入最新配置后再保存。"
           type="warning"
@@ -794,13 +882,18 @@ async function save() {
           >文字欢迎语<el-input
             v-model="welcome.text"
             type="textarea"
-            :rows="embedded ? 3 : 5"
+            :rows="2"
             maxlength="200"
             show-word-limit
             aria-label="文字欢迎语"
-            :disabled="task.pending.value"
+            @blur="requestWelcomeSave"
         /></label>
-        <div class="welcome-delay">
+      </form>
+      <p v-if="deferred" class="reception-deferred" role="status">
+        导入内容将在最后统一保存；这里仍可修改，不会单独写入本店配置。
+      </p>
+      <div class="welcome-lower">
+        <div class="welcome-delay welcome-delay-card">
           <span class="welcome-delay-label">欢迎延迟</span>
           <span class="welcome-range">
             <el-input-number
@@ -810,7 +903,8 @@ async function save() {
               :max="3600"
               :step="1"
               :precision="0"
-              :disabled="task.pending.value"
+              @change="requestWelcomeSave"
+              @blur="requestWelcomeSave"
             /><span class="welcome-sep">～</span
             ><el-input-number
               v-model="welcome.delayMaxSeconds"
@@ -819,12 +913,36 @@ async function save() {
               :max="3600"
               :step="1"
               :precision="0"
-              :disabled="task.pending.value"
+              @change="requestWelcomeSave"
+              @blur="requestWelcomeSave"
             /><span class="welcome-unit">秒随机</span>
           </span>
-        </div></template
-      >
-      <template v-else-if="viewKey === 'image'"
+        </div>
+        <section class="reception-advanced welcome-media">
+          <ReceptionRulesPanel
+            :workspace-id="runtime.snapshot.workspaceId"
+            :store-id="selectedStoreId"
+            trigger="visitor"
+            :preserve-draft="embedded"
+            media-only
+            :media-autosave="Boolean(operations.service.value)"
+            :save-media-rule="saveWelcomeMedia"
+            :snapshot="operations.snapshot.value"
+            :busy="operations.busy.value"
+            @command="operations.execute"
+            @refresh="
+              operations.execute({ type: 'refresh', workspaceId: runtime.snapshot.workspaceId })
+            "
+          />
+        </section>
+      </div>
+    </div>
+    <form
+      v-else-if="selectedStoreId || viewKey === 'auto'"
+      class="runtime-form"
+      @submit.prevent="submitForm"
+    >
+      <template v-if="viewKey === 'image'"
         ><p>{{ runtime.snapshot.capabilities.vision.reason }}</p>
         <p>
           每轮最多 4 张公网 HTTPS
@@ -886,14 +1004,9 @@ async function save() {
           type="primary"
           native-type="submit"
           :loading="task.pending.value"
-          :disabled="
-            !runtime.available ||
-            (viewKey === 'welcome' && (welcomeConflict || Boolean(welcomeDelayInvalid))) ||
-            (viewKey === 'image' && visionConflict)
-          "
+          :disabled="!runtime.available || (viewKey === 'image' && visionConflict)"
           >保存配置</el-button
         ><el-button
-          v-if="viewKey !== 'welcome'"
           :disabled="task.pending.value"
           @click="
             () => {
@@ -986,17 +1099,18 @@ async function save() {
     >
       平台接待服务尚未接入，当前不能保存平台规则或执行平台操作。
     </p>
-    <section v-if="viewKey !== 'image' && selectedStoreId" class="reception-advanced">
-      <h3 v-if="embedded && viewKey !== 'welcome'" class="reception-section-title">
+    <section
+      v-if="viewKey !== 'image' && viewKey !== 'welcome' && selectedStoreId"
+      class="reception-advanced"
+    >
+      <h3 v-if="embedded" class="reception-section-title">
         平台接待规则与能力 <span>高级设置 · 逐项批准</span>
       </h3>
       <ReceptionRulesPanel
-        v-if="viewKey !== 'image' && selectedStoreId"
         :workspace-id="runtime.snapshot.workspaceId"
         :store-id="selectedStoreId"
         :trigger="ruleTrigger"
         :preserve-draft="embedded"
-        :media-only="embedded && viewKey === 'welcome'"
         :snapshot="operations.snapshot.value"
         :busy="operations.busy.value"
         @command="operations.execute"
@@ -1029,7 +1143,10 @@ async function save() {
         @command="operations.execute"
       />
     </details>
-    <p v-if="embedded && viewKey !== 'image' && !selectedRuns.length" class="reception-empty">
+    <p
+      v-if="embedded && viewKey !== 'image' && viewKey !== 'welcome' && !selectedRuns.length"
+      class="reception-empty"
+    >
       暂无平台操作事项
     </p>
   </RuntimePanel>
@@ -1059,12 +1176,62 @@ async function save() {
   gap: 12px;
   flex-shrink: 0;
 }
+.welcome-layout {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+/* 文字欢迎语独占整行；下方延迟与媒体共用一行，媒体占剩余宽度。 */
+.welcome-text-form {
+  max-width: none;
+  margin: 0;
+}
+.welcome-lower {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  min-width: 0;
+}
 .welcome-delay {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px 8px;
   font-size: 14px;
+}
+.welcome-delay-card {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #e8edf4;
+  border-radius: 6px;
+  background: #fbfcfe;
+}
+.welcome-media,
+.embedded-reception .welcome-media {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.welcome-media :deep(.reception-rules) {
+  width: 100%;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .welcome-lower {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .welcome-delay-card {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+  }
 }
 .welcome-delay-label {
   white-space: nowrap;
@@ -1217,7 +1384,7 @@ async function save() {
   font-size: 12px;
   font-weight: 400;
 }
-.embedded-reception :deep(.reception-rules) {
+.embedded-reception :deep(.reception-rules:not(.media-only)) {
   margin-top: 0;
   padding-top: 8px;
   border-top: 0;

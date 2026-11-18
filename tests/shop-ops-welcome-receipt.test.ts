@@ -99,7 +99,7 @@ describe('ShopOpsPanel welcome save receipt', () => {
         })
         .mockImplementationOnce(() => superseding.promise)
 
-      await wrapper.get('form').trigger('submit')
+      await wrapper.get('textarea').trigger('blur')
       execute.resolve({ status: 'ok', message: '已保存', data: saved('欢迎延迟夹具', 1) })
       await started
       emit?.()
@@ -122,7 +122,7 @@ describe('ShopOpsPanel welcome save receipt', () => {
       await flush(wrapper)
       expect(wrapper.get('textarea').element.value).toBe('欢迎延迟夹具')
       expect(wrapper.text()).toContain('配置已更新')
-      expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+      expect(wrapper.findAll('button').some((button) => button.text() === '保存配置')).toBe(false)
 
       const reload = wrapper.findAll('button').find((button) => button.text() === '重新载入')!
       await reload.trigger('click')
@@ -153,11 +153,10 @@ describe('ShopOpsPanel welcome save receipt', () => {
         return requested.promise
       })
 
-      await wrapper.get('form').trigger('submit')
+      await wrapper.get('textarea').trigger('blur')
       execute.resolve({ status: 'ok', message: '已保存', data: saved('欢迎延迟夹具', 1) })
       await started
-      // Use the real v-model channel: the visible input is disabled while pending,
-      // but a model update must still survive the late receipt.
+      // 自动保存不冻结输入；保存期间的新编辑必须保留到晚到回执之后。
       wrapper.findComponent(ElInput).vm.$emit('update:modelValue', '保存期间的新草稿')
       await flush(wrapper)
       expect(wrapper.get('textarea').element.value).toBe('保存期间的新草稿')
@@ -172,7 +171,7 @@ describe('ShopOpsPanel welcome save receipt', () => {
         message: '已保存',
         data: saved('保存期间的新草稿', 2),
       })
-      await wrapper.get('form').trigger('submit')
+      await wrapper.get('textarea').trigger('blur')
       await flush(wrapper)
       expect(bridge.execute.mock.calls.at(-1)?.[0]).toMatchObject({
         action: 'save-welcome',
@@ -192,13 +191,13 @@ describe('ShopOpsPanel welcome save receipt', () => {
         .mockResolvedValueOnce({ status: 'ok', message: '已保存', data: { text: 42 } })
         .mockResolvedValueOnce({ status: 'ok', message: '已保存', data: saved('欢迎延迟夹具', 1) })
 
-      await wrapper.get('form').trigger('submit')
+      await wrapper.get('textarea').trigger('blur')
       await flush(wrapper)
       expect(wrapper.get('textarea').element.value).toBe('欢迎延迟夹具')
       expect(wrapper.text()).toContain('无法确认')
       expect(wrapper.text()).not.toContain('已保存')
 
-      await wrapper.get('form').trigger('submit')
+      await wrapper.get('textarea').trigger('blur')
       await flush(wrapper)
       expect(bridge.execute.mock.calls.at(-1)?.[0]).toMatchObject({
         action: 'save-welcome',
@@ -226,7 +225,7 @@ describe('ShopOpsPanel welcome save receipt', () => {
         return requested.promise
       })
 
-      await wrapper.get('form').trigger('submit')
+      await wrapper.get('textarea').trigger('blur')
       execute.resolve({ status: 'ok', message: '已保存', data: saved('欢迎延迟夹具', 1) })
       await started
       await wrapper.setProps({ viewKey: 'transfer' })
@@ -242,7 +241,7 @@ describe('ShopOpsPanel welcome save receipt', () => {
         message: '已保存',
         data: saved('欢迎延迟夹具', 1),
       })
-      await wrapper.get('form').trigger('submit')
+      await wrapper.get('textarea').trigger('blur')
       await flush(wrapper)
       expect(bridge.execute.mock.calls.at(-1)?.[0]).toMatchObject({
         action: 'save-welcome',
@@ -331,13 +330,14 @@ describe('ShopOpsPanel welcome save receipt', () => {
       bridge.execute.mockResolvedValueOnce({
         status: 'ok',
         message: '已保存',
-        data: saved('W2真实欢迎', 2),
+        data: saved('W2新欢迎', 2),
       })
-      await wrapper.get('form').trigger('submit')
+      await wrapper.get('textarea').setValue('W2新欢迎')
+      await wrapper.get('textarea').trigger('blur')
       await flush(wrapper)
       expect(bridge.execute.mock.calls.at(-1)?.[0]).toMatchObject({
         action: 'save-welcome',
-        values: { text: 'W2真实欢迎', version: 1 },
+        values: { text: 'W2新欢迎', version: 1 },
       })
     } finally {
       wrapper.unmount()
@@ -367,7 +367,7 @@ describe('ShopOpsPanel welcome save receipt', () => {
         })
         .mockImplementationOnce(() => superseding.promise)
 
-      await wrapper.get('form').trigger('submit')
+      await wrapper.get('textarea').trigger('blur')
       execute.resolve({ status: 'ok', message: '已保存', data: saved('欢迎延迟夹具', 1) })
       await started
       emit?.()

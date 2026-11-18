@@ -59,3 +59,5 @@
 新增 `reception/setup.ts` 并经 index.ts 公开 typed 契约：`readReceptionSetup` 读取目标欢迎语版本与转人工继承状态，`readReceptionSetupSource` 只读合并来源文字欢迎/启用状态与本店转人工关键词/继承状态（欢迎无保存记录时保留目标并提示；继承是显式状态），`createReceptionSetupSaver` 先预检目标欢迎版本与转人工基线，再用既有 save-welcome / save-store-handoff 逐项保存并回读；欢迎语使用目标版本，部分失败逐项返回，租约失效整体拒绝。只读来源，不复制平台人工账号、媒体、平台规则、全局配置或 AI 开关，也不执行平台动作。
 
 `ShopOpsPanel` 新增 `deferredSave` 与 `setupDraft` props：复用模式下欢迎/转人工表单以向导草稿为准，隐藏独立“保存配置/载入最新配置”并显示最后统一保存提示，编辑通过 `update:welcome` / `update:handoff` 事件向上同步；不写草稿缓存。重复导入未重新选择接待时，向导继续透传既有接待草稿、成功/待保存状态与冲突基线，面板保持延后保存。全局关键词、客服接管关键词、平台规则与逐项批准仍按原流程独立工作；非复用调用不传新 props，行为不变。
+
+2026-11-19 欢迎自动保存（1.0.72）：`ShopOpsPanel` 的文字欢迎语在 blur 保存，开关及有效延迟 change 保存；复用 save-welcome 权威版本回执并串行保留最新草稿。`ReceptionRulesPanel` 的欢迎媒体通过 `useReceptionOperations.executeConfirmed` 返回本次真实快照后才提示成功，排队任务绑定工作区和组件生命周期；媒体保存独立于导入欢迎文字的延后提交，空白媒体行只留草稿。文字整行，下方延迟左侧、媒体右侧，窄窗口换行；欢迎区不再有手动保存按钮。可用 `LINGTU_DESKTOP_CHECKS=business:welcome-timing-settings node scripts/run-desktop.mjs` 在构建后执行隔离专项检查。

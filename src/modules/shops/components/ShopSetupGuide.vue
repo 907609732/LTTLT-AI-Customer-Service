@@ -831,7 +831,7 @@ const afterSales = [
             setup.step === 3
               ? setup.receptionDeferred
                 ? '导入的接待内容将在最后统一保存'
-                : '请分别保存接待配置'
+                : '关键词与欢迎设置会自动保存'
               : '政策尚未保存'
           }}</span
           ><el-button

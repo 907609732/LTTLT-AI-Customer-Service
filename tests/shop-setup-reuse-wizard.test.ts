@@ -531,7 +531,8 @@ it('统一保存模式隐藏接待独立保存并显示待保存提示，全局�
   runtime.available = true
   setup.step = 3
   await flushPromises()
-  expect(wrapper.findAll('button').filter((button) => button.text() === '保存配置')).toHaveLength(1)
+  // 欢迎文字/开关/延迟改为自动保存后，普通与统一保存模式都不再有独立“保存配置”。
+  expect(wrapper.findAll('button').filter((button) => button.text() === '保存配置')).toHaveLength(0)
 
   expect(await importAll(setup)).toBe(true)
   setup.step = 3

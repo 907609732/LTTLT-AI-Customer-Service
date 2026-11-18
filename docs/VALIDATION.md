@@ -1,3 +1,10 @@
+## 2026-11-19 欢迎自动保存（1.0.72，主目录专项）
+
+- 独立8文件34项：欢迎文字/延迟/开关、媒体规则回执、旧欢迎回执兼容、加载冲突、删除期间替换、失败后重试、工作区A-B-A/卸载租约、复用模式媒体独立保存，均 exit 0。日志在本机协作目录 welcome-autosave-20261119/main-tests.log。
+- Vue/Electron类型、改动范围ESLint/格式和依赖边界通过；主目录npm run build通过，保留既有bundle体积提示。
+- `LINGTU_DESKTOP_CHECKS=business:welcome-timing-settings node scripts/run-desktop.mjs`：1/1、exit 0，主目录报告 artifacts/desktop-selected-1795022435495/report.json，截图 artifacts/desktop/welcome-timing-settings.png已查看，版本1.0.72。断言真实隔离配置写入、成功提示、媒体新增及最后项删除、欢迎延迟与媒体左右布局和控件不越界。检查结束的清理阶段存在原有business:snapshot已移除handler日志；报告及退出状态通过。
+- 日常资料路径源码已正常重启，Windows可访问树确认v1.0.72。真实配置/买家消息未改。本批未本机运行全量check或全量桌面套件，未发布/部署；云端与产物检查以后续回执为准。
+
 ## 2026-11-19：迁移原生验收接线与冷启动修正（同批1.0.71）
 
 首轮CI 44353252685全量源码检查通过，原生92/94；两失败为旧sidebar训练断言及未装配knowledge IPC的旧训练路由验收。验收harness现复用生产createKnowledgeWindow/registerKnowledgeIpc/loadRenderer，验证真实知识库训练标签、问答表单和临时店铺选择。定向原生首次1/2另复现旧链接冷启动快照竞态，配置页现等待runtime.refresh后取店铺，并拒绝已离开路由的晚到打开。最终原生2/2、相关单元14/14、Electron TypeScript检查通过，界面构建退出0；未改正式知识库数据或发送消息。新版源码此前本机已显示1.0.71并验过商品行预选与切店；最终云端结果随后补充。
