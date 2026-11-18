@@ -20,25 +20,25 @@ Manage stores, product knowledge, AI reply drafts and conversation records. Help
 
 Three complementary apps cover purchase records, parcel evidence and AI-assisted customer service.
 
-| Logo | Project and purpose |
-| :---: | :--- |
-| <a href="https://github.com/907609732/lingtu-recorder/blob/main/README.en.md"><img src="https://raw.githubusercontent.com/907609732/lingtu-recorder/main/docs/assets/logo.png" width="96" height="96" alt="Lingtu Unpack Recorder logo"></a> | **[Lingtu Unpack Recorder](https://github.com/907609732/lingtu-recorder/blob/main/README.en.md)**<br>Parcel evidence: find unpacking/packing videos, photos and exception notes by tracking number. |
-| <a href="https://github.com/907609732/lingtu-order-export/blob/master/docs/README.en.md"><img src="https://raw.githubusercontent.com/907609732/lingtu-order-export/master/build/icon.png" width="96" height="96" alt="Purchase Order Export logo"></a> | **[E-commerce Purchase Order Export](https://github.com/907609732/lingtu-order-export/blob/master/docs/README.en.md)**<br>Purchase traceability: organize buyer orders, product details and logistics; export Excel/CSV. |
+|                                                                                                                                     Logo                                                                                                                                      | Project and purpose                                                                                                                                                                                                        |
+| :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|                 <a href="https://github.com/907609732/lingtu-recorder/blob/main/README.en.md"><img src="https://raw.githubusercontent.com/907609732/lingtu-recorder/main/docs/assets/logo.png" width="96" height="96" alt="Lingtu Unpack Recorder logo"></a>                  | **[Lingtu Unpack Recorder](https://github.com/907609732/lingtu-recorder/blob/main/README.en.md)**<br>Parcel evidence: find unpacking/packing videos, photos and exception notes by tracking number.                        |
+|            <a href="https://github.com/907609732/lingtu-order-export/blob/master/docs/README.en.md"><img src="https://raw.githubusercontent.com/907609732/lingtu-order-export/master/build/icon.png" width="96" height="96" alt="Purchase Order Export logo"></a>             | **[E-commerce Purchase Order Export](https://github.com/907609732/lingtu-order-export/blob/master/docs/README.en.md)**<br>Purchase traceability: organize buyer orders, product details and logistics; export Excel/CSV.   |
 | <a href="https://github.com/907609732/LTTLT-AI-Customer-Service/blob/main/README.en.md"><img src="https://raw.githubusercontent.com/907609732/LTTLT-AI-Customer-Service/main/src/assets/lingtu-ai-icon.png" width="96" height="96" alt="Lingtu AI Customer Service logo"></a> | **[This project: Lingtu AI E-commerce Customer Service](https://github.com/907609732/LTTLT-AI-Customer-Service/blob/main/README.en.md)**<br>After-sales support: store/product knowledge and AI-assisted customer replies. |
 
 The apps are installed separately and keep their own data; orders, recordings and customer-service data are not automatically shared.
 
 ## Core features
 
-| Feature | What it does |
-| --- | --- |
-| Store management | Add and group stores; configure platform login, models and reply rules. |
-| Product knowledge | Collect Pinduoduo product/SKU details and maintain product questions and answers. |
-| Learning and review | Track learning, review knowledge and enable it explicitly; these are separate steps. |
-| AI-assisted replies | Generate candidates from store knowledge. Review before sending by default; automatic sending requires an explicit per-store choice. |
-| Reply monitoring | Review pending approvals and send status, and inspect runtime logs. |
-| Practice and operations | Use local simulated stores/customers, templates, dashboards, tickets and quality checks. |
-| MCP and CLI | Let external AI query stores, knowledge and tasks. Current source also supports CLI and selected configuration changes. |
+| Feature                 | What it does                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Store management        | Add and group stores; configure platform login, models and reply rules.                                                              |
+| Product knowledge       | Collect Pinduoduo product/SKU details and maintain product questions and answers.                                                    |
+| Learning and review     | Track learning, review knowledge and enable it explicitly; these are separate steps.                                                 |
+| AI-assisted replies     | Generate candidates from store knowledge. Review before sending by default; automatic sending requires an explicit per-store choice. |
+| Reply monitoring        | Review pending approvals and send status, and inspect runtime logs.                                                                  |
+| Practice and operations | Use local simulated stores/customers, templates, dashboards, tickets and quality checks.                                             |
+| MCP and CLI             | Let external AI query stores, knowledge and tasks. Current source also supports CLI and selected configuration changes.              |
 
 ## AI integration and versions
 
