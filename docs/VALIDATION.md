@@ -1,5 +1,13 @@
 # 客户端与独立服务端验证
 
+## 2026-11-18：主干整合第一阶段验收（源码 1.0.68，设备授权注册回跳）
+
+范围与保留：`07a2ac6` + `a28750d` 真实两父 merge；只重放 redirect 网页补丁（`server/patches.json` 新增 3 键、2 键追加 hunks）、3 个新增自有 auth suite、`admin-login-hint.test.tsx` 更新、`server/source-files.json`（94→97，全部 hash 匹配）与 `server/PROVENANCE.md`；`server/scripts/verify.ts` 仅追加 3 份 suite 与 3 个实际改动 lint 输入（CI 3 suite 接线）。原 95 hunks / 94 条旧 manifest 条目 0 丢失；`package.json`/`package-lock.json` 仅 1.0.67→1.0.68，无依赖变化；`src`/`electron`/`vendor`/`.github`/Go 零差异。
+
+实际执行（真实退出码与计数）：server 4 目标 suite **4 文件 9 项通过**、既有 `auth-redirect.test.ts` **6 项通过**；`prepare.mjs` exit 0、`preparation.test.mjs` **2/2**（upstream `48a6c87`）；网页 typecheck（先跑生成路由）、变更范围 oxlint、oxfmt、网页 build 全部 **exit 0**；根目录独立 **5 文件 15 项通过**；隔离 `07a2ac6` baseline 先跑 **8 项失败 / 7 项通过**（RED 为被修行为断言，非缺 suite/依赖失败）；根桌面 build **exit 0**、server-tools TypeScript **exit 0**；`npm run check:vendor` 80/97、`git diff --cached --check` exit 0。E 缓存 5 个生成文件与 C 源逐字节一致，main 与 origin/main 均为候选祖先。
+
+未执行：真实账号注册/设备确认 E2E、完整 `server:verify`（Go/DB/deploy 未改，不重复运行）、native/上游/根全量、部署。CI 由 main push 自动触发，最终 docs-only 回执稍后跟进。
+
 ## 2026-11-18：1.0.67 最终整合（1c221df + 00a7ec6；云验收与正常启动通过，main 已整合）
 
 范围：仅 `ShopOpsPanel` 欢迎成功分支消费 `save-welcome` 经 `welcomeSettingSchema` 校验的权威 `result.data`，更新本欢迎 baseline/cache/版本，并写入现有按 workspace/store 隔离的 scoped draft-cache（只覆盖该店欢迎权威记录，供嵌入区卸载重建回读）；不写回共享 snapshot，不 reload 其他字段，不改共享 runtime/backend/CAS。保存期间新输入保留；确认版本高于迟到快照时不误报冲突，真正更高版本仍冲突/阻止覆盖。

@@ -151,6 +151,9 @@ try {
       'src/routes/lingtu',
       'src/features/auth/sign-in/index.tsx',
       'src/features/auth/sign-up/components/sign-up-form.tsx',
+      'src/features/auth/sign-up/index.tsx',
+      'src/features/auth/hooks/use-auth-redirect.ts',
+      'src/routes/(auth)/sign-up.tsx',
       'src/features/auth/hooks/use-oauth-login.ts',
       'src/routes/oauth/$provider.tsx',
       'src/features/auth/secure-verification/types.ts',
@@ -159,10 +162,21 @@ try {
     ],
     web,
   )
+  // The device-authorization redirect fix adds three self-owned suites; running them here keeps the
+  // packaged verification honest without widening the filter to the whole auth tree.
   run(
     'Native frontend tests',
     bun,
-    ['run', 'test', 'src/features/lingtu', 'src/features/auth/api.test.ts', '--maxWorkers=2'],
+    [
+      'run',
+      'test',
+      'src/features/lingtu',
+      'src/features/auth/api.test.ts',
+      'src/features/auth/hooks/__tests__/auth-redirect-navigation.test.ts',
+      'src/features/auth/sign-up/__tests__/redirect.test.tsx',
+      'src/features/auth/sign-up/components/__tests__/register-redirect.test.tsx',
+      '--maxWorkers=2',
+    ],
     web,
   )
   run('Build native administration frontend', bun, ['run', 'build'], web, {

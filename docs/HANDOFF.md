@@ -1,3 +1,11 @@
+## 2026-11-18：主干整合第一阶段验收（1.0.68，设备授权注册回跳；已提交到整合分支，main 推送与启动按后续步骤执行）
+
+以 `07a2ac6` 为基线、用 `git merge --no-ff` 整合 `a28750d`（`codex/device-registration-redirect-20261117`，base `377193d`）保留真实父历史，只重放设备授权注册回跳成果：`server/patches.json` 为 `web/src/features/auth/sign-up/components/sign-up-form.tsx` 与 `web/src/features/auth/sign-in/index.tsx` 追加 redirect hunks，并新增 `web/src/features/auth/sign-up/index.tsx`、`web/src/routes/(auth)/sign-up.tsx`、`web/src/features/auth/hooks/use-auth-redirect.ts` 三个补丁键；纳入 3 个新增自有 auth suite、更新后的 `admin-login-hint.test.tsx`、`server/source-files.json`（97 条，全部 hash 匹配）与 `server/PROVENANCE.md`；`server/scripts/verify.ts` 仅向既有 CI 输入追加这 3 份 suite 与 3 个实际改动 lint 文件。main 既有成本/支付/主图采集/PDD 实店修复/欢迎回执/调试 gate 与全部 guard 保持，原 95 个补丁 hunk 与 94 条旧 manifest 条目 0 丢失；`package.json`/`package-lock.json` 统一 1.0.68，无依赖变化；`vendor`/`electron`/`src`/CI/Go 零差异。
+
+实际验证（Codex 与独立审查复核通过）：server 4 个 auth suite **9 项通过** + 既有 auth sanitizer **6 项**；`prepare.mjs` exit 0 与 `preparation.test.mjs` **2/2**（固定 upstream `48a6c87`）；网页 typecheck、变更范围 oxlint、oxfmt、网页 build 全部 **exit 0**；根目录独立 **5 文件 15 项通过**；隔离 `07a2ac6` baseline 先跑 **8 项失败 / 7 项通过**（RED 全部落在被修行为断言，非缺 suite 或依赖失败）；根桌面 build **exit 0**、server-tools TypeScript **exit 0**；`npm run check:vendor` 80/97、`git diff --cached --check` exit 0。E 缓存生成的 5 个文件与 C 源逐字节一致。
+
+未执行：真实账号浏览器注册/设备确认回跳 E2E、完整 `server:verify`（未改动的 Go/DB/deploy 步骤）、部署与平台/profile 操作。main fast-forward 推送与正常启动按后续步骤执行，最终 docs-only 回执稍后同批升级不改版本。
+
 ## 2026-11-18：1.0.67 最终整合（1c221df 实店验收代码 + 00a7ec6 PR39 商品主图修复；云验收与正常启动通过，main 已整合）
 
 `ShopOpsPanel` 的欢迎保存改为消费 `save-welcome` 返回的权威已存记录：仅接受通过 `welcomeSettingSchema` 校验的 `result.data`，更新本欢迎 baseline/cache/CAS version，不再在成功后立即 `load()` 可能仍落后的 snapshot。回执同时写入现有按 workspace/store 隔离的 scoped draft-cache，只覆盖该店欢迎的权威已存记录供嵌入区卸载重建回读，不写回其他字段。保存期间的新输入保留；快照暂时低于已确认版本不误报冲突，真正更高版本仍提示冲突并阻止覆盖。未改共享 runtime、backend/CAS、PDD 发送/授权/hook/collector 或版本。
