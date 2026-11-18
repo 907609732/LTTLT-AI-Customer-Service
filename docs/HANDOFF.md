@@ -4,7 +4,7 @@
 
 配置中心路由改为 MainLayout 子路由，保留 /shop/manage 及全部 query/旧链接；与店铺首页共用原顶部导航、账号、AI和窗口控制，只切换下方内容。配置时隐藏店铺列表，使用配置功能侧栏；回首页保留店铺选择、搜索和折叠状态。删除配置自身顶栏及返回工作台、商品自动学习、官网按钮，内容高度适配剩余空间。复用既有 route watcher 隐藏/恢复原生店铺页，不新增业务命令或依赖。
 
-相关验证：4文件20项测试、vue-tsc、改动ESLint、build退出0；真实隔离Electron config:embedded-workbench 与 dialogs-and-navigation 2/2，通过顶栏DOM同一性、配置高度、按钮删除、导航高亮、首页返回及直接链接断言。截图 artifacts/desktop-selected-1795024641713/embedded-configuration.png 已查看。一次独立审查未发现实际问题；仅本次范围，未运行全量Release验证或调用真实平台/模型。主目录整合与实际运行版本以后续回执为准。
+相关验证：4文件20项测试、vue-tsc、改动ESLint、build退出0；真实隔离Electron config:embedded-workbench 与 dialogs-and-navigation 2/2，通过顶栏DOM同一性、配置高度、按钮删除、导航高亮、首页返回及直接链接断言。截图 artifacts/desktop-selected-1795024641713/embedded-configuration.png 已查看。一次独立审查未发现实际问题；仅本次范围，未运行全量Release验证或调用真实平台/模型。已在主目录快进整合，主目录构建退出0；按原资料路径重开源码，窗口可访问树确认 v1.0.73，原两家店记录保留。未修改正式配置或发送消息；本批仅本机源码交付，未推送、云打包或发布。
 
 下一项：用户在日常店铺资料下查看首页/配置切换；验收条件为共用顶栏、店铺原生内容正确隐藏/恢复、配置功能正常可达。
 
