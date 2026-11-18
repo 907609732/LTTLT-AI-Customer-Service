@@ -314,11 +314,17 @@ export type SizeRuleRemoveResult = z.infer<typeof sizeRuleRemoveResultSchema>
 export const sizeRuleExportResultSchema = z.object({ csv: z.string().max(2_000_000) }).strict()
 export type SizeRuleExportResult = z.infer<typeof sizeRuleExportResultSchema>
 
+export const sizeBindingStatusSchema = z.enum(['valid', 'missing', 'error'])
+export type SizeBindingStatus = z.infer<typeof sizeBindingStatusSchema>
+
 export const sizeRuleContextSchema = z
   .object({
     source: z.literal('size-rule'),
     ruleId: z.string().uuid(),
     ruleVersion: z.number().int().positive(),
+    storeId: z.string().min(1).max(64),
+    productId: z.string().min(1).max(100),
+    bindingStatus: sizeBindingStatusSchema,
     name: z.string().min(1).max(100),
     columns: z.array(sizeRuleColumnSchema).min(1).max(12),
     rows: z.array(sizeRuleRowSchema).max(100),
@@ -339,6 +345,7 @@ export const sizeRuleContextSchema = z
       )
       .max(6),
     selectionRequested: z.boolean(),
+    tableQueryRequested: z.boolean(),
     eligibleLabels: z.array(z.string().min(1).max(60)).max(100),
     clarification: z.string().max(600),
     rowLabels: z.array(z.string().min(1).max(60)).max(100).optional(),

@@ -6,6 +6,7 @@ import {
   sizeRuleFileSchema,
   sizeRuleRemovePayloadSchema,
   sizeRuleSavePayloadSchema,
+  type SizeBindingStatus,
   type SizeRuleBinding,
   type SizeRuleFile,
   type SizeRuleRecord,
@@ -20,7 +21,9 @@ import {
 export interface SizeRuleStoreOptions {
   directory: string
   assertActive(): void
-  isBindingValid(binding: SizeRuleBinding): Promise<boolean>
+  checkBinding?(binding: SizeRuleBinding): Promise<SizeBindingStatus>
+  /** Legacy boolean test port; production uses checkBinding to distinguish lookup errors. */
+  isBindingValid?(binding: SizeRuleBinding): Promise<boolean>
   now?(): number
   id?(): string
   /** Test-only injection for proving the original file survives a failed atomic replace. */
@@ -90,6 +93,12 @@ export function createSizeRuleStore(options: SizeRuleStoreOptions) {
   const write = options.atomicWrite ?? writeSizeRulesAtomic
   const now = options.now ?? Date.now
   const id = options.id ?? randomUUID
+  const checkBinding =
+    options.checkBinding ??
+    (options.isBindingValid
+      ? async (binding: SizeRuleBinding): Promise<SizeBindingStatus> =>
+          (await options.isBindingValid!(binding)) ? 'valid' : 'missing'
+      : async () => 'valid')
   let state = load()
 
   function load(): SizeRuleFile {
@@ -142,9 +151,26 @@ export function createSizeRuleStore(options: SizeRuleStoreOptions) {
       const data = sizeRuleFieldsSchema.parse(fields)
       for (const binding of uniqueBindings(data.bindings)) {
         options.assertActive()
-        if (!(await options.isBindingValid(binding)))
+        let status: SizeBindingStatus
+        try {
+          status = await checkBinding(binding)
+        } catch {
+          status = 'error'
+        }
+        if (status === 'error')
+          throw new Error('商品目录暂时无法核对绑定，请稍后重试；原文件未改动')
+        if (status === 'missing')
           throw new Error('绑定的店铺或商品不在当前商品目录中，请刷新后重新选择')
         options.assertActive()
+      }
+      // The catalog checks are asynchronous. Recheck both CAS tokens immediately before
+      // the synchronous commit so two stale saves cannot both apply.
+      if (state.revision !== value.expectedRevision)
+        throw new Error('尺码规格列表已更新，请刷新后重试')
+      if (value.id) {
+        const concurrent = state.rules.find((rule) => rule.id === value.id)
+        if (!concurrent || concurrent.version !== value.version)
+          throw new Error('尺码规格规则已更新，请重新载入后再保存')
       }
       const nextRule: SizeRuleRecord = {
         ...data,

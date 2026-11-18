@@ -14,6 +14,7 @@ import {
 
 const MAX_BYTES = 1_048_576
 const HEADER = /^(尺码|规格|名称|尺寸)$/
+const NATIVE_MARKER = '#lingtu-size-table-v1'
 
 function parseHeaderCell(header: string, index: number): SizeRuleColumn {
   const value = header.trim()
@@ -30,8 +31,7 @@ function parseHeaderCell(header: string, index: number): SizeRuleColumn {
   return { id: `c${index + 1}`, name, kind: 'number', unit }
 }
 
-/** Formula escaping used on export is reversed for an exact logical round trip. */
-function decodeCell(value: unknown): string {
+function cleanCell(value: unknown, native: boolean): string {
   const text = String(value ?? '').trim()
   const hasControl = [...text].some((character) => {
     const code = character.charCodeAt(0)
@@ -43,34 +43,48 @@ function decodeCell(value: unknown): string {
     )
   })
   if (hasControl) throw new Error('单元格包含不可见控制字符，请清理后重试')
-  if (/^'[=+\-@]/.test(text)) return text.slice(1)
-  return text
+  // Only our own versioned format reverses the apostrophe layer. External paste
+  // preserves a literal leading apostrophe such as "'=1" exactly.
+  return native && text.startsWith("'") ? text.slice(1) : text
+}
+
+function encodeCell(value: unknown): string {
+  const text = String(value ?? '')
+  // Double a literal leading apostrophe before PapaParse's formula escaping.
+  // Native decode removes exactly one layer, so "'=1" round-trips unchanged.
+  return text.startsWith("'") ? `'${text}` : text
 }
 
 export function previewSizeTable(raw: unknown): SizeRulePreview {
   if (typeof raw !== 'string' || Buffer.byteLength(raw, 'utf8') > MAX_BYTES)
     throw new Error('粘贴表格最大 1 MB')
-  const parsed = Papa.parse<string[]>(raw.replace(/^\uFEFF/, ''), {
+  let body = raw.replace(/^\uFEFF/, '')
+  const native = body.startsWith(`${NATIVE_MARKER}\r\n`) || body.startsWith(`${NATIVE_MARKER}\n`)
+  if (native) body = body.slice(body.indexOf('\n') + 1)
+  const parsed = Papa.parse<string[]>(body, {
     skipEmptyLines: 'greedy',
   })
   if (parsed.errors.length) throw new Error('表格 CSV/TSV 格式不完整')
-  const [headers, ...data] = parsed.data
-  if (!headers?.length || !HEADER.test(String(headers[0] ?? '').trim()))
+  const [rawHeaders, ...data] = parsed.data
+  if (!rawHeaders?.length) throw new Error('首列标题需要是尺码、规格、名称或尺寸')
+  const headers = rawHeaders.map((cell) => cleanCell(cell, native))
+  if (!HEADER.test(String(headers[0] ?? '').trim()))
     throw new Error('首列标题需要是尺码、规格、名称或尺寸')
   if (headers.length < 2) throw new Error('至少需要一个参数列')
   if (headers.length - 1 > 12) throw new Error('最多 12 个参数列')
   if (!data.length) throw new Error('至少需要一个规格行')
   if (data.length > 100) throw new Error('最多 100 个规格行')
   const columns = headers.slice(1).map((header, index) => parseHeaderCell(String(header), index))
-  const rows = data.map((cells, rowIndex) => {
-    if (!Array.isArray(cells) || cells.length !== headers.length)
+  const rows = data.map((rawCells, rowIndex) => {
+    if (!Array.isArray(rawCells) || rawCells.length !== headers.length)
       throw new Error(`第 ${rowIndex + 2} 行的列数必须与标题一致`)
-    const label = decodeCell(cells[0])
+    const cells = rawCells.map((cell) => cleanCell(cell, native))
+    const label = cells[0]!
     if (!label || label.length > 60)
       throw new Error(`第 ${rowIndex + 2} 行尺码/规格名称需要 1～60 字`)
     const values: Record<string, string> = {}
     columns.forEach((column, index) => {
-      const value = decodeCell(cells[index + 1])
+      const value = cells[index + 1]!
       if (value.length > 200) throw new Error(`第 ${rowIndex + 2} 行单元格超过 200 字`)
       values[column.id] = value
     })
@@ -123,7 +137,14 @@ export function exportSizeTable(rule: SizeRuleRecord): string {
       ...rule.columns.map((column) => row.values[column.id] ?? ''),
     ]),
   ]
-  return Papa.unparse(rows, { escapeFormulae: true, newline: '\r\n' })
+  return (
+    NATIVE_MARKER +
+    '\r\n' +
+    Papa.unparse(
+      rows.map((row) => row.map(encodeCell)),
+      { escapeFormulae: true, newline: '\r\n' },
+    )
+  )
 }
 
 function emptyRows(labels: string[], columns: SizeRuleColumn[]) {

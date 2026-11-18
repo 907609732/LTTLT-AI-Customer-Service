@@ -101,6 +101,97 @@ describe('size evidence resolution', () => {
     await expect(save(invalid.service)).rejects.toThrow(/商品|目录|有效/)
   })
 
+  it('treats direct named row/column questions as table lookups, not selection requests', async () => {
+    const f = fixture()
+    await save(f.service)
+    const height = sizeRuleContextSchema.parse(
+      await f.service.resolve('a', 'g', 'M的身高范围是多少', [buyer('M的身高范围是多少')]),
+    )
+    expect(height.selectionRequested).toBe(false)
+    expect(height.tableQueryRequested).toBe(true)
+    expect(height.clarification).toBe('')
+    expect(height.rows.map((row) => row.label)).toEqual(['M'])
+
+    const weight = sizeRuleContextSchema.parse(
+      await f.service.resolve('a', 'g', 'L体重上限', [buyer('L体重上限')]),
+    )
+    expect(weight.selectionRequested).toBe(false)
+    expect(weight.tableQueryRequested).toBe(true)
+    expect(weight.clarification).toBe('')
+    expect(weight.rows[0]?.label).toBe('L')
+  })
+
+  it('cuts same-message person changes at the marker character, not the message boundary', async () => {
+    const f = fixture()
+    await save(f.service)
+    const mixed = sizeRuleContextSchema.parse(
+      await f.service.resolve('a', 'g', '我身高170cm，给妈妈买，穿什么码', [
+        buyer('我身高170cm，给妈妈买，穿什么码'),
+      ]),
+    )
+    expect(mixed.providedMeasurements).toEqual([])
+    expect(mixed.clarification).toContain('身高')
+
+    const newPerson = sizeRuleContextSchema.parse(
+      await f.service.resolve('a', 'g', '给妈妈买，她身高160cm，体重55kg，穿什么码', [
+        buyer('给妈妈买，她身高160cm，体重55kg，穿什么码'),
+      ]),
+    )
+    expect(newPerson.providedMeasurements).toEqual([
+      { name: '身高', value: 160, unit: 'cm' },
+      { name: '体重', value: 55, unit: 'kg' },
+    ])
+    expect(newPerson.eligibleLabels).toEqual(['M'])
+  })
+
+  it('keeps absolute floating-point tolerance at high values and tiny out-of-range values', async () => {
+    const f = fixture()
+    await save(f.service, {
+      columns: [{ id: 'h', name: '身高', kind: 'number', unit: 'cm' }],
+      rows: [{ label: 'M', values: { h: '999999999~999999999' } }],
+      measurements: [{ name: '身高', unit: 'cm' }],
+    })
+    const exact = sizeRuleContextSchema.parse(
+      await f.service.resolve('a', 'g', '推荐什么码', [buyer('身高999999999cm')]),
+    )
+    expect(exact.eligibleLabels).toEqual(['M'])
+    const above = sizeRuleContextSchema.parse(
+      await f.service.resolve('a', 'g', '推荐什么码', [buyer('身高1000000000cm')]),
+    )
+    expect(above.eligibleLabels).toEqual([])
+
+    const g = fixture()
+    await save(g.service, {
+      columns: [{ id: 'h', name: '身高', kind: 'number', unit: 'cm' }],
+      rows: [{ label: 'M', values: { h: '0.3~0.3' } }],
+      measurements: [{ name: '身高', unit: 'cm' }],
+    })
+    const tiny = sizeRuleContextSchema.parse(
+      await g.service.resolve('a', 'g', '推荐什么码', [buyer('身高0.3000001cm')]),
+    )
+    expect(tiny.eligibleLabels).toEqual([])
+  })
+
+  it('does not silently let a bound size rule bypass a failed catalog lookup', async () => {
+    const f = fixture()
+    const saved = await save(f.service)
+    const failing = createSizeRulesService({
+      directory: f.directory,
+      assertActive: () => {},
+      checkBinding: async () => {
+        throw new Error('catalog revision changed')
+      },
+    })
+    const selected = sizeRuleContextSchema.parse(
+      await failing.resolve('a', 'g', '推荐什么尺码', [buyer('身高170cm，体重60kg')]),
+    )
+    expect(selected.bindingStatus).toBe('error')
+    expect(selected.eligibleLabels).toEqual([])
+    expect(selected.clarification).toMatch(/暂时|重试|核对/)
+    expect(await failing.resolve('a', 'g', '你好', [])).toBeNull()
+    expect(saved.rule.id).toBeTruthy()
+  })
+
   it('converts explicit units and uses closed intervals to constrain eligibleLabels', async () => {
     const f = fixture()
     await save(f.service)
@@ -224,6 +315,45 @@ describe('size evidence resolution', () => {
     expect(selected.rows[0]?.label).toBe('SIZE-99')
     expect(selected.clarification).toBe('')
     expect(Buffer.byteLength(JSON.stringify(selected))).toBeLessThan(10000)
+  })
+
+  it('invalidates a generated candidate when its rule is disabled or rebound', async () => {
+    const f = fixture()
+    const saved = await save(f.service)
+    const evidence = sizeRuleContextSchema.parse(
+      await f.service.resolve('a', 'g', '推荐什么尺码', [buyer('身高170cm，体重60kg')]),
+    )
+    expect(f.service.candidateCurrent(evidence)).toBe('')
+
+    const revision = z
+      .object({ revision: z.number() })
+      .parse((await f.service.execute('list-size-rules', {})).data).revision
+    await f.service.execute('save-size-rule', {
+      ...base,
+      enabled: false,
+      id: saved.rule.id,
+      version: saved.rule.version,
+      expectedRevision: revision,
+    })
+    expect(f.service.candidateCurrent(evidence)).toContain('停用')
+
+    const afterDisable = z
+      .object({ revision: z.number() })
+      .parse((await f.service.execute('list-size-rules', {})).data).revision
+    const current = z
+      .object({ rules: z.array(z.object({ id: z.string(), version: z.number() })) })
+      .parse((await f.service.execute('list-size-rules', {})).data).rules[0]!
+    await f.service.execute('save-size-rule', {
+      ...base,
+      enabled: true,
+      id: current.id,
+      version: current.version,
+      expectedRevision: afterDisable,
+      bindings: [{ storeId: 'a', productId: 'h' }],
+    })
+    expect(f.service.candidateCurrent({ ...evidence, ruleVersion: current.version + 1 })).toContain(
+      '解除',
+    )
   })
 
   it('returns null rather than stale evidence when the rule changes during binding validation', async () => {

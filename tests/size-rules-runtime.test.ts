@@ -45,6 +45,121 @@ const draft: SizeRuleFields = {
 }
 
 describe('size rules through the real training model path', () => {
+  it('does not release a bad XL reply when the bound product catalog cannot be verified', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'size-rules-runtime-error-'))
+    cleanup.push(() => fs.rmSync(directory, { recursive: true, force: true }))
+    const seeder = createSizeRulesService({
+      directory,
+      assertActive: () => {},
+      checkBinding: async () => 'valid',
+    })
+    await seeder.execute('save-size-rule', {
+      ...draft,
+      bindings: [{ storeId: 'store-placeholder', productId: 'fixture-size-product' }],
+      expectedRevision: 0,
+    })
+    const failingServiceRef: {
+      current?: ReturnType<typeof createSizeRulesService>
+    } = {}
+    const resolveFailing = (
+      storeId: string,
+      productId: string,
+      question: string,
+      thread: unknown,
+    ) =>
+      failingServiceRef.current?.resolve(storeId, productId, question, thread) ??
+      Promise.resolve(null)
+    const managedChat = vi.fn(async () => ({
+      choices: [
+        {
+          message: { content: JSON.stringify({ reply: 'XL 最合适', sizeLabel: 'XL' }) },
+        },
+      ],
+    }))
+    const sizeContext = createSizeContextPreparation(
+      {
+        assertActive: () => {},
+        resolve: resolveFailing,
+      },
+      createAssistedContext(() => undefined),
+    )
+    const backend = createBackend({
+      dataDir: directory,
+      modelMode: 'managed',
+      managedReady: () => {},
+      managedChat,
+      prepareModelContext: sizeContext,
+      managerFactory: () => ({
+        stateOf: () => ({ open: true, online: true }),
+        closeAll() {},
+      }),
+      adapterFactory: () => ({
+        syncAiEnabled: async () => {},
+        focusConversation: async () => ({ ok: true }),
+        sendText: async () => ({ ok: true }),
+      }),
+    })
+    cleanup.push(() => backend.dispose())
+    installSizeReplyGuard(backend.engine.aiClient, { resolve: resolveFailing })
+    const storeId = z.object({ id: z.string() }).parse(
+      (
+        await backend.execute({
+          action: 'add-store',
+          values: { platform: 'pdd-web', storeName: '目录失败店' },
+        })
+      ).data,
+    ).id
+    await backend.execute({
+      action: 'save-product',
+      storeId,
+      values: {
+        productId: 'fixture-size-product',
+        title: '测试上衣',
+        description: '',
+        specifications: '',
+        price: '',
+        enabled: true,
+      },
+    })
+    // Update the seeded binding to the real generated store id.
+    const list = z
+      .object({
+        revision: z.number(),
+        rules: z.array(z.object({ id: z.string(), version: z.number() })),
+      })
+      .parse((await seeder.execute('list-size-rules', {})).data)
+    await seeder.execute('save-size-rule', {
+      ...draft,
+      id: list.rules[0]!.id,
+      version: list.rules[0]!.version,
+      expectedRevision: list.revision,
+      bindings: [{ storeId, productId: 'fixture-size-product' }],
+    })
+    failingServiceRef.current = createSizeRulesService({
+      directory,
+      assertActive: () => {},
+      checkBinding: async () => {
+        throw new Error('catalog revision changed')
+      },
+    })
+    const result = z.object({ reply: z.string() }).parse(
+      (
+        await backend.execute({
+          action: 'start-training',
+          storeId,
+          values: {
+            question: '身高170cm，体重60kg，推荐什么码',
+            productId: 'fixture-size-product',
+            history: [],
+          },
+        })
+      ).data,
+    )
+    expect(managedChat).toHaveBeenCalledOnce()
+    expect(result.reply).toMatch(/暂时|重试|核对/)
+    expect(result.reply).not.toContain('XL')
+  })
+
   it('uses one evidence payload and rejects an out-of-range model label before training output', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'size-rules-runtime-'))
     cleanup.push(() => fs.rmSync(directory, { recursive: true, force: true }))

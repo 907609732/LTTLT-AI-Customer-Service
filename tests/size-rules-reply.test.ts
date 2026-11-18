@@ -4,8 +4,13 @@ import {
   enforceSizeReply,
   type SizeReplyResolver,
 } from '../electron/size-rules/guard'
-import { createSizeContextPreparation, SIZE_RULES_MARKER } from '../electron/size-rules/inject'
+import {
+  createSizeContextPreparation,
+  sizeEvidenceFromMessages,
+  SIZE_RULES_MARKER,
+} from '../electron/size-rules/inject'
 import { captureSizeEvidence } from '../electron/size-rules/request-state'
+import { applySizeTrainingOutput } from '../electron/size-rules/training-output'
 import type { CompressionInput } from '../electron/context-compression'
 import type { SizeRuleContext } from '../src/shared/contracts/size-rules'
 
@@ -13,6 +18,9 @@ const evidence: SizeRuleContext = {
   source: 'size-rule',
   ruleId: '9f7f45ea-896e-4b9a-a78f-2ec39e62fa81',
   ruleVersion: 1,
+  storeId: 'a',
+  productId: 'g',
+  bindingStatus: 'valid',
   name: '身高体重对照',
   columns: [
     { id: 'height', name: '身高', kind: 'number', unit: 'cm' },
@@ -35,35 +43,40 @@ const evidence: SizeRuleContext = {
     { name: '体重', value: 60, unit: 'kg' },
   ],
   selectionRequested: true,
+  tableQueryRequested: false,
   eligibleLabels: ['M'],
   clarification: '',
 }
 
 describe('final size recommendation guard', () => {
-  it('rejects a model label outside eligibleLabels and returns a safe table-based confirmation', () => {
+  it('renders positive selection from the table and blocks unknown model labels', () => {
     const guarded = enforceSizeReply(evidence, {
-      reply: '推荐L码，更宽松',
-      raw: JSON.stringify({ reply: '推荐L码，更宽松', sizeLabel: 'L' }),
+      reply: 'XL 最合适。',
+      raw: JSON.stringify({ reply: 'XL 最合适。', sizeLabel: 'XL' }),
       images: ['https://images.example.com/bad.png'],
       handoff: false,
     })
-    expect(guarded.reply).not.toContain('L码')
+    expect(guarded.reply).not.toMatch(/XL|加大码/)
     expect(guarded.reply).toContain('M')
     expect(guarded.images).toEqual([])
+
+    const variant = enforceSizeReply(evidence, { reply: '加大码更合适。' })
+    expect(variant.reply).not.toContain('加大码')
+    expect(variant.reply).toContain('M')
   })
 
-  it('accepts an eligible explicit label but rejects an unknown label mentioned in the reply', () => {
+  it('uses the canonical eligible answer even if model prose mentions another valid table row', () => {
     const allowed = enforceSizeReply(evidence, {
       reply: '建议优先核对M码，结合身高体重更稳妥。',
       raw: JSON.stringify({ sizeLabel: 'M' }),
     })
-    expect(allowed.reply).toContain('M码')
+    expect(allowed.reply).toContain('M')
 
     const unknown = enforceSizeReply(evidence, {
-      reply: '推荐XL码',
+      reply: '推荐L码',
       raw: JSON.stringify({ sizeLabel: 'M' }),
     })
-    expect(unknown.reply).not.toContain('XL')
+    expect(unknown.reply).not.toContain('L码')
     expect(unknown.reply).toContain('M')
   })
 
@@ -81,7 +94,12 @@ describe('final size recommendation guard', () => {
 
   it('leaves explicit specification lookups and ordinary text untrusted-but-unconstrained', () => {
     const direct = enforceSizeReply(
-      { ...evidence, selectionRequested: false, eligibleLabels: [] },
+      {
+        ...evidence,
+        selectionRequested: false,
+        tableQueryRequested: true,
+        eligibleLabels: [],
+      },
       { reply: 'M码衣长64厘米', raw: '{"reply":"M码衣长64厘米"}' },
     )
     expect(direct.reply).toContain('M码')
@@ -112,6 +130,22 @@ describe('final size recommendation guard', () => {
     expect(result.reply).not.toContain('L码')
   })
 
+  it('revalidates the final training reply after banned-word/length normalization', () => {
+    const normalized = applySizeTrainingOutput(evidence, { reply: 'XL 最合适。' }, '', 80)
+    expect(normalized.reply).toContain('M')
+    expect(normalized.reply).not.toMatch(/XL/)
+    const truncated = applySizeTrainingOutput(evidence, { reply: 'XL 最合适。' }, '', 12)
+    expect(String(truncated.reply)).toHaveLength(12)
+    const stale = applySizeTrainingOutput(
+      evidence,
+      { reply: '推荐M码' },
+      '尺码规则已更新，旧候选失效',
+      80,
+    )
+    expect(stale.reply).toContain('已更新')
+    expect(stale.reply).not.toContain('M码')
+  })
+
   it('fails closed when the rule version changes while the model response is late', async () => {
     const resolver: SizeReplyResolver = {
       resolve: vi.fn(async () => ({ ...evidence, ruleVersion: 2 })),
@@ -133,11 +167,15 @@ describe('final size recommendation guard', () => {
 })
 
 describe('size evidence prompt injection', () => {
-  it('injects complete JSON as data and restores it if compression removes the message', async () => {
-    const next = vi.fn(async () => ({
-      messages: [{ role: 'system' as const, content: 'protected rules' }],
-      compression: { triggered: true },
-    }))
+  it('puts complete JSON into measured messages before the compressor and keeps it after', async () => {
+    let measured = ''
+    const next = vi.fn(async (input: CompressionInput) => {
+      measured = JSON.stringify(input.messages)
+      return {
+        messages: input.messages,
+        compression: { triggered: false },
+      }
+    })
     const prepare = createSizeContextPreparation(
       {
         assertActive: () => {},
@@ -155,13 +193,33 @@ describe('size evidence prompt injection', () => {
       knowledge: [],
       complete: async () => '',
     })
-    const text = result.messages
-      .map((message) => (typeof message.content === 'string' ? message.content : ''))
-      .join('\n')
-    expect(text).toContain(SIZE_RULES_MARKER)
-    expect(text).toContain('"eligibleLabels":["M"]')
-    expect(text).toContain('"rows"')
+    expect(measured).toContain(SIZE_RULES_MARKER)
+    expect(sizeEvidenceFromMessages(JSON.parse(measured))?.eligibleLabels).toEqual(['M'])
+    expect(sizeEvidenceFromMessages(result.messages)?.eligibleLabels).toEqual(['M'])
     expect(next).toHaveBeenCalledOnce()
+  })
+
+  it('fails closed instead of sending when a downstream compressor drops the evidence', async () => {
+    const next = vi.fn(async () => ({
+      messages: [{ role: 'system' as const, content: 'protected rules' }],
+      compression: { triggered: true },
+    }))
+    const prepare = createSizeContextPreparation(
+      {
+        assertActive: () => {},
+        resolve: async () => evidence,
+      },
+      next,
+    )
+    await expect(
+      prepare({
+        messages: [{ role: 'system', content: 'protected rules' }],
+        thread: [{ from: 'buyer', type: 'text', content: '推荐什么尺码' }],
+        reviewContext: { storeId: 'a', productId: 'g' },
+        knowledge: [],
+        complete: async () => '',
+      }),
+    ).rejects.toThrow(/未保留完整尺码证据/)
   })
 
   it('does not inject evidence for ordinary questions with no matched product rule', async () => {

@@ -8,6 +8,7 @@ import {
   sizeRuleRemoveResultSchema,
   sizeRuleSaveResultSchema,
   sizeRuleTemplatePayloadSchema,
+  type SizeBindingStatus,
   type SizeRuleBinding,
   type SizeRuleContext,
 } from '../../src/shared/contracts/size-rules'
@@ -23,7 +24,9 @@ import {
 export interface SizeRulesServiceOptions {
   directory: string
   assertActive(): void
-  isBindingValid(binding: SizeRuleBinding): Promise<boolean>
+  checkBinding?(binding: SizeRuleBinding): Promise<SizeBindingStatus>
+  /** Legacy boolean test port; production passes checkBinding. */
+  isBindingValid?(binding: SizeRuleBinding): Promise<boolean>
   now?(): number
   id?(): string
   atomicWrite?(file: string, content: string): void
@@ -50,6 +53,7 @@ export function createSizeRulesService(options: SizeRulesServiceOptions) {
   const store = createSizeRuleStore(options)
   const evidence: SizeEvidenceResolver = createSizeEvidenceResolver({
     read: () => store.snapshot(),
+    checkBinding: options.checkBinding,
     isBindingValid: options.isBindingValid,
     assertActive: options.assertActive,
   })
@@ -125,6 +129,25 @@ export function createSizeRulesService(options: SizeRulesServiceOptions) {
       thread: unknown,
     ): Promise<SizeRuleContext | null> {
       return evidence.resolve(storeId, productId, question, thread)
+    },
+    candidateCurrent(
+      generated: Pick<SizeRuleContext, 'ruleId' | 'ruleVersion' | 'storeId' | 'productId'>,
+    ): string {
+      options.assertActive()
+      const rule = store
+        .snapshot()
+        .rules.find(
+          (item) => item.id === generated.ruleId && item.version === generated.ruleVersion,
+        )
+      if (!rule || !rule.enabled) return '尺码规则已更新、停用或删除，旧候选已失效；请重新生成。'
+      if (
+        !rule.bindings.some(
+          (binding) =>
+            binding.storeId === generated.storeId && binding.productId === generated.productId,
+        )
+      )
+        return '尺码规则已解除该商品绑定，旧候选已失效；请重新生成。'
+      return ''
     },
   }
 }

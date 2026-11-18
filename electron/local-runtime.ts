@@ -102,8 +102,12 @@ import {
 } from './runtime/knowledge-pipeline-assembly'
 import { createKnowledgeLearningAssembly } from './runtime/knowledge-learning-assembly'
 import { createSizeRulesService } from './size-rules/service'
+import { createSizeRulesAssembly } from './size-rules/runtime-assembly'
 import { createSizeContextPreparation } from './size-rules/inject'
 import { installSizeReplyGuard } from './size-rules/guard'
+import { createSizeCandidateGuard } from './size-rules/candidate-guard'
+import { applySizeTrainingOutput } from './size-rules/training-output'
+import { capturedSizeEvidence, withSizeRequest } from './size-rules/request-state'
 import { sizeRuleActions, type SizeRuleAction } from '../src/shared/contracts/size-rules'
 
 interface UpstreamBackend {
@@ -182,6 +186,7 @@ export function createLocalRuntime(options: {
   const backendRef: { current?: UpstreamBackend } = {}
   // 尺码服务需要真实商品目录，而目录又依赖后端；请求到达时再读取当前组合根实例。
   const sizeRulesRef: { current?: ReturnType<typeof createSizeRulesService> } = {}
+  let sizeRulesUnavailable = ''
   // 免费摘要绑定只属于当前托管身份；身份变化时由 changed 回调清空。
   const managedContextRef: { current?: ReturnType<typeof createManagedContextBridge> } = {}
   let managedContextIdentity = ''
@@ -425,6 +430,11 @@ export function createLocalRuntime(options: {
   // Share one full snapshot only within a synchronous guard check, never across timer ticks.
   let welcomeCheckSnapshot: ReturnType<typeof read> | undefined
   const readWelcomeCheck = () => welcomeCheckSnapshot ?? read()
+  const sizeCandidates = createSizeCandidateGuard({
+    currentReason: (evidence) =>
+      sizeRulesRef.current?.candidateCurrent(evidence) ??
+      '尺码规则服务不可用，旧候选已失效；请重新生成。',
+  })
   const welcomeDelayGate = createWelcomeDelayGate({
     beginRead: () => {
       welcomeCheckSnapshot = read()
@@ -461,8 +471,10 @@ export function createLocalRuntime(options: {
   })
   const traceWithKnowledge = (event: unknown) => {
     const id = review.trace(event)
-    if (id && event && typeof event === 'object' && Reflect.get(event, 'type') === 'request')
+    if (id && event && typeof event === 'object' && Reflect.get(event, 'type') === 'request') {
       knowledge.captureTrace(id, Reflect.get(event, 'knowledge'))
+      sizeCandidates.capture(id, Reflect.get(event, 'messages'))
+    }
     return id
   }
   const traceModel = (event: unknown) => {
@@ -479,8 +491,11 @@ export function createLocalRuntime(options: {
     {
       assertActive: () => {
         if (closed) throw Error('本地服务已关闭，请重启软件')
-        if (!sizeRulesRef.current) throw Error('尺码规则服务尚未就绪，请稍后重试')
       },
+      unavailable: () =>
+        sizeRulesUnavailable
+          ? `尺码规则不可用：${sizeRulesUnavailable}；未使用未经核对的尺码表，请恢复备份后重试。`
+          : '',
       resolve: (storeId, productId, question, thread) =>
         sizeRulesRef.current?.resolve(storeId, productId, question, thread) ??
         Promise.resolve(null),
@@ -701,6 +716,7 @@ export function createLocalRuntime(options: {
     resolveConversationThread: createConversationThread(() => read().conversations),
     beforeSend: (proposal: SendProposal) => {
       knowledge.guardProposal(proposal)
+      sizeCandidates.attach(proposal)
       // 统一确认门放行后才进入欢迎延迟；普通回复没有 welcome 元数据，立即返回。
       const decide = async () => {
         const approved = await review.propose(proposal)
@@ -808,35 +824,38 @@ export function createLocalRuntime(options: {
       if (!snapshot.stores.some((store) => store.id === storeId)) throw Error('店铺不存在')
     },
   })
-  const sizeRules = createSizeRulesService({
-    directory: dataDir,
-    assertActive: () => {
-      if (closed || !managed.canAccessWorkspace()) throw Error('尺码规则工作区已关闭或不可访问')
-    },
-    // Uses the current real product directory; tests inject a synthetic port instead.
-    isBindingValid: async (binding) => {
-      try {
-        for (let offset = 0; offset <= 10000; offset += 200) {
-          const page = await productCatalog.list(binding.storeId, {
-            offset,
-            limit: 200,
-            query: binding.productId,
-          })
-          if (page.items.some((row) => row.productId === binding.productId)) return true
-          if (!page.items.length || offset + 200 >= page.total) return false
+  const sizeRulesAssembly = createSizeRulesAssembly(() =>
+    createSizeRulesService({
+      directory: dataDir,
+      assertActive: () => {
+        if (closed || !managed.canAccessWorkspace()) throw Error('尺码规则工作区已关闭或不可访问')
+      },
+      // Uses the current real product directory; tests inject a synthetic port instead.
+      checkBinding: async (binding) => {
+        try {
+          for (let offset = 0; offset <= 10000; offset += 200) {
+            const page = await productCatalog.list(binding.storeId, {
+              offset,
+              limit: 200,
+              query: binding.productId,
+            })
+            if (page.items.some((row) => row.productId === binding.productId)) return 'valid'
+            if (!page.items.length || offset + 200 >= page.total) return 'missing'
+          }
+          return 'missing'
+        } catch {
+          return 'error'
         }
-        return false
-      } catch {
-        return false
-      }
-    },
-  })
-  sizeRulesRef.current = sizeRules
+      },
+    }),
+  )
+  sizeRulesRef.current = sizeRulesAssembly.service
+  sizeRulesUnavailable = sizeRulesAssembly.error
   const sizeReplyClient = backend.engine?.aiClient
   if (sizeReplyClient)
     installSizeReplyGuard(sizeReplyClient, {
       resolve: (storeId, productId, question, thread) =>
-        sizeRules.resolve(storeId, productId, question, thread),
+        sizeRulesAssembly.resolve(storeId, productId, question, thread),
     })
   let reportingQueued = false
   scheduleReporting = () => {
@@ -1197,9 +1216,7 @@ export function createLocalRuntime(options: {
       }
       if (sizeRuleActions.includes(command.action as SizeRuleAction)) {
         const sizeAction = command.action as SizeRuleAction
-        const service = sizeRulesRef.current
-        if (!service) throw new Error('尺码规则服务尚未就绪，请稍后重试')
-        const result = await service.execute(sizeAction, command.values)
+        const result = await sizeRulesAssembly.execute(sizeAction, command.values)
         return { status: 'ok' as const, message: result.message, data: result.data }
       }
       // 不允许厂商底层 SecretStore 的历史明文降级进入本工程业务入口。
@@ -1225,7 +1242,31 @@ export function createLocalRuntime(options: {
       }
       const { workspaceId: _workspaceId, ...raw } = command
       void _workspaceId
-      const result = resultSchema.parse(await aiRestore.userExecute(raw))
+      let result: BackendResult
+      if (command.action === 'start-training') {
+        let evidence: ReturnType<typeof capturedSizeEvidence>
+        result = resultSchema.parse(
+          await withSizeRequest(async () => {
+            const value = await aiRestore.userExecute(raw)
+            evidence = capturedSizeEvidence()
+            return value
+          }),
+        )
+        if (evidence) {
+          const reason =
+            sizeRulesRef.current?.candidateCurrent(evidence) ||
+            (sizeRulesRef.current ? '' : '尺码规则服务不可用，旧结论已失效。')
+          result = {
+            ...result,
+            data: applySizeTrainingOutput(
+              evidence,
+              result.data,
+              reason,
+              read().config.reply.maxReplyChars,
+            ),
+          }
+        }
+      } else result = resultSchema.parse(await aiRestore.userExecute(raw))
       if (command.action === 'open-store' && command.storeId)
         developerDebug?.syncPopupPolicy(command.storeId)
       // 删除店铺时同步清空本机模拟数据，避免残留顾客被下一次同名店铺复用。

@@ -5,6 +5,7 @@ import {
   parseNumericRange,
   sizeRuleContextSchema,
   sizeUnitMeta,
+  type SizeBindingStatus,
   type SizeRuleColumn,
   type SizeRuleContext,
   type SizeRuleFile,
@@ -19,10 +20,18 @@ const threadSchema = z.array(
     content: z.string(),
   }),
 )
-const questionRule =
-  /(?:^|[^a-z0-9-])size(?:$|[^a-z0-9-])|穿.{0,12}(?:多大|几|哪|什么|码|号)|[选买].{0,10}(?:码|号)|推荐.{0,12}(?:我|码|号)|适合.{0,8}(?:我|他|她|码|号)|(?:身高|体重|脚长)|我.{0,12}(?:穿|合适)|该.{0,6}多大/iu
+const selectionPatterns = [
+  /(?:推荐|建议).{0,12}(?:尺码|码|号|大小)/iu,
+  /(?:我|他|她|买家).{0,8}(?:穿|选|买).{0,8}(?:多大|几|哪|什么|码|号|尺码)/iu,
+  /(?:穿|选|买).{0,8}(?:多大|几码|哪个码|什么码|哪一号)/iu,
+  /(?:尺码|码|号).{0,6}(?:推荐|建议|适合)/iu,
+  /适合(?:我|他|她)/iu,
+  /(?:哪|什么|几).{0,6}(?:尺码|码|号).{0,8}(?:合适|适合)/iu,
+]
+const tableQueryPattern =
+  /(?:尺码|规格|尺寸|参数|身高|体重|脚长|胸围|衣长).{0,12}(?:范围|上限|下限|多少|是什么|表)|(?:范围|上限|下限)/iu
 const personChange =
-  /给.{0,4}(?:妈妈|爸爸|妈|爸|孩子|女儿|儿子|朋友|老婆|老公)|我(?:妈妈|爸爸|妈|爸|孩子|朋友)|换个人|别人穿/u
+  /给.{0,4}(?:妈妈|爸爸|妈|爸|孩子|女儿|儿子|朋友|老婆|老公)|我(?:妈妈|爸爸|妈|爸|孩子|朋友)|换个人|别人穿/gu
 const providerAliases: Record<string, string[]> = {
   身高: ['身高', '个子'],
   体重: ['体重', '重'],
@@ -34,10 +43,33 @@ const unitAliases = Object.entries(sizeUnitMeta)
   )
   .sort((left, right) => right.alias.length - left.alias.length)
 const escaped = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const EPSILON = 1e-9
 
 function namedIn(name: string, question: string): boolean {
   if (!name) return false
   return new RegExp(`(^|[^a-z0-9_-])${escaped(name)}($|[^a-z0-9_-])`, 'i').test(question)
+}
+
+export function isSelectionQuestion(question: string): boolean {
+  return selectionPatterns.some((pattern) => pattern.test(question))
+}
+
+/** Direct table lookups use the saved row/column facts but never request body measurements. */
+export function isSizeTableQuestion(
+  question: string,
+  rule: Pick<SizeRuleRecord, 'columns' | 'rows'>,
+): boolean {
+  const selected = rule.rows.some((row) => namedIn(row.label, question))
+  if (selected) return true
+  if (tableQueryPattern.test(question)) return true
+  return rule.columns.some(
+    (column) => question.includes(column.name) && /(?:多少|范围|上限|下限|表|是)/u.test(question),
+  )
+}
+
+/** Used when the domain is unavailable: ordinary chat may continue, size questions must not guess. */
+export function isSizeIntentQuestion(question: string): boolean {
+  return isSelectionQuestion(question) || tableQueryPattern.test(question)
 }
 
 function measurementFacts(requirements: SizeRuleMeasurement[], thread: unknown, question: string) {
@@ -47,10 +79,16 @@ function measurementFacts(requirements: SizeRuleMeasurement[], thread: unknown, 
     .map((message) => message.content.slice(0, 4000))
     .slice(-8)
   if (texts.at(-1) !== question) texts.push(question.slice(0, 2000))
-  let start = 0
-  for (let index = 0; index < texts.length; index += 1)
-    if (personChange.test(texts[index]!)) start = index
-  const content = texts.slice(start).join('\n')
+  // Cut at the last character position of a person-change marker, not at a whole message.
+  // A later measurement after that marker belongs to the new person and remains eligible.
+  let offset = 0
+  let cutoff = 0
+  for (const text of texts) {
+    for (const match of text.matchAll(personChange))
+      cutoff = offset + (match.index ?? 0) + match[0].length
+    offset += text.length + 1
+  }
+  const content = texts.join('\n').slice(cutoff)
   const unitPattern = unitAliases.map((entry) => escaped(entry.alias)).join('|')
   const facts: { name: string; value: number; unit: SizeRuleMeasurement['unit'] }[] = []
   for (const requirement of requirements) {
@@ -77,11 +115,9 @@ function measurementFacts(requirements: SizeRuleMeasurement[], thread: unknown, 
         (sourceMeta.group !== 'temperature' && value < 0)
       )
         continue
-      facts.push({
-        name: requirement.name,
-        value: Math.round(value * 1e6) / 1e6,
-        unit: requirement.unit,
-      })
+      // Do not round toward an interval. Only the fixed absolute epsilon below
+      // accommodates binary floating-point representation; it must not scale with the value.
+      facts.push({ name: requirement.name, value, unit: requirement.unit })
       break
     }
   }
@@ -107,15 +143,24 @@ export interface SizeEvidenceResolver {
 
 export interface SizeEvidenceOptions {
   read(): SizeRuleFile
-  isBindingValid(binding: { storeId: string; productId: string }): Promise<boolean>
+  checkBinding?(binding: { storeId: string; productId: string }): Promise<SizeBindingStatus>
+  /** Legacy test port; production passes checkBinding so lookup failures stay distinguishable. */
+  isBindingValid?(binding: { storeId: string; productId: string }): Promise<boolean>
   assertActive?(): void
 }
 
-/**
- * The single evidence resolver used by training, reception and the final reply guard.
- * A stale/missing/disabled binding returns null, so no stale rule can enter model input.
- */
+const lookupClarification = (status: SizeBindingStatus) =>
+  status === 'missing'
+    ? '该商品已不在当前商品目录或绑定已失效；未使用未经核对的尺码表，请刷新商品目录后重试。'
+    : '当前商品目录暂时无法核对；未使用未经核对的尺码表，请稍后重试。'
+
 export function createSizeEvidenceResolver(options: SizeEvidenceOptions): SizeEvidenceResolver {
+  const checkBinding =
+    options.checkBinding ??
+    (options.isBindingValid
+      ? async (binding: { storeId: string; productId: string }) =>
+          (await options.isBindingValid!(binding)) ? ('valid' as const) : ('missing' as const)
+      : async () => 'valid' as const)
   function ruleFor(storeId: string, productId: string): SizeRuleRecord | undefined {
     return options
       .read()
@@ -127,11 +172,43 @@ export function createSizeEvidenceResolver(options: SizeEvidenceOptions): SizeEv
           ),
       )
   }
-  function build(rule: SizeRuleRecord, question: string, thread: unknown): SizeRuleContext {
-    const selectionRequested = questionRule.test(question)
-    const selected = rule.rows.filter((row) => namedIn(row.label, question))
+  function build(
+    rule: SizeRuleRecord,
+    storeId: string,
+    productId: string,
+    question: string,
+    thread: unknown,
+    bindingStatus: SizeBindingStatus,
+  ): SizeRuleContext {
+    const questionText = String(question).slice(0, 2000)
+    const selectionRequested = isSelectionQuestion(questionText)
+    const tableQueryRequested = isSizeTableQuestion(questionText, rule)
+    const selected = rule.rows.filter((row) => namedIn(row.label, questionText))
+    if (bindingStatus !== 'valid') {
+      return sizeRuleContextSchema.parse({
+        source: 'size-rule',
+        ruleId: rule.id,
+        ruleVersion: rule.version,
+        storeId,
+        productId,
+        bindingStatus,
+        name: rule.name,
+        columns: rule.columns,
+        rows: [],
+        totalRows: rule.rows.length,
+        complete: false,
+        filteredByLabels: false,
+        advice: '',
+        requiredMeasurements: rule.measurements,
+        providedMeasurements: [],
+        selectionRequested,
+        tableQueryRequested,
+        eligibleLabels: [],
+        clarification: lookupClarification(bindingStatus),
+      })
+    }
     const rows = selected.length ? selected : rule.rows
-    const providedMeasurements = measurementFacts(rule.measurements, thread, question)
+    const providedMeasurements = measurementFacts(rule.measurements, thread, questionText)
     let clarification = ''
     let eligibleLabels: string[] = []
     if (selectionRequested) {
@@ -181,8 +258,7 @@ export function createSizeEvidenceResolver(options: SizeEvidenceOptions): SizeEv
                 checks.every(({ column, value }) => {
                   try {
                     const range = parseNumericRange(row.values[column.id], column.unit)
-                    const epsilon = Math.max(1, Math.abs(value)) * 1e-9
-                    return value >= range.min - epsilon && value <= range.max + epsilon
+                    return value >= range.min - EPSILON && value <= range.max + EPSILON
                   } catch {
                     return false
                   }
@@ -200,6 +276,9 @@ export function createSizeEvidenceResolver(options: SizeEvidenceOptions): SizeEv
       source: 'size-rule',
       ruleId: rule.id,
       ruleVersion: rule.version,
+      storeId,
+      productId,
+      bindingStatus,
       name: rule.name,
       columns: rule.columns,
       rows,
@@ -210,6 +289,7 @@ export function createSizeEvidenceResolver(options: SizeEvidenceOptions): SizeEv
       requiredMeasurements: rule.measurements,
       providedMeasurements,
       selectionRequested,
+      tableQueryRequested,
       eligibleLabels,
       clarification,
     }
@@ -217,9 +297,10 @@ export function createSizeEvidenceResolver(options: SizeEvidenceOptions): SizeEv
       return sizeRuleContextSchema.parse(result)
     const related =
       selectionRequested ||
+      tableQueryRequested ||
       selected.length > 0 ||
-      /规格|尺寸|尺码|参数|长度|宽|高|容量/u.test(question) ||
-      rule.columns.some((column) => question.includes(column.name))
+      /规格|尺寸|尺码|参数|长度|宽|高|容量/u.test(questionText) ||
+      rule.columns.some((column) => questionText.includes(column.name))
     const specific = '这张规格表较大，请告诉我想查询的具体尺码或规格名称，我再按对应记录核对。'
     return sizeRuleContextSchema.parse({
       ...result,
@@ -239,18 +320,21 @@ export function createSizeEvidenceResolver(options: SizeEvidenceOptions): SizeEv
       options.assertActive?.()
       const first = ruleFor(storeId, productId)
       if (!first) return null
-      let valid = false
+      const questionText = String(question).slice(0, 2000)
+      const sizeIntent =
+        isSelectionQuestion(questionText) || isSizeTableQuestion(questionText, first)
+      let bindingStatus: SizeBindingStatus = 'error'
       try {
-        valid = await options.isBindingValid({ storeId, productId })
+        bindingStatus = await checkBinding({ storeId, productId })
       } catch {
-        valid = false
+        bindingStatus = 'error'
       }
       options.assertActive?.()
-      if (!valid) return null
+      if (bindingStatus !== 'valid' && !sizeIntent) return null
       // A concurrent save/disable/rebind during catalog lookup must not leak the old version.
       const current = ruleFor(storeId, productId)
       if (!current || current.id !== first.id || current.version !== first.version) return null
-      return build(current, String(question).slice(0, 2000), thread)
+      return build(current, storeId, productId, questionText, thread, bindingStatus)
     },
   }
 }

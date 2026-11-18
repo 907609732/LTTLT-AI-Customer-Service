@@ -54,6 +54,39 @@ describe('size table CSV/TSV preview and export', () => {
     expect(() => previewSizeTable('规格,说明(文本)\n小,' + 'a'.repeat(1_048_576))).toThrow(/1 MB/)
   })
 
+  it('preserves a literal leading apostrophe in external paste', () => {
+    const preview = previewSizeTable("尺码,说明(文本)\n'=1,'=1")
+    expect(preview.rows[0]?.label).toBe("'=1")
+    expect(preview.rows[0]?.values.c1).toBe("'=1")
+  })
+
+  it('uses a version marker and reversibly round-trips formula-like headers, labels and cells', () => {
+    const original = sizeRuleSchema.parse({
+      ...blankSizeRuleDraft(),
+      id: '9f7f45ea-896e-4b9a-a78f-2ec39e62fa81',
+      version: 1,
+      updatedAt: 1,
+      name: '公式字面',
+      columns: [{ id: 'c1', name: '=说明', kind: 'text', unit: 'none' }],
+      rows: [
+        { label: "'=1", values: { c1: "'=1" } },
+        { label: '公式', values: { c1: '=HYPERLINK("https://bad")' } },
+        { label: "'普通", values: { c1: "'普通文本" } },
+      ],
+    })
+    const csv = exportSizeTable(original)
+    expect(csv.startsWith('#lingtu-size-table-v1\r\n')).toBe(true)
+    expect(csv).toContain("'=HYPERLINK")
+    const preview = previewSizeTable(csv)
+    expect(preview.columns[0]?.name).toBe('=说明')
+    expect(preview.rows.map((row) => row.label)).toEqual(["'=1", '公式', "'普通"])
+    expect(preview.rows.map((row) => row.values.c1)).toEqual([
+      "'=1",
+      '=HYPERLINK("https://bad")',
+      "'普通文本",
+    ])
+  })
+
   it('exports a formula-safe CSV and round-trips header units and cell values', () => {
     const csv = exportSizeTable(record())
     expect(csv).toContain("'=HYPERLINK")

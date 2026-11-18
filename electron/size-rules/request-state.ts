@@ -13,7 +13,8 @@ interface SizeRequestState {
 const storage = new AsyncLocalStorage<SizeRequestState>()
 
 export function withSizeRequest<T>(job: () => Promise<T>): Promise<T> {
-  return storage.run({}, job)
+  // Reuse an outer training/command owner so the final output can inspect the same evidence.
+  return storage.getStore() ? job() : storage.run({}, job)
 }
 
 export function captureSizeEvidence(evidence: SizeRuleContext | null): void {

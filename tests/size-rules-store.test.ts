@@ -9,6 +9,7 @@ import {
   type SizeRuleFields,
 } from '../src/shared/contracts/size-rules'
 import { createSizeRulesService } from '../electron/size-rules/service'
+import { createSizeRuleStore } from '../electron/size-rules/store'
 
 const directories: string[] = []
 afterEach(() => {
@@ -170,6 +171,88 @@ describe('size rules atomic store and CAS', () => {
     ).rejects.toThrow(/保存失败|原文件/)
     expect(fs.readFileSync(f.file, 'utf8')).toBe(before)
     expect(fs.readdirSync(f.directory).filter((name) => name.endsWith('.tmp'))).toEqual([])
+  })
+
+  it('allows only one of two stale concurrent catalog checks to commit', async () => {
+    const f = fixture()
+    const first = await save(f.service, {})
+    let deferred = false
+    const gates: (() => void)[] = []
+    const store = createSizeRuleStore({
+      directory: f.directory,
+      assertActive: () => {},
+      checkBinding: async () => {
+        if (deferred)
+          await new Promise<void>((resolve) => {
+            gates.push(resolve)
+          })
+        return 'valid'
+      },
+    })
+    deferred = true
+    const editA = store.save({
+      ...draft,
+      name: '并发A',
+      id: first.rule.id,
+      version: first.rule.version,
+      expectedRevision: first.revision,
+      bindings: [{ storeId: 'a', productId: 'h' }],
+    })
+    const editB = store.save({
+      ...draft,
+      name: '并发B',
+      id: first.rule.id,
+      version: first.rule.version,
+      expectedRevision: first.revision,
+      bindings: [{ storeId: 'a', productId: 'g' }],
+    })
+    expect(gates).toHaveLength(2)
+    for (const resolve of gates) resolve()
+    const settled = await Promise.allSettled([editA, editB])
+    expect(settled.filter((value) => value.status === 'fulfilled')).toHaveLength(1)
+    expect(settled.filter((value) => value.status === 'rejected')).toHaveLength(1)
+  })
+
+  it('does not revalidate a broken binding when deleting it', async () => {
+    const f = fixture()
+    const saved = await save(f.service, {})
+    const deleting = createSizeRulesService({
+      directory: f.directory,
+      assertActive: () => {},
+      checkBinding: async () => 'missing',
+    })
+    await expect(
+      deleting.execute('remove-size-rule', {
+        id: saved.rule.id,
+        version: saved.rule.version,
+        expectedRevision: saved.revision,
+        confirmed: true,
+      }),
+    ).resolves.toBeTruthy()
+  })
+
+  it('rejects a catalog lookup error without changing the original file', async () => {
+    const f = fixture()
+    const saved = await save(f.service, {})
+    const before = fs.readFileSync(f.file, 'utf8')
+    const failing = createSizeRulesService({
+      directory: f.directory,
+      assertActive: () => {},
+      checkBinding: async () => {
+        throw new Error('simulated catalog revision change')
+      },
+    })
+    await expect(
+      failing.execute('save-size-rule', {
+        ...draft,
+        name: '目录失败',
+        id: saved.rule.id,
+        version: saved.rule.version,
+        expectedRevision: saved.revision,
+        bindings: [{ storeId: 'a', productId: 'h' }],
+      }),
+    ).rejects.toThrow(/目录|重试|原文件/)
+    expect(fs.readFileSync(f.file, 'utf8')).toBe(before)
   })
 
   it('rejects corrupted or conflicting files at startup without rewriting them', async () => {

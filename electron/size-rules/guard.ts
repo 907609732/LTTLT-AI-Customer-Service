@@ -21,37 +21,7 @@ const threadSchema = z.array(
   }),
 )
 
-function explicitLabel(raw: unknown): string {
-  if (raw && typeof raw === 'object') {
-    const value = Reflect.get(raw, 'sizeLabel')
-    if (typeof value === 'string') return value.trim()
-  }
-  if (typeof raw !== 'string') return ''
-  const match = raw.match(/"sizeLabel"\s*:\s*"((?:\\.|[^"\\])*)"/)
-  if (!match) return ''
-  try {
-    const parsed: unknown = JSON.parse(`"${match[1]}"`)
-    return typeof parsed === 'string' ? parsed.trim() : ''
-  } catch {
-    return ''
-  }
-}
-
-function mentionsLabel(text: string, label: string): boolean {
-  if (!label) return false
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  if (/^[a-z0-9]/i.test(label))
-    return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, 'i').test(text)
-  return text.includes(label)
-}
-
-function unknownRecommendationTokens(text: string): string[] {
-  const pattern =
-    /(?:推荐|建议|选择|选|穿|适合|优先核对|优先选)[^。；\n，,]{0,6}?([a-z]{1,4}|\d{1,3})(?:码|号)?/gi
-  return [...text.matchAll(pattern)].map((match) => match[1]!.trim()).filter(Boolean)
-}
-
-function safeReply(evidence: SizeRuleContext): string {
+function selectionReply(evidence: SizeRuleContext): string {
   if (evidence.clarification) return evidence.clarification.slice(0, 600)
   if (evidence.eligibleLabels.length) {
     const labels = evidence.eligibleLabels.slice(0, 5).join('、')
@@ -60,39 +30,37 @@ function safeReply(evidence: SizeRuleContext): string {
   return '按本商品尺码表区间，当前测量值暂未匹配到可选规格；请核对测量值或提供具体尺码，我再按表核对。'
 }
 
+function lookupReply(evidence: SizeRuleContext): string {
+  return evidence.clarification || '当前商品目录暂时无法核对，请稍后重试。'
+}
+
+function clearUnsafeFields(result: Record<string, unknown>, reply: string): SizeReplyResult {
+  return {
+    ...result,
+    reply,
+    images: [],
+    videos: [],
+    cardActions: [],
+    couponName: '',
+  }
+}
+
 /**
- * Apply the same eligibleLabels constraint after normalization. The prompt alone is not a
- * security boundary: an out-of-range model label becomes a safe table/clarification reply,
- * and any media/coupon fields from the rejected answer are removed.
+ * A positive selection request is rendered from the saved table, not from model prose.
+ * This is a whitelist by construction: unknown labels such as "XL 最合适" and
+ * "加大码更合适" cannot survive because the model text is not used as the recommendation.
+ * Direct table lookups and ordinary chat keep the original model reply when the binding
+ * is verified; a failed catalog lookup still cannot expose table facts.
  */
 export function enforceSizeReply(
   evidence: SizeRuleContext,
   result: Record<string, unknown>,
 ): SizeReplyResult {
   const reply = typeof result.reply === 'string' ? result.reply : ''
-  if (!evidence.selectionRequested || !reply) return { ...result, reply }
-  const allLabels = new Set(evidence.rows.map((row) => row.label))
-  const allowed = new Set(evidence.eligibleLabels)
-  const explicit = explicitLabel(result.raw)
-  const mentioned = [...allLabels].filter((label) => mentionsLabel(reply, label))
-  const unknown = unknownRecommendationTokens(reply)
-  const recommendationPresent = Boolean(explicit) || mentioned.length > 0 || unknown.length > 0
-  if (!recommendationPresent) return { ...result, reply }
-  const invalid =
-    Boolean(evidence.clarification) ||
-    allowed.size === 0 ||
-    (explicit !== '' && !allowed.has(explicit)) ||
-    mentioned.some((label) => !allowed.has(label)) ||
-    unknown.some((token) => !allowed.has(token) && !allLabels.has(token))
-  if (!invalid) return { ...result, reply }
-  return {
-    ...result,
-    reply: safeReply(evidence),
-    images: [],
-    videos: [],
-    cardActions: [],
-    couponName: '',
-  }
+  if (!evidence.selectionRequested && !evidence.tableQueryRequested) return { ...result, reply }
+  if (evidence.bindingStatus !== 'valid') return clearUnsafeFields(result, lookupReply(evidence))
+  if (!evidence.selectionRequested) return { ...result, reply }
+  return clearUnsafeFields(result, selectionReply(evidence))
 }
 
 export interface GuardableReplyClient {

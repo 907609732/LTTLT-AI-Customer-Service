@@ -32,6 +32,11 @@ export interface CompressionInput {
   messages: unknown
   thread: unknown
   knowledge?: unknown
+  /**
+   * Exact size-rule evidence that must survive compression as complete JSON.
+   * It is measured in the same token budget as system and recent messages.
+   */
+  protectedMessages?: unknown
   goodsTitle?: string
   orderId?: string
   goodsName?: string
@@ -87,6 +92,7 @@ export function createContextCompressor(trace: (event: unknown) => string | unde
     input: CompressionInput,
   ): Promise<{ messages: ModelMessages; compression: CompressionInfo }> => {
     const messages = modelMessagesSchema.parse(input.messages)
+    const protectedMessages = modelMessagesSchema.parse(input.protectedMessages ?? [])
     const beforeTokens = estimateContextTokens(messages)
     const compression: CompressionInfo = {
       triggered: beforeTokens >= CONTEXT_TRIGGER,
@@ -130,6 +136,7 @@ export function createContextCompressor(trace: (event: unknown) => string | unde
       ].join('\n')
       return [
         ...system,
+        ...protectedMessages,
         { role: 'user', content: images.length ? [{ type: 'text', text }, ...images] : text },
       ]
     }

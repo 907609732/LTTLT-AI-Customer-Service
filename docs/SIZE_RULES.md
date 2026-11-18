@@ -4,19 +4,25 @@
 
 ## 文件与职责
 
-| 文件                                                  | 职责                                                                                                                        |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `src/shared/contracts/size-rules.ts`                  | 公共 Zod DTO、单位表与换算、闭区间校验、命令/动作常量。不依赖上层。                                                         |
-| `electron/size-rules/store.ts`                        | `size-rules.json` 启动全量校验、临时文件 + fsync + rename 原子写、全局 revision 与规则 version CAS。                        |
-| `electron/size-rules/validate.ts`                     | 规则归属复合键、停用规则占位、唯一绑定校验。                                                                                |
-| `electron/size-rules/context.ts`                      | 唯一证据解析器：按 `storeId + productId` 匹配启用规则、商品目录二次核对、单位换算、`eligibleLabels`、缺参数澄清、大表降级。 |
-| `electron/size-rules/table.ts`                        | PapaParse CSV/TSV 预览、公式安全导出、空白/女装/男装/鞋/收纳模板。                                                          |
-| `electron/size-rules/service.ts`                      | `execute(action, payload)` 与 `resolve(storeId, productId, question, thread)`。                                             |
-| `electron/size-rules/inject.ts`                       | 在 token 压缩前后注入完整证据 JSON，避免 JSON 被截断。                                                                      |
-| `electron/size-rules/guard.ts`                        | 模型回复后的最终白名单约束：范围外推荐改为安全澄清。                                                                        |
-| `electron/size-rules/request-state.ts`                | 用 `AsyncLocalStorage` 把一次请求的提示证据与最终回复守卫绑定，避免并发改规则后错用新旧标签。                               |
-| `src/modules/knowledge/size-rules-service.ts`         | 渲染层窄服务，只经现有 `runtime.run()` 业务命令。                                                                           |
-| `src/modules/knowledge/components/SizeRulesPanel.vue` | 规则列表、表格编辑、真实商品绑定、模板、CSV 预览/导出、删除确认；保留 `ShopKbPanel` 原自由文本入口。                        |
+| 文件                                                            | 职责                                                                                                                        |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `src/shared/contracts/size-rules.ts`                            | 公共 Zod DTO、单位表与换算、闭区间校验、命令/动作常量。不依赖上层。                                                         |
+| `electron/size-rules/store.ts`                                  | `size-rules.json` 启动全量校验、临时文件 + fsync + rename 原子写、全局 revision 与规则 version CAS。                        |
+| `electron/size-rules/validate.ts`                               | 规则归属复合键、停用规则占位、唯一绑定校验。                                                                                |
+| `electron/size-rules/context.ts`                                | 唯一证据解析器：按 `storeId + productId` 匹配启用规则、商品目录二次核对、单位换算、`eligibleLabels`、缺参数澄清、大表降级。 |
+| `electron/size-rules/table.ts`                                  | PapaParse CSV/TSV 预览、公式安全导出、空白/女装/男装/鞋/收纳模板。                                                          |
+| `electron/size-rules/service.ts`                                | `execute(action, payload)` 与 `resolve(storeId, productId, question, thread)`。                                             |
+| `electron/size-rules/inject.ts`                                 | 在压缩器前把完整证据放入 `messages` 和 `knowledge`，并用 `protectedMessages` 计入同一 token 预算；禁止压缩后追加。          |
+| `electron/size-rules/guard.ts`                                  | 选码请求直接生成表内确定性结果；未知码不能靠正则绕过。                                                                      |
+| `electron/size-rules/request-state.ts`                          | 用 `AsyncLocalStorage` 把一次请求的提示证据与最终回复守卫绑定；训练在外层复用同一状态。                                     |
+| `electron/size-rules/candidate-guard.ts`                        | 按生成 trace 绑定候选到规则版本/商品/会话；规则变化时与 knowledge/PDD 当前性检查组合失效。                                  |
+| `electron/size-rules/training-output.ts`                        | 对训练最终禁用词/截字后的回复再次应用尺码白名单。                                                                           |
+| `electron/size-rules/runtime-assembly.ts`                       | 承载尺码文件损坏/不可用错误，只禁用尺码域，不阻断普通客服启动。                                                             |
+| `src/modules/knowledge/size-rules-service.ts`                   | 渲染层窄服务，只经现有 `runtime.run()` 业务命令。                                                                           |
+| `src/modules/knowledge/components/use-size-rules-controller.ts` | 草稿与所有异步请求的 workspace/存活/请求/草稿 owner；迟到成功、失败和导出均不应用。                                         |
+| `src/modules/knowledge/components/SizeRuleTableEditor.vue`      | 列、行、单位和测量参数编辑子组件。                                                                                          |
+| `src/modules/knowledge/components/SizeRuleBindingEditor.vue`    | 真实商品目录多店绑定、分页和归属提示子组件。                                                                                |
+| `src/modules/knowledge/components/SizeRulesPanel.vue`           | 规则列表、模板、CSV 预览/导出、删除确认和上述子组件装配；保留 `ShopKbPanel` 原自由文本入口。                                |
 
 ## 命令与结果
 
@@ -38,29 +44,37 @@
 ## 关键约束
 
 - **绑定唯一**：任意两条规则（含停用规则）不能共用同一 `(storeId, productId)`；不同店铺相同商品编号互不影响。删除后才释放。
-- **真实目录核对**：`local-runtime` 的超集使用现有 `productCatalog.list()` 精确检查当前商品目录；自动测试只注入临时合成目录端口，不访问真实平台。保存时对所有不同绑定重新核对，读取证据时再核对当前绑定。失效、移除或店铺不存在的商品不会进入上下文。
-- **数据约束的 eligibleLabels**：只有请求选码、必需测量参数齐全，且存在同名数字参数列时才计算。测量值先换算到列单位，再用闭区间（含端点，`1e-9` 容差）筛选。没有测量列或没有匹配值时 `eligibleLabels=[]`，不得推荐。
-- **缺参数澄清**：仅选码请求追问缺少的身高/体重/脚长等；普通问候和指定规格尺寸查询不追问。出现“给妈妈/孩子/换个人”等换被测人语义时，截断更早的测量数据。
-- **大表**：证据 JSON 超过 9000 字节时返回 `rows: []`、`complete:false`、`rowLabels` 和明确“指定尺码/规格”澄清；不截断残缺 JSON。若问题已指定单行，可返回该行完整记录。
-- **同源接待/训练**：`createSizeContextPreparation` 由接待和训练共用的 `prepareModelContext` 调用；`installSizeReplyGuard` 包装同一个 `backend.engine.aiClient.reply`。训练不发送买家消息，也不改变 AI 开关或审批门。
-- **最终拒绝**：模型输出的 `sizeLabel` 只能来自 `eligibleLabels`；输出文本中出现的表内尺码也不能超出白名单。范围外标签、缺少测量仍推荐、或未知推荐码（如 `XL`）都会替换为证据内安全澄清，并清空图片/视频/卡片/券字段。普通问候和指定规格查询不启用该推荐限制。守卫在模型返回后再次读取当前证据；规则被停用、改绑或 `ruleVersion` 变化时返回安全失败，不采用迟到旧结论。
+- **真实目录核对**：`local-runtime` 使用现有 `productCatalog.list()` 精确检查当前商品目录；自动测试只注入临时合成目录端口，不访问真实平台。结果分为 `valid`、`missing`、`error`。保存时对所有不同绑定重新核对；目录抛错时拒绝保存且原文件不动，不把错误当成未配置规则。读取证据时 `missing/error` 不输出表事实；选码返回可重试澄清，普通聊天继续。
+- **数据约束的 eligibleLabels**：只有请求选码、必需测量参数齐全，且存在同名数字参数列时才计算。测量值先换算到列单位，再用闭区间（含端点）筛选；只使用固定 `1e-9` 浮点表示容差，不做向区间内舍入，也不随数值放大。
+- **缺参数澄清**：仅真实选码推荐追问缺少的身高/体重/脚长等；普通问候和直接“M身高范围/ L体重上限”等查表请求不追问。出现“给妈妈/孩子/换个人”等换被测人语义时，按最后换人标记的字符位置截断，之后的新测量仍属于新对象。
+- **大表与预算**：证据 JSON 超过 9000 字节时返回 `rows: []`、`complete:false`、`rowLabels` 和明确“指定尺码/规格”澄清；不截断残缺 JSON。完整证据在压缩器前进入 `messages` 和 `knowledge`，并通过 `protectedMessages` 计入 16K 触发与 8K 目标；压缩重建仍缺证据时停止发送，不在压缩后无预算追加。
+- **同源接待/训练**：`createSizeContextPreparation` 由接待和训练共用的 `prepareModelContext` 调用；`installSizeReplyGuard` 包装同一个 `backend.engine.aiClient.reply`；训练最终禁用词/截字后由 `applySizeTrainingOutput` 再校验。训练不发送买家消息，也不改变 AI 开关或审批门。
+- **最终拒绝**：`selectionRequested=true` 时不再采用模型自由文本推荐，而由表内 `eligibleLabels`/`clarification` 生成确定性选码回复，因此“XL 最合适”“加大码更合适”等未知码无法绕过；直接查表请求和普通问候保留原流程。模型返回后再次读取当前证据，规则停用、改绑或 `ruleVersion` 变化时返回安全失败。
+- **候选失效**：候选按生成 trace 绑定规则版本、商品、测量和会话；规则停用/解绑/编辑于生成或待审核期间，`invalidReason/isCurrent` 与现有 knowledge 引用守卫、PDD 一次性发送授权组合，不覆盖也不绕过原确认门。两个买家并行候选各自使用自己的 trace，不读取全局 latest trace。
 - **自由文本兼容**：`ShopKbPanel` 原自由文本预览、审核入库与 `source.kind='size'` 知识包保持不变；结构化规则不自动迁移旧知识，不覆盖知识包，不自动启用或绑定。
 
 ## 存储与并发
 
-数据文件位于当前本机业务目录的 `size-rules.json`。启动时严格解析并核对规则 ID、完整字段和绑定唯一性；损坏文件保持原样并报错。保存使用同目录临时文件、`fsync`、`rename`，失败时原文件不动并清理临时文件。
+数据文件位于当前本机业务目录的 `size-rules.json`。启动时严格解析并核对规则 ID、完整字段和绑定唯一性；损坏文件保持原样。`runtime-assembly` 捕获该领域错误，尺码命令和真实选码请求明确失败，普通客服文字继续启动；不会静默当作空规则推荐。保存使用同目录临时文件、`fsync`、`rename`，失败时原文件不动并清理临时文件。
 
-所有写命令都携带 `expectedRevision`；更新/删除还检查规则 `version`。全局修订或规则版本过期时拒绝写入。异步结果在界面侧按 workspace 和目录请求序号丢弃；切换店铺后的迟到商品结果不会覆盖新店列表。
+所有写命令都携带 `expectedRevision`；更新/删除还检查规则 `version`。异步目录校验完成后、同步 commit 之前再次核对全局 revision 和规则 version，两个旧 revision 同时保存只能成功一个。删除不依赖绑定目录校验，因此失效绑定仍可被用户删除。界面 controller 统一按 workspace、组件存活、请求序号和草稿代次丢弃迟到成功/失败/导出；切换店铺后的迟到商品结果不会覆盖新店列表。
+
+CSV 导出第一行为 `#lingtu-size-table-v1`。只有该版本格式会反转公式安全导出的单引号转义；普通外部粘贴保留字面 `'=1`，自身导出再导入可还原原文本、公式类表头和单元格。
 
 ## 验证
 
 专项测试：
 
 ```powershell
-npx vitest run tests/size-rules-store.test.ts tests/size-rules-context.test.ts tests/size-rules-table.test.ts tests/size-rules-reply.test.ts tests/size-rules-runtime.test.ts tests/size-rules-ui.test.ts tests/knowledge-learning-ui.test.ts
+npx vitest run --no-file-parallelism --maxWorkers=2 --minWorkers=1 `
+  tests/size-rules-store.test.ts tests/size-rules-context.test.ts `
+  tests/size-rules-table.test.ts tests/size-rules-reply.test.ts `
+  tests/size-rules-runtime.test.ts tests/size-rules-candidate.test.ts `
+  tests/size-rules-compression.test.ts tests/size-rules-runtime-startup.test.ts `
+  tests/size-rules-ui.test.ts tests/knowledge-learning-ui.test.ts
 ```
 
-覆盖：原子写/CAS/重启/损坏文件保留、含停用规则的绑定互斥、跨店同号、真实目录端口拒绝失效商品、单位换算和闭区间、缺参数澄清、换人截断、大表、CSV/TSV/公式/往返、模板未启用、模型范围外拒绝、真实训练模型通路、换店迟到商品结果、失败保留草稿。
+覆盖：原子写/双 CAS/重启/损坏文件保留、含停用规则的绑定互斥、跨店同号、目录 valid/missing/error、单位换算和固定容差、缺参数澄清、同条换人字符截断、大表、CSV 版本标记/字面单引号/公式往返、模板未启用、未知 `XL` 确定性拒绝、真实训练模型通路及目录失败、16K→8K 真实压缩、候选版本失效与 PDD 授权组合、workspace/草稿/卸载迟到结果、失败保留草稿。
 
 类型/静态/构建：
 
@@ -78,4 +92,5 @@ npm run build
 - 未实现视觉模型独立配置或托管视觉渠道。
 - 未访问真实平台商品目录、真实店铺、真实模型或发送买家消息；商品绑定验收使用合成目录和既有本地商品命令。
 - 未发布 Release、未改 server/vendor、未 bump 版本。
-- 模型仍可能输出自然语言差异；最终档位由确定性白名单守卫约束，不把提示词当作安全边界。
+- 模型仍可能输出自然语言差异；选码请求由确定性表内结果约束，不把提示词或有限推荐动词正则当作安全边界。
+- 未在完整 Electron 主进程生命周期中启动本工作树；损坏文件 containment 由 `local-runtime` 实际使用的 `runtime-assembly` 与真实 compressor/训练装配测试覆盖，最终仍需整合时的原生启动复核。

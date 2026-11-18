@@ -120,6 +120,15 @@ beforeEach(async () => {
 })
 
 const options = { global: { plugins: [ElementPlus] } }
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((ok, fail) => {
+    resolve = ok
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
 
 async function mountPanel() {
   const wrapper = mount(SizeRulesPanel, options)
@@ -244,6 +253,203 @@ describe('structured size rules UI', () => {
     })
     await flushPromises()
     expect(wrapper.text()).not.toContain('迟到的甲店商品')
+  })
+
+  it('drops a late template result after a workspace switch or user draft edit', async () => {
+    const pending = deferred<unknown>()
+    bridge.execute.mockImplementation(async (command: { action: string }) => {
+      if (command.action === 'list-size-rules')
+        return { status: 'ok', message: '', data: { ...listResult().data, rules: [] } }
+      if (command.action === 'list-products')
+        return {
+          status: 'ok',
+          message: '',
+          data: { revision: 1, codesRevision: 0, total: 0, items: [] },
+        }
+      if (command.action === 'size-rule-template') return pending.promise
+      return { status: 'ok', message: '', data: {} }
+    })
+    const wrapper = await mountPanel()
+    await wrapper.get('button[aria-label="女装草稿"]').trigger('click')
+    await flushPromises()
+    useRuntimeStore().snapshot.workspaceId = '00000000-0000-4000-8000-000000000099'
+    await flushPromises()
+    pending.resolve({
+      status: 'ok',
+      message: '',
+      data: {
+        name: '迟到模板',
+        enabled: false,
+        columns: [{ id: 'c1', name: '胸围', kind: 'number', unit: 'cm' }],
+        rows: [{ label: 'S', values: { c1: '' } }],
+        advice: '',
+        measurements: [],
+        bindings: [],
+      },
+    })
+    await flushPromises()
+    expect((wrapper.get('[aria-label="尺码规则名称"]').element as HTMLInputElement).value).not.toBe(
+      '迟到模板',
+    )
+  })
+
+  it('does not overwrite edits made while a template request is pending', async () => {
+    const pending = deferred<unknown>()
+    bridge.execute.mockImplementation(async (command: { action: string }) => {
+      if (command.action === 'list-size-rules')
+        return { status: 'ok', message: '', data: { ...listResult().data, rules: [] } }
+      if (command.action === 'list-products')
+        return {
+          status: 'ok',
+          message: '',
+          data: { revision: 1, codesRevision: 0, total: 0, items: [] },
+        }
+      if (command.action === 'size-rule-template') return pending.promise
+      return { status: 'ok', message: '', data: {} }
+    })
+    const wrapper = await mountPanel()
+    await wrapper.get('button[aria-label="女装草稿"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[aria-label="尺码规则名称"]').setValue('用户正在编辑')
+    pending.resolve({
+      status: 'ok',
+      message: '',
+      data: {
+        name: '迟到模板',
+        enabled: false,
+        columns: [{ id: 'c1', name: '胸围', kind: 'number', unit: 'cm' }],
+        rows: [{ label: 'S', values: { c1: '' } }],
+        advice: '',
+        measurements: [],
+        bindings: [],
+      },
+    })
+    await flushPromises()
+    expect((wrapper.get('[aria-label="尺码规则名称"]').element as HTMLInputElement).value).toBe(
+      '用户正在编辑',
+    )
+  })
+
+  it('drops late CSV preview and export results after leaving their owner', async () => {
+    const previewPending = deferred<unknown>()
+    bridge.execute.mockImplementation(async (command: { action: string }) => {
+      if (command.action === 'list-size-rules') return listResult()
+      if (command.action === 'list-products')
+        return {
+          status: 'ok',
+          message: '',
+          data: { revision: 1, codesRevision: 0, total: 0, items: [] },
+        }
+      if (command.action === 'preview-size-table') return previewPending.promise
+      return { status: 'ok', message: '', data: {} }
+    })
+    const wrapper = await mountPanel()
+    await wrapper.get('[aria-label="尺码表格文本"]').setValue('规格,长度(cm)\n小号,20')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '预览表格')!
+      .trigger('click')
+    await flushPromises()
+    useRuntimeStore().snapshot.workspaceId = '00000000-0000-4000-8000-000000000098'
+    await flushPromises()
+    previewPending.resolve({
+      status: 'ok',
+      message: '',
+      data: {
+        columns: [{ id: 'c1', name: '长度', kind: 'number', unit: 'cm' }],
+        rows: [{ label: '小号', values: { c1: '20' } }],
+        count: 1,
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('预览：1 行')
+  })
+
+  it('does not download an export that completes after the panel was left', async () => {
+    const exportPending = deferred<unknown>()
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const create = vi.fn(() => 'blob:size')
+    Object.defineProperty(URL, 'createObjectURL', { value: create, configurable: true })
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true })
+    bridge.execute.mockImplementation(async (command: { action: string }) => {
+      if (command.action === 'list-size-rules') return listResult()
+      if (command.action === 'list-products')
+        return {
+          status: 'ok',
+          message: '',
+          data: { revision: 1, codesRevision: 0, total: 0, items: [] },
+        }
+      if (command.action === 'export-size-table') return exportPending.promise
+      return { status: 'ok', message: '', data: {} }
+    })
+    const wrapper = await mountPanel()
+    await wrapper.get('[aria-label="选择尺码规则 本店上衣尺码"]').trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '导出已保存 CSV')!
+      .trigger('click')
+    await flushPromises()
+    useRuntimeStore().snapshot.workspaceId = '00000000-0000-4000-8000-000000000097'
+    await flushPromises()
+    exportPending.resolve({ status: 'ok', message: '', data: { csv: '规格,长度(cm)' } })
+    await flushPromises()
+    expect(create).not.toHaveBeenCalled()
+    expect(click).not.toHaveBeenCalled()
+  })
+
+  it('does not download an export after the component unmounts', async () => {
+    const exportPending = deferred<unknown>()
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const create = vi.fn(() => 'blob:size')
+    Object.defineProperty(URL, 'createObjectURL', { value: create, configurable: true })
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true })
+    bridge.execute.mockImplementation(async (command: { action: string }) => {
+      if (command.action === 'list-size-rules') return listResult()
+      if (command.action === 'list-products')
+        return {
+          status: 'ok',
+          message: '',
+          data: { revision: 1, codesRevision: 0, total: 0, items: [] },
+        }
+      if (command.action === 'export-size-table') return exportPending.promise
+      return { status: 'ok', message: '', data: {} }
+    })
+    const wrapper = await mountPanel()
+    await wrapper.get('[aria-label="选择尺码规则 本店上衣尺码"]').trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '导出已保存 CSV')!
+      .trigger('click')
+    await flushPromises()
+    wrapper.unmount()
+    exportPending.resolve({ status: 'ok', message: '', data: { csv: '规格,长度(cm)' } })
+    await flushPromises()
+    expect(create).not.toHaveBeenCalled()
+    expect(click).not.toHaveBeenCalled()
+  })
+
+  it('does not show a late template error in the new workspace', async () => {
+    const pending = deferred<unknown>()
+    bridge.execute.mockImplementation(async (command: { action: string }) => {
+      if (command.action === 'list-size-rules')
+        return { status: 'ok', message: '', data: { ...listResult().data, rules: [] } }
+      if (command.action === 'list-products')
+        return {
+          status: 'ok',
+          message: '',
+          data: { revision: 1, codesRevision: 0, total: 0, items: [] },
+        }
+      if (command.action === 'size-rule-template') return pending.promise
+      return { status: 'ok', message: '', data: {} }
+    })
+    const wrapper = await mountPanel()
+    await wrapper.get('button[aria-label="女装草稿"]').trigger('click')
+    await flushPromises()
+    useRuntimeStore().snapshot.workspaceId = '00000000-0000-4000-8000-000000000096'
+    await flushPromises()
+    pending.reject(new Error('旧工作区模板失败'))
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 
   it('creates templates without enabling or binding and toggles a real catalog product', async () => {
