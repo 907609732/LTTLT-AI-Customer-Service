@@ -1,33 +1,23 @@
 import { McpServer } from '@modelcontextprotocol/server'
 import { serveStdio } from '@modelcontextprotocol/server/stdio'
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { z } from 'zod'
 import { callLocalAgent } from './http-client'
+import { defaultAgentConnectionFile, readAgentConnection } from './connection-file'
 import {
-  agentConnectionSchema,
   agentToolSchemas,
   agentToolDescriptions,
   type AgentToolName,
 } from '../../src/shared/contracts/agent'
 
 declare const __APP_VERSION__: string
-const appData =
-  process.env.APPDATA ??
-  (process.platform === 'darwin'
-    ? join(homedir(), 'Library', 'Application Support')
-    : (process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config')))
 const args = process.argv.slice(2)
 if (args.length && (args.length !== 2 || args[0] !== '--connection-file'))
   throw Error('用法：node lingtu-mcp.cjs [--connection-file 完整连接文件路径]')
-const connectionFile = args.length
-  ? args[1]!
-  : join(appData, 'yunduo-ui-restored', 'ai-interface', 'connection.json')
+const connectionFile = args.length ? args[1]! : defaultAgentConnectionFile()
 
 async function invoke(tool: AgentToolName, input: unknown) {
   try {
-    const connection = agentConnectionSchema.parse(JSON.parse(readFileSync(connectionFile, 'utf8')))
+    const connection = readAgentConnection(connectionFile)
     const response = await callLocalAgent(connection, { tool, args: input })
     const envelope = z
       .object({
@@ -70,6 +60,7 @@ serveStdio(() => {
       'lingtu_open_store',
       'lingtu_start_collection',
       'lingtu_save_draft',
+      'lingtu_apply_config',
     ].includes(name)
     server.registerTool(
       name,
@@ -78,7 +69,9 @@ serveStdio(() => {
         inputSchema: schema,
         annotations: {
           readOnlyHint: readOnly,
-          destructiveHint: false,
+          // Replacing saved configuration is the only destructive action here;
+          // apply still uses native version CAS and requestId deduplication.
+          destructiveHint: name === 'lingtu_apply_config',
           idempotentHint: true,
           openWorldHint:
             name === 'lingtu_open_store' ||

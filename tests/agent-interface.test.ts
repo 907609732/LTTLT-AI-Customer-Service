@@ -15,6 +15,7 @@ import { agentConnectionSchema } from '../src/shared/contracts/agent'
 import { callLocalAgent } from '../electron/agent/http-client'
 import { request as httpRequest } from 'node:http'
 import { createKnowledgePipelineCoordinator } from '../electron/knowledge/pipeline'
+import { createConfigExecute } from './agent-settings-fixture'
 
 const disposals: (() => unknown)[] = []
 afterEach(async () => {
@@ -46,7 +47,7 @@ function fixture() {
     },
     changed() {},
   })
-  const execute = vi.fn(async () => ({ status: 'ok' as const, message: 'opened', data: {} }))
+  const execute = vi.fn(createConfigExecute(state))
   const service = createAgentService({
     version: 'test',
     runtime: () => ({
@@ -313,8 +314,24 @@ it('connects a real standard MCP client to the built stdio connector and saves a
     }),
   )
   const list = await client.listTools()
-  expect(list.tools).toHaveLength(10)
+  expect(list.tools).toHaveLength(14)
   expect(list.tools.some((t) => /clear|publish|send/.test(t.name))).toBe(false)
+  for (const name of [
+    'lingtu_config_schema',
+    'lingtu_get_config',
+    'lingtu_preview_config',
+    'lingtu_apply_config',
+  ])
+    expect(list.tools.some((tool) => tool.name === name)).toBe(true)
+  expect(
+    list.tools.find((tool) => tool.name === 'lingtu_config_schema')?.annotations,
+  ).toMatchObject({ readOnlyHint: true, destructiveHint: false })
+  expect(
+    list.tools.find((tool) => tool.name === 'lingtu_preview_config')?.annotations,
+  ).toMatchObject({ readOnlyHint: true, destructiveHint: false })
+  expect(list.tools.find((tool) => tool.name === 'lingtu_apply_config')?.annotations).toMatchObject(
+    { readOnlyHint: false, destructiveHint: true },
+  )
   const status = await client.callTool({ name: 'lingtu_status', arguments: {} })
   expect(status.isError).not.toBe(true)
   expect(status.structuredContent).toMatchObject({ data: { workspaceId: 'w' } })
@@ -332,4 +349,50 @@ it('connects a real standard MCP client to the built stdio connector and saves a
   expect((await client.callTool(save)).isError).not.toBe(true)
   expect(f.repository.rows('entries')).toHaveLength(1)
   expect(f.repository.rows<{ approved: unknown }>('entries')[0].approved).toBeNull()
+
+  const schema = await client.callTool({ name: 'lingtu_config_schema', arguments: {} })
+  expect(schema.isError).not.toBe(true)
+  expect(schema.structuredContent).toMatchObject({
+    data: {
+      groups: [{ group: 'reply-pacing' }, { group: 'welcome' }, { group: 'vision' }],
+    },
+  })
+  const welcome = await client.callTool({
+    name: 'lingtu_get_config',
+    arguments: { workspaceId: 'w', group: 'welcome', storeId: 'a' },
+  })
+  expect(welcome.isError).not.toBe(true)
+  const version = (welcome.structuredContent as { data: { version: string } }).data.version
+  const callsBefore = f.execute.mock.calls.length
+  const preview = await client.callTool({
+    name: 'lingtu_preview_config',
+    arguments: {
+      workspaceId: 'w',
+      group: 'welcome',
+      storeId: 'a',
+      patch: { text: 'MCP欢迎' },
+    },
+  })
+  expect(preview.isError).not.toBe(true)
+  expect(preview.structuredContent).toMatchObject({
+    data: { effective: { text: 'MCP欢迎', enabled: false } },
+  })
+  expect(f.execute.mock.calls.length).toBe(callsBefore)
+  const applied = await client.callTool({
+    name: 'lingtu_apply_config',
+    arguments: {
+      workspaceId: 'w',
+      group: 'welcome',
+      storeId: 'a',
+      requestId: 'mcp-config-write',
+      expectedVersion: version,
+      patch: { text: 'MCP欢迎' },
+    },
+  })
+  expect(applied.isError).not.toBe(true)
+  expect(applied.structuredContent).toMatchObject({
+    data: { group: 'welcome', storeId: 'a', settings: { text: 'MCP欢迎' } },
+  })
+  expect(f.state.welcomeByStore.a?.text).toBe('MCP欢迎')
+  expect(f.execute.mock.calls.length).toBe(callsBefore + 1)
 }, 15000)

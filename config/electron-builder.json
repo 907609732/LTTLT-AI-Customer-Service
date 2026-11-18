@@ -10,6 +10,10 @@
       "to": "ai-interface/lingtu-mcp.cjs"
     },
     {
+      "from": "dist-electron/lingtu-cli.cjs",
+      "to": "ai-interface/lingtu-cli.cjs"
+    },
+    {
       "from": "node_modules/@modelcontextprotocol/server/LICENSE",
       "to": "ai-interface/licenses/mcp-server-LICENSE"
     },

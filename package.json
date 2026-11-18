@@ -1,6 +1,6 @@
 {
   "name": "lingtu-ai",
-  "version": "1.0.68",
+  "version": "1.0.69",
   "private": true,
   "description": "灵兔AI电商客服 · 本机模型 Key 与可选托管服务的电商客服桌面端",
   "main": "dist-electron/main.cjs",
@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build:desktop": "node scripts/build-electron.mjs",
+    "ai": "node dist-electron/lingtu-cli.cjs",
     "pack:win": "npm run build && electron-builder --config config/electron-builder.json --win --dir --x64 --publish never",
     "dist:win": "npm run build && electron-builder --config config/electron-builder.json --win nsis zip --x64 --publish never",
     "electron:dev": "npm run build:desktop && concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",

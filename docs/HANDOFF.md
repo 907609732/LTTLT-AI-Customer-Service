@@ -1,3 +1,13 @@
+## 2026-11-19：AI配置接口（源码 1.0.69，MCP+CLI，待集成复核）
+
+用户已确认 MCP + CLI 共用运行中软件的认证 gateway；本分支只实现 `reply-pacing`（全局）、`welcome`（按店）和 `vision.enabled`（按店）。新增 `lingtu_config_schema`、`lingtu_get_config`、`lingtu_preview_config`、`lingtu_apply_config`，保留原10个MCP工具；新增 `lingtu-cli.cjs`（`status`、`stores`、`config schema/get/preview/apply`，`node:util` parseArgs，`--json`参数或stdin，`--connection-file`，非0失败）并接入源码 `npm run ai` 与安装版 `resources/ai-interface`。未新增依赖，未改 vendor、node_modules、真实 userData 或真实配置。
+
+保存复用 `save-config`+REPLY_PACING 的完整 `expected`、`save-welcome` 和 `save-vision-settings` 的原生 `version` CAS；预览不执行命令，apply 回读新快照实际值。旧工作区/店铺/版本、未知或空字段、并发界面保存、重复requestId、识图能力不支持均被拒绝；账号在写入过程中变化时不返回成功。CLI 不回显损坏连接文件内容或token，写操作不自动重试。
+
+实际验证：最终定向套件 **5文件35项通过**（`tests/agent-settings`、`agent-config-lifecycle`、`agent-config-persistence` 真实厂商后端本地夹具、`agent-config-cli` 子进程、`agent-interface` 标准MCP Client），日志 `artifacts/ai-configuration/logs/green-final-agent-suite.log`，exit 0。RED 证据：`red-task1.log` 13 failed/1 passed（工具未注册）；`red-task2.log` CLI入口缺失、apply注解仍为只读。新增连接文件泄露用例在修复前曾 1 failed/8 passed（`green-task2-cli-debug.log`）。`tsc -p config/tsconfig.electron.json`、`vue-tsc --noEmit`、改动范围 ESLint/Prettier、边界检查、`npm run build:desktop` 均 exit 0；已生成 `dist-electron/lingtu-mcp.cjs` 与 `dist-electron/lingtu-cli.cjs`。首次 Electron typecheck 的2个索引签名错误日志保留，修复后复跑通过。
+
+未做：真实账号/店铺配置写入、真实模型或买家发送、完整安装包、全量 `npm run check`/`npm run test:desktop`、应用重启/推送/部署/发布。打包仅更新 `extraResources` 白名单，安装器验收和源码重启由集成者执行。下一项：Codex 独立复核、按需修复、集成并重开最新源码。
+
 ## 2026-11-18：主干整合验收（1.0.68，设备授权注册回跳；已合入 main 并实际启动）
 
 以 `07a2ac6` 为基线、用 `git merge --no-ff` 整合 `a28750d`（`codex/device-registration-redirect-20261117`，base `377193d`）保留真实父历史，只重放设备授权注册回跳成果：`server/patches.json` 为 `web/src/features/auth/sign-up/components/sign-up-form.tsx` 与 `web/src/features/auth/sign-in/index.tsx` 追加 redirect hunks，并新增 `web/src/features/auth/sign-up/index.tsx`、`web/src/routes/(auth)/sign-up.tsx`、`web/src/features/auth/hooks/use-auth-redirect.ts` 三个补丁键；纳入 3 个新增自有 auth suite、更新后的 `admin-login-hint.test.tsx`、`server/source-files.json`（97 条，全部 hash 匹配）与 `server/PROVENANCE.md`；`server/scripts/verify.ts` 仅向既有 CI 输入追加这 3 份 suite 与 3 个实际改动 lint 文件。main 既有成本/支付/主图采集/PDD 实店修复/欢迎回执/调试 gate 与全部 guard 保持，原 95 个补丁 hunk 与 94 条旧 manifest 条目 0 丢失；`package.json`/`package-lock.json` 统一 1.0.68，无依赖变化；`vendor`/`electron`/`src`/CI/Go 零差异。

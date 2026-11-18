@@ -219,3 +219,11 @@ Qwen 实测存在重复结束括号与漏回 sourceId。资料身份由单来源
 新模式不写入厂商 config.json：该文件由固定提交的第三方 Config 整体校验并会丢弃未知字段，且旧字段 perUidMinIntervalMs 需要原样保留用于审计/回退。节奏单独保存在本机业务目录 reply-pacing.json（版本 1），保存与加载都校验 1～3600 整数秒且下限不大于上限，反序直接拒绝而不是偷偷裁剪。首次缺失时迁移为 1～3 秒随机并记录迁移来源，之后启动不再覆盖；配置损坏或首次迁移写入失败会明确报错并保留原文件，不静默回到默认。
 
 界面沿用原卡片布局与保存按钮：下拉四项，自定义起止仅在选中时出现；显示真实当前节奏与“未保存”，CAS 冲突保留草稿并提供“重新载入已保存设置”。
+
+## 2026-11-19：AI配置接口只开放三组并复用原生CAS
+
+用户已确认 MCP + CLI 共用运行中软件的认证 gateway，而不是独立配置服务或直接编辑数据文件。只开放全局 `reply-pacing` 与按店的 `welcome`、`vision.enabled`；模型密钥、模型参数/提示词、登录、AI启停、发送模式、逐条审批、调试终端和任意命令/文件/SQL均不进入契约。字段发现由 `lingtu_config_schema` 提供，`get`/`preview` 返回内容哈希版本，`apply` 必须带回 `expectedVersion` 和唯一 `requestId`。
+
+保存不另建配置库：`reply-pacing` 仍走 `save-config` + `REPLY_PACING` 的完整 `expected`，欢迎和识图仍分别走 `save-welcome`、`save-vision-settings` 的原生 `version`。因此在“读取版本”和“保存”之间发生的界面保存会由厂商CAS拒绝，而不是覆盖较新值；保存后重新读取快照确认实际值。预览不执行命令。重复requestId返回原结果，同ID不同参数拒绝；配置写缓存并入现有工作区/500项上限和账号身份检查，晚到写入在账号变化后不返回成功。
+
+CLI 使用内置 `node:util` `parseArgs`，不新增依赖；`--json` 支持参数或stdin，输出结构化JSON并以非0退出表示失败。连接文件只读本机实例描述，解析失败不回显文件内容或token；写操作只发送一次，超时/结果未知要求先重新读取，不自动换ip或requestId重试。打包继续把MCP与CLI放在 `resources/ai-interface`。

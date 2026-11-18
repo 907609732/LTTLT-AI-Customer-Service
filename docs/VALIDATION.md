@@ -1,3 +1,20 @@
+## 2026-11-19：AI配置接口 MCP+CLI（源码 1.0.69，定向验证）
+
+范围：`src/shared/contracts/agent.ts`、新增 `agent-settings.ts`、`electron/agent/settings.ts`、`service.ts`、`mcp-server.ts`、新增 `cli.ts`/`connection-file.ts`、`scripts/build-electron.mjs`、`config/electron-builder.json`、`package.json`/`package-lock.json`（1.0.68→1.0.69，无依赖变化）及相关契约/服务/适配器/测试文档。未改 vendor、node_modules、真实 userData、真实配置、AI启停/发送/调试能力。
+
+RED：`artifacts/ai-configuration/logs/red-task1.log`，新配置测试 **13 failed / 1 passed**，失败均为 `lingtu_*_config` 未在 `agentCallSchema` 注册；`red-task2.log` 中 CLI suite 因 `electron/agent/cli.ts` 不存在无法构建，标准 MCP Client 断言 apply 注解失败（实际仍 `readOnlyHint:true`、`destructiveHint:false`）。连接文件泄露防护用例在修复前记录 **1 failed / 8 passed**（`green-task2-cli-debug.log`），失败原因为JSON解析错误回显了损坏文件内容。
+
+GREEN：`green-final-agent-suite.log`，5文件 **35项通过**，exit 0。覆盖：
+
+- `agent-settings`：三组schema/读取/预览/保存；未知/空字段；全局与店铺作用域；缺失欢迎记录默认1～3秒；未修改字段保留；旧workspace/store/version；并发界面保存不丢失；重复requestId不重复写、同ID改参数拒绝；识图能力拒绝；输出不含凭据/提示词。
+- `agent-config-persistence`：真实 `vendor/lingtu-runtime/electron/backend.cjs` + 真实 `ReplyPacingStore` 临时目录，三组保存后重建 backend/repository 再读一致，AI开关保持关闭，三类CAS冲突均拒绝并保留界面值。
+- `agent-config-cli`：真实子进程覆盖 help/status/stores/schema/get（参数与stdin）/preview/apply、失败stale版本、非法JSON/缺少JSON/未知命令/未知选项、缺失连接文件；apply同requestId重复返回同结果且仅写一次；损坏连接文件内容与token不回显。
+- `agent-interface`：原8项基线保留并扩展，标准MCP Client列出14工具，apply注解为 `readOnlyHint:false`/`destructiveHint:true`，config schema/get/preview/apply端到端；preview不触发execute，apply仅执行一次。
+
+静态/构建：`tsc -p config/tsconfig.electron.json` exit 0（首次2个 `Record` 索引签名错误见 `typecheck-electron-task2.log`，修复后通过）；`vue-tsc --noEmit` exit 0；改动文件 ESLint exit 0；Prettier check exit 0；`node scripts/check-boundaries.mjs` exit 0；`npm run build:desktop` exit 0，生成 `dist-electron/lingtu-mcp.cjs`/`lingtu-cli.cjs`。未运行全量 `npm run check`、`test:desktop`、安装包或真实应用重启。
+
+限制：验证只用临时目录与本地夹具；未做真实账号/店铺配置写入、真实模型调用、买家发送、MCP宿主实际配置界面、安装器资源落盘或云端CI。安装版 `resources/ai-interface` 仅更新打包白名单，需打包验收。最终提交、重启与集成由 Codex 负责。
+
 # 客户端与独立服务端验证
 
 ## 2026-11-18：主干整合验收（源码 1.0.68，设备授权注册回跳；已合入 main 并实际启动）

@@ -8,7 +8,7 @@
 
 `knowledge/model-output` 用固定 jsonrepair 3.15.0 做受限语法兼容；严格解析优先，修复白名单仅删除字符串外至多两个多余结束大括号，原文与修复文由 learner 保存审计元数据。该层不修改答案、来源、模型权限或审核状态，后续 Zod 和依据验证不跳过。
 
-1.0.9新增受限AI接口：官方MCP stdio连接器→本机认证gateway→agent/service→当前WorkspaceRuntime/knowledge。仅开放查询、明确商品采集与本店待审核草稿，不透传通用命令；工作区/认证变更后旧请求失效。接口、连接配置及许可见[AI_INTERFACE.md](AI_INTERFACE.md)。
+1.0.9新增受限AI接口：官方MCP stdio连接器→本机认证gateway→agent/service→当前WorkspaceRuntime/knowledge。仅开放查询、明确商品采集与本店待审核草稿，不透传通用命令；工作区/认证变更后旧请求失效。1.0.69在同一gateway、契约和原生CAS上增加MCP与CLI共用的配置schema/get/preview/apply，只允许reply-pacing、welcome、vision三组，不开放模型参数、凭据、AI启停或发送审批。接口、连接配置及许可见[AI_INTERFACE.md](AI_INTERFACE.md)。
 
 2026-11-15审核知识接线：`local-runtime → knowledge-runtime / knowledge-compatibility / knowledge-platform-products → knowledge repository`，厂商旧JSON构造前注入兼容端口；独立管理窗口经固定knowledge IPC与当前账号租约访问。详见 [KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md)。SKU继承根商品同款family，整体重关联使用完整版本集合与单事务；单SKU跨family重定向拒绝。
 
