@@ -1236,7 +1236,7 @@ export async function businessChecks(options: {
       const log = (step: string) => console.log(`[size-vision] ${step}`)
       const visionFile = path.join(dataDir, 'vision-model.json')
       const visionBefore = fs.existsSync(visionFile) ? fs.readFileSync(visionFile) : null
-      let visionCorrupted = false
+      let visionDirty = false
       interface VisionView {
         snapshot: {
           mode: string
@@ -1251,6 +1251,16 @@ export async function businessChecks(options: {
       log('start')
       await load('/')
       log('app-loaded')
+      const baseline = await snapshot()
+      const initialBannedWords = baseline.bannedWords
+      const initialRules = (await execute({ action: 'list-size-rules' })).data as {
+        rules: unknown[]
+      }
+      const initialProfiles = (await execute({ action: 'list-model-profiles' })).data as {
+        profiles: unknown[]
+        bindings?: Record<string, string>
+      }
+      const initialProfileBinding = initialProfiles.bindings?.[storeA] ?? ''
       await execute({
         action: 'save-model-settings',
         values: {
@@ -1261,67 +1271,39 @@ export async function businessChecks(options: {
         },
       })
       log('text-model-configured')
-      const store = String(
-        (
-          await execute({
-            action: 'add-store',
-            values: { platform: 'sim-local', storeName: '尺码视觉隔离店' },
-          })
-        ).data.id,
-      )
-      log('store-created')
-      let profileId = ''
-      let visionServer: ReturnType<typeof createServer> | undefined
-      try {
+      assert.ok(storeA, 'size-vision checks require business:ui-add-store + model-settings fixture')
+      const store = storeA
+      const productId = 'fixture-sku'
+      const fixtureProduct = (
         await execute({
-          action: 'save-product',
+          action: 'list-products',
           storeId: store,
-          values: {
-            productId: 'size-product',
-            title: '尺码测试上衣',
-            description: '尺码测试商品',
-            specifications: '',
-            price: '19.90',
-            enabled: true,
-          },
+          values: { offset: 0, limit: 20 },
         })
-        const productCards = (await options.knowledge({
-          workspaceId: (await snapshot()).workspaceId,
-          operation: 'query',
-          query: { type: 'products', page: { storeId: store } },
-        })) as KnowledgePage<KnowledgeProductCard>
-        const productCard = productCards.items.find(
-          (item) => item.binding?.productId === 'size-product',
-        )
-        assert.ok(productCard, JSON.stringify(productCards.items.slice(0, 2)))
-        const productDetail = (await options.knowledge({
-          workspaceId: (await snapshot()).workspaceId,
-          operation: 'query',
-          query: {
-            type: 'detail',
-            canonicalId: productCard.canonical.id,
-            storeId: store,
-          },
-        })) as KnowledgeDetail
-        const productDraft = productDetail.entries.find((entry) =>
-          entry.draft.answer.includes('尺码测试商品'),
-        )?.draft
-        assert.ok(productDraft)
-        await options.knowledge({
-          workspaceId: (await snapshot()).workspaceId,
-          operation: 'command',
-          command: {
-            type: 'publish',
-            review: {
-              entryId: productDraft.id,
-              expectedDraftRevision: productDraft.revision,
-              expectedSourceRevisions: Object.fromEntries(
-                productDraft.sourceRefs.map((ref) => [ref.sourceId, ref.revision]),
-              ),
-            },
-          },
-        })
-        log('product-created')
+      ).data as { items: { productId: string; enabled: boolean }[] }
+      assert.ok(
+        fixtureProduct.items.some((item) => item.productId === productId),
+        `size-vision checks require fixture-sku; got ${fixtureProduct.items.map((item) => item.productId).join(',')}`,
+      )
+      log('using-existing-store-fixture')
+      let profileId = ''
+      let createdRuleId = ''
+      let visionServer: ReturnType<typeof createServer> | undefined
+      let primaryError: unknown
+      let cleanupSnapshot: BackendSnapshot | undefined
+      let afterRuleCount = 0
+      let afterProfileCount = 0
+      const cleanupFailures: string[] = []
+      const cleanup = async (label: string, job: () => Promise<void>) => {
+        try {
+          await job()
+        } catch (error) {
+          cleanupFailures.push(
+            `${label}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
+      try {
         const fields = {
           name: '本店上衣尺码',
           enabled: true,
@@ -1338,16 +1320,17 @@ export async function businessChecks(options: {
             { name: '身高', unit: 'cm' as const },
             { name: '体重', unit: 'kg' as const },
           ],
-          bindings: [{ storeId: store, productId: 'size-product' }],
+          bindings: [{ storeId: store, productId }],
         }
-        log('store-product-created')
+        log('rule-fixture-ready')
         const saved = (await execute({
           action: 'save-size-rule',
           values: { ...fields, expectedRevision: 0 },
         })) as unknown as {
           data: { rule: { id: string; version: number }; revision: number }
         }
-        assert.ok(saved.data.rule.id)
+        createdRuleId = saved.data.rule.id
+        assert.ok(createdRuleId)
         log('size-rule-created')
         await execute({ action: 'select-store', storeId: store })
         await load('/shop/manage?panel=kb')
@@ -1364,10 +1347,10 @@ export async function businessChecks(options: {
           values: { table: '规格,胸围(cm),衣长(cm)\nM,92~96,64\nL,96~100,66' },
         })
         assert.equal(csvPreview.data.count, 2)
-        await wait(`Boolean(document.querySelector('[aria-label="绑定商品 size-product"]'))`)
+        await wait(`Boolean(document.querySelector('[aria-label="绑定商品 fixture-sku"]'))`)
         assert.equal(
           await win.webContents.executeJavaScript(
-            `Boolean(document.querySelector('[aria-label="绑定商品 size-product"]')?.checked)`,
+            `Boolean(document.querySelector('[aria-label="绑定商品 fixture-sku"]')?.checked)`,
           ),
           true,
         )
@@ -1401,7 +1384,7 @@ export async function businessChecks(options: {
           operation: 'trial',
           input: {
             storeId: store,
-            productId: 'size-product',
+            productId,
             query: '身高170cm，体重60kg，推荐什么尺码',
           },
         })) as { answer: string }
@@ -1413,7 +1396,7 @@ export async function businessChecks(options: {
           storeId: store,
           values: {
             question: '身高170cm，体重60kg，推荐什么尺码',
-            productId: 'size-product',
+            productId,
             history: [],
           },
         })
@@ -1432,7 +1415,7 @@ export async function businessChecks(options: {
               storeId: store,
               values: {
                 question: '身高170cm，体重60kg，推荐什么尺码',
-                productId: 'size-product',
+                productId,
                 history: [],
               },
             }),
@@ -1459,7 +1442,7 @@ export async function businessChecks(options: {
           storeId: store,
           values: {
             question: '身高170cm，体重60kg，推荐什么尺码',
-            productId: 'size-product',
+            productId,
             history: [],
           },
         })
@@ -1514,6 +1497,7 @@ export async function businessChecks(options: {
             },
           })
         ).data as unknown as VisionView
+        visionDirty = true
         const probe = await execute({
           action: 'probe-vision-model',
           values: expected(savedVision),
@@ -1583,7 +1567,7 @@ export async function businessChecks(options: {
         )
         log('login-vision-mounted')
         fs.writeFileSync(visionFile, '{broken')
-        visionCorrupted = true
+        visionDirty = true
         await restart()
         const afterRestart = await snapshot()
         assert.equal(afterRestart.capabilities.visionModel.status, 'stale')
@@ -1593,22 +1577,83 @@ export async function businessChecks(options: {
           values: { question: '你好', history: [] },
         })
         assert.ok(String(ordinary.data.reply).length > 0)
+      } catch (error) {
+        primaryError = error
       } finally {
-        if (visionServer) await new Promise<void>((resolve) => visionServer!.close(() => resolve()))
-        if (visionCorrupted) {
+        await cleanup('close vision server', async () => {
+          if (visionServer)
+            await new Promise<void>((resolve) => visionServer!.close(() => resolve()))
+        })
+        await cleanup('restore vision file', async () => {
+          if (!visionDirty) return
           if (visionBefore === null) fs.rmSync(visionFile, { force: true })
           else fs.writeFileSync(visionFile, visionBefore)
           assert.equal(fs.existsSync(visionFile), visionBefore !== null)
           if (visionBefore !== null) assert.deepEqual(fs.readFileSync(visionFile), visionBefore)
           await restart()
-        }
-        await execute({ action: 'save-banned-words', values: { rules: [] } }).catch(() => {})
-        await execute({
-          action: 'remove-store',
-          storeId: store,
-          values: { confirmed: true },
-        }).catch(() => {})
+        })
+        await cleanup('restore banned words', async () => {
+          await execute({ action: 'save-banned-words', values: { rules: initialBannedWords } })
+        })
+        await cleanup('remove size rule', async () => {
+          if (!createdRuleId) return
+          const rules = (await execute({ action: 'list-size-rules' })).data as {
+            revision: number
+            rules: { id: string; version: number }[]
+          }
+          const rule = rules.rules.find((item) => item.id === createdRuleId)
+          if (!rule) return
+          await execute({
+            action: 'remove-size-rule',
+            values: {
+              id: rule.id,
+              version: rule.version,
+              expectedRevision: rules.revision,
+              confirmed: true,
+            },
+          })
+        })
+        await cleanup('restore model profile binding', async () => {
+          const profiles = (await execute({ action: 'list-model-profiles' })).data as {
+            revision: number
+            profiles: { id: string; version: number }[]
+          }
+          await execute({
+            action: 'bind-model-profile',
+            storeId: store,
+            values: { profileId: initialProfileBinding, revision: profiles.revision },
+          })
+          if (!profileId) return
+          const profile = profiles.profiles.find((item) => item.id === profileId)
+          if (!profile) return
+          await execute({
+            action: 'remove-model-profile',
+            values: { id: profile.id, version: profile.version, confirmed: true },
+          })
+        })
+        await cleanup('snapshot fixture counts', async () => {
+          cleanupSnapshot = await snapshot()
+        })
+        await cleanup('size rule count', async () => {
+          afterRuleCount = (
+            (await execute({ action: 'list-size-rules' })).data as { rules: unknown[] }
+          ).rules.length
+        })
+        await cleanup('model profile count', async () => {
+          afterProfileCount = (
+            (await execute({ action: 'list-model-profiles' })).data as { profiles: unknown[] }
+          ).profiles.length
+        })
       }
+      if (cleanupFailures.length)
+        throw new Error(`尺码视觉测试清理失败：${cleanupFailures.join('；')}`)
+      if (primaryError) throw primaryError
+      assert.ok(cleanupSnapshot)
+      assert.equal(cleanupSnapshot.stores.length, baseline.stores.length)
+      assert.equal(cleanupSnapshot.products.total, baseline.products.total)
+      assert.deepEqual(cleanupSnapshot.bannedWords, initialBannedWords)
+      assert.equal(afterRuleCount, initialRules.rules.length)
+      assert.equal(afterProfileCount, initialProfiles.profiles.length)
     })
     await check('business:work-order-persistence', '/shop/manage', async () => {
       const result = await execute({
