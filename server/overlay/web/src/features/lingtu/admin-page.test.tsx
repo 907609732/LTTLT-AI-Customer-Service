@@ -1232,6 +1232,177 @@ it('runs image verification separately and binds the saved revision hash', async
   })
 })
 
+it('adopts the fresh failed image revision so the same draft can retry', async () => {
+  allowProtectedSave()
+  let connections: Record<string, unknown>[] = [
+    {
+      ...connection,
+      config_hash: 'b'.repeat(64),
+      image_test_status: 'never',
+      image_tested_at: 0,
+      vision_verified: false,
+      vision_ready: false,
+    },
+  ]
+  const posts: Record<string, unknown>[] = []
+  let attempts = 0
+  api.defaults.adapter = async (request) => {
+    let data: unknown = fixtureData(request.url || '', request.params, {
+      ...config,
+      model_catalog: catalog,
+      model_connections: connections,
+    })
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data as string))
+      attempts++
+      if (attempts === 1) {
+        const failed = {
+          ...connections[0],
+          revision: 3,
+          image_test_status: 'failed',
+          image_tested_hash: connections[0].config_hash,
+          image_tested_at: 1900000000,
+          vision_verified: false,
+          vision_ready: false,
+        }
+        connections = [failed]
+        throw new AxiosError(
+          'image failed',
+          'ERR_BAD_REQUEST',
+          request,
+          undefined,
+          {
+            data: {
+              saved: false,
+              image_verified: false,
+              connection_id: 7,
+              error: 'vision_verification_failed',
+              model_connections: connections,
+            },
+            status: 400,
+            statusText: 'Bad Request',
+            headers: {},
+            config: request,
+          }
+        )
+      }
+      const verified = {
+        ...connections[0],
+        revision: 4,
+        image_test_status: 'success',
+        image_tested_hash: connections[0].config_hash,
+        image_tested_at: 1900000001,
+        vision_verified: true,
+        vision_ready: true,
+      }
+      connections = [verified]
+      data = {
+        saved: true,
+        image_verified: true,
+        connection_id: 7,
+        model_connections: connections,
+      }
+    }
+    return { data, status: 200, statusText: 'OK', headers: {}, config: request }
+  }
+  renderAdmin()
+  await modelView()
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts[0]).toMatchObject({ action: 'verify_vision', revision: 2 })
+  expect(
+    (
+      await screen.findAllByText(
+        'Image verification failed. The saved text connection was not changed.'
+      )
+    ).length
+  ).toBeGreaterThan(0)
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole('button', { name: 'Verify image' })
+        .hasAttribute('disabled')
+    ).toBe(false)
+  )
+  expect((screen.getByLabelText('API name') as HTMLInputElement).value).toBe(
+    'Saved API'
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(2))
+  expect(posts[1]).toMatchObject({ action: 'verify_vision', revision: 3 })
+  await waitFor(() =>
+    expect(screen.getAllByText(/Image verified/).length).toBeGreaterThan(0)
+  )
+})
+
+it('does not swallow a real stale verification conflict', async () => {
+  allowProtectedSave()
+  let connections: Record<string, unknown>[] = [
+    {
+      ...connection,
+      config_hash: 'c'.repeat(64),
+      image_test_status: 'never',
+      image_tested_at: 0,
+      vision_verified: false,
+      vision_ready: false,
+    },
+  ]
+  const posts: Record<string, unknown>[] = []
+  api.defaults.adapter = async (request) => {
+    const data: unknown = fixtureData(request.url || '', request.params, {
+      ...config,
+      model_catalog: catalog,
+      model_connections: connections,
+    })
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data as string))
+      connections = [
+        {
+          ...connections[0],
+          revision: 5,
+          image_test_status: 'failed',
+          image_tested_at: 1900000002,
+          vision_verified: false,
+          vision_ready: false,
+        },
+      ]
+      throw new AxiosError(
+        'image stale',
+        'ERR_BAD_REQUEST',
+        request,
+        undefined,
+        {
+          data: {
+            saved: false,
+            image_verified: false,
+            connection_id: 7,
+            error: 'vision_verification_stale',
+            model_connections: connections,
+          },
+          status: 409,
+          statusText: 'Conflict',
+          headers: {},
+          config: request,
+        }
+      )
+    }
+    return { data, status: 200, statusText: 'OK', headers: {}, config: request }
+  }
+  renderAdmin()
+  await modelView()
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(
+    (await screen.findAllByText(/The saved API changed/)).length
+  ).toBeGreaterThan(0)
+  expect(
+    screen
+      .getByRole('button', { name: 'Verify image' })
+      .hasAttribute('disabled')
+  ).toBe(true)
+  expect(posts).toHaveLength(1)
+})
+
 it('omits blank secrets and retains drafts when save is unconfirmed', async () => {
   allowProtectedSave()
   const posts: Record<string, unknown>[] = []

@@ -412,14 +412,14 @@
     {
       "path": "overlay/web/src/features/lingtu/admin-models.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-models.tsx",
-      "sha256": "5c0b6ef24523ac16b41484b6100205834b22c80431c4157f7d50a6baa100fb3c",
+      "sha256": "dff8db52f6fc29510061752a6d1e7e86cf97b50599c9d823e1571cd02825e1d9",
       "upstreamSha256": "ab82b618d1b731bfd6cd46dde8bcd4dcc25bac75ed3ca31c8dd60881cb585f72",
       "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main"
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-page.test.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.test.tsx",
-      "sha256": "0fbe26513cbfebc732745c93bec4e31797ea1c23c9218a8c70fd734294c3a358",
+      "sha256": "f9f091af10d40cee179c426007e409f72af281f7329e866e77dbfa058bf6050b",
       "upstreamSha256": "31faaa4b3b87915c7a18bf03df0114717110648dd169606c741b749785c0aabf",
       "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, exact proof/POST and 409 draft-preservation tests"
     },
