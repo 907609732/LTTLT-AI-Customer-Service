@@ -1,5 +1,16 @@
 # 客户端与独立服务端验证
 
+## 2026-11-18：1.0.62 回复监控会话整合（本机组合完成，标准 CI/同次产物及正常重启待回执）
+
+在已验收 cbd1d89 / 1.0.61 上合并 bc6a863（父 aaef4df）的回复监控会话视图。使用 artifacts/integration-pdd-20261118/monitor-input 的 21 文件原始快照；未读取或修改主目录、真实 userData、业务、密钥或运行进程。版本 1.0.62。
+
+- 定向 Vitest（`--maxWorkers=1 --minWorkers=1`）15 文件/129 项通过，退出 0：review-engine 11（原 10 项发送门 + 新增 goodsTitle 1）、review-console 22、dom-text-adapter 17、reply-monitor 12、reply-monitor-conversation 7、reply-monitor-window 3、reply-monitor-developer 2、两个 PDD hook 15、welcome 系列 23、send-mode-authorizations 12、platform-write-coordinator 5。日志 `artifacts/integration-pdd-20261118/logs/monitor-merge-vitest.log`。
+- 合并冲突仅 HANDOFF/package/package-lock：HANDOFF 保留 1.0.61、1.0.60 与主目录监控历史，新增 1.0.62 状态；package/lock 取 1.0.61 后统一递增 1.0.62，依赖不变。VERSIONING 人工区分主目录 1.0.60 监控副本与已验收 1.0.60 维护整理。
+- 三份发送 TS（dom-text-adapter、send-mode-authorizations、welcome-delay）与 cbd1d89 blob 逐字节一致；主目录 11 个监控单方文件与 bc6a863 快照 SHA256 一致；source-files 同时保留 hook v12 的 `98d5b9c5...` 与 reply-engine 监控的 `1337b47c...`，PROVENANCE 两边记录并存。
+- typecheck、变更 TS/Vue ESLint/Prettier、`node scripts/check-boundaries.mjs`、`node scripts/check-vendor.mjs`（runtime 80 / server 94）、上游 242/242、`npm run build` 均退出 0。日志在 `logs/monitor-merge-*.log`。
+- 原生仅 `reply-monitor:compact-window,business:developer-console`：2/2 通过，报告 `artifacts/desktop-selected-1794981028351/report.json`；临时 userData，未真实店铺。未发现独立监控会话原生脚本，会话投影由 reply-monitor-conversation 及组件测试覆盖。
+- 未运行本机全量 check/test:desktop、标准 CI、同次安装包或正常重启；真实店铺商品/监控显示未验收。1.0.61 已验收产物不覆盖新增监控。
+
 ## 2026-11-18：1.0.60 与 PDD 修复组合（待 1.0.61 定版）
 
 隔离树基线 b3ed1b6 / 1.0.60；只使用 artifacts/integration-pdd-20261118/ 的主目录授权快照，未读取或操作主目录运行资料、真实账号/店铺、浏览器或平台。详细证据索引见 artifacts/integration-pdd-20261118/worker-summary.md，完整日志与退出码同目录 logs/。

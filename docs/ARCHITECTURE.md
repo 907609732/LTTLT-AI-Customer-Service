@@ -24,6 +24,8 @@
 
 `set-store-send-mode`、`open-reply-monitor` 使用原有受信、工作区绑定业务命令，无新 IPC 通道。StoreSendModes 在 managed.dataDir 下原子保存模式，快照装配时附加店铺 sendMode。审核与显式自动模式共用 ReviewConsole，自动候选绑定运行期模式版本；旧审核候选不会因后来开启自动而获批。网页适配器在模型前等待有效消息基线，不修改 vendor。发送与取消检查延续至逐字输入和最终点击，详见 RUNTIME_LOGS.md。
 
+2026-11-18监控会话视图：`auxiliary/reply-monitor.ts` 从现有 snapshot 只读投影当前店铺+UID 的会话、买卖/系统气泡、候选和商品摘要；`ReviewConsole` 只从真实生成 trace 的 `reviewContext.productId/goodsTitle` 记录当前商品，候选仅复制同店同买家 trace，主进程按同店精确编号查询现有知识/平台详情。`ReplyMonitorView` 在 340×300 内把商品摘要固定在气泡上方，气泡区独立滚动；未知/系统来源不冒充买卖方，草稿/失败候选与真实卖家回显分开展示。无新 IPC、编辑、删除或发送能力，确认/取消仍走原 `review-reply`。详见 [REPLY_MONITOR.md](REPLY_MONITOR.md)。
+
 2026-11-18源码开发调试：`local-runtime → electron/reply-monitor-window` 仍是唯一监控子窗，源码版可由 `electron/developer-debug/controller` 展开 GM/CMD；`ipc.ts` 只接受当前监控主 frame、owner webContents 与 workspace 的固定请求。`gm.ts` 是有界注册表（help/status/stores/logs/pdd-popup），不提供 eval；`popup-policy.ts` 复用厂家 `webContentsOf(storeId)` 的实际 PDD 页并只在内存按店改新窗处理器；`pty.ts` 动态 require node-pty，ConPTY 会话关闭/切换工作区结束进程树。打包版在主进程完全不创建 controller、不注册 IPC，普通 preload 编译关闭调试桥，`developer-preload.cjs` 不进入 electron-builder files。前端入口经 auxiliary 的 `/reply-monitor`，xterm 只在首次进入 CMD 标签时异步加载。详见 [DEVELOPER_DEBUG.md](DEVELOPER_DEBUG.md)。
 
 E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独立项目根，完整目录与文件边界见 PROJECT_LAYOUT.md。所有工具从此根执行；.github/workflows/lingtu-ai-desktop.yml 也从仓库根运行 npm，不再设置外层 yunduo-ui 工作目录。客户端实际运行依赖本工程 vendor，独立服务端保存在本工程 server，不引用兄弟工作区。

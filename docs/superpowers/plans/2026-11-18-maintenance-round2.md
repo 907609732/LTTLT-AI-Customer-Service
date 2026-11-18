@@ -97,3 +97,13 @@
 - 组合定向 15 文件 156 项通过（maxWorkers/minWorkers=1，退出 0）。此前机械迁入后的长验证被 Codex 中止，日志 vitest-targeted-1.log 保留，不计为完成。
 - typecheck、7 个自有 TS 文件 ESLint/Prettier、build、check-vendor（runtime 80 / server 94）退出 0；上游 242/242 通过。原生隔离 12/12（9 项 PDD DOM 填写/确认/发送、旧首页、紧凑监控、开发者控制台）；知识库主专项 18、待学问题 2、内嵌进度 5 项通过。
 - 未运行全量 npm run check/test:desktop、真实平台/付费模型/真实买家发送；未 commit/push/重启。1.0.59 实店双买家验收仍未完成，不改成通过。package/lock 仍 1.0.60，1.0.61 由 Codex 定版。
+
+## Task 6：回复监控会话视图并入 1.0.62
+
+用户授权将主目录已交付的回复监控会话视图（bc6a863，父 aaef4df）并入已验收 1.0.61。输入 21 文件原样保存于 artifacts/integration-pdd-20261118/monitor-input；主目录和两份 vision 文档不操作。
+
+- [x] 核对 bc6a863 快照 21/21 SHA256；合并后保留 1.0.61 的 PDD/发送门/缓存/页面批准/生产回调与监控会话/商品/trace/测试双方内容。
+- [x] 冲突仅 HANDOFF/package/package-lock；HANDOFF 手工保留双方历史并新增 1.0.62，package/lock 递增 1.0.62 且依赖不变。`tests/review-engine.test.ts`、PROVENANCE、source-files 自动合并后核对双方均在。
+- [x] 定向 15 文件 129 项、typecheck、变更 TS/Vue ESLint/Prettier、边界、check-vendor、上游 242/242、构建及 2 项监控原生通过；三份发送 TS 与 cbd1d89 逐字节一致。
+- [ ] Codex 标准 CI、同次安装包/产物及正常主目录重启回执；1.0.61 已验收产物不得表述为覆盖新增监控。
+- [ ] 真实店铺商品/监控显示验收；临时夹具不替代实店结论。

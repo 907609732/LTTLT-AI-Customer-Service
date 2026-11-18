@@ -1,3 +1,9 @@
+## 2026-11-18：1.0.62 回复监控会话整合（本机组合完成，标准 CI/同次产物及正常重启待回执）
+
+按用户授权将主目录已交付的回复监控会话视图（bc6a863，父 aaef4df）合入已验收 1.0.61（cbd1d89）。保留 1.0.61 的 PDD 会话/发送门、欢迎缓存、页面批准指纹、取消与生产失败回调修正，同时保留主目录新增的监控会话气泡、商品/trace 同店同买家筛选、ReviewConsole 商品投影、ReplyMonitorView、契约与测试。版本统一为 1.0.62；原 1.0.61 已验收产物仍只对应原基线，不覆盖新增监控。当前尚未 push、发布或重启主目录，标准 CI/同次产物及正常重启待 Codex 回执。
+
+本机组合验证：定向 15 文件/129 项通过（review-engine 11 项同时覆盖原 10 项发送门与新增 goodsTitle 投影；另含两个 PDD hook、原发送/欢迎/授权/协调器组合、reply-monitor 会话/组件/窗口/开发者及 review-console），退出 0；typecheck、变更 TS/Vue ESLint/Prettier、边界、check-vendor（runtime 80 / server 94）、上游 242/242 和构建通过。原生仅运行 compact-window 与 developer-console，2/2 通过（artifacts/desktop-selected-1794981028351/report.json）；未发现独立监控会话原生脚本。三份发送 TS（dom-text-adapter、send-mode-authorizations、welcome-delay）与 cbd1d89 逐字节一致；主目录 11 个监控单方文件与 bc6a863 快照逐字节一致；source-files 同时保留 hook v12 与 reply-engine 监控实际 sha，PROVENANCE 两边记录并存。真实店铺、标准 CI、同次包及正常重启未执行。
+
 ## 2026-11-18：1.0.61 组合整合（本机验收完成，云端与正常重启待回执）
 
 按用户最新授权整合 1.0.60 整理版与主目录 PDD 修复。原始 PDD 输入已原样保存在 aaef4df，主目录其他两份视觉模型文档保留；当前组合工作基线 b3ed1b6。63 项废弃文件删除、知识库两个专职控制器与 126 项公开接口全部保留。PDD 原始修复、测试和来源/哈希先按快照迁入，再由本机 DeepSeek 按复核反馈补齐测试和最小修正，Codex 独立复核。
@@ -7,6 +13,8 @@
 本机验证：DeepSeek 对相关缺口均保留 red/green 原文；组合 15 文件/156 项、后续直接影响 8 文件/67 项通过，Codex 独立发送组合 8 文件/67 项及归属/面板 15 项通过；原生发送/导航/监控 12/12、知识 18+2+5 项、类型/静态/构建、vendor 80/94 文件及上游 242 项通过。计数分阶段且存在重叠，不相加。独立只读复审无剩余确证阻断。详细范围、原始失败与限制集中见 VALIDATION 本轮记录及 artifacts/integration-pdd-20261118/worker-summary.md，避免此处重复全量测试清单。
 
 当前统一版本 1.0.61，尚待合并原始 PDD Git 父历史、标准 CI/产物与正常主目录重启回执；此前 1.0.60 的等待整合状态已被用户本轮授权替代。只使用隔离/离线夹具和模拟模型；真实 PDD 双买家新消息/实际送达仍未验证，未真实发送、未付费调用、未发布或部署。
+
+后续：原始 PDD 父历史已由 bc6a863/1.0.62 merge 纳入；本条 1.0.61 的 CI/产物回执仍只对应原基线，不覆盖新增监控。
 
 ## 2026-11-18：第二轮维护整理（1.0.60）
 
@@ -21,6 +29,21 @@
 最终独立分支验收基线为 1.0.60 / f89f186：[CI 44148308838](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44148308838) 全绿，源码 169 文件/1268 项、原生桌面 91/91、知识库与来源学习、真实打包程序 10 项通过。下载至 release/ci-f89f186，版本/提交和 ZIP、安装器、清单三份 SHA256 匹配；同一便携 ZIP 本机首次 10 项检查退出 0（ASAR 9124 成员、解析 8 部分）。最终源码构建后的旧首页原生 1/1 通过，截图实测 v1.0.60。未真实操作平台、付费模型或买家发送，未发布 GitHub Release 或部署生产。
 
 整合状态：成果已推送 codex/maintenance-cleanup-20261117，**尚未合入主目录/远端 main，也未重启日常应用**。合入前发现主目录另一任务的 PDD 会话/发送修复及 1.0.59 实店验收现场，已保留其未提交代码、原资料和运行进程，未 stash 或覆盖。本轮最初拟定的 1.0.59 未交付，为避免现场版本冲突改为 1.0.60。已向用户提供保留现场/现在整合的选择；未收到选择时继续保留现场。下一步待实店任务结束或用户明确选择后，整合双方最新成果、验证组合影响，再正常打开主目录实例；不得将本轮隔离截图或便携包验收冒充日常实例已切版。
+
+## 2026-11-18 回复监控会话视图（1.0.59 源码工作树，未提交/未重启；已由 bc6a863 保存并并入 1.0.62）
+
+已按“规划→交互→界面→实现”完成只读监控：当前会话按 `storeId + uid` 精确匹配，左侧买家、右侧我方，系统/未知来源居中；候选（未发送/发送中/失败/平台回执）与真实卖家回显分开，已发送有同文回显时不重复。商品摘要固定在气泡区上方，气泡区独立滚动并默认看最新一条；显示店铺/买家、发送模式、单行状态和一次原因。保留原确认/取消、高级日志和源码版 GM/CMD 展开；未加编辑、删除、质检或任何发送能力。
+
+商品只沿真实生成 trace 的 `reviewContext.productId/goodsTitle` 投影；候选只复制同店同买家 trace。主进程按同店精确 productId 查询现有知识绑定/平台详情，只有现成 HTTPS 图才显示；缺失显示编号/平台标题或“当前咨询商品未识别”，不从模型正文、推荐商品、商品目录、跨店/跨买家数据补全。vendor 仅给 reply-engine 的既有 reviewContext 增加平台行 `goodsTitle`，source-files.json 双哈希/PROVENANCE 已同步。
+
+实际验证：
+
+- `npx vitest run tests/reply-monitor-conversation.test.ts tests/reply-monitor.test.ts tests/reply-monitor-developer.test.ts tests/reply-monitor-window.test.ts tests/review-console.test.ts tests/review-engine.test.ts tests/developer-debug-review.test.ts`：7 文件 63 项通过（含跨店同 UID、买卖/系统/未知、旧候选按时间插入、候选与回显、失败/发送中、商品隔离与未识别、HTTPS 图、原因一次、滚动、确认/取消、GM 隔离）。
+- `npx vue-tsc --noEmit`、`npx tsc -p config/tsconfig.electron.json --noEmit`：通过。
+- `npm run build`：renderer + desktop 构建通过；保留既有 Zod 注释和 500kB chunk 警告，无新增失败。
+- 改动文件 ESLint、Prettier 检查通过；`npm run check:vendor` 通过（vendor 80 文件、server 94 文件）；`node --test vendor/lingtu-runtime/desk-v1/test/reply-engine.test.js` 39/39 通过。
+
+未执行：真实店铺、真实买家消息、打包安装包、全量 `npm run check`/`npm run test:desktop`、提交/推送/重启。`package.json` 版本未改（按用户要求由 Codex 整合时统一更新）。已知限制：商品标题/图片依赖已采集的平台详情或知识绑定；归档晚于实时日志时先显示真实消息事件；商品切换识别依赖下一次真实生成上下文。下一项：整合时统一递增版本并跑 Release 全量，补一次 340×300 受影响界面截图；验收条件为商品摘要与最新气泡同时可见、系统/未知来源不冒充买卖方、候选与真实回显不重复、确认/取消/高级日志/GM 展开不回归，旧快照缺商品字段仍能解析。
 
 ## 2026-11-18：1.0.58 整理后最终验收与正常打开
 
@@ -698,3 +721,9 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 已复现旧代码在 selected 先更新而气泡仍旧时错归属、同文旧气泡误作基线，以及定位与发送分开排队导致 hook_not_ready。复用现有 PDD hook/DOM adapter/PlatformWriteCoordinator 修正，来源与哈希见 vendor/lingtu-runtime/PROVENANCE.md。Codex 独立验证相关 11 文件 89 项通过、Electron 类型与变更文件 ESLint 通过；DeepSeek 退出码 0、final completed，另执行上游 242 项和 vendor 完整性通过。实店重启验收待进行，不能据此声称真实发送已修复；现场两个会话保持 handoff，旧候选不恢复、不自动补发。下一步核对实际版本并用两位测试买家的新消息验收，仅该链路，不运行全量桌面套件。
 
 本机启动核验：2026-11-18 02:23（北京时间）从主项目 client 重启，主进程 PID 115828，真实窗口显示 v1.0.59；build 与 vendor 检查通过。实店双买家新消息验收已请用户配合，尚未完成，不宣称实店通过。
+
+## 2026-11-18 回复监控会话与商品（主目录 1.0.60 工作副本；已并入 1.0.62）
+
+本条是主目录回复监控工作副本的历史记录，不是已验收的 1.0.60 维护整理基线；内容已由 bc6a863 保存并并入 1.0.62。
+
+当前监控按店铺和买家显示对话气泡、已识别咨询商品与候选状态。保留原确认流程和监控子窗尺寸。Codex 独立复跑 54 项专项测试、vendor 完整性与 242 项上游测试，源码构建和 340×300 原生监控检查通过。原生验收报告位于 artifacts/desktop-selected-1794980474063/report.json。真实店铺商品显示尚待新一轮实店验收。

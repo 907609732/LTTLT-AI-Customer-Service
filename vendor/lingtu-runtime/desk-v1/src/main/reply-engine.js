@@ -692,7 +692,7 @@ class StoreWorker {
         systemPrompt,
         thread,
         isCurrent:()=>this.#active(generation)&&!this.manualSuppressed.has(String(row.uid)),
-        reviewContext:{purpose:'reply',storeId:this.store.id,uid:row.uid,productId:row.goodsId||row.productId||'',skuId:row.skuId,buyerName:row.username||row.name||'',buyerMessage:latest.content,buyers:buyerTexts(row.messages)},
+        reviewContext:{purpose:'reply',storeId:this.store.id,uid:row.uid,productId:row.goodsId||row.productId||'',goodsTitle:row.goodsTitle||'',skuId:row.skuId,buyerName:row.username||row.name||'',buyerMessage:latest.content,buyers:buyerTexts(row.messages)},
         goodsTitle: row.goodsTitle,
         orderId: row.orderId,
         timeoutMs: this.getConfig()?.ai?.timeoutMs ?? 60000,

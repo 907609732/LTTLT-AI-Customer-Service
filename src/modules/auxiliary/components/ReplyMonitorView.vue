@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { getDesktop } from '@/shared/platform/desktop'
 import { useTask } from '@/shared/ui/use-task'
 import { getDeveloperDebugBridge } from '@/modules/auxiliary/services/developer-debug'
+import { selectReplyMonitor } from '../reply-monitor'
 
 const DeveloperConsolePanel = defineAsyncComponent(
   () => import('@/modules/auxiliary/components/DeveloperConsolePanel.vue'),
@@ -13,67 +14,60 @@ const runtime = useRuntimeStore(),
   desktop = getDesktop(),
   developerDebug = getDeveloperDebugBridge()
 const expanded = ref(false),
-  debugLoaded = ref(false)
-const pending = computed(() =>
-  runtime.snapshot.review.replies.filter((row) => row.status === 'pending'),
+  debugLoaded = ref(false),
+  bubbleZone = ref<HTMLElement>()
+const monitor = computed(() => selectReplyMonitor(runtime.snapshot))
+const status = computed(() => monitor.value.status),
+  pendingCount = computed(() => monitor.value.pendingCount)
+const storeName = computed(
+  () =>
+    monitor.value.store?.storeName ||
+    monitor.value.reply?.storeName ||
+    monitor.value.log?.storeName ||
+    '暂无店铺',
 )
-const latestLog = computed(() => runtime.snapshot.review.logs.at(-1))
-const lifecycleLogKinds = new Set([
-  '确认发送',
-  '自动模式放行',
-  '自动发送复核',
-  '待确认发送',
-  '确认暂未放行',
-  '已拒绝发送',
-  '候选失效',
-  '客服消息',
-])
-const reply = computed(() => {
-  if (pending.value.length) return pending.value[0]
-  const recentReplies = [...runtime.snapshot.review.replies].sort((a, b) => b.at - a.at)
-  const sending = recentReplies.find((row) => row.status === 'sending')
-  if (sending) return sending
-  const latest = recentReplies[0],
-    log = latestLog.value
-  if (!latest || !log || latest.at >= log.at) return latest
-  // 发送日志晚于候选创建时间；同会话的发送生命周期继续展示候选的实际状态。
-  const related = log.storeId === latest.storeId && log.uid === latest.uid
-  return related && (log.kind.startsWith('reply:') || lifecycleLogKinds.has(log.kind))
-    ? latest
-    : undefined
+const buyerName = computed(
+  () =>
+    monitor.value.conversation?.name ||
+    monitor.value.reply?.buyerName ||
+    monitor.value.log?.buyerName ||
+    '等待买家消息',
+)
+const mode = computed(() => (monitor.value.store?.sendMode === 'auto' ? '自动发送' : '审核发送'))
+const canReview = computed(() => monitor.value.reply?.status === 'pending')
+const product = computed(() => monitor.value.product)
+const productImage = computed(() => {
+  const value = product.value?.imageUrl
+  if (!value) return ''
+  try {
+    return new URL(value).protocol === 'https:' ? value : ''
+  } catch {
+    return ''
+  }
 })
-const store = computed(
-  () =>
-    runtime.snapshot.stores.find(
-      (row) => row.id === (reply.value?.storeId ?? latestLog.value?.storeId),
-    ) ?? runtime.currentStore,
+const productTitle = computed(() => product.value?.title || '商品标题未识别')
+const productId = computed(() =>
+  product.value?.productId ? `商品 ID ${product.value.productId}` : '商品 ID 未识别',
 )
-const mode = computed(() => (store.value?.sendMode === 'auto' ? '自动发送' : '审核发送'))
-const canReview = computed(() => reply.value?.status === 'pending')
-const statusLabels = {
-  pending: '等待确认',
-  sending: '发送中',
-  sent: '已发送',
-  rejected: '已取消',
-  expired: '已失效',
-  failed: '需核对发送',
-}
-const status = computed(() =>
-  reply.value ? statusLabels[reply.value.status] : latestLog.value?.ai?.reason || '等待新消息',
-)
-const detail = computed(
-  () =>
+const reason = computed(() => {
+  const value =
     task.error.value ||
     runtime.error ||
-    reply.value?.reason ||
-    latestLog.value?.text ||
-    (runtime.available ? '开启店铺 AI 后显示回复进度' : '浏览器仅预览，操作需要桌面版'),
-)
-const selectedStoreId = computed(
-  () => store.value?.id || runtime.currentStore?.id || runtime.snapshot.stores[0]?.id || '',
-)
+    monitor.value.reason ||
+    (runtime.available ? '开启店铺 AI 后显示回复进度' : '浏览器仅预览，操作需要桌面版')
+  // 状态行已经展示同一句 AI 原因时不再重复；气泡正文也不在原因区复述。
+  return value === monitor.value.status ? '' : value
+})
+const failed = computed(() => Boolean(task.error.value || runtime.error))
+async function scrollLatest() {
+  await nextTick()
+  const element = bubbleZone.value
+  if (element) element.scrollTop = element.scrollHeight
+}
+watch(() => monitor.value.bubbles, scrollLatest, { flush: 'post' })
+onMounted(scrollLatest)
 async function decide(approve: boolean) {
-  const id = reply.value?.id
+  const id = monitor.value.reply?.id
   if (!id || !canReview.value) return
   await task.run(async () => {
     await runtime.run({ action: 'review-reply', values: { id, approve } })
@@ -113,20 +107,62 @@ async function close() {
     </header>
     <div class="monitor-body">
       <section class="monitor-pane">
-        <div class="monitor-content" aria-live="polite">
+        <div class="monitor-content">
           <div class="identity">
-            <strong>{{
-              reply?.storeName || latestLog?.storeName || store?.storeName || '暂无店铺'
-            }}</strong
-            ><span>{{ reply?.buyerName || latestLog?.buyerName || '等待买家消息' }}</span>
+            <strong :title="storeName">{{ storeName }}</strong
+            ><span :title="buyerName">{{ buyerName }}</span>
           </div>
-          <div class="state">
-            <i :class="{ failed: reply?.status === 'failed' }" />{{ status
-            }}<span v-if="pending.length > 1"> · {{ pending.length }} 条待确认</span>
+          <section
+            class="product-summary"
+            :class="{ missing: !product }"
+            data-product
+            aria-label="当前咨询商品"
+          >
+            <img
+              v-if="productImage"
+              data-product-image
+              :src="productImage"
+              alt=""
+              loading="lazy"
+              referrerpolicy="no-referrer"
+            />
+            <div class="product-copy">
+              <strong :title="product ? productTitle : '当前咨询商品未识别'">{{
+                product ? productTitle : '当前咨询商品未识别'
+              }}</strong>
+              <small :title="product ? productId : '未取得可靠编号或标题'">{{
+                product ? productId : '未取得可靠编号或标题'
+              }}</small>
+            </div>
+          </section>
+          <div
+            ref="bubbleZone"
+            class="bubbles"
+            data-zone="bubbles"
+            role="log"
+            aria-label="当前会话消息"
+            aria-live="polite"
+          >
+            <article
+              v-for="bubble in monitor.bubbles"
+              :key="bubble.key"
+              class="bubble"
+              :class="[`from-${bubble.side}`, bubble.status ? `candidate-${bubble.status}` : '']"
+              :data-side="bubble.side"
+            >
+              <span class="bubble-label">{{ bubble.label }}</span>
+              <p>{{ bubble.text }}</p>
+            </article>
+            <p v-if="!monitor.bubbles.length" class="bubble-empty">
+              {{ monitor.conversation ? '本会话暂无消息' : '等待买家消息' }}
+            </p>
           </div>
-          <p class="reply-text">{{ reply?.text || latestLog?.text || '暂无回复' }}</p>
-          <p class="detail" :class="{ error: task.error.value || runtime.error }" :title="detail">
-            {{ detail }}
+          <div class="state" aria-live="polite">
+            <i :class="{ failed: monitor.reply?.status === 'failed' }" />{{ status
+            }}<span v-if="pendingCount > 1"> · {{ pendingCount }} 条待确认</span>
+          </div>
+          <p v-if="reason" class="detail" :class="{ error: failed }" :title="reason">
+            {{ reason }}
           </p>
         </div>
         <footer>
@@ -162,7 +198,7 @@ async function close() {
           :expanded="expanded"
           :workspace-id="runtime.snapshot.workspaceId"
           :stores="runtime.snapshot.stores"
-          :selected-store-id="selectedStoreId"
+          :selected-store-id="monitor.store?.id || runtime.snapshot.stores[0]?.id || ''"
         />
       </section>
     </div>
@@ -238,12 +274,16 @@ button:disabled {
 .monitor-content {
   flex: 1;
   min-height: 0;
-  overflow: auto;
-  padding: 11px 12px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow: hidden;
+  padding: 8px 10px 3px;
 }
 .identity {
   display: flex;
   gap: 10px;
+  flex: 0 0 auto;
 }
 .identity strong,
 .identity span {
@@ -257,12 +297,123 @@ button:disabled {
 .identity span {
   color: #6b788b;
 }
+.product-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  min-height: 36px;
+  border: 1px solid #e9edf3;
+  border-radius: 6px;
+  padding: 4px 7px;
+  background: #fbfcfe;
+}
+.product-summary img {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  object-fit: cover;
+}
+.product-summary.missing {
+  border-style: dashed;
+  background: #fff;
+  color: #8a95a5;
+}
+.product-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.product-copy strong,
+.product-copy small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.product-copy strong {
+  color: #33435a;
+  font-size: 11px;
+  font-weight: 600;
+}
+.product-copy small {
+  color: #8a95a5;
+  font-size: 10px;
+}
+.bubbles {
+  flex: 1 1 64px;
+  min-height: 46px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 1px 2px 2px;
+}
+.bubble {
+  max-width: 84%;
+  border-radius: 8px;
+  padding: 4px 7px 5px;
+  border: 1px solid transparent;
+  line-height: 1.45;
+}
+.bubble p {
+  margin: 1px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bubble-label {
+  display: block;
+  color: #8a95a5;
+  font-size: 9px;
+}
+.from-buyer {
+  align-self: flex-start;
+  border-color: #e6ebf2;
+  background: #f3f6fa;
+}
+.from-seller {
+  align-self: flex-end;
+  border-color: #d8e5fb;
+  background: #eaf1fd;
+}
+.from-system {
+  align-self: center;
+  max-width: 92%;
+  border-style: dashed;
+  border-color: #e3e7ee;
+  background: #f7f8fa;
+  color: #7d8797;
+}
+.from-candidate {
+  align-self: flex-end;
+  border-style: dashed;
+  border-color: #e5b96a;
+  background: #fffaf0;
+}
+.from-candidate.candidate-sending {
+  border-color: #8fb7ee;
+  background: #f5f9ff;
+}
+.from-candidate.candidate-sent {
+  border-color: #a8ceb4;
+  background: #f1f8f3;
+}
+.from-candidate.candidate-failed {
+  border-color: #dc705c;
+  background: #fff4f2;
+}
+.bubble-empty {
+  margin: auto;
+  color: #9aa4b2;
+  font-size: 11px;
+}
 .state {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   color: #76849a;
   font-size: 11px;
-  margin-top: 5px;
 }
 i {
   width: 5px;
@@ -274,19 +425,12 @@ i {
 i.failed {
   background: #dc705c;
 }
-.reply-text {
-  margin: 8px 0 5px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 58px;
-  overflow: auto;
-  color: #27394f;
-}
 .detail {
   margin: 0;
+  flex: 0 1 auto;
   color: #8a95a5;
   font-size: 11px;
-  max-height: 32px;
+  max-height: 30px;
   overflow: auto;
   overflow-wrap: anywhere;
 }

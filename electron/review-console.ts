@@ -8,6 +8,7 @@ import {
   compressionInfoSchema,
   type LogEntry,
   type ModelTrace,
+  type ReplyProduct,
   type ReplyReview,
   type StoreSendModeState,
 } from '../src/shared/contracts/review'
@@ -50,6 +51,14 @@ type Pending = {
   checking?: boolean
 }
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
+const httpsImage = (value: unknown) => {
+  if (typeof value !== 'string' || !value || value.length > 2000) return undefined
+  try {
+    return new URL(value).protocol === 'https:' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
 // 仅输出请求正文；不接收 HTTP 头、Key 或完整错误响应，避免凭证流入调试窗口。
 const redact = (value: string) =>
   value
@@ -75,7 +84,14 @@ export class ReviewConsole {
     private read: () => BackendSnapshot,
     private changed: () => void,
     worker: (storeId: string) => WorkerObservation | undefined = () => undefined,
-    private options: { readMode?: (storeId: string) => StoreSendModeState } = {},
+    private options: {
+      readMode?: (storeId: string) => StoreSendModeState
+      /** 同店精确商品资料；不查询商品目录、推荐或跨店同名标题。 */
+      resolveProduct?: (
+        storeId: string,
+        productId: string,
+      ) => { title?: string; imageUrl?: string } | undefined
+    } = {},
   ) {
     this.messageDiagnostics = new MessageDiagnostics(read, worker)
   }
@@ -129,6 +145,28 @@ export class ReviewConsole {
         content: m.content.replace(/\r\n?/g, '\n').normalize('NFC'),
       })),
     )
+  }
+  /**
+   * 只沿真实生成事件中的 reviewContext 最小投影商品；标题/图片仍需同店精确编号解析，
+   * 没有现成资料时保留页面标题或只显示编号，绝不从模型正文/推荐商品补全。
+   */
+  private product(context: Record<string, unknown>): ReplyProduct | undefined {
+    const storeId = text(context.storeId).trim()
+    if (!storeId) return undefined
+    const productId = text(context.productId).trim().slice(0, 100)
+    const goodsTitle = text(context.goodsTitle).trim().slice(0, 500)
+    if (!productId && !goodsTitle) return undefined
+    let resolved: { title?: string; imageUrl?: string } | undefined
+    if (productId) {
+      try {
+        resolved = this.options.resolveProduct?.(storeId, productId)
+      } catch {
+        // 商品资料读取失败只影响摘要，不阻断生成、候选或发送确认。
+      }
+    }
+    const title = text(resolved?.title).trim().slice(0, 500) || goodsTitle
+    const imageUrl = httpsImage(resolved?.imageUrl)
+    return { productId, title, ...(imageUrl ? { imageUrl } : {}) }
   }
   private log(kind: string, body: string, storeId = '', uid = '', at = Date.now()) {
     const entry: LogEntry = {
@@ -255,6 +293,7 @@ export class ReviewConsole {
     if (event.type === 'request') {
       const id = randomUUID()
       const compression = compressionInfoSchema.safeParse(event.compression)
+      const product = event.purpose === 'compression' ? undefined : this.product(context)
       this.traces.push({
         id,
         at: Date.now(),
@@ -263,6 +302,7 @@ export class ReviewConsole {
             ? event.startedAt
             : Date.now(),
         ...this.identity(storeId, uid),
+        ...(product ? { product } : {}),
         model: text(event.model),
         messages: json(event.messages),
         thread: json(event.thread),
@@ -495,16 +535,17 @@ export class ReviewConsole {
       (p) => p.row.storeId === proposal.storeId && p.row.uid === proposal.uid,
     )
     if (previous) this.finish(previous, 'expired', '已被新的候选替代')
-    const trace = [...this.traces]
-      .reverse()
-      .find(
-        (t) => t.storeId === proposal.storeId && t.uid === proposal.uid && t.purpose === 'reply',
-      )
+    const related = this.traces.filter(
+      (t) => t.storeId === proposal.storeId && t.uid === proposal.uid && t.purpose === 'reply',
+    )
+    const trace = related.find((t) => t.id === proposal.traceId) ?? related.at(-1)
+    const product = trace?.product
     const row: ReplyReview = {
       sendMode: sendMode.mode,
       id: randomUUID(),
       at: Date.now(),
       ...this.identity(proposal.storeId, proposal.uid),
+      ...(product ? { product } : {}),
       text: redact(proposal.text),
       traceId: proposal.traceId || trace?.id || '',
       status: 'pending',

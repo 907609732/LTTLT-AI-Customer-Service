@@ -61,6 +61,13 @@ export const logEntrySchema = z.object({
   kind: z.string(),
   text: z.string(),
 })
+export const replyProductSchema = z.object({
+  productId: z.string().max(100).default(''),
+  title: z.string().max(500).default(''),
+  // 只接受主进程按同店商品资料解析出的 HTTPS 缩略图；缺失时不伪造占位图。
+  imageUrl: z.string().max(2000).optional(),
+})
+export type ReplyProduct = z.infer<typeof replyProductSchema>
 export const modelTraceSchema = z.object({
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
@@ -68,6 +75,7 @@ export const modelTraceSchema = z.object({
   durationMs: z.number().nonnegative().optional(),
   purpose: z.enum(['reply', 'compression']).default('reply'),
   compression: compressionInfoSchema.optional(),
+  product: replyProductSchema.optional(),
   id: z.string(),
   at: z.number(),
   storeId: z.string(),
@@ -82,6 +90,7 @@ export const modelTraceSchema = z.object({
 })
 export const replyReviewSchema = z.object({
   sendMode: storeSendModeSchema.optional(),
+  product: replyProductSchema.optional(),
   id: z.string(),
   at: z.number(),
   storeId: z.string(),

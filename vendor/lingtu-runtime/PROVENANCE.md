@@ -1,5 +1,11 @@
 # 上游来源与维护边界
 
+## 2026-11-18：回复监控当前咨询商品标题（1.0.59 源码）
+
+只读回复监控需要显示当前咨询商品的可靠标题，同时禁止从模型输出、推荐商品或其他买家/店铺猜测。reply-engine 在原有真实 reviewContext 中把平台待处理行已有的 goodsTitle 与 productId 一并交给 trace；标题来自平台页面/队列，不进入买家正文或发送决策。商品资料解析仍在本工程 TypeScript：ReviewConsole 只按同店精确 productId 查询现有知识绑定/平台详情，缺失时保留平台标题或仅显示编号，推荐商品、跨店同名标题和模型正文不会补位。未改变生成、人工确认、自动模式、发送复核、取消或重试语义。
+
+source-files.json 保留 upstreamGitBlob/upstreamSha256，仅更新 desk-v1/src/main/reply-engine.js 的实际 sha256 与 localPatch。针对性验证：`npx vitest run tests/review-engine.test.ts` 8/8（含真实引擎 reviewContext.productId/goodsTitle 与零发送）、`tests/review-console.test.ts` 22/22、监控投影/组件测试通过；`npm run check:vendor` 与上游 reply-engine 测试待整合轮执行，未运行全量上游套件。
+
 ## 2026-11-17：欢迎延迟声明与附加元数据（1.0.52）
 
 用户要求进店欢迎在批准后等待随机延迟再实际发送，默认 1～3 秒，可按店铺配置 1～3600 整数秒且下限不大于上限。store-welcome.cjs 只在既有严格欢迎记录中增加可选的 delayMinSeconds/delayMaxSeconds：默认 1/3，随文字、开关、版本和 enabledAt 写入同一条原子记录并共用版本 CAS，旧 version 1 迁移补默认值；显式越界、反序或非整数继续报错且不改写原文件，不增加旁路文件或两步提交。claim() 返回值保持原文字；新增 claimEntry() 同时返回已认领文字与版本。backend.cjs 的 welcomePolicy 在既有 observe 后提供 claimEntry。reply-engine 的 decorate 回调接收可变元数据对象，仅当欢迎文字确实位于最终正文开头时写入 meta.welcome={version}；候选通过既有 beforeSend 携带该可选字段，未注入 claimEntry 或普通回复不带任何欢迎信号，绝不按任意正文前缀猜测。

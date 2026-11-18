@@ -23,7 +23,7 @@ afterEach(() => {
   cleanup.splice(0).forEach((stop) => stop())
 })
 
-function harness(question = '你好') {
+function harness(question = '你好', goods: { goodsId?: string; goodsTitle?: string } = {}) {
   const at = Date.now(),
     snap = emptySnapshot()
   const store = {
@@ -50,7 +50,7 @@ function harness(question = '你好') {
     () => {},
   )
   const sent: string[] = [],
-    queue = [{ uid: 'buyer', messages }]
+    queue = [{ uid: 'buyer', messages, ...goods }]
   const ok = async () => ({ ok: true })
   const adapter = {
     id: 'fixture',
@@ -412,6 +412,28 @@ describe('真实回复引擎的确认门', () => {
     await worker.settle()
     expect(sent).toEqual([row.text])
     expect(row.status).toBe('sent')
+  })
+  it('当前咨询商品编号与标题随真实生成上下文进入结构化投影', async () => {
+    const { worker, review, aiClient, sent } = harness('这款门锁保修多久', {
+      goodsId: '1004116120118',
+      goodsTitle: '平台展示门锁',
+    })
+    worker.start()
+    await worker.tick()
+    await vi.waitFor(() => expect(review.snapshot().replies).toHaveLength(1))
+    expect(aiClient.reply.mock.calls[0][0]).toMatchObject({
+      goodsTitle: '平台展示门锁',
+      reviewContext: {
+        purpose: 'reply',
+        storeId: 'shop',
+        uid: 'buyer',
+        productId: '1004116120118',
+        goodsTitle: '平台展示门锁',
+      },
+    })
+    expect(sent).toEqual([])
+    await review.decide({ id: review.snapshot().replies[0].id, approve: false })
+    await worker.settle()
   })
   it('取消候选后实际适配器不会发送', async () => {
     const { worker, review, sent } = harness()
