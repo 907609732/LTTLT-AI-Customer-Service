@@ -115,6 +115,8 @@ describe('manual reply keyword persistence', () => {
       config: { ...emptySnapshot().config, safety: { handoffKeywords: ['投诉'] } },
     })
     expect(parsed.config.safety.manualReplyKeywords).toEqual([])
+    expect(parsed.config.safety.handoffKeywordsEnabled).toBe(true)
+    expect(parsed.config.safety.manualReplyKeywordsEnabled).toBe(true)
   })
 
   it('saves, survives restart and only changes the manual reply field', async () => {

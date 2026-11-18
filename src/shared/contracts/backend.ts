@@ -256,6 +256,13 @@ export const workOrderSchema = z.object({
   notes: z.array(z.object({ id: z.string(), text: z.string(), at: z.number() })),
 })
 export type WorkOrder = z.infer<typeof workOrderSchema>
+export const RECEPTION_KEYWORDS_SCREEN = 'RECEPTION_KEYWORDS'
+export type ReceptionKeywordKind = 'handoff' | 'manual'
+
+/**
+ * 兼容旧账号：开关字段缺失时按原行为“开启”解释；关键词原文始终单独保存，
+ * 关闭只停止匹配，不会清空用户输入。
+ */
 export const snapshotSchema = z.object({
   reporting: reportingSnapshotSchema.nullable().default(null),
   managed: managedStateSchema.default(emptyManagedState),
@@ -294,8 +301,10 @@ export const snapshotSchema = z.object({
     }),
     safety: z.object({
       handoffKeywords: z.array(z.string()),
+      handoffKeywordsEnabled: z.boolean().default(true),
       // 旧账号快照没有该字段，按未配置客服接管关键词处理。
       manualReplyKeywords: z.array(z.string()).default([]),
+      manualReplyKeywordsEnabled: z.boolean().default(true),
     }),
   }),
   capabilities: z.object({
@@ -385,7 +394,12 @@ export function emptySnapshot(): BackendSnapshot {
         perUidMinIntervalMs: 60000,
         pacing: { ...defaultReplyPacing },
       },
-      safety: { handoffKeywords: [], manualReplyKeywords: [] },
+      safety: {
+        handoffKeywords: [],
+        handoffKeywordsEnabled: true,
+        manualReplyKeywords: [],
+        manualReplyKeywordsEnabled: true,
+      },
     },
     selection: { storeId: '', conversationId: '' },
     capabilities: {

@@ -1,5 +1,19 @@
 # 客户端与独立服务端验证
 
+## 2026-11-19：关键词双栏/开关/失焦自动保存（1.0.69，局部验证）
+
+范围：仅验证本次隔离工作树中的接待关键词设置、自动保存竞态、关键词开关持久化/运行时过滤，以及受影响的店铺向导与复用向导。未改店铺/账号/Key/AI 开关/发送审批，未连接真实平台或发送消息。
+
+- `npx vitest run tests/reception-keyword-autosave-races.test.ts tests/reception-keyword-settings.test.ts tests/shop-setup-wizard.test.ts tests/shop-setup-reuse-wizard.test.ts tests/shop-ops-panel.test.ts --maxWorkers=1 --no-file-parallelism`：5 文件 **59 项通过**，exit 0。覆盖双栏/3 行等高、无三个保存按钮、失焦保存与未修改不保存、`ElMessage('保存成功')` 仅在成功且租约有效后出现、失败保留草稿、开关即时保存且原文保留、保存中再次失焦的最新草稿排队、快速关/开与自定义/继承的最终状态、切店/卸载迟到结果、全局与客服接管 CAS 基线重挂保留、复用模式仍延后保存。
+- `tests/reception-keyword-settings.test.ts` 另用真实 `createBackend` + `ReplyEngine` 验证 `resolveKeywordSafety` 注入点：关闭后继承全局/卖家接管匹配为空，但 ConfigStore 原始关键词仍保留；本店自定义 handoff 关键词在全局开关关闭时仍优先生效。
+- `npx vue-tsc --noEmit`、`npx tsc -p config/tsconfig.electron.json --noEmit`：exit 0。
+- 改动文件 `npx eslint --config config/eslint.config.mjs ...`：exit 0；Prettier check 全部通过。
+- `node scripts/check-boundaries.mjs`：模块依赖方向与组件环境 API 检查通过。
+- `npm run check:vendor`：vendor 80 文件、server 97 文件完整性通过，exit 0。
+- `npm run build`：renderer + Electron 构建 exit 0；保留既有 Zod 滚动注释和主包 >500kB 警告。
+
+未运行全量 `npm run check`、全量桌面套件、受真实 Electron 启动/重启验收、截图对比、安装包/发布/部署；未启动或结束任何现有应用进程，未访问真实业务数据/凭据。开关跨进程恢复由原子 JSON 存储单测和初始化组合覆盖，仍需主管在主目录正常重启后目视确认。
+
 ## 2026-11-18：主干整合验收（源码 1.0.68，设备授权注册回跳；已合入 main 并实际启动）
 
 范围与保留：`07a2ac6` + `a28750d` 真实两父 merge `b3a5f69`；只重放 redirect 网页补丁（`server/patches.json` 新增 3 键、2 键追加 hunks）、3 个新增自有 auth suite、`admin-login-hint.test.tsx` 更新、`server/source-files.json`（94→97，全部 hash 匹配）与 `server/PROVENANCE.md`；`server/scripts/verify.ts` 仅追加 3 份 suite 与 3 个实际改动 lint 输入（CI 3 suite 接线）。原 95 hunks / 94 条旧 manifest 条目 0 丢失；`package.json`/`package-lock.json` 仅 1.0.67→1.0.68，无依赖变化；`src`/`electron`/`vendor`/`.github`/Go 零差异。
