@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import RuntimePanel from '@/shared/ui/RuntimePanel.vue'
 import StoreSelect from '@/shared/ui/StoreSelect.vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
+import { openKnowledgeManager } from '@/modules/knowledge'
+import { RECEPTION_KEYWORDS_SCREEN, type ReceptionKeywordKind } from '@/shared/contracts/backend'
 import { useReceptionOperations } from '../services/operations'
 import OperationApprovalPanel from './OperationApprovalPanel.vue'
 import ReceptionRulesPanel from './ReceptionRulesPanel.vue'
@@ -15,6 +17,7 @@ import {
   welcomeSettingSchema,
   type NormalizedWelcomeSetting,
 } from '@/shared/contracts/welcome'
+import type { ReceptionCommand } from '@/shared/contracts/platform-operations'
 import type { ReceptionHandoff, ReceptionSetupDraft, ReceptionWelcome } from '../setup'
 const props = withDefaults(
   defineProps<{
@@ -33,8 +36,7 @@ const emit = defineEmits<{
   'update:handoff': [value: ReceptionHandoff]
 }>()
 const runtime = useRuntimeStore(),
-  task = useTask(),
-  router = useRouter()
+  task = useTask()
 const deferred = computed(() => props.embedded && props.deferredSave && Boolean(props.setupDraft))
 const drafts = props.embedded ? useReceptionDraftCache() : undefined
 const receipts = useReceptionDraftCache()
@@ -52,9 +54,11 @@ const titles: Record<string, string> = {
 }
 const title = computed(() => titles[props.viewKey] || '接待配置')
 const operations = useReceptionOperations(() => runtime.snapshot.workspaceId)
+// 自动保存不冻结欢迎输入，但仍允许父级向导在保存期间锁定离开步骤。
+const welcomeSaving = ref(false)
 watch(
-  () => task.pending.value || operations.busy.value,
-  (value) => emit('busy', value),
+  [() => task.pending.value, () => operations.busy.value, welcomeSaving],
+  ([pending, busy, saving]) => emit('busy', pending || busy || saving),
   { immediate: true },
 )
 const ruleTrigger = computed(() =>
@@ -99,6 +103,9 @@ const inherited = ref(true),
   globalKeywords = ref(''),
   manualKeywords = ref(''),
   manualExpected = ref<string[]>([]),
+  globalExpected = ref<string[]>([]),
+  globalEnabled = ref(true),
+  manualEnabled = ref(true),
   fallbackEnabled = ref(false),
   fallbackSeconds = ref(15),
   fallbackText = ref('')
@@ -120,6 +127,455 @@ watch(
 let baseline: ReceptionSettingsDraft = {}
 let loadRevision = 0
 let unmounted = false
+type KeywordField = ReceptionKeywordKind
+interface KeywordTextQueue {
+  generation: number
+  running: boolean
+  queued: string | null
+}
+interface KeywordSwitchQueue {
+  generation: number
+  running: boolean
+  queued: boolean | null
+}
+interface HandoffSave {
+  inherited: boolean
+  keywords: string[]
+}
+interface HandoffQueue {
+  generation: number
+  running: boolean
+  queued: HandoffSave | null
+}
+/** 欢迎自动保存只排队最新一份有效意图；版本在真正发送时读取，避免回执后仍用旧 CAS。 */
+type WelcomeIntent = Omit<NormalizedWelcomeSetting, 'version'>
+interface WelcomeQueue {
+  generation: number
+  running: boolean
+  queued: WelcomeIntent | null
+  inFlight: WelcomeIntent | null
+}
+const textQueues: Record<KeywordField, KeywordTextQueue> = {
+  handoff: { generation: 0, running: false, queued: null },
+  manual: { generation: 0, running: false, queued: null },
+}
+const switchQueues: Record<KeywordField, KeywordSwitchQueue> = {
+  handoff: { generation: 0, running: false, queued: null },
+  manual: { generation: 0, running: false, queued: null },
+}
+const textConfirmed: Record<KeywordField, { text: string; expected: string[] }> = {
+  handoff: { text: '', expected: [] },
+  manual: { text: '', expected: [] },
+}
+const switchConfirmed: Record<KeywordField, boolean> = { handoff: true, manual: true }
+const handoffQueue: HandoffQueue = { generation: 0, running: false, queued: null }
+let handoffConfirmed: HandoffSave = { inherited: true, keywords: [] }
+const welcomeQueue: WelcomeQueue = {
+  generation: 0,
+  running: false,
+  queued: null,
+  inFlight: null,
+}
+let welcomeConfirmed = normalizeWelcomeSetting()
+function resetKeywordAutosave(input: {
+  globalKeywords: string[]
+  globalExpected?: string[]
+  manualKeywords: string[]
+  manualExpected?: string[]
+  handoffKeywords: string[]
+  handoffInherited: boolean
+  globalEnabled: boolean
+  manualEnabled: boolean
+}) {
+  for (const kind of ['handoff', 'manual'] as const) {
+    const textQueue = textQueues[kind]
+    textQueue.generation += 1
+    textQueue.running = false
+    textQueue.queued = null
+    const words = kind === 'handoff' ? input.globalKeywords : input.manualKeywords
+    textConfirmed[kind] = {
+      text: words.join('\n'),
+      // 重挂的未保存草稿保留其载入时 CAS 基线，不能被新快照悄悄抬成“已确认”。
+      expected:
+        kind === 'manual'
+          ? [...(input.manualExpected ?? words)]
+          : [...(input.globalExpected ?? words)],
+    }
+    const switchQueue = switchQueues[kind]
+    switchQueue.generation += 1
+    switchQueue.running = false
+    switchQueue.queued = null
+    switchConfirmed[kind] = kind === 'handoff' ? input.globalEnabled : input.manualEnabled
+  }
+  handoffQueue.generation += 1
+  handoffQueue.running = false
+  handoffQueue.queued = null
+  handoffConfirmed = {
+    inherited: input.handoffInherited,
+    keywords: [...input.handoffKeywords],
+  }
+}
+const keywordLease = () => ({
+  workspaceId: runtime.snapshot.workspaceId,
+  storeId: selectedStoreId.value,
+  view: props.viewKey,
+  revision: loadRevision,
+})
+function keywordLeaseCurrent(lease: ReturnType<typeof keywordLease>) {
+  return (
+    !unmounted &&
+    runtime.snapshot.workspaceId === lease.workspaceId &&
+    selectedStoreId.value === lease.storeId &&
+    props.viewKey === lease.view &&
+    loadRevision === lease.revision
+  )
+}
+function keywordError(cause: unknown) {
+  return (cause instanceof Error ? cause.message : String(cause)).replace(
+    /^Error invoking remote method '[^']+': (?:Error: )?/,
+    '',
+  )
+}
+function normalizedKeywordText(kind: KeywordField) {
+  return lines(kind === 'handoff' ? globalKeywords.value : manualKeywords.value).join('\n')
+}
+function keywordWords(text: string) {
+  return text ? text.split('\n') : []
+}
+function keywordSwitchValue(kind: KeywordField) {
+  return kind === 'handoff' ? globalEnabled.value : manualEnabled.value
+}
+function setKeywordSwitchValue(kind: KeywordField, value: boolean) {
+  if (kind === 'handoff') globalEnabled.value = value
+  else manualEnabled.value = value
+}
+async function pumpKeywordText(kind: KeywordField) {
+  const queue = textQueues[kind]
+  if (queue.running) return
+  queue.running = true
+  const generation = queue.generation
+  try {
+    while (generation === queue.generation && queue.queued !== null && !unmounted) {
+      const submittedText = queue.queued
+      queue.queued = null
+      if (submittedText === textConfirmed[kind].text) continue
+      const submitted = keywordWords(submittedText)
+      const lease = keywordLease()
+      const expected = [...textConfirmed[kind].expected]
+      task.error.value = ''
+      let result
+      try {
+        result = await runtime.run({
+          action: 'save-config',
+          screenId: RECEPTION_KEYWORDS_SCREEN,
+          values: {
+            kind,
+            mode: 'keywords',
+            keywords: submitted,
+            expectedKeywords: expected,
+          },
+        })
+      } catch (cause) {
+        if (generation === queue.generation) {
+          queue.queued = null
+          if (keywordLeaseCurrent(lease)) task.error.value = keywordError(cause)
+        }
+        return
+      }
+      if (result.status !== 'ok') {
+        if (generation === queue.generation && keywordLeaseCurrent(lease))
+          task.error.value = '无法确认保存结果，当前草稿仍保留；请稍后重试。'
+        return
+      }
+      if (generation !== queue.generation || !keywordLeaseCurrent(lease)) return
+      textConfirmed[kind] = { text: submittedText, expected: [...submitted] }
+      if (kind === 'handoff') {
+        globalExpected.value = [...submitted]
+        baseline.globalKeywords = submittedText
+      } else {
+        manualExpected.value = [...submitted]
+        baseline.manualKeywords = submittedText
+      }
+      ElMessage.success('保存成功')
+    }
+  } finally {
+    if (generation === queue.generation) queue.running = false
+  }
+}
+function requestKeywordTextSave(kind: KeywordField) {
+  if (!runtime.available) return
+  const queue = textQueues[kind]
+  const text = normalizedKeywordText(kind)
+  if (!queue.running && text === textConfirmed[kind].text && queue.queued === null) return
+  if (queue.queued === text) return
+  queue.queued = text
+  void pumpKeywordText(kind)
+}
+async function pumpKeywordSwitch(kind: KeywordField) {
+  const queue = switchQueues[kind]
+  if (queue.running) return
+  queue.running = true
+  const generation = queue.generation
+  try {
+    while (generation === queue.generation && queue.queued !== null && !unmounted) {
+      const enabled = queue.queued
+      queue.queued = null
+      if (enabled === switchConfirmed[kind]) continue
+      const lease = keywordLease()
+      const expectedEnabled = switchConfirmed[kind]
+      task.error.value = ''
+      let result
+      try {
+        result = await runtime.run({
+          action: 'save-config',
+          screenId: RECEPTION_KEYWORDS_SCREEN,
+          values: { kind, mode: 'enabled', enabled, expectedEnabled },
+        })
+      } catch (cause) {
+        if (generation === queue.generation) {
+          queue.queued = null
+          if (keywordLeaseCurrent(lease)) {
+            setKeywordSwitchValue(kind, switchConfirmed[kind])
+            task.error.value = keywordError(cause)
+          }
+        }
+        return
+      }
+      if (result.status !== 'ok') {
+        if (generation === queue.generation && keywordLeaseCurrent(lease)) {
+          setKeywordSwitchValue(kind, switchConfirmed[kind])
+          task.error.value = '无法确认保存结果，关键词开关未更改。'
+        }
+        return
+      }
+      if (generation !== queue.generation || !keywordLeaseCurrent(lease)) return
+      switchConfirmed[kind] = enabled
+      ElMessage.success('保存成功')
+    }
+  } finally {
+    if (generation === queue.generation) queue.running = false
+  }
+}
+function requestKeywordSwitch(kind: KeywordField) {
+  const value = keywordSwitchValue(kind)
+  if (!runtime.available) {
+    setKeywordSwitchValue(kind, switchConfirmed[kind])
+    return
+  }
+  const queue = switchQueues[kind]
+  if (!queue.running && value === switchConfirmed[kind] && queue.queued === null) return
+  if (queue.queued === value) return
+  queue.queued = value
+  void pumpKeywordSwitch(kind)
+}
+function normalizedHandoffSave(): HandoffSave {
+  return {
+    inherited: inherited.value,
+    keywords: inherited.value ? [] : lines(keywords.value),
+  }
+}
+function sameHandoff(left: HandoffSave, right: HandoffSave) {
+  return (
+    left.inherited === right.inherited &&
+    (left.inherited ||
+      (left.keywords.length === right.keywords.length &&
+        left.keywords.every((word, index) => word === right.keywords[index])))
+  )
+}
+async function pumpStoreHandoff() {
+  if (deferred.value) return
+  if (handoffQueue.running) return
+  handoffQueue.running = true
+  const generation = handoffQueue.generation
+  try {
+    while (generation === handoffQueue.generation && handoffQueue.queued !== null && !unmounted) {
+      const submitted = handoffQueue.queued
+      handoffQueue.queued = null
+      if (sameHandoff(submitted, handoffConfirmed)) continue
+      const changedMode = submitted.inherited !== handoffConfirmed.inherited
+      const lease = keywordLease()
+      task.error.value = ''
+      let result
+      try {
+        result = await runtime.run({
+          action: 'save-store-handoff',
+          storeId: lease.storeId,
+          values: submitted.inherited
+            ? { mode: 'inherit' }
+            : { mode: 'custom', keywords: submitted.keywords },
+        })
+      } catch (cause) {
+        if (generation === handoffQueue.generation) {
+          handoffQueue.queued = null
+          if (keywordLeaseCurrent(lease)) {
+            if (changedMode && inherited.value === submitted.inherited)
+              inherited.value = handoffConfirmed.inherited
+            task.error.value = keywordError(cause)
+          }
+        }
+        return
+      }
+      if (result.status !== 'ok') {
+        if (generation === handoffQueue.generation && keywordLeaseCurrent(lease))
+          task.error.value = '无法确认本店关键词保存结果，当前草稿仍保留。'
+        return
+      }
+      if (generation !== handoffQueue.generation || !keywordLeaseCurrent(lease)) return
+      handoffConfirmed = {
+        inherited: submitted.inherited,
+        keywords: [...submitted.keywords],
+      }
+      baseline.inherited = submitted.inherited
+      baseline.keywords = submitted.inherited ? '' : submitted.keywords.join('\n')
+      if (submitted.inherited && inherited.value && handoffQueue.queued === null) {
+        keywords.value = ''
+      }
+      ElMessage.success('保存成功')
+    }
+  } finally {
+    if (generation === handoffQueue.generation) handoffQueue.running = false
+  }
+}
+function requestStoreHandoffSave() {
+  if (deferred.value || !runtime.available) return
+  const submitted = normalizedHandoffSave()
+  if (
+    !handoffQueue.running &&
+    sameHandoff(submitted, handoffConfirmed) &&
+    handoffQueue.queued === null
+  )
+    return
+  if (handoffQueue.queued && sameHandoff(submitted, handoffQueue.queued)) return
+  handoffQueue.queued = submitted
+  void pumpStoreHandoff()
+}
+function welcomeIntent(): WelcomeIntent {
+  return {
+    text: welcome.value.text,
+    enabled: welcome.value.enabled,
+    delayMinSeconds: welcome.value.delayMinSeconds,
+    delayMaxSeconds: welcome.value.delayMaxSeconds,
+  }
+}
+function sameWelcomeIntent(left: WelcomeIntent, right: WelcomeIntent) {
+  return (
+    left.text === right.text &&
+    left.enabled === right.enabled &&
+    left.delayMinSeconds === right.delayMinSeconds &&
+    left.delayMaxSeconds === right.delayMaxSeconds
+  )
+}
+function resetWelcomeAutosave(confirmed: NormalizedWelcomeSetting) {
+  welcomeConfirmed = { ...confirmed }
+  welcomeQueue.generation += 1
+  welcomeQueue.running = false
+  welcomeQueue.queued = null
+  welcomeQueue.inFlight = null
+}
+async function pumpWelcome() {
+  if (deferred.value || welcomeQueue.running) return
+  welcomeQueue.running = true
+  welcomeSaving.value = true
+  const generation = welcomeQueue.generation
+  try {
+    while (generation === welcomeQueue.generation && welcomeQueue.queued && !unmounted) {
+      const submitted = welcomeQueue.queued
+      welcomeQueue.queued = null
+      if (sameWelcomeIntent(submitted, welcomeConfirmed)) continue
+      const issue = welcomeDelayIssue(submitted.delayMinSeconds, submitted.delayMaxSeconds)
+      if (issue) {
+        if (keywordLeaseCurrent(keywordLease())) task.error.value = issue
+        return
+      }
+      if (welcomeConflict.value) {
+        if (keywordLeaseCurrent(keywordLease()))
+          task.error.value = '配置已更新，当前草稿仍保留；请重新载入后再保存。'
+        return
+      }
+      const lease = keywordLease()
+      const expectedVersion = welcome.value.version
+      task.error.value = ''
+      task.message.value = ''
+      welcomeQueue.inFlight = submitted
+      let result
+      try {
+        result = await runtime.run({
+          action: 'save-welcome',
+          storeId: lease.storeId,
+          values: { ...submitted, version: expectedVersion },
+        })
+      } catch (cause) {
+        if (generation === welcomeQueue.generation && keywordLeaseCurrent(lease))
+          task.error.value = keywordError(cause)
+        return
+      } finally {
+        if (welcomeQueue.inFlight === submitted) welcomeQueue.inFlight = null
+      }
+      if (generation !== welcomeQueue.generation || !keywordLeaseCurrent(lease)) return
+      if (!result || result.status !== 'ok') {
+        task.error.value = '无法确认保存结果，当前草稿仍保留；请稍后重试。'
+        return
+      }
+      // save-welcome 的 result.data 是后端 CAS 后实际落库的权威记录；
+      // 仅接受通过欢迎契约和版本前进校验的回执，不能用提交值代替。
+      const receipt = welcomeSettingSchema.safeParse(result?.data)
+      if (!receipt.success || normalizeWelcomeSetting(receipt.data).version <= expectedVersion) {
+        task.error.value = '无法确认保存结果，当前草稿仍保留；请重新载入后再保存。'
+        return
+      }
+      const stored = normalizeWelcomeSetting(receipt.data)
+      welcomeConfirmed = { ...stored }
+      receipts.putWelcomeReceipt(lease.workspaceId, lease.storeId, stored)
+      baseline.welcome = { ...stored }
+      if (sameWelcomeIntent(welcomeIntent(), submitted)) {
+        welcome.value = { ...stored }
+        cached.set(cacheKey(lease.workspaceId, lease.storeId), { ...stored })
+      } else {
+        // 保存期间的新编辑保留；CAS 基线推进到后端实际提交的版本。
+        welcome.value.version = stored.version
+      }
+      task.message.value = result.message
+      ElMessage.success('保存成功')
+    }
+  } finally {
+    if (generation === welcomeQueue.generation) welcomeQueue.running = false
+    welcomeSaving.value = false
+  }
+}
+function requestWelcomeSave() {
+  if (deferred.value || !runtime.available) return
+  const intent = welcomeIntent()
+  if (!welcomeQueue.running && sameWelcomeIntent(intent, welcomeConfirmed)) return
+  if (welcomeQueue.running && welcomeQueue.queued && sameWelcomeIntent(intent, welcomeQueue.queued))
+    return
+  // Element Plus 在测试环境会同时从 wrapper/focus controller 触发 blur；
+  // 同一份在途意图不得重复提交，但 A->B->A 的最终 A 仍会在 B 完成后重存。
+  if (welcomeQueue.inFlight && sameWelcomeIntent(intent, welcomeQueue.inFlight)) return
+  if (welcomeDelayInvalid.value) {
+    task.error.value = welcomeDelayInvalid.value
+    return
+  }
+  if (welcomeConflict.value) {
+    task.error.value = '配置已更新，当前草稿仍保留；请重新载入后再保存。'
+    return
+  }
+  welcomeQueue.queued = intent
+  void pumpWelcome()
+}
+async function saveWelcomeMedia(command: ReceptionCommand) {
+  return operations.executeConfirmed(command)
+}
+function submitForm() {
+  if (props.viewKey === 'welcome') {
+    requestWelcomeSave()
+    return
+  }
+  if (props.viewKey === 'transfer') {
+    requestStoreHandoffSave()
+    return
+  }
+  void save()
+}
 function load(restoreDraft = false) {
   loadRevision += 1
   const id = selectedStoreId.value,
@@ -134,14 +590,21 @@ function load(restoreDraft = false) {
       receipts.deleteWelcomeReceipt(snap.workspaceId, id)
     else confirmed = normalizeWelcomeSetting(receipt)
   }
+  resetWelcomeAutosave(confirmed)
   const latestManualKeywords = [...snap.config.safety.manualReplyKeywords]
+  const latestGlobalKeywords = [...snap.config.safety.handoffKeywords]
+  const latestHandoffKeywords = [...(snap.handoffByStore[id]?.keywords ?? [])]
+  const latestInherited = !snap.handoffByStore[id]
   welcome.value = normalizeWelcomeSetting(cached.get(cacheKey(snap.workspaceId, id)) || confirmed)
   vision.value = { ...(snap.visionByStore[id] || { enabled: false, version: 0 }) }
-  inherited.value = !snap.handoffByStore[id]
-  keywords.value = snap.handoffByStore[id]?.keywords.join('\n') || ''
-  globalKeywords.value = snap.config.safety.handoffKeywords.join('\n')
+  inherited.value = latestInherited
+  keywords.value = latestHandoffKeywords.join('\n')
+  globalKeywords.value = latestGlobalKeywords.join('\n')
   manualKeywords.value = latestManualKeywords.join('\n')
+  globalExpected.value = latestGlobalKeywords
   manualExpected.value = latestManualKeywords
+  globalEnabled.value = snap.config.safety.handoffKeywordsEnabled
+  manualEnabled.value = snap.config.safety.manualReplyKeywordsEnabled
   fallbackEnabled.value = snap.config.reply.fallbackAfterMs > 0
   fallbackSeconds.value = Math.max(1, snap.config.reply.fallbackAfterMs / 1000 || 15)
   fallbackText.value = snap.config.reply.fallbackText
@@ -160,7 +623,10 @@ function load(restoreDraft = false) {
     if (previous.welcome) welcome.value = normalizeWelcomeSetting(previous.welcome)
     if (previous.inherited !== undefined) inherited.value = previous.inherited
     if (previous.keywords !== undefined) keywords.value = previous.keywords
-    if (previous.globalKeywords !== undefined) globalKeywords.value = previous.globalKeywords
+    if (previous.globalKeywords !== undefined) {
+      globalKeywords.value = previous.globalKeywords
+      globalExpected.value = [...(previous.globalExpectedKeywords ?? latestGlobalKeywords)]
+    }
     if (previous.manualKeywords !== undefined) {
       manualKeywords.value = previous.manualKeywords
       manualExpected.value = [...(previous.manualExpectedKeywords ?? latestManualKeywords)]
@@ -177,9 +643,22 @@ function load(restoreDraft = false) {
     inherited.value = props.setupDraft.handoff.inherited
     keywords.value = props.setupDraft.handoff.keywords.join('\n')
   }
+  resetKeywordAutosave({
+    globalKeywords: latestGlobalKeywords,
+    globalExpected: globalExpected.value,
+    manualKeywords: latestManualKeywords,
+    manualExpected: manualExpected.value,
+    handoffKeywords: latestHandoffKeywords,
+    handoffInherited: latestInherited,
+    globalEnabled: snap.config.safety.handoffKeywordsEnabled,
+    manualEnabled: snap.config.safety.manualReplyKeywordsEnabled,
+  })
 }
 onBeforeUnmount(() => {
   unmounted = true
+  welcomeQueue.generation += 1
+  welcomeQueue.queued = null
+  welcomeQueue.inFlight = null
   if (deferred.value) return
   drafts?.putSettings(draftLease.workspaceId, draftLease.storeId, draftLease.view, {
     ...(JSON.stringify(welcome.value) !== JSON.stringify(baseline.welcome)
@@ -188,7 +667,10 @@ onBeforeUnmount(() => {
     ...(inherited.value !== baseline.inherited ? { inherited: inherited.value } : {}),
     ...(keywords.value !== baseline.keywords ? { keywords: keywords.value } : {}),
     ...(globalKeywords.value !== baseline.globalKeywords
-      ? { globalKeywords: globalKeywords.value }
+      ? {
+          globalKeywords: globalKeywords.value,
+          globalExpectedKeywords: [...globalExpected.value],
+        }
       : {}),
     ...(manualKeywords.value !== baseline.manualKeywords
       ? {
@@ -220,6 +702,13 @@ function reloadWelcome() {
   task.error.value = ''
   task.message.value = ''
 }
+async function openTraining() {
+  await task.run(async () => {
+    const storeId = selectedStoreId.value
+    if (!storeId) throw Error('请先选择店铺，再打开 AI训练场')
+    await openKnowledgeManager(storeId, { tab: 'training' })
+  })
+}
 const visionConflict = computed(
   () =>
     vision.value.version !== (runtime.snapshot.visionByStore[selectedStoreId.value]?.version || 0),
@@ -231,11 +720,36 @@ const manualConflict = computed(() => {
     manualExpected.value.some((word, index) => word !== latest[index])
   )
 })
+const globalConflict = computed(() => {
+  const latest = runtime.snapshot.config.safety.handoffKeywords
+  return (
+    globalExpected.value.length !== latest.length ||
+    globalExpected.value.some((word, index) => word !== latest[index])
+  )
+})
+function loadLatestGlobalKeywords() {
+  const latest = [...runtime.snapshot.config.safety.handoffKeywords]
+  globalKeywords.value = latest.join('\n')
+  globalExpected.value = latest
+  baseline.globalKeywords = globalKeywords.value
+  const queue = textQueues.handoff
+  queue.generation += 1
+  queue.running = false
+  queue.queued = null
+  textConfirmed.handoff = { text: globalKeywords.value, expected: [...latest] }
+  task.error.value = ''
+  task.message.value = ''
+}
 function loadLatestManualKeywords() {
   const latest = [...runtime.snapshot.config.safety.manualReplyKeywords]
   manualKeywords.value = latest.join('\n')
   manualExpected.value = latest
   baseline.manualKeywords = manualKeywords.value
+  const queue = textQueues.manual
+  queue.generation += 1
+  queue.running = false
+  queue.queued = null
+  textConfirmed.manual = { text: manualKeywords.value, expected: [...latest] }
   task.error.value = ''
   task.message.value = ''
 }
@@ -287,29 +801,14 @@ async function save() {
   if (deferred.value) return
   const storeId = selectedStoreId.value,
     key = props.viewKey
-  if (key === 'welcome') {
-    // 冲突与非法范围在提交入口再次拦截；按钮禁用不覆盖 Enter 提交。
-    if (welcomeConflict.value) {
-      task.error.value = '配置已更新，当前草稿仍保留；请重新载入后再保存。'
-      return
-    }
-    if (welcomeDelayInvalid.value) {
-      task.error.value = welcomeDelayInvalid.value
-      return
-    }
-  }
   const lease = {
     workspaceId: runtime.snapshot.workspaceId,
     storeId,
     view: props.viewKey,
   }
-  const revision = loadRevision
-  const submitted = { ...welcome.value }
   await task.run(async () => {
     let result
-    if (key === 'welcome')
-      result = await runtime.run({ action: 'save-welcome', storeId, values: { ...welcome.value } })
-    else if (key === 'image')
+    if (key === 'image')
       result = await runtime.run({
         action: 'save-vision-settings',
         storeId,
@@ -332,90 +831,11 @@ async function save() {
           ? { mode: 'inherit' }
           : { mode: 'custom', keywords: lines(keywords.value) },
       })
-    if (key === 'welcome') {
-      // 仅欢迎权威回执使用完整租约；其他设置保持原有 store/view 成功判断。
-      if (
-        runtime.snapshot.workspaceId !== lease.workspaceId ||
-        selectedStoreId.value !== lease.storeId ||
-        props.viewKey !== lease.view ||
-        revision !== loadRevision ||
-        unmounted
-      )
-        return
-      // save-welcome 的 result.data 是后端 CAS 后实际落库的权威记录。
-      // 不能用提交值代替回执，也不能立即 load 一个可能仍落后的快照。
-      const receipt = welcomeSettingSchema.safeParse(result?.data)
-      if (!receipt.success) {
-        task.error.value = '无法确认保存结果，当前草稿仍保留；请重新载入后再保存。'
-        return
-      }
-      const stored = normalizeWelcomeSetting(receipt.data)
-      receipts.putWelcomeReceipt(lease.workspaceId, storeId, stored)
-      baseline.welcome = { ...stored }
-      const unchanged =
-        welcome.value.text === submitted.text &&
-        welcome.value.enabled === submitted.enabled &&
-        welcome.value.delayMinSeconds === submitted.delayMinSeconds &&
-        welcome.value.delayMaxSeconds === submitted.delayMaxSeconds
-      if (unchanged) {
-        welcome.value = { ...stored }
-        cached.set(cacheKey(lease.workspaceId, storeId), { ...stored })
-      } else {
-        // Preserve edits typed while the request was in flight, but advance CAS
-        // to the version the backend actually committed.
-        welcome.value.version = stored.version
-      }
-      task.message.value = result.message
-      return
-    }
     if (storeId === selectedStoreId.value && key === props.viewKey) {
       cached.delete(cacheKey(lease.workspaceId, storeId))
       load()
       task.message.value = result.message
     }
-  })
-}
-async function saveGlobal() {
-  await task.run(async () => {
-    const result = await runtime.run({
-      action: 'save-config',
-      screenId: 'UX08',
-      values: { handoffKeywords: lines(globalKeywords.value) },
-    })
-    baseline.globalKeywords = globalKeywords.value
-    task.message.value = result.message
-  })
-}
-async function saveManualKeywords() {
-  const submittedKeywords = lines(manualKeywords.value)
-  const submittedText = submittedKeywords.join('\n')
-  const expectedKeywords = [...manualExpected.value]
-  const lease = {
-    workspaceId: runtime.snapshot.workspaceId,
-    storeId: selectedStoreId.value,
-    view: props.viewKey,
-  }
-  const revision = loadRevision
-  await task.run(async () => {
-    const result = await runtime.run({
-      action: 'save-config',
-      screenId: 'MANUAL_REPLY_KEYWORDS',
-      values: { keywords: submittedKeywords, expectedKeywords },
-    })
-    // 切店/切换账号/重新载入后的迟到结果只丢弃，不回填新页面。
-    if (
-      runtime.snapshot.workspaceId !== lease.workspaceId ||
-      selectedStoreId.value !== lease.storeId ||
-      props.viewKey !== lease.view ||
-      revision !== loadRevision
-    )
-      return
-    // 成功保存的是提交时的 X；等待期间的新输入 Y 相对 X 仍是未保存草稿。
-    manualExpected.value = [...submittedKeywords]
-    baseline.manualKeywords = submittedText
-    if (lines(manualKeywords.value).join('\n') === submittedText)
-      manualKeywords.value = submittedText
-    task.message.value = result.message
   })
 }
 </script>
@@ -438,15 +858,16 @@ async function saveManualKeywords() {
           v-model="welcome.enabled"
           active-text="启用"
           aria-label="启用本店新会话欢迎"
-          :disabled="task.pending.value || welcomeConflict"
+          :disabled="welcomeConflict"
+          @change="requestWelcomeSave"
         />
       </span>
     </template>
     <StoreSelect v-if="!embedded" :disabled="task.pending.value" />
     <p v-if="viewKey !== 'auto' && !selectedStoreId">请先在店铺与商品中添加店铺。</p>
-    <form v-if="selectedStoreId || viewKey === 'auto'" class="runtime-form" @submit.prevent="save">
-      <template v-if="viewKey === 'welcome'"
-        ><el-alert
+    <div v-if="viewKey === 'welcome' && selectedStoreId" class="welcome-layout">
+      <form class="runtime-form welcome-text-form" @submit.prevent="requestWelcomeSave">
+        <el-alert
           v-if="welcomeConflict"
           title="配置已更新，当前草稿仍保留；请重新载入最新配置后再保存。"
           type="warning"
@@ -461,13 +882,18 @@ async function saveManualKeywords() {
           >文字欢迎语<el-input
             v-model="welcome.text"
             type="textarea"
-            :rows="embedded ? 3 : 5"
+            :rows="2"
             maxlength="200"
             show-word-limit
             aria-label="文字欢迎语"
-            :disabled="task.pending.value"
+            @blur="requestWelcomeSave"
         /></label>
-        <div class="welcome-delay">
+      </form>
+      <p v-if="deferred" class="reception-deferred" role="status">
+        导入内容将在最后统一保存；这里仍可修改，不会单独写入本店配置。
+      </p>
+      <div class="welcome-lower">
+        <div class="welcome-delay welcome-delay-card">
           <span class="welcome-delay-label">欢迎延迟</span>
           <span class="welcome-range">
             <el-input-number
@@ -477,7 +903,8 @@ async function saveManualKeywords() {
               :max="3600"
               :step="1"
               :precision="0"
-              :disabled="task.pending.value"
+              @change="requestWelcomeSave"
+              @blur="requestWelcomeSave"
             /><span class="welcome-sep">～</span
             ><el-input-number
               v-model="welcome.delayMaxSeconds"
@@ -486,12 +913,36 @@ async function saveManualKeywords() {
               :max="3600"
               :step="1"
               :precision="0"
-              :disabled="task.pending.value"
+              @change="requestWelcomeSave"
+              @blur="requestWelcomeSave"
             /><span class="welcome-unit">秒随机</span>
           </span>
-        </div></template
-      >
-      <template v-else-if="viewKey === 'image'"
+        </div>
+        <section class="reception-advanced welcome-media">
+          <ReceptionRulesPanel
+            :workspace-id="runtime.snapshot.workspaceId"
+            :store-id="selectedStoreId"
+            trigger="visitor"
+            :preserve-draft="embedded"
+            media-only
+            :media-autosave="Boolean(operations.service.value)"
+            :save-media-rule="saveWelcomeMedia"
+            :snapshot="operations.snapshot.value"
+            :busy="operations.busy.value"
+            @command="operations.execute"
+            @refresh="
+              operations.execute({ type: 'refresh', workspaceId: runtime.snapshot.workspaceId })
+            "
+          />
+        </section>
+      </div>
+    </div>
+    <form
+      v-else-if="selectedStoreId || viewKey === 'auto'"
+      class="runtime-form"
+      @submit.prevent="submitForm"
+    >
+      <template v-if="viewKey === 'image'"
         ><p>{{ runtime.snapshot.capabilities.vision.reason }}</p>
         <p>
           每轮最多 4 张公网 HTTPS
@@ -510,8 +961,8 @@ async function saveManualKeywords() {
             visionConflict ||
             (!runtime.snapshot.capabilities.vision.supported && !vision.enabled)
           "
-        /><el-button @click="router.push('/shop/manage?panel=training')"
-          >到训练场测试识图</el-button
+        /><el-button :disabled="task.pending.value" @click="openTraining"
+          >到知识库训练场测试识图</el-button
         ></template
       >
       <template v-else-if="viewKey === 'auto'"
@@ -537,26 +988,25 @@ async function saveManualKeywords() {
       <template v-else>
         <el-switch
           v-model="inherited"
+          class="store-inherit-switch"
           active-text="继承全局关键词"
-          :disabled="task.pending.value" /><label v-if="!inherited"
+          :disabled="task.pending.value"
+          @change="requestStoreHandoffSave" /><label v-if="!inherited"
           >本店关键词（每行一个）<el-input
             v-model="keywords"
             type="textarea"
-            :rows="embedded ? 3 : 6" /></label
+            aria-label="本店关键词"
+            :rows="embedded ? 3 : 6"
+            @blur="requestStoreHandoffSave" /></label
       ></template>
-      <div v-if="!deferred" class="runtime-actions">
+      <div v-if="!deferred && viewKey !== 'transfer'" class="runtime-actions">
         <el-button
           type="primary"
           native-type="submit"
           :loading="task.pending.value"
-          :disabled="
-            !runtime.available ||
-            (viewKey === 'welcome' && (welcomeConflict || Boolean(welcomeDelayInvalid))) ||
-            (viewKey === 'image' && visionConflict)
-          "
+          :disabled="!runtime.available || (viewKey === 'image' && visionConflict)"
           >保存配置</el-button
         ><el-button
-          v-if="viewKey !== 'transfer' && viewKey !== 'welcome'"
           :disabled="task.pending.value"
           @click="
             () => {
@@ -567,48 +1017,74 @@ async function saveManualKeywords() {
           >载入最新配置</el-button
         >
       </div>
-      <p v-else class="reception-deferred" role="status">
+      <p v-else-if="deferred" class="reception-deferred" role="status">
         导入内容将在最后统一保存；这里仍可修改，不会单独写入本店配置。
       </p>
     </form>
-    <section v-if="viewKey === 'transfer'" class="reception-advanced">
-      <h2 v-if="!embedded">全局人工处理关键词</h2>
-      <h3 v-else class="reception-section-title">
-        全局人工关键词 <span>影响所有继承全局配置的店铺</span>
-      </h3>
-      <form class="runtime-form" @submit.prevent="saveGlobal">
+    <section v-if="viewKey === 'transfer'" class="reception-keyword-settings">
+      <form
+        class="runtime-form keyword-setting-card"
+        @submit.prevent="requestKeywordTextSave('handoff')"
+      >
+        <div class="keyword-setting-card__head">
+          <h3>
+            全局人工关键词
+            <span>仅影响继承全局配置的店铺</span>
+          </h3>
+          <el-switch
+            v-model="globalEnabled"
+            class="keyword-switch-handoff"
+            aria-label="启用全局人工关键词"
+            active-text="开"
+            inactive-text="关"
+            inline-prompt
+            @change="requestKeywordSwitch('handoff')"
+          />
+        </div>
         <el-input
           v-model="globalKeywords"
           type="textarea"
-          :rows="5"
+          :rows="3"
           aria-label="全局人工处理关键词"
-        /><el-button :disabled="!runtime.available || task.pending.value" native-type="submit"
-          >保存全局关键词</el-button
-        >
-      </form>
-    </section>
-    <section v-if="viewKey === 'transfer'" class="reception-advanced reception-manual">
-      <form class="runtime-form" @submit.prevent="saveManualKeywords">
-        <h3>客服接管关键词 <span>全局 · 作用所有店</span></h3>
-        <p>每行一个；客服发出后暂停当前会话 AI。</p>
-        <div v-if="manualConflict" class="manual-conflict" role="status">
-          <span>关键词已更新，当前草稿仍保留。</span>
-          <el-button
-            native-type="button"
-            :disabled="task.pending.value"
-            @click="loadLatestManualKeywords"
-            >载入最新关键词</el-button
+          @blur="requestKeywordTextSave('handoff')"
+        />
+        <div v-if="globalConflict" class="keyword-conflict" role="status">
+          <span>全局关键词已更新，当前草稿仍保留。</span>
+          <el-button native-type="button" @click="loadLatestGlobalKeywords"
+            >载入最新全局关键词</el-button
           >
+        </div>
+      </form>
+      <form
+        class="runtime-form keyword-setting-card reception-manual"
+        @submit.prevent="requestKeywordTextSave('manual')"
+      >
+        <div class="keyword-setting-card__head">
+          <h3>
+            客服接管关键词
+            <span>全局 · 客服发出后暂停当前会话 AI</span>
+          </h3>
+          <el-switch
+            v-model="manualEnabled"
+            class="keyword-switch-manual"
+            aria-label="启用客服接管关键词"
+            active-text="开"
+            inactive-text="关"
+            inline-prompt
+            @change="requestKeywordSwitch('manual')"
+          />
         </div>
         <el-input
           v-model="manualKeywords"
           type="textarea"
-          :rows="embedded ? 2 : 4"
+          :rows="3"
           aria-label="客服接管关键词"
+          @blur="requestKeywordTextSave('manual')"
         />
-        <div class="runtime-actions">
-          <el-button :disabled="!runtime.available || task.pending.value" native-type="submit"
-            >保存客服接管关键词</el-button
+        <div v-if="manualConflict" class="keyword-conflict" role="status">
+          <span>客服接管关键词已更新，当前草稿仍保留。</span>
+          <el-button native-type="button" @click="loadLatestManualKeywords"
+            >载入最新关键词</el-button
           >
         </div>
       </form>
@@ -623,17 +1099,18 @@ async function saveManualKeywords() {
     >
       平台接待服务尚未接入，当前不能保存平台规则或执行平台操作。
     </p>
-    <section v-if="viewKey !== 'image' && selectedStoreId" class="reception-advanced">
-      <h3 v-if="embedded && viewKey !== 'welcome'" class="reception-section-title">
+    <section
+      v-if="viewKey !== 'image' && viewKey !== 'welcome' && selectedStoreId"
+      class="reception-advanced"
+    >
+      <h3 v-if="embedded" class="reception-section-title">
         平台接待规则与能力 <span>高级设置 · 逐项批准</span>
       </h3>
       <ReceptionRulesPanel
-        v-if="viewKey !== 'image' && selectedStoreId"
         :workspace-id="runtime.snapshot.workspaceId"
         :store-id="selectedStoreId"
         :trigger="ruleTrigger"
         :preserve-draft="embedded"
-        :media-only="embedded && viewKey === 'welcome'"
         :snapshot="operations.snapshot.value"
         :busy="operations.busy.value"
         @command="operations.execute"
@@ -666,7 +1143,10 @@ async function saveManualKeywords() {
         @command="operations.execute"
       />
     </details>
-    <p v-if="embedded && viewKey !== 'image' && !selectedRuns.length" class="reception-empty">
+    <p
+      v-if="embedded && viewKey !== 'image' && viewKey !== 'welcome' && !selectedRuns.length"
+      class="reception-empty"
+    >
       暂无平台操作事项
     </p>
   </RuntimePanel>
@@ -696,12 +1176,62 @@ async function saveManualKeywords() {
   gap: 12px;
   flex-shrink: 0;
 }
+.welcome-layout {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+/* 文字欢迎语独占整行；下方延迟与媒体共用一行，媒体占剩余宽度。 */
+.welcome-text-form {
+  max-width: none;
+  margin: 0;
+}
+.welcome-lower {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  min-width: 0;
+}
 .welcome-delay {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px 8px;
   font-size: 14px;
+}
+.welcome-delay-card {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #e8edf4;
+  border-radius: 6px;
+  background: #fbfcfe;
+}
+.welcome-media,
+.embedded-reception .welcome-media {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.welcome-media :deep(.reception-rules) {
+  width: 100%;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .welcome-lower {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .welcome-delay-card {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+  }
 }
 .welcome-delay-label {
   white-space: nowrap;
@@ -731,6 +1261,64 @@ async function saveManualKeywords() {
   max-width: none;
   gap: 12px;
   margin: 0;
+}
+/* 两个关键词区始终各占一半；输入框行数相同，窄容器也不互相挤压。 */
+.reception-keyword-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f5;
+}
+.keyword-setting-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e8edf4;
+  border-radius: 6px;
+  background: #fbfcfe;
+}
+.keyword-setting-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+}
+.keyword-setting-card__head h3 {
+  margin: 0;
+  color: #4a5d76;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.keyword-setting-card__head h3 span {
+  display: block;
+  margin: 2px 0 0;
+  color: #94a0b1;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.keyword-setting-card :deep(.el-switch) {
+  flex: 0 0 auto;
+}
+.keyword-setting-card :deep(.el-textarea) {
+  flex: 1;
+}
+.keyword-setting-card :deep(.el-textarea__inner) {
+  min-height: 72px;
+}
+.keyword-conflict {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #a26b00;
+  font-size: 12px;
 }
 .embedded-reception .runtime-form > p {
   margin: 0;
@@ -796,7 +1384,7 @@ async function saveManualKeywords() {
   font-size: 12px;
   font-weight: 400;
 }
-.embedded-reception :deep(.reception-rules) {
+.embedded-reception :deep(.reception-rules:not(.media-only)) {
   margin-top: 0;
   padding-top: 8px;
   border-top: 0;

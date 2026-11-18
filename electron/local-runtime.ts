@@ -21,6 +21,12 @@ import { createWelcomeDelayGate } from './welcome-delay'
 import { normalizeWelcomeSetting } from '../src/shared/contracts/welcome'
 import { describeReplyPacing } from '../src/shared/reply-pacing'
 import { MANUAL_REPLY_KEYWORDS_SCREEN, normalizeManualReplyKeywords } from './manual-reply-keywords'
+import {
+  ReceptionKeywordSettingsStore,
+  normalizeReceptionKeywords,
+  parseReceptionKeywordSaveInput,
+  resolveReceptionKeywordSafety,
+} from './reception-keyword-settings'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
@@ -42,6 +48,7 @@ import {
   snapshotSchema,
   resultSchema,
   emptySnapshot,
+  RECEPTION_KEYWORDS_SCREEN,
   type BackendCommand,
   type BackendEvent,
   type BackendResult,
@@ -241,6 +248,8 @@ export function createLocalRuntime(options: {
   // 旧版固定间隔（含 60 秒）不再改写：原值留在 config.json 供审计/回退，
   // 新的随机节奏单独保存在 reply-pacing.json，首次缺失时迁移为 1～3 秒随机。
   const replyPacing = new ReplyPacingStore(dataDir, pacingConfig.all().reply.perUidMinIntervalMs)
+  // 开关与关键词原文分开保存：关闭匹配不触碰 ConfigStore 中的关键词数组。
+  const keywordSettings = new ReceptionKeywordSettingsStore(dataDir)
   const knowledgeRepository = createKnowledgeRepository({ directory: dataDir, workspaceId })
   const knowledge = createKnowledgeRuntime({
     repository: knowledgeRepository,
@@ -340,6 +349,11 @@ export function createLocalRuntime(options: {
         reply: {
           ...(source.config?.reply ?? masked.config.reply),
           pacing: replyPacing.snapshot(),
+        },
+        safety: {
+          ...(source.config?.safety ?? masked.config.safety),
+          handoffKeywordsEnabled: keywordSettings.snapshot().handoffEnabled,
+          manualReplyKeywordsEnabled: keywordSettings.snapshot().manualReplyEnabled,
         },
       },
       workspaceId,
@@ -707,6 +721,11 @@ export function createLocalRuntime(options: {
               }
             : port.vision(),
       }),
+    // 每次引擎读取配置时叠加开关；自定义本店关键词仍由厂商 handoff 记录优先。
+    resolveKeywordSafety: (
+      safety: { handoffKeywords: string[]; manualReplyKeywords: string[] },
+      customKeywords: string[] | undefined,
+    ) => resolveReceptionKeywordSafety(safety, customKeywords, keywordSettings.snapshot()),
     prepareModelContext: (input: Parameters<typeof assistedContext>[0]) => {
       // 托管模式把摘要交给服务端免费内部接口；本机 Key 模式仍走当前模型完成器。
       return managed.active.mode === 'managed'
@@ -763,6 +782,83 @@ export function createLocalRuntime(options: {
   })
   backendRef.current = backend
   const localBackend = backend
+  // 主进程串行化关键词读改写，避免两个失焦保存交错时用同一旧 expected 覆盖。
+  let keywordSaveQueue: Promise<unknown> = Promise.resolve()
+  function serialKeywordSave<T>(job: () => Promise<T>): Promise<T> {
+    const next = keywordSaveQueue.then(job, job)
+    keywordSaveQueue = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    return next
+  }
+  function notifyKeywordSettingsChanged() {
+    if (!closed) for (const listener of listeners) listener({ type: 'backend:changed' })
+  }
+  async function saveReceptionKeywordCommand(
+    rawValues: Record<string, unknown>,
+  ): Promise<BackendResult> {
+    const input = parseReceptionKeywordSaveInput(rawValues)
+    return serialKeywordSave(async () => {
+      if (closed) throw new Error('本地服务已关闭')
+      if (input.mode === 'enabled') {
+        const saved = keywordSettings.saveEnabled(input.kind, input.enabled, input.expectedEnabled)
+        if (saved.changed) notifyKeywordSettingsChanged()
+        return {
+          status: 'ok' as const,
+          message: '保存成功',
+          data: {
+            kind: input.kind,
+            enabled:
+              input.kind === 'handoff'
+                ? saved.settings.handoffEnabled
+                : saved.settings.manualReplyEnabled,
+            changed: saved.changed,
+          },
+        }
+      }
+      const keywords = normalizeReceptionKeywords(input.keywords, input.kind)
+      // CAS compares the exact loaded record, including legacy spaces/duplicates.
+      // Normalize only the replacement; otherwise valid older lists can never be edited.
+      const expected = input.expectedKeywords
+      const source = localBackend.snapshot() as {
+        config?: { safety?: { handoffKeywords?: string[]; manualReplyKeywords?: string[] } }
+      }
+      const current =
+        input.kind === 'handoff'
+          ? (source.config?.safety?.handoffKeywords ?? [])
+          : (source.config?.safety?.manualReplyKeywords ?? [])
+      if (
+        current.length !== expected.length ||
+        current.some((word, index) => word !== expected[index])
+      )
+        throw new Error(
+          `${input.kind === 'handoff' ? '全局人工关键词' : '客服接管关键词'}已更新，请载入已保存关键词后再修改`,
+        )
+      const unchanged =
+        current.length === keywords.length &&
+        current.every((word, index) => word === keywords[index])
+      if (!unchanged) {
+        if (input.kind === 'handoff')
+          await localBackend.execute({
+            action: 'save-config',
+            screenId: 'UX08',
+            values: { handoffKeywords: keywords },
+          })
+        else
+          await localBackend.execute({
+            action: 'save-config',
+            screenId: MANUAL_REPLY_KEYWORDS_SCREEN,
+            values: { keywords, expectedKeywords: expected },
+          })
+      }
+      return {
+        status: 'ok' as const,
+        message: '保存成功',
+        data: { kind: input.kind, keywords, changed: !unchanged },
+      }
+    })
+  }
   const aiRestore = new AiStateRestore({
     preferences: new StoreAiPreferences(dataDir),
     stores: () => {
@@ -995,7 +1091,11 @@ export function createLocalRuntime(options: {
     withExclusive: (storeId, operation) => platformWrites.exclusive(storeId, operation),
     transferKeywords: (storeId) => {
       const snapshot = read()
-      return snapshot.handoffByStore[storeId]?.keywords ?? snapshot.config.safety.handoffKeywords
+      return resolveReceptionKeywordSafety(
+        snapshot.config.safety,
+        snapshot.handoffByStore[storeId]?.keywords,
+        keywordSettings.snapshot(),
+      ).handoffKeywords
     },
   })
   const operations = new ReceptionOperationsService({
@@ -1134,6 +1234,8 @@ export function createLocalRuntime(options: {
         }
       }
       if (command.workspaceId !== workspaceId) throw new Error('本地服务已重启，请刷新后重试')
+      if (command.action === 'save-config' && command.screenId === RECEPTION_KEYWORDS_SCREEN)
+        return saveReceptionKeywordCommand(command.values)
       if (command.action === 'save-config' && command.screenId === 'REPLY_PACING') {
         // 只写本机随机节奏文件：不碰店铺、账号、Key、AI 开关、发送审批或旧固定间隔。
         const saved = replyPacing.save({

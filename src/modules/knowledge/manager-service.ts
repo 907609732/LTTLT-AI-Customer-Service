@@ -18,12 +18,23 @@ import type {
   KnowledgePipelineInput,
   KnowledgePipelineResults,
 } from '@/shared/contracts/knowledge-pipeline'
-export async function openKnowledgeManager(storeId: string) {
+export async function openKnowledgeManager(
+  storeId: string,
+  options: {
+    tab?: import('@/shared/contracts/knowledge-client').KnowledgeManagerTab
+    productId?: string
+  } = {},
+) {
   const bridge = getKnowledgeBridge(),
     backend = getBackendBridge()
   if (!bridge || !backend) throw Error('知识库需要桌面版；浏览器仅供预览')
   const snapshot = await backend.snapshot()
-  await bridge.open({ workspaceId: snapshot.workspaceId, storeId })
+  await bridge.open({
+    workspaceId: snapshot.workspaceId,
+    storeId,
+    tab: options.tab || 'products',
+    productId: options.productId || '',
+  })
 }
 export function createKnowledgeClient(workspaceId: string) {
   const bridge = getKnowledgeBridge()

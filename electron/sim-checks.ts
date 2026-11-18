@@ -255,10 +255,41 @@ export async function simChecks(options: {
   })
 
   await check('sim:legacy-config-route-opens-training', '/shop/manage?panel=sim', async () => {
-    // The configuration registry intentionally maps this retired test panel to
-    // training. The real simulator remains independently verified at /sim above.
+    await load('/')
+    if (!(await snapshot()).stores.length)
+      await execute({
+        action: 'add-store',
+        values: { platform: SIM_PLATFORM_ID, storeName: '训练场验收店' },
+      })
     await load('/shop/manage?panel=sim')
-    await waitFor(`document.body.innerText.includes('AI 训练场')`, '旧配置入口未进入AI训练场')
+    const knowledge = await until(
+      async () =>
+        BrowserWindow.getAllWindows().find((window) =>
+          window.webContents.getURL().endsWith('#/knowledge'),
+        ),
+      (window) => Boolean(window),
+      '旧配置入口未打开知识库窗口',
+    )
+    assert.ok(knowledge)
+    await until(
+      async () =>
+        knowledge.webContents.executeJavaScript(
+          `Boolean(document.querySelector('[data-testid="training-tab"].active') && document.querySelector('[aria-label="模拟买家问题"]'))`,
+        ) as Promise<boolean>,
+      Boolean,
+      '知识库未选中训练标签或未显示问答表单',
+    )
+    const selectedStore = (await knowledge.webContents.executeJavaScript(
+      `document.querySelector('[data-testid="knowledge-store"]').value`,
+    )) as string
+    assert.ok((await snapshot()).stores.some((store) => store.id === selectedStore))
+    const output = path.resolve('artifacts', 'desktop')
+    fs.mkdirSync(output, { recursive: true })
+    fs.writeFileSync(
+      path.join(output, 'knowledge-training-legacy.png'),
+      (await knowledge.webContents.capturePage()).toPNG(),
+    )
+    knowledge.hide()
     assert.equal(
       await evaluate(`Boolean(document.querySelector('[aria-label="模拟店铺操作"]'))`),
       false,

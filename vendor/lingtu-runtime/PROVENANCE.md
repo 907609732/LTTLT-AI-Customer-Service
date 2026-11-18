@@ -173,6 +173,12 @@ backend.cjs 的既有 save-config 仅新增 MANUAL_REPLY_KEYWORDS 分支：按 k
 - 无消息项 ID 的旧面板不能再靠一条公共文本放行。v11 只要求最近已知消息中任一条文本出现在 DOM；当 A 的旧面板为 [hello, A 私有问题]、B 的已知消息只有 [hello] 时，单条 hello 会把整个旧面板错认成 B，私有问题进入 B 的 pending 和 reviewHistory 基线。v12 在缺少 `middlePanel_list_<msgId>` 时要求每个将被 DOM 采集的气泡文本都能对应目标买家的已知消息，任一无法证明即 fail closed；存在消息项 ID 时仍逐条校验全部 ID 属于该买家。稳定的三路 uid、currentUserInfo/列表最新消息 ID、卖家 merchantMessage 与正常采集路径保留。
 - v12 只改 `desk-v1/src/injections/pdd-web-hook.js` 及本轮 PDD 测试，不扩大其他 vendor/server 逻辑。先补负向用例并在 v11 上实际得到 4 项失败（晚到 buyer、晚到 seller、持续未知水位、无 ID 公共文本），修正后 2 文件 12 项通过；原 6 项正例、取消/批准/逐字/单次点击断言未改。后续复核指出普通对象字典会把继承的 `constructor`/`toString`/`__proto__` 当成已知文本，v12 改用无原型字典并补 3 项负向用例（先红后绿）；真实店铺仍需实店验收，离线夹具不代表实店已通过。
 
+## 2026-11-19：关键词开关运行时匹配注入（1.0.69）
+
+`backend.cjs` 的 `createBackend` 仅新增可选 `resolveKeywordSafety`：ReplyEngine 的既有 `getConfig` 在合并本店 handoff 记录后调用该宿主函数，只允许替换生效的 `handoffKeywords/manualReplyKeywords` 两个数组；未注入时与上游完全一致。本店自定义人工关键词仍优先于全局配置，全局开关关闭时只过滤“继承全局”的店铺；客服接管开关关闭时仅停止卖家侧关键词匹配。ConfigStore 的原始 `safety.handoffKeywords/manualReplyKeywords` 不删改，开关本体由本工程 `reception-keyword-settings.json` 原子保存。相关 `source-files.json` 保留 upstreamGitBlob/upstreamSha256，仅更新实际 sha256 与 localPatch 说明。
+
+本工程 `electron/reception-keyword-settings.ts` 统一严格校验、开关 CAS 和运行时过滤纯函数，`electron/local-runtime.ts` 负责组合及串行保存；界面仅在失焦或开关操作时提交。新增真实引擎配置测试验证开关不改变原始关键词，并保留自定义店铺关键词优先语义。
+
 ## 2026-11-17：同一买家随机回复节奏
 
 reply-engine 与 backend.cjs 新增可选 resolveUidIntervalMs：ReplyEngine 保存并转发给每个 StoreWorker，Worker 把 storeId、uid、lastSentAt 与自身随机源交给该函数。抽样、缓存、随保存失效和范围校验全部在本工程 TypeScript，vendor 不保存节奏业务规则；未注入时每次动态读取上游 perUidMinIntervalMs（旧 save-config 改值立即生效）。注入时不再叠加旧 0.5~2s 发送抖动，只保留所选的一套间隔；解析异常时退到 1 秒下限，不回退旧 60 秒。决策文案显示本次实际间隔，pacingIntervalMs(uid) 供本工程消息诊断读取同一值。发送审批、取消、发送前复核、重试与单店分钟上限均未改动；REPLY_PACING 旧保存分支保留但桌面端不再使用。随机模式、范围校验与旧值迁移在 electron/reply-pacing.ts（reply-pacing.json），config.json 的旧固定值原样保留用于审计/回退。source-files.json 保留 upstreamGitBlob/upstreamSha256，仅更新这两个文件的实际 sha256 与 localPatch。

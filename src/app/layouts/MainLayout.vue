@@ -54,6 +54,7 @@ async function changeZoom(event: Event) {
     })
   })
 }
+const isConfiguration = computed(() => route.name === 'shop-manage')
 const navigation = [
   { label: '店铺首页', path: '/', icon: IconHomeFilled },
   { label: '配置中心', path: '/shop/manage', icon: IconShop },
@@ -271,7 +272,10 @@ async function navigate(path: string) {
       </div>
     </header>
     <div class="workbench-body">
-      <aside :class="['store-sidebar my-platform', { 'is-collapsed': sidebarCollapsed }]">
+      <aside
+        v-show="!isConfiguration"
+        :class="['store-sidebar my-platform', { 'is-collapsed': sidebarCollapsed }]"
+      >
         <el-alert
           v-if="runtime.snapshot.modelIssue"
           :title="runtime.snapshot.modelIssue.message"

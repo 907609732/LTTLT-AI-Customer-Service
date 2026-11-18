@@ -6,11 +6,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useShopSetupStore } from '@/modules/shops'
+import { openKnowledgeManager } from '@/modules/knowledge'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useRoute, useRouter } from 'vue-router'
-import BrandMark from '@/shared/ui/BrandMark.vue'
 import AppVersion from '@/shared/ui/AppVersion.vue'
-import { notifyUnavailable } from '@/shared/ui/feedback'
 import { useTask } from '@/shared/ui/use-task'
 import {
   navGroups,
@@ -36,7 +35,29 @@ watch(
   },
   { immediate: true },
 )
-const __stub = notifyUnavailable
+async function openLegacyTraining() {
+  const requestedPanel = route.query.panel
+  // A bookmarked route can mount before the first desktop snapshot arrives.
+  await runtime.refresh()
+  if (route.query.panel !== requestedPanel) return
+  const storeId = runtime.selectedStoreId,
+    { source: _source, ...rest } = route.query
+  void _source
+  await router.replace({ query: { ...rest, panel: 'shops' } })
+  await task.run(async () => {
+    if (!storeId || !runtime.snapshot.stores.some((shop) => shop.id === storeId))
+      throw Error('请先选择店铺，再从知识库打开 AI训练场')
+    await openKnowledgeManager(storeId, { tab: 'training' })
+  })
+}
+// 训练场已迁入知识库：旧收藏地址先离开废弃面板，再打开当前店铺的知识库训练 tab。
+watch(
+  () => route.query.panel,
+  (panel) => {
+    if (panel === 'training' || panel === 'sim') void openLegacyTraining()
+  },
+  { immediate: true },
+)
 const activeKey = computed(() => resolvePanelKey(route.query.panel))
 const expanded = ref<Partial<Record<PanelKey, boolean>>>({ shops: true, intent: true })
 const crumb = computed(() => panelRegistry[activeKey.value].title)
@@ -55,9 +76,6 @@ function select(key: PanelKey) {
     query: { ...rest, panel: key, ...(key === 'intent-chat' ? { source: 'chats' } : {}) },
   })
 }
-function goHome() {
-  void router.push('/')
-}
 async function openMonitor() {
   await task.run(async () => {
     await runtime.run({ action: 'open-reply-monitor' })
@@ -68,39 +86,6 @@ async function openMonitor() {
 <template>
   <div class="shop-manage" data-v-105c9fec="">
     <div class="app" data-v-105c9fec="">
-      <header class="topbar" data-window-drag data-v-105c9fec="">
-        <div class="brand-block" data-v-105c9fec="">
-          <BrandMark size="md" data-v-105c9fec="" />
-        </div>
-        <div class="topbar-center" data-v-105c9fec="">
-          <div class="topbar-title" role="heading" aria-level="1" data-v-105c9fec="">
-            <strong data-v-105c9fec="">客服系统配置中心</strong>
-            <em data-v-105c9fec="">{{ crumb }}</em>
-          </div>
-        </div>
-        <div class="top-actions" data-v-105c9fec="">
-          <button class="btn-site" type="button" data-nav @click="goHome">返回工作台</button>
-          <button
-            class="btn-site"
-            type="button"
-            v-if="activeKey !== 'goods' && activeKey !== 'desk'"
-            @click="router.push('/shop/manage?panel=intent-doc&source=products')"
-          >
-            商品自动学习
-          </button>
-          <div class="top-actions__billing" data-v-105c9fec="">
-            <button
-              class="btn-site"
-              type="button"
-              @click="__stub('灵兔AI电商客服 官网')"
-              data-v-105c9fec=""
-            >
-              灵兔AI电商客服 官网
-            </button>
-          </div>
-        </div>
-      </header>
-
       <div class="shell" data-v-105c9fec="">
         <aside class="sider" aria-label="功能导航" data-v-105c9fec="">
           <div class="sider__heading" data-v-105c9fec="">功能列表</div>
@@ -235,6 +220,15 @@ async function openMonitor() {
 </template>
 
 <style scoped>
+/* 配置中心复用工作台标题栏，只占用其下方的可用内容高度。 */
+.shop-manage[data-v-105c9fec] {
+  height: 100%;
+  min-height: 0;
+}
+.shop-manage .app {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .sider__monitor {
   margin-top: auto;
   padding: 8px 12px 0;

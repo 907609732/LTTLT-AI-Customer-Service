@@ -28,6 +28,7 @@ import type {
   KnowledgeTrial,
   KnowledgeWindowContext,
   KnowledgeQuery,
+  KnowledgeManagerTab,
 } from '@/shared/contracts/knowledge-client'
 import type {
   KnowledgePipelineCapabilities,
@@ -44,13 +45,18 @@ export function useKnowledgeManager() {
     storeId = ref(''),
     search = ref(''),
     page = ref(0),
-    tab = ref<'products' | 'general'>('products')
+    tab = ref<KnowledgeManagerTab>('products')
   const view = ref<'library' | 'review' | 'misses' | 'settings'>('library'),
     error = ref(''),
     notice = ref(''),
     loading = ref(false),
     busy = ref(false)
   const products = ref<KnowledgeProductCard[]>([]),
+    trainingProducts = ref<KnowledgeProductCard[]>([]),
+    trainingProductId = ref(''),
+    trainingSession = ref(0),
+    trainingLoading = ref(false),
+    trainingError = ref(''),
     entries = ref<KnowledgeEntry[]>([]),
     total = ref(0),
     summary = ref<KnowledgeSummary>(),
@@ -182,7 +188,8 @@ export function useKnowledgeManager() {
   let leaseRevision = 0,
     editGeneration = 0,
     draftSession = 0,
-    contextRevision = -1
+    contextRevision = -1,
+    trainingTicket = 0
   let activeRun: symbol | undefined
   const { misses, missStatus, missUpdating, changeMissStatus, updateMissDisposition } =
     useKnowledgeMiss({
@@ -239,6 +246,11 @@ export function useKnowledgeManager() {
     missStatus.value = 'open'
     missUpdating.value = ''
     total.value = 0
+    trainingTicket++
+    trainingProducts.value = []
+    trainingProductId.value = ''
+    trainingLoading.value = false
+    trainingError.value = ''
     resetLearning()
     ingestion.reset()
     batchResults.value = []
@@ -426,7 +438,7 @@ export function useKnowledgeManager() {
         if (id !== ticket) return
         products.value = result.items
         total.value = result.total
-      } else {
+      } else if (tab.value === 'general') {
         const result = await service.general({
           storeId: s,
           search: search.value,
@@ -456,6 +468,45 @@ export function useKnowledgeManager() {
             void refresh()
           }, 1500)
       }
+    }
+  }
+  async function loadTrainingProducts() {
+    if (!storeId.value || !workspace.value) {
+      trainingProducts.value = []
+      return
+    }
+    const id = ++trainingTicket,
+      w = workspace.value,
+      shop = storeId.value,
+      service = client()
+    trainingLoading.value = true
+    trainingError.value = ''
+    try {
+      const items: KnowledgeProductCard[] = []
+      let offset = 0,
+        revision: number | undefined
+      while (true) {
+        const result = await service.query({
+          type: 'products',
+          page: { storeId: shop, search: '', offset, limit: 100 },
+        })
+        assertLease(w, shop)
+        if (id !== trainingTicket) return
+        if (revision !== undefined && revision !== result.revision)
+          throw Error('商品列表已变化，请重新读取')
+        revision = result.revision
+        items.push(...result.items.filter((row) => row.binding.storeId === shop))
+        offset += result.items.length
+        if (!result.items.length || offset >= result.total) break
+      }
+      if (id !== trainingTicket) return
+      trainingProducts.value = items
+      // Keep an invalid preset visible: clearing it would silently change a product test to a generic test.
+    } catch (cause) {
+      if (id === trainingTicket && workspace.value === w && storeId.value === shop)
+        trainingError.value = reason(cause)
+    } finally {
+      if (id === trainingTicket) trainingLoading.value = false
     }
   }
   function editable(version: KnowledgeVersion): KnowledgeDraftInput {
@@ -605,9 +656,10 @@ export function useKnowledgeManager() {
       misses.value = []
       total.value = 0
       await refresh()
+      if (tab.value === 'training') void loadTrainingProducts()
     })
   }
-  async function changeTab(next: 'products' | 'general') {
+  async function changeTab(next: KnowledgeManagerTab) {
     await run(async () => {
       await closeEditor()
       tab.value = next
@@ -617,6 +669,24 @@ export function useKnowledgeManager() {
       page.value = 0
       await refresh()
     })
+    // Training must not hold the global busy lease while it walks product pages,
+    // otherwise the shop selector becomes a silent no-op on a large catalog.
+    if (tab.value === next && next === 'training') void loadTrainingProducts()
+  }
+  async function openTraining(row: KnowledgeProductCard) {
+    await closeEditor()
+    if (row.binding.storeId !== storeId.value)
+      throw Error('商品不属于当前知识库店铺，请刷新商品列表后重试')
+    tab.value = 'training'
+    view.value = 'library'
+    selection.value = []
+    allScope.value = false
+    page.value = 0
+    trainingProductId.value = row.binding.productId
+    trainingError.value = ''
+    await refresh()
+    if (tab.value === 'training' && trainingProductId.value === row.binding.productId)
+      void loadTrainingProducts()
   }
   async function setView(next: typeof view.value) {
     await closeEditor()
@@ -1005,17 +1075,30 @@ export function useKnowledgeManager() {
     if (contextAlreadyApplied(context)) return
     leaseRevision++
     contextRevision = context.revision
+    trainingSession.value++
     workspace.value = context.workspaceId
     storeId.value = contextStore(context)
+    // The store watcher clears the previous shop's training preset; apply the
+    // owner's new preset only after that synchronous invalidation has flushed.
+    await nextTick()
+    if (
+      disposed ||
+      contextRevision !== context.revision ||
+      context.workspaceId !== runtime.snapshot.workspaceId
+    )
+      return
     draft.value = undefined
     detail.value = undefined
     selection.value = []
     allScope.value = false
     view.value = 'library'
-    tab.value = 'products'
+    tab.value = context.tab || 'products'
+    trainingProductId.value = tab.value === 'training' ? context.productId || '' : ''
+    trainingError.value = ''
     page.value = 0
     if (context.workspaceId === runtime.snapshot.workspaceId && currentStore.value) error.value = ''
     await refresh()
+    if (tab.value === 'training') void loadTrainingProducts()
   }
   async function applyReplacementContext(context: KnowledgeWindowContext) {
     if (disposed) throw Error('知识库窗口已关闭')
@@ -1066,6 +1149,7 @@ export function useKnowledgeManager() {
       do {
         await saveDraft()
       } while (dirty.value)
+      trainingSession.value++
       await client().hide()
     })
   }
@@ -1124,6 +1208,11 @@ export function useKnowledgeManager() {
         question.value = ''
         trialSku.value = ''
         products.value = []
+        trainingTicket++
+        trainingProducts.value = []
+        trainingProductId.value = ''
+        trainingLoading.value = false
+        trainingError.value = ''
         entries.value = []
         jobs.value = []
         misses.value = []
@@ -1205,6 +1294,11 @@ export function useKnowledgeManager() {
     loading,
     busy,
     products,
+    trainingProducts,
+    trainingProductId,
+    trainingSession,
+    trainingLoading,
+    trainingError,
     entries,
     total,
     summary,
@@ -1268,6 +1362,8 @@ export function useKnowledgeManager() {
     changeTab,
     showView,
     openProduct,
+    openTraining,
+    loadTrainingProducts,
     editEntry,
     createOverride,
     writeOne,

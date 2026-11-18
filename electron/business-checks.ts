@@ -992,13 +992,13 @@ export async function businessChecks(options: {
       )
     })
     await check('business:welcome-timing-settings', '/shop/manage', async () => {
-      // 仅使用临时工作区的本机模拟店铺；不打开真实店铺，也不发送任何消息。
+      // 临时工作区的离线店铺记录用于验证媒体规则落盘；不打开平台或发送消息。
       // A selected standalone check has no previous route to initialize the preload bridge.
       await load('/')
       const previousStoreId = (await snapshot()).selection.storeId
       const fixture = await execute({
         action: 'add-store',
-        values: { platform: 'sim-local', storeName: '欢迎延迟验证店' },
+        values: { platform: 'pdd-web', storeName: '欢迎延迟验证店' },
       })
       const storeId = String(fixture.data.id)
       try {
@@ -1046,19 +1046,45 @@ export async function businessChecks(options: {
         )
         await setInput('文字欢迎语', '欢迎延迟夹具')
         await win.webContents.executeJavaScript(
-          `document.querySelector('.welcome-toggle input[aria-label="启用本店新会话欢迎"]').click()`,
-        )
-        await win.webContents.executeJavaScript(
-          `document.querySelectorAll('.reception-settings .runtime-page')[1].querySelector('.runtime-form').requestSubmit()`,
+          `(() => {const input=document.querySelector('textarea[aria-label="文字欢迎语"]'); input.focus(); input.blur()})()`,
         )
         await wait(
           `window.yunduoDesktop.backendSnapshot().then((s) => s.welcomeByStore[${JSON.stringify(storeId)}]?.text === '欢迎延迟夹具')`,
         )
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.welcome-toggle input[aria-label="启用本店新会话欢迎"]').click()`,
+        )
+        await wait(
+          `window.yunduoDesktop.backendSnapshot().then((s) => s.welcomeByStore[${JSON.stringify(storeId)}]?.enabled === true)`,
+        )
+        for (const [label, value, field] of [
+          ['欢迎延迟下限（秒）', '2', 'delayMinSeconds'],
+          ['欢迎延迟上限（秒）', '4', 'delayMaxSeconds'],
+        ] as const) {
+          await setInput(label, value)
+          await win.webContents.executeJavaScript(
+            `document.querySelector(${JSON.stringify(`input[aria-label="${label}"]`)}).dispatchEvent(new Event('change',{bubbles:true}))`,
+          )
+          await wait(
+            `window.yunduoDesktop.backendSnapshot().then((s) => s.welcomeByStore[${JSON.stringify(storeId)}]?.[${JSON.stringify(field)}] === ${value})`,
+          )
+        }
         const saved = await snapshot()
         const welcome = saved.welcomeByStore[storeId]
         assert.equal(welcome?.enabled, true)
-        assert.equal(welcome?.delayMinSeconds, 1)
-        assert.equal(welcome?.delayMaxSeconds, 3)
+        assert.equal(welcome?.delayMinSeconds, 2)
+        assert.equal(welcome?.delayMaxSeconds, 4)
+        assert.ok(
+          await win.webContents.executeJavaScript(
+            `Array.from(document.querySelectorAll('.el-message')).some((el)=>el.textContent.includes('保存成功'))`,
+          ),
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Array.from(document.querySelector('.welcome-panel').querySelectorAll('button')).some((el)=>['保存配置','保存接待规则'].includes(el.textContent.trim()))`,
+          ),
+          false,
+        )
         // 外部更新模拟另一窗口保存：当前草稿必须保留，只能点“重新载入”才替换。
         await execute({
           action: 'save-welcome',
@@ -1096,6 +1122,30 @@ export async function businessChecks(options: {
             `['欢迎延迟下限（秒）','欢迎延迟上限（秒）'].map((label) => ${panel}.querySelector('input[aria-label="' + label + '"]').value)`,
           ),
           ['5', '9'],
+        )
+        // 只验证规则保存，不准备、批准或执行任何媒体发送。
+        const mediaSnapshot = `window.yunduoDesktop.receptionSnapshot(${JSON.stringify(saved.workspaceId)})`
+        await win.webContents.executeJavaScript(
+          `Array.from(${panel}.querySelectorAll('button')).find(el=>el.textContent.trim()==='添加媒体').click()`,
+        )
+        await wait(`Boolean(${panel}.querySelector('input[type="url"]'))`)
+        await win.webContents.executeJavaScript(
+          `(() => {const input=${panel}.querySelector('input[type="url"]'); input.value='https://example.invalid/welcome.png'; input.dispatchEvent(new Event('input',{bubbles:true})); input.focus(); input.blur()})()`,
+        )
+        await wait(
+          `${mediaSnapshot}.then(s=>s.rules.some(rule=>rule.storeId===${JSON.stringify(storeId)}&&rule.actions.some(action=>action.url==='https://example.invalid/welcome.png')))`,
+        )
+        await win.webContents.executeJavaScript(
+          `Array.from(${panel}.querySelectorAll('button')).find(el=>el.textContent.trim()==='移除此媒体').click()`,
+        )
+        await wait(
+          `${mediaSnapshot}.then(s=>!s.rules.some(rule=>rule.storeId===${JSON.stringify(storeId)}&&rule.trigger==='visitor'))`,
+        )
+        assert.ok(
+          await win.webContents.executeJavaScript(
+            `(() => {const root=${panel}; const delay=root.querySelector('.welcome-delay').getBoundingClientRect(); const range=root.querySelector('.welcome-range').getBoundingClientRect(); const media=root.querySelector('.reception-rules').getBoundingClientRect(); return media.left>=delay.right && range.right<=delay.right+1 && Math.abs(media.top-delay.top)<30})()`,
+          ),
+          '欢迎媒体应位于欢迎延迟右侧并排展示',
         )
         await win.webContents.executeJavaScript(
           `${panel}.scrollIntoView({block:'center'}); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,

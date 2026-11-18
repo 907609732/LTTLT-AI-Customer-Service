@@ -1,5 +1,7 @@
 # knowledge 模块
 
+2026-11-19：AI训练场并入知识库商品页右侧 tab。训练固定使用知识库当前店铺和可选商品，商品选项由现有 `products` 查询分页读全；商品卡“AI训练场”只切换 tab 并预选本行 `binding.storeId/productId`，发送前不调用模型。配置中心侧栏移除训练场，旧 `?panel=training/sim` 兼容打开当前店铺的训练 tab；`ShopOpsPanel` 与店铺设置助手的旧入口同样直接打开知识库。切店/切商品清空历史并丢弃迟到回复与旧商品列表，图像测试、错误状态和清空历史保留。
+
 2026-11-15：新增独立 `#/knowledge` 管理窗口及SQLite统一审核知识接线，见 [KNOWLEDGE_LIBRARY.md](../../../docs/KNOWLEDGE_LIBRARY.md)。`KnowledgeManagerView` 组合商品卡、草稿编辑器与审核对话框，模块状态在 `manager-controller.ts`；服务经共享窄桥调用。下文旧页面的“启用并保存”不再发布：兼容保存/导入生成草稿，必须进入独立知识库审核。目录优先的拼多多只读采集已注册；专用KnowledgeCatalogDialog显示跨页数量并禁用未核对范围全选。文件导入、图片/扫描件及当前模型学习已通过同一dispatcher接入；每日09:00安静检查、待学箱、CSV/JSON兼容导出以及全库/同款备份恢复已接入；平台采集和导入只记录原料/待审稿，不发布答案。商品内“原始资料”明确提供本商品导入/学习入口；归档聊天选择日期范围、预览实际记录后导入，详见KNOWLEDGE_LIBRARY的当前功能章节。
 
 职责：意图、知识、训练、模型与禁用词界面。

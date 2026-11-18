@@ -2,18 +2,20 @@ import { expect, it } from 'vitest'
 import { navGroups, panelRegistry, resolvePanelKey } from '../src/app/navigation'
 import { routes } from '../src/app/router'
 
-it('配置中心只保留AI训练场，不再显示模拟客服台或模型定制', () => {
+it('配置中心侧栏不再显示AI训练场，也不再显示模拟客服台或模型定制', () => {
   const titles = navGroups.flatMap((group) => group.items.map((item) => item.title))
-  expect(titles).toContain('AI训练场')
+  expect(titles).not.toContain('AI训练场')
   expect(titles).not.toContain('模拟客服台')
   expect(titles).not.toContain('模型定制')
   for (const title of ['登录账号', '软件偏好', '团队管理', '我的订单', '算力消耗'])
     expect(titles).not.toContain(title)
+  expect(Object.keys(panelRegistry)).not.toContain('training')
   expect(Object.keys(panelRegistry)).not.toContain('aicustom')
   expect(Object.keys(panelRegistry)).not.toContain('sim')
 })
-it('旧模拟客服台地址进入训练场，旧模型定制地址回店铺基础设置入口', () => {
-  expect(resolvePanelKey('sim')).toBe('training')
+it('旧模拟客服台与训练场地址回配置中心兼容入口，旧模型定制地址回店铺基础设置入口', () => {
+  expect(resolvePanelKey('sim')).toBe('shops')
+  expect(resolvePanelKey('training')).toBe('shops')
   expect(resolvePanelKey('aicustom')).toBe('shops')
   for (const key of ['team', 'general', 'account']) expect(resolvePanelKey(key)).toBe('shops')
 })
@@ -38,8 +40,8 @@ it('删除占位开发中面板，旧地址回到店铺列表', () => {
     expect(Object.keys(panelRegistry)).not.toContain(key)
     expect(resolvePanelKey(key)).toBe('shops')
   }
-  // 真实训练与学习入口仍保留自己的面板键。
-  expect(resolvePanelKey('training')).toBe('training')
+  // 训练入口已迁入知识库；学习入口仍保留自己的面板键。
+  expect(resolvePanelKey('training')).toBe('shops')
   expect(resolvePanelKey('intent-doc')).toBe('intent-doc')
 })
 

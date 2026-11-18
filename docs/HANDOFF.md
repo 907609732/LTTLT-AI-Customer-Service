@@ -1,3 +1,78 @@
+## 2026-11-19：进店欢迎自动保存与紧凑布局（1.0.72）
+
+## 2026-11-19：配置中心嵌入工作台（1.0.73）
+
+配置中心路由改为 MainLayout 子路由，保留 /shop/manage 及全部 query/旧链接；与店铺首页共用原顶部导航、账号、AI和窗口控制，只切换下方内容。配置时隐藏店铺列表，使用配置功能侧栏；回首页保留店铺选择、搜索和折叠状态。删除配置自身顶栏及返回工作台、商品自动学习、官网按钮，内容高度适配剩余空间。复用既有 route watcher 隐藏/恢复原生店铺页，不新增业务命令或依赖。
+
+相关验证：4文件20项测试、vue-tsc、改动ESLint、build退出0；真实隔离Electron config:embedded-workbench 与 dialogs-and-navigation 2/2，通过顶栏DOM同一性、配置高度、按钮删除、导航高亮、首页返回及直接链接断言。截图 artifacts/desktop-selected-1795024641713/embedded-configuration.png 已查看。一次独立审查未发现实际问题；仅本次范围，未运行全量Release验证或调用真实平台/模型。已在主目录快进整合，主目录构建退出0；按原资料路径重开源码，窗口可访问树确认 v1.0.73，原两家店记录保留。未修改正式配置或发送消息；本批仅本机源码交付，未推送、云打包或发布。
+
+下一项：用户在日常店铺资料下查看首页/配置切换；验收条件为共用顶栏、店铺原生内容正确隐藏/恢复、配置功能正常可达。
+
+本批以最新主目录为整合目标，保留 1.0.70 的 AI 配置接口及 1.0.71 的知识库训练场迁移。仅修改欢迎设置、媒体规则的自动保存及相关向导提示/验证，复用 Vue、Element Plus 和现有业务保存服务，无新增依赖、IPC、vendor 或服务端改动。
+
+- 删除进店欢迎中的“保存配置”和“保存接待规则”。欢迎文字失焦保存，开关及有效延迟变更立即保存；收到真实回执后才提示“保存成功”。空操作不提交，失败保留输入；连续修改、失败重试、工作区/店铺/卸载租约及 CAS 保留。
+- 欢迎媒体位于延迟右侧并居右，文字保持整行；窄窗口换行。有效地址失焦、已审核视频选择及删除媒体自动保存。空白新行不冒充已保存；权威规则未载入时不写入，保留隐藏欢迎文字；删除最后一个媒体会删除空规则，连续替换不改变原启用状态。
+- 导入复用模式的欢迎文字仍随向导最后保存，媒体保持独立自动保存。保存服务新增有租约检查的确认队列，避免忙碌时丢弃媒体修改。
+
+Codex 主目录独立验证：8 文件 34 项相关测试、Vue/Electron 类型、改动文件 ESLint/格式和依赖边界、主目录 build 通过。隔离真实 Electron 的 `business:welcome-timing-settings` 检查 1/1，通过实际文字失焦、延迟变更、媒体新增/删除最后项、成功提示及左右布局/控件无溢出断言；报告 `artifacts/desktop-selected-1795022435495/report.json`，截图 `artifacts/desktop/welcome-timing-settings.png` 已查看。测试仅使用临时离线店铺记录，不打开平台或发送媒体。
+
+主目录日常资料路径已重启，真实窗口确认 v1.0.72。未更改真实配置、未发送买家消息、未公开发布或生产部署。云端构建和产物验收以后续回执为准。
+
+## 2026-11-19：迁移原生验收接线与冷启动修正（同批1.0.71）
+
+首轮CI 44353252685全量源码检查通过，原生92/94；两失败为旧sidebar训练断言及未装配knowledge IPC的旧训练路由验收。验收harness现复用生产createKnowledgeWindow/registerKnowledgeIpc/loadRenderer，验证真实知识库训练标签、问答表单和临时店铺选择。定向原生首次1/2另复现旧链接冷启动快照竞态，配置页现等待runtime.refresh后取店铺，并拒绝已离开路由的晚到打开。最终原生2/2、相关单元14/14、Electron TypeScript检查通过，界面构建退出0；未改正式知识库数据或发送消息。新版源码此前本机已显示1.0.71并验过商品行预选与切店；最终云端结果随后补充。
+
+## 2026-11-19：训练场知识库迁移整合（1.0.71）
+
+已保留主线 accbcc3 的关键词配置和 AI 配置接口，训练入口迁入知识库“商品”右侧，并在商品行加入自动预选入口。Codex 独立审查补充修正：普通快照刷新保持训练组件挂载；隐藏/新窗口上下文更新训练会话代次，拒绝迟到回复；失效商品保留明确预选并禁止提交，不静默退为通用问答，用户可显式选择“不指定商品”。仅复用现有训练与知识库服务，无新增依赖。
+
+独立验证：将 backend.snapshot 模拟为每次返回新对象后，新增回归先 RED（4失败/7通过），修复后 11/11 通过；与最新主线整合后 9 文件 98 项通过（含关键词自动保存与 AI 配置读取），完整 typecheck 与改动范围 ESLint 退出0。首轮 DeepSeek 退出0且 final.reason.kind=completed，其相关既有131项及build通过记录保留。未将合成回答当作真实模型验收，未调用付费模型或发送买家消息。最终主目录构建与桌面窗口验收结果随后追加。
+
+## 2026-11-19：AI训练场迁入知识库（1.0.69，隔离 worktree 待独立验收）
+
+训练场从配置中心侧栏迁入知识库商品 tab 右侧；固定使用知识库当前店铺，商品下拉按现有 products 查询分页读全并显示名称/编号。商品卡“AI训练场”只切 tab 和预选本行 storeId/productId，发送测试才调用 `start-training`。切店/切商品清空历史并丢弃迟到回复、错误和旧商品列表；图像测试、错误状态和清空历史保留。旧 `?panel=training/sim`、ShopOpsPanel 图片入口和店铺设置助手均打开知识库训练 tab，旧独立训练面板已移除。
+
+验证仅为本次直接范围：新增训练/兼容测试 9 项及既有相关知识库、店铺设置、ShopOpsPanel 11 文件 131 项通过；typecheck、改动 ESLint/Prettier、`npm run build` exit 0。未跑全量 check/desktop、未打开真实店铺、未调用真实模型/买家、未打包/提交/推送/部署。版本 1.0.69 与 lock 已同步：开工时主树为 1.0.68，但任务中主树先由其他任务提交 `be1755c` 到 1.0.69，后由合并 `accbcc3` 推进到 1.0.70；本分支按开工时派单保留 1.0.69，现已低于主树，整合前须处理版本回退/重升。设计与实际回执见 `docs/superpowers/plans/2026-11-19-training-knowledge.md` 和 ignored `artifacts/training-migration/worker-report.md`。
+
+## 2026-11-19：AI 配置接口集成验收（接口交付版 1.0.70）
+
+最终回执：`accbcc32526ff8405b92eff972d7d71447dd8a89` 已合入并推送 main；[完整桌面 CI 44350540091](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44350540091) 成功（181 文件/1408 单元、242 上游，Electron、知识库/资料学习及打包检查全部通过）。同次 installer/ZIP/manifest 的 SHA256 全匹配，manifest 精确绑定 1.0.70、该提交和该 run。下载的 ZIP 在本机复用 package-smoke 通过全部 10 项，MCP 与 CLI 连接器逐字节匹配主目录本机构建；打包 CLI 显示 1.0.70 并成功只读连接运行实例。
+
+主目录源码已正常重启，PID 142636，无诊断参数，窗口可访问树明确显示 v1.0.70。标准 MCP 实例只读验收为 14 工具/三配置组，两店欢迎语和识图配置均可读；CLI status/stores/get 实测通过。原 profile、两家店及 AI 全部关闭保留，未修改真实配置或发送消息。证据位于 `artifacts/ai-configuration/`，云包位于 `release/ci-accbcc3-ai-interface/`；没有创建公开 Release 或部署服务端。后续主线的 1.0.71 训练迁移已保留本接口；本段云包和运行回执仅对应已验收的 1.0.70，不替代其他任务的新版验收。
+
+接口初始候选 ad104c0 已由 Codex 独立检查：定向 8 文件 50 项、完整 typecheck、完整 build、改动 ESLint/Prettier 均通过，标准 MCP 与 CLI 子进程均有端到端验证。独立审查发现的连接文件错误内容泄露、版本字段说明、晚到账号回执和识图预览问题均已修复并回归。
+
+同批工作期间主线新增关键词配置提交 be1755c（1.0.69）。本候选在隔离工作树合并该已提交主线，只在 HANDOFF 保留双方文字记录；关键词原有源码、vendor 和配置契约相对 be1755c 无差异。最终接口版本调整为 1.0.70，package 与 lockfile 一致，未搬移另一任务的未提交改动。合并后同一 50 项回归、完整 typecheck 和 build 通过，证据在 ignored `artifacts/ai-configuration/merged-*.log`。最终主目录运行及同源云包验收待后续回执。
+
+## 2026-11-19：AI配置接口（初始源码候选 1.0.69，MCP+CLI）
+
+用户已确认 MCP + CLI 共用运行中软件的认证 gateway；本分支只实现 `reply-pacing`（全局）、`welcome`（按店）和 `vision.enabled`（按店）。新增 `lingtu_config_schema`、`lingtu_get_config`、`lingtu_preview_config`、`lingtu_apply_config`，保留原10个MCP工具；新增 `lingtu-cli.cjs`（`status`、`stores`、`config schema/get/preview/apply`，`node:util` parseArgs，`--json`参数或stdin，`--connection-file`，非0失败）并接入源码 `npm run ai` 与安装版 `resources/ai-interface`。未新增依赖，未改 vendor、node_modules、真实 userData 或真实配置。
+
+保存复用 `save-config`+REPLY_PACING 的完整 `expected`、`save-welcome` 和 `save-vision-settings` 的原生 `version` CAS；预览不执行命令，apply 回读新快照实际值。旧工作区/店铺/版本、未知或空字段、并发界面保存、重复requestId、识图能力不支持均被拒绝；账号在写入过程中变化时不返回成功。CLI 不回显损坏连接文件内容或token，写操作不自动重试。
+
+实际验证：最终定向套件 **5文件35项通过**（`tests/agent-settings`、`agent-config-lifecycle`、`agent-config-persistence` 真实厂商后端本地夹具、`agent-config-cli` 子进程、`agent-interface` 标准MCP Client），日志 `artifacts/ai-configuration/logs/green-final-agent-suite.log`，exit 0。RED 证据：`red-task1.log` 13 failed/1 passed（工具未注册）；`red-task2.log` CLI入口缺失、apply注解仍为只读。新增连接文件泄露用例在修复前曾 1 failed/8 passed（`green-task2-cli-debug.log`）。`tsc -p config/tsconfig.electron.json`、`vue-tsc --noEmit`、改动范围 ESLint/Prettier、边界检查、`npm run build:desktop` 均 exit 0；已生成 `dist-electron/lingtu-mcp.cjs` 与 `dist-electron/lingtu-cli.cjs`。首次 Electron typecheck 的2个索引签名错误日志保留，修复后复跑通过。
+
+未做：真实账号/店铺配置写入、真实模型或买家发送、完整安装包、全量 `npm run check`/`npm run test:desktop`、应用重启/推送/部署/发布。打包仅更新 `extraResources` 白名单，安装器验收和源码重启由集成者执行。下一项：Codex 独立复核、按需修复、集成并重开最新源码。
+
+## 2026-11-19：接待关键词紧凑双栏与自动保存（1.0.69，隔离工作树；待主管整合）
+
+用户要求在转接人工接待区将“全局人工关键词”和“客服接管关键词”改为左右等宽、紧凑等高文本框，各自带启用开关，并移除“保存配置 / 保存全局关键词 / 保存客服接管关键词”三个按钮。本批只在 `C:\Users\90760\.codex\worktrees\keyword-settings\client` 实施，未合并主目录。
+
+已完成：
+
+- `ShopOpsPanel` 的转接区改为两列等宽卡片，两个 textarea 均为 3 行；每个卡片头部含独立开关。全局标题明确“仅影响继承全局配置的店铺”，客服接管标题保留“客服发出后暂停当前会话 AI”。关键词原文与开关分离，关闭不清空文本框。
+- 文本在 textarea 失焦/点击外部时自动保存；未修改的失焦不发请求。开关变更立即保存。成功且页面租约仍有效时才调用 `ElMessage.success('保存成功')`；失败写入当前面板错误并保留草稿；切换开关失败会回退开关，不回退文本草稿。
+- 每个字段独立串行队列，可在旧请求等待时保留最新失焦草稿；不共用 `task.pending`，不会因一个字段保存中而丢失另一个字段的编辑。成功回执同时校验 workspace、店铺、view、loadRevision 与卸载状态，切店/切视图/切工作区/卸载后的迟到结果不提示成功、不回填。
+- 全局与客服接管关键词都使用 `save-config` + `RECEPTION_KEYWORDS`。主进程严格解析 `keywords|enabled` 两种模式，关键词逐项 trim/去空/去重、每词最多 30 字、最多 100 个；全局保存增加预期旧值检查，客服接管沿用既有 CAS。主进程按顺序串行读改写，避免交错覆盖。
+- 开关保存在本工程 `reception-keyword-settings.json`（严格 schema、临时文件改名原子写、未改原文件时失败不覆盖）；关键词原文仍保存在厂商 ConfigStore。旧账号缺失开关字段时按原先“开启”解释。
+- 厂商 `backend.cjs` 仅增加可选 `resolveKeywordSafety` 注入点：ReplyEngine 读取配置时只替换生效的 handoff/manual 数组。全局开关关闭时继承全局的店铺不再匹配买家转人工词，但本店自定义关键词优先且保留原语义；客服接管开关关闭时仅停止卖家侧接管词匹配。原生接待操作的 `transferKeywords` 也走同一过滤，未开启开关时不会触发转接请求。未注入该回调时上游行为不变。
+- 转接区的“继承全局关键词”和本店自定义关键词也改为失焦/切换即时自动保存；复用向导的 `deferredSave` 仍只向上传递草稿，不单独写盘。全局与客服接管关键词在复用时仍独立自动保存。
+- `package.json` 与 `package-lock.json` 统一为 1.0.69；`vendor/lingtu-runtime/source-files.json` 更新实际 sha256/localPatch，PROVENANCE 记录最小 hook 来源与边界。
+
+验证（仅本批相关，非全量）：`npx vitest run tests/reception-keyword-autosave-races.test.ts tests/reception-keyword-settings.test.ts tests/shop-setup-wizard.test.ts tests/shop-setup-reuse-wizard.test.ts tests/shop-ops-panel.test.ts --maxWorkers=1 --no-file-parallelism` 为 5 文件 59 项通过；`vue-tsc --noEmit`、`tsc -p config/tsconfig.electron.json --noEmit`、改动文件 ESLint、Prettier check、`node scripts/check-boundaries.mjs`、`npm run check:vendor`（vendor 80 / server 97）和 `npm run build` 均退出 0。构建保留既有 Zod 注释与 >500kB chunk 警告。
+
+未执行：全量 `npm run check`、全量 `npm run test:desktop`、真实店铺/平台消息/模型请求/买家发送、真实重启进程、安装包/发布/部署、截图验收；未提交、未推送。下一步由主管整合主目录，并在合并后的桌面实例确认双栏布局和重启后开关恢复。
+
 ## 2026-11-18：主干整合验收（1.0.68，设备授权注册回跳；已合入 main 并实际启动）
 
 以 `07a2ac6` 为基线、用 `git merge --no-ff` 整合 `a28750d`（`codex/device-registration-redirect-20261117`，base `377193d`）保留真实父历史，只重放设备授权注册回跳成果：`server/patches.json` 为 `web/src/features/auth/sign-up/components/sign-up-form.tsx` 与 `web/src/features/auth/sign-in/index.tsx` 追加 redirect hunks，并新增 `web/src/features/auth/sign-up/index.tsx`、`web/src/routes/(auth)/sign-up.tsx`、`web/src/features/auth/hooks/use-auth-redirect.ts` 三个补丁键；纳入 3 个新增自有 auth suite、更新后的 `admin-login-hint.test.tsx`、`server/source-files.json`（97 条，全部 hash 匹配）与 `server/PROVENANCE.md`；`server/scripts/verify.ts` 仅向既有 CI 输入追加这 3 份 suite 与 3 个实际改动 lint 文件。main 既有成本/支付/主图采集/PDD 实店修复/欢迎回执/调试 gate 与全部 guard 保持，原 95 个补丁 hunk 与 94 条旧 manifest 条目 0 丢失；`package.json`/`package-lock.json` 统一 1.0.68，无依赖变化；`vendor`/`electron`/`src`/CI/Go 零差异。
@@ -807,3 +882,5 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 ## 拼多多商品主图采集（1.0.64）
 
 修复素材轮播把 AI 角标计为主图的问题，保留缺图及声明数量校验；旧布局兼容图片去重和懒加载来源。商品详情 DOM、采集 provider 和商品记录共 42 项专项测试通过。本机早期修复版完成实店 5 件采集；合入后仍需在发布构建复验商品数量和主图，不将早期版本的结果当作本版实店验收。
+
+主管整合验收补充（2026-11-19，1.0.69）：本批已整合到主目录；未覆盖其余未提交设计文档。Codex 独立执行6文件74项相关测试、4文件98项受影响上游测试，Vue/Electron类型、变更文件ESLint、依赖边界、vendor 80/server 97完整性、主目录build均通过。浏览器只用内存预览数据检查两栏，实测两卡宽381.33px、两文本框高73px，截图位于本机协作目录keyword-settings-20261119/layout.png；这不是实店功能验收。主目录正常资料路径重启，真实窗口显示v1.0.69（PID 141592）；未编辑真实关键词或开关、未发送买家消息。云端构建状态以后续回执为准。

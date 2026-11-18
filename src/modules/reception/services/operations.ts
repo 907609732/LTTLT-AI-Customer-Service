@@ -30,7 +30,8 @@ export function useReceptionOperations(
   const service = computed(() => provided?.() ?? getReceptionService())
   let generation = 0,
     sequence = 0,
-    timer: ReturnType<typeof setInterval> | undefined
+    timer: ReturnType<typeof setInterval> | undefined,
+    acknowledgedTail: Promise<unknown> = Promise.resolve()
   const message = (cause: unknown) =>
     cause instanceof Error
       ? cause.message.replace(/^Error invoking remote method '[^']+':(?: Error:)?\s*/, '')
@@ -51,30 +52,64 @@ export function useReceptionOperations(
       if (expected === generation && request === sequence) error.value = message(cause)
     }
   }
-  async function execute(command: ReceptionCommand) {
-    if (!service.value || busy.value || command.workspaceId !== workspaceId()) return false
+  /** Shared send path; returns only the snapshot actually received for this command. */
+  async function send(command: ReceptionCommand): Promise<ReceptionSnapshot | undefined> {
+    const bridge = service.value
+    if (!bridge || command.workspaceId !== workspaceId()) return undefined
     busy.value = true
     error.value = ''
     const expected = generation,
       request = ++sequence
     try {
-      const next = await service.value.receptionExecute(command)
+      const next = await bridge.receptionExecute(command)
       if (expected !== generation || request !== sequence || next.workspaceId !== workspaceId())
-        return false
+        return undefined
       snapshot.value = next
-      return true
+      return next
     } catch (cause) {
       if (expected === generation && request === sequence) error.value = message(cause)
-      return false
+      return undefined
     } finally {
       if (expected === generation) busy.value = false
     }
+  }
+  async function execute(command: ReceptionCommand) {
+    if (!service.value || busy.value || command.workspaceId !== workspaceId()) return false
+    return Boolean(await send(command))
+  }
+  /**
+   * Autosave entry: waits for a manual command already in flight instead of
+   * dropping the edit, and resolves only when this command has its own
+   * confirmed snapshot. Callers must not show success on undefined.
+   */
+  async function executeConfirmed(
+    command: ReceptionCommand,
+  ): Promise<ReceptionSnapshot | undefined> {
+    if (!service.value || !workspaceId() || command.workspaceId !== workspaceId()) return undefined
+    const expected = generation
+    const bridge = service.value
+    const isCurrent = () =>
+      generation === expected && service.value === bridge && command.workspaceId === workspaceId()
+    const run = acknowledgedTail.then(async () => {
+      while (busy.value) {
+        if (!isCurrent()) return undefined
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      if (!isCurrent()) return undefined
+      return send(command)
+    })
+    acknowledgedTail = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
   }
   watch(
     workspaceId,
     () => {
       generation++
       sequence++
+      acknowledgedTail = Promise.resolve()
       snapshot.value = undefined
       error.value = ''
       busy.value = false
@@ -92,5 +127,5 @@ export function useReceptionOperations(
     generation++
     if (timer) clearInterval(timer)
   })
-  return { snapshot, error, busy, service, refresh, execute }
+  return { snapshot, error, busy, service, refresh, execute, executeConfirmed }
 }

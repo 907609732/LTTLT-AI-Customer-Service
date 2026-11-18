@@ -1,4 +1,66 @@
+## 2026-11-19 欢迎自动保存（1.0.72，主目录专项）
+
+- 独立8文件34项：欢迎文字/延迟/开关、媒体规则回执、旧欢迎回执兼容、加载冲突、删除期间替换、失败后重试、工作区A-B-A/卸载租约、复用模式媒体独立保存，均 exit 0。日志在本机协作目录 welcome-autosave-20261119/main-tests.log。
+- Vue/Electron类型、改动范围ESLint/格式和依赖边界通过；主目录npm run build通过，保留既有bundle体积提示。
+- `LINGTU_DESKTOP_CHECKS=business:welcome-timing-settings node scripts/run-desktop.mjs`：1/1、exit 0，主目录报告 artifacts/desktop-selected-1795022435495/report.json，截图 artifacts/desktop/welcome-timing-settings.png已查看，版本1.0.72。断言真实隔离配置写入、成功提示、媒体新增及最后项删除、欢迎延迟与媒体左右布局和控件不越界。检查结束的清理阶段存在原有business:snapshot已移除handler日志；报告及退出状态通过。
+- 日常资料路径源码已正常重启，Windows可访问树确认v1.0.72。真实配置/买家消息未改。本批未本机运行全量check或全量桌面套件，未发布/部署；云端与产物检查以后续回执为准。
+
+## 2026-11-19：迁移原生验收接线与冷启动修正（同批1.0.71）
+
+首轮CI 44353252685全量源码检查通过，原生92/94；两失败为旧sidebar训练断言及未装配knowledge IPC的旧训练路由验收。验收harness现复用生产createKnowledgeWindow/registerKnowledgeIpc/loadRenderer，验证真实知识库训练标签、问答表单和临时店铺选择。定向原生首次1/2另复现旧链接冷启动快照竞态，配置页现等待runtime.refresh后取店铺，并拒绝已离开路由的晚到打开。最终原生2/2、相关单元14/14、Electron TypeScript检查通过，界面构建退出0；未改正式知识库数据或发送消息。新版源码此前本机已显示1.0.71并验过商品行预选与切店；最终云端结果随后补充。
+
+## 2026-11-19：训练场知识库迁移整合（1.0.71）
+
+已保留主线 accbcc3 的关键词配置和 AI 配置接口，训练入口迁入知识库“商品”右侧，并在商品行加入自动预选入口。Codex 独立审查补充修正：普通快照刷新保持训练组件挂载；隐藏/新窗口上下文更新训练会话代次，拒绝迟到回复；失效商品保留明确预选并禁止提交，不静默退为通用问答，用户可显式选择“不指定商品”。仅复用现有训练与知识库服务，无新增依赖。
+
+独立验证：将 backend.snapshot 模拟为每次返回新对象后，新增回归先 RED（4失败/7通过），修复后 11/11 通过；与最新主线整合后 9 文件 98 项通过（含关键词自动保存与 AI 配置读取），完整 typecheck 与改动范围 ESLint 退出0。首轮 DeepSeek 退出0且 final.reason.kind=completed，其相关既有131项及build通过记录保留。未将合成回答当作真实模型验收，未调用付费模型或发送买家消息。最终主目录构建与桌面窗口验收结果随后追加。
+
+## 2026-11-19：AI 配置接口最终验收（1.0.70 / accbcc3）
+
+定向 8 文件 50 项、完整 typecheck/build、改动 ESLint/Prettier、边界检查通过；合并关键词主线 be1755c 后再次通过相同 50 项及 typecheck/build。CI [44350540091](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44350540091) 对 accbcc32526ff8405b92eff972d7d71447dd8a89 成功：181 文件/1408 单元与 242 上游，全部实际 Electron、知识/学习和打包步骤成功。
+
+installer、ZIP、manifest 三个 SHA256 核对通过，manifest version/sourceCommit/workflow 精确。下载包 package-smoke exit 0（10 项），resources/ai-interface 下 MCP、CLI 均存在并与本机 main 构建逐字节一致；打包 CLI help/status 通过。真实源码实例 PID 142636、界面 v1.0.70；MCP 14 工具、三配置组读取及 CLI status/stores/get 只读验收通过，两家原店铺保留且 AI 全关闭，真实配置写入 0。日志和元数据在 `artifacts/ai-configuration/`，下载产物在 `release/ci-accbcc3-ai-interface/`。没有公开 Release、部署或真实买家发送。本回执不声称后续 1.0.71 训练迁移包已由本任务验收。
+
+## 2026-11-19：AI配置接口 MCP+CLI（初始源码 1.0.69，定向验证）
+
+范围：`src/shared/contracts/agent.ts`、新增 `agent-settings.ts`、`electron/agent/settings.ts`、`service.ts`、`mcp-server.ts`、新增 `cli.ts`/`connection-file.ts`、`scripts/build-electron.mjs`、`config/electron-builder.json`、`package.json`/`package-lock.json`（1.0.68→1.0.69，无依赖变化）及相关契约/服务/适配器/测试文档。未改 vendor、node_modules、真实 userData、真实配置、AI启停/发送/调试能力。
+
+RED：`artifacts/ai-configuration/logs/red-task1.log`，新配置测试 **13 failed / 1 passed**，失败均为 `lingtu_*_config` 未在 `agentCallSchema` 注册；`red-task2.log` 中 CLI suite 因 `electron/agent/cli.ts` 不存在无法构建，标准 MCP Client 断言 apply 注解失败（实际仍 `readOnlyHint:true`、`destructiveHint:false`）。连接文件泄露防护用例在修复前记录 **1 failed / 8 passed**（`green-task2-cli-debug.log`），失败原因为JSON解析错误回显了损坏文件内容。
+
+GREEN：`green-final-agent-suite.log`，5文件 **35项通过**，exit 0。覆盖：
+
+- `agent-settings`：三组schema/读取/预览/保存；未知/空字段；全局与店铺作用域；缺失欢迎记录默认1～3秒；未修改字段保留；旧workspace/store/version；并发界面保存不丢失；重复requestId不重复写、同ID改参数拒绝；识图能力拒绝；输出不含凭据/提示词。
+- `agent-config-persistence`：真实 `vendor/lingtu-runtime/electron/backend.cjs` + 真实 `ReplyPacingStore` 临时目录，三组保存后重建 backend/repository 再读一致，AI开关保持关闭，三类CAS冲突均拒绝并保留界面值。
+- `agent-config-cli`：真实子进程覆盖 help/status/stores/schema/get（参数与stdin）/preview/apply、失败stale版本、非法JSON/缺少JSON/未知命令/未知选项、缺失连接文件；apply同requestId重复返回同结果且仅写一次；损坏连接文件内容与token不回显。
+- `agent-interface`：原8项基线保留并扩展，标准MCP Client列出14工具，apply注解为 `readOnlyHint:false`/`destructiveHint:true`，config schema/get/preview/apply端到端；preview不触发execute，apply仅执行一次。
+
+静态/构建：`tsc -p config/tsconfig.electron.json` exit 0（首次2个 `Record` 索引签名错误见 `typecheck-electron-task2.log`，修复后通过）；`vue-tsc --noEmit` exit 0；改动文件 ESLint exit 0；Prettier check exit 0；`node scripts/check-boundaries.mjs` exit 0；`npm run build:desktop` exit 0，生成 `dist-electron/lingtu-mcp.cjs`/`lingtu-cli.cjs`。未运行全量 `npm run check`、`test:desktop`、安装包或真实应用重启。
+
+限制：验证只用临时目录与本地夹具；未做真实账号/店铺配置写入、真实模型调用、买家发送、MCP宿主实际配置界面、安装器资源落盘或云端CI。安装版 `resources/ai-interface` 仅更新打包白名单，需打包验收。最终提交、重启与集成由 Codex 负责。
+
 # 客户端与独立服务端验证
+
+## 2026-11-19：AI训练场迁入知识库（1.0.69，隔离 worktree）
+
+范围：知识库商品 tab 右侧训练 tab、当前店铺分页商品选择、商品行预选、知识库店铺租约与迟到回复/商品列表隔离、旧 `?panel=training/sim` 和 ShopOpsPanel/店铺设置入口兼容。未改共享 runtime/backend、发送审批、模型请求参数、vendor 或真实数据。
+
+RED：先执行 `npx vitest run tests/knowledge-training.test.ts tests/configuration-navigation.test.ts tests/training-legacy-route.test.ts tests/shop-setup.test.ts tests/knowledge-window.test.ts`，exit 1，5 文件 13 失败/12 通过，失败断言均落在迁移行为。
+
+GREEN：新增 `tests/knowledge-training.test.ts` 7/7；相关既有 11 文件 131/131；`npm run typecheck` exit 0；改动 ESLint 与 Prettier check 通过；`npm run build` exit 0（仅既有依赖注释/chunk 警告）。一次 12 文件合并运行遇到 Vitest 临时目录 `EBUSY` unhandled error，拆分后两条命令均 exit 0，未将该次异常计为通过。未跑全量 check/desktop、打包、真实店铺/模型/买家，也未提交/推送/部署。版本冲突：开工时主树 1.0.68，任务中先由 `be1755c` 到 1.0.69、后由 `accbcc3` 到 1.0.70；本分支按指定保留 1.0.69，现低于主树，整合前须处理。详细设计、HANDOFF 与验收范围见 `docs/superpowers/plans/2026-11-19-training-knowledge.md`。
+
+## 2026-11-19：关键词双栏/开关/失焦自动保存（1.0.69，局部验证）
+
+范围：仅验证本次隔离工作树中的接待关键词设置、自动保存竞态、关键词开关持久化/运行时过滤，以及受影响的店铺向导与复用向导。未改店铺/账号/Key/AI 开关/发送审批，未连接真实平台或发送消息。
+
+- `npx vitest run tests/reception-keyword-autosave-races.test.ts tests/reception-keyword-settings.test.ts tests/shop-setup-wizard.test.ts tests/shop-setup-reuse-wizard.test.ts tests/shop-ops-panel.test.ts --maxWorkers=1 --no-file-parallelism`：5 文件 **59 项通过**，exit 0。覆盖双栏/3 行等高、无三个保存按钮、失焦保存与未修改不保存、`ElMessage('保存成功')` 仅在成功且租约有效后出现、失败保留草稿、开关即时保存且原文保留、保存中再次失焦的最新草稿排队、快速关/开与自定义/继承的最终状态、切店/卸载迟到结果、全局与客服接管 CAS 基线重挂保留、复用模式仍延后保存。
+- `tests/reception-keyword-settings.test.ts` 另用真实 `createBackend` + `ReplyEngine` 验证 `resolveKeywordSafety` 注入点：关闭后继承全局/卖家接管匹配为空，但 ConfigStore 原始关键词仍保留；本店自定义 handoff 关键词在全局开关关闭时仍优先生效。
+- `npx vue-tsc --noEmit`、`npx tsc -p config/tsconfig.electron.json --noEmit`：exit 0。
+- 改动文件 `npx eslint --config config/eslint.config.mjs ...`：exit 0；Prettier check 全部通过。
+- `node scripts/check-boundaries.mjs`：模块依赖方向与组件环境 API 检查通过。
+- `npm run check:vendor`：vendor 80 文件、server 97 文件完整性通过，exit 0。
+- `npm run build`：renderer + Electron 构建 exit 0；保留既有 Zod 滚动注释和主包 >500kB 警告。
+
+未运行全量 `npm run check`、全量桌面套件、受真实 Electron 启动/重启验收、截图对比、安装包/发布/部署；未启动或结束任何现有应用进程，未访问真实业务数据/凭据。开关跨进程恢复由原子 JSON 存储单测和初始化组合覆盖，仍需主管在主目录正常重启后目视确认。
 
 ## 2026-11-18：主干整合验收（源码 1.0.68，设备授权注册回跳；已合入 main 并实际启动）
 

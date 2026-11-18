@@ -2,6 +2,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { ShopOpsPanel, readReceptionSetup } from '@/modules/reception'
+import { openKnowledgeManager } from '@/modules/knowledge'
 import { ReplyPacingSettings } from '@/modules/settings'
 import { useRoute, useRouter } from 'vue-router'
 import { useRuntimeStore } from '@/shared/state/runtime'
@@ -273,6 +274,10 @@ async function configure(panel: string) {
   const target = setup.storeId
   setup.pauseForConfiguration()
   try {
+    if (panel === 'training') {
+      await openKnowledgeManager(target, { tab: 'training' })
+      return
+    }
     await router.push({ path: '/shop/manage', query: { panel } })
   } catch (cause) {
     if (target && setup.storeId === target) {
@@ -412,7 +417,7 @@ const afterSales = [
             </p>
             <div class="setup-shortcuts">
               <button @click="configure('goods')">商品知识</button
-              ><button @click="configure('training')">AI 训练场</button
+              ><button @click="configure('training')">AI训练场</button
               ><button :disabled="setup.pending" @click="connect">
                 {{ setup.shop?.runtime.online ? '打开店铺' : '连接店铺' }}
               </button>
@@ -788,7 +793,7 @@ const afterSales = [
             <p class="quiet-note">完成设置不会自动开启 AI，正式发送仍需逐条批准。</p>
             <div class="setup-shortcuts">
               <button @click="configure('goods')">商品知识</button
-              ><button @click="configure('training')">AI 训练场</button>
+              ><button @click="configure('training')">AI训练场</button>
             </div>
             <footer class="finish-actions">
               <el-button @click="editAgain">重新修改</el-button
@@ -826,7 +831,7 @@ const afterSales = [
             setup.step === 3
               ? setup.receptionDeferred
                 ? '导入的接待内容将在最后统一保存'
-                : '请分别保存接待配置'
+                : '关键词与欢迎设置会自动保存'
               : '政策尚未保存'
           }}</span
           ><el-button

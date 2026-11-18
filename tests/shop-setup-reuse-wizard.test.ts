@@ -157,6 +157,22 @@ async function fixture(
       ]
       return { status: 'ok', message: '全局关键词已保存', data: {} }
     }
+    if (command.action === 'save-config' && command.screenId === 'RECEPTION_KEYWORDS') {
+      if (command.values?.kind === 'handoff' && command.values.mode === 'keywords') {
+        runtime.snapshot.config.safety.handoffKeywords = [
+          ...((command.values.keywords as string[]) ?? []),
+        ]
+      } else if (command.values?.kind === 'handoff') {
+        runtime.snapshot.config.safety.handoffKeywordsEnabled = Boolean(command.values?.enabled)
+      } else if (command.values?.mode === 'keywords') {
+        runtime.snapshot.config.safety.manualReplyKeywords = [
+          ...((command.values?.keywords as string[]) ?? []),
+        ]
+      } else {
+        runtime.snapshot.config.safety.manualReplyKeywordsEnabled = Boolean(command.values?.enabled)
+      }
+      return { status: 'ok', message: '已保存', data: {} }
+    }
     throw Error('非预期业务命令：' + command.action)
   })
   const setup = useShopSetupStore()
@@ -515,7 +531,8 @@ it('统一保存模式隐藏接待独立保存并显示待保存提示，全局�
   runtime.available = true
   setup.step = 3
   await flushPromises()
-  expect(wrapper.findAll('button').filter((button) => button.text() === '保存配置')).toHaveLength(2)
+  // 欢迎文字/开关/延迟改为自动保存后，普通与统一保存模式都不再有独立“保存配置”。
+  expect(wrapper.findAll('button').filter((button) => button.text() === '保存配置')).toHaveLength(0)
 
   expect(await importAll(setup)).toBe(true)
   setup.step = 3
@@ -530,11 +547,12 @@ it('统一保存模式隐藏接待独立保存并显示待保存提示，全局�
   expect(setup.reuseApplied?.reception.welcome.text).toBe('导入后修改')
   expect(runtime.run).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'save-welcome' }))
   const transfer = panels[0]!
-  await transfer.get('textarea[aria-label="全局人工处理关键词"]').setValue('全局草稿')
-  await transfer.findAll('form')[1]!.trigger('submit')
+  const globalKeywords = transfer.get('textarea[aria-label="全局人工处理关键词"]')
+  await globalKeywords.setValue('全局草稿')
+  await globalKeywords.trigger('blur')
   await flushPromises()
   expect(runtime.run).toHaveBeenCalledWith(
-    expect.objectContaining({ action: 'save-config', screenId: 'UX08' }),
+    expect.objectContaining({ action: 'save-config', screenId: 'RECEPTION_KEYWORDS' }),
   )
 })
 

@@ -1,11 +1,13 @@
 import { simpleLoginChecks } from './simple-login-checks'
-import { app, BrowserWindow, WebContentsView, type Session } from 'electron'
+import { app, BrowserWindow, WebContentsView, ipcMain, screen, type Session } from 'electron'
 import type { BackendSnapshot } from '../src/shared/contracts/backend'
 import fs from 'node:fs'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 import os from 'node:os'
-import { createWindow, rendererPath } from './windows'
+import { createWindow, rendererPath, loadRenderer } from './windows'
+import { createKnowledgeWindow } from './knowledge-window'
+import { registerKnowledgeIpc } from './knowledge-ipc'
 import { registerDesktopIpc } from './ipc'
 import { createLocalRuntime, requireAppFrame } from './local-runtime'
 import { createWorkspaceRuntime } from './workspace-runtime'
@@ -93,6 +95,28 @@ app
     })
     let disposeBusiness = registerBusinessIpc(runtime)
     let disposeFeatures = registerPlatformFeatureIpc({ runtime, authorize: requireAppFrame })
+    const knowledgeWindow = createKnowledgeWindow({
+      create: () => createWindow({ knowledge: true }),
+      load: async (window) => {
+        if (!(window instanceof BrowserWindow)) throw Error('知识库窗口不受信')
+        await loadRenderer(window, '/knowledge')
+      },
+      workspace: () => runtime.snapshot().workspaceId,
+      stores: () => runtime.snapshot().stores.map((store) => store.id),
+      workArea: () => screen.getDisplayMatching(win.getBounds()).workArea,
+    })
+    const disposeKnowledge = registerKnowledgeIpc({
+      ipc: {
+        handle: (name, handler) => ipcMain.handle(name, handler),
+        removeHandler: (name) => ipcMain.removeHandler(name),
+      },
+      authorize: (event) => requireAppFrame(event as Electron.IpcMainInvokeEvent),
+      resolve: () => ({
+        workspaceId: runtime.snapshot().workspaceId,
+        request: (input) => runtime.knowledge().request(input),
+      }),
+      window: knowledgeWindow,
+    })
     const disposeDeveloperDebug = registerDeveloperDebugIpc({
       enabled: !app.isPackaged,
       runtime: () => runtime,
@@ -204,7 +228,7 @@ app
       const nav = (await win.webContents.executeJavaScript(
         `document.querySelector('[aria-label="功能导航"]').innerText`,
       )) as string
-      assert.ok(nav.includes('AI训练场'))
+      assert.ok(!nav.includes('AI训练场'), '训练场入口应位于知识库')
       assert.ok(!nav.includes('模拟客服台') && !nav.includes('模型定制'))
       for (const label of ['登录账号', '软件偏好', '团队管理', '我的订单', '算力消耗'])
         assert.ok(!nav.includes(label))
@@ -217,10 +241,6 @@ app
           `Boolean(document.querySelector('.sider-recharge'))`,
         ),
         false,
-      )
-      await load('/shop/manage?panel=sim')
-      assert.ok(
-        (await win.webContents.executeJavaScript('document.body.innerText')).includes('AI 训练场'),
       )
       const fixture = await runtime.execute({
         workspaceId: runtime.snapshot().workspaceId,
@@ -383,6 +403,52 @@ app
         await win.webContents.executeJavaScript(`document.querySelectorAll('.el-message').length`),
         0,
         '导航不应触发业务占位提示',
+      )
+    })
+    await check('config:embedded-workbench', '/', async () => {
+      await load('/')
+      await win.webContents.executeJavaScript(
+        `globalThis.__configHeader = document.querySelector('.workbench-titlebar'); document.querySelectorAll('.top-navigation button')[1].click()`,
+      )
+      await ready()
+      assert.equal(
+        await win.webContents.executeJavaScript(`(() => {
+        const header = document.querySelector('.workbench-titlebar');
+        const configuration = document.querySelector('.shop-manage');
+        const sidebar = document.querySelector('.store-sidebar');
+        return header === globalThis.__configHeader && document.querySelectorAll('.workbench-titlebar').length === 1
+          && configuration && !configuration.querySelector('.topbar')
+          && !/返回工作台|商品自动学习|官网/.test(configuration.textContent)
+          && getComputedStyle(sidebar).display === 'none'
+          && document.querySelector('.top-navigation button.active').textContent.includes('配置中心')
+          && configuration.getBoundingClientRect().top >= header.getBoundingClientRect().bottom - 1
+          && configuration.getBoundingClientRect().bottom <= innerHeight + 1
+          && configuration.querySelector('.shell').getBoundingClientRect().height > 300;
+      })()`),
+        true,
+        '配置中心应共用原顶栏并适配剩余高度',
+      )
+      fs.writeFileSync(
+        path.join(output, 'embedded-configuration.png'),
+        (await win.capturePage()).toPNG(),
+      )
+      await win.webContents.executeJavaScript(
+        `document.querySelectorAll('.top-navigation button')[0].click()`,
+      )
+      await ready()
+      assert.equal(
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.workbench-titlebar') === globalThis.__configHeader && !document.querySelector('.shop-manage') && getComputedStyle(document.querySelector('.store-sidebar')).display !== 'none'`,
+        ),
+        true,
+      )
+      await load('/shop/manage?panel=shops')
+      assert.equal(
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.workbench-titlebar').length === 1 && Boolean(document.querySelector('.shop-manage .sider'))`,
+        ),
+        true,
+        '直接配置链接也应使用工作台外壳',
       )
     })
     await check('add-store-direct-login', '/', async () => {
@@ -629,6 +695,8 @@ app
     disposeBusiness()
     disposeFeatures()
     disposeDeveloperDebug()
+    disposeKnowledge()
+    knowledgeWindow.dispose()
     await runtime.dispose()
     win.destroy()
     console.log(

@@ -8,6 +8,7 @@ import KnowledgeJobProgress from './KnowledgeJobProgress.vue'
 import KnowledgeCatalogDialog from './KnowledgeCatalogDialog.vue'
 import KnowledgeThumbnail from './KnowledgeThumbnail.vue'
 import KnowledgeProductCards from './KnowledgeProductCards.vue'
+import ShopTrainingPanel from './ShopTrainingPanel.vue'
 import KnowledgeOcrPreview from './KnowledgeOcrPreview.vue'
 import KnowledgeDraftEditor from './KnowledgeDraftEditor.vue'
 import KnowledgeReviewDialog from './KnowledgeReviewDialog.vue'
@@ -34,6 +35,11 @@ const {
   loading,
   busy,
   products,
+  trainingProducts,
+  trainingProductId,
+  trainingSession,
+  trainingLoading,
+  trainingError,
   entries,
   total,
   summary,
@@ -98,6 +104,8 @@ const {
   changeTab,
   showView,
   openProduct,
+  openTraining,
+  loadTrainingProducts,
   editEntry,
   createOverride,
   writeOne,
@@ -214,10 +222,17 @@ const missFilters = [
     </header>
     <nav class="knowledge-tabs">
       <button
+        data-testid="products-tab"
         :class="{ active: tab === 'products' && view === 'library' }"
         @click="changeTab('products')"
       >
         商品 <small>{{ summary?.products ?? 0 }}</small></button
+      ><button
+        data-testid="training-tab"
+        :class="{ active: tab === 'training' && view === 'library' }"
+        @click="changeTab('training')"
+      >
+        AI训练场</button
       ><button
         data-testid="general-tab"
         :class="{ active: tab === 'general' && view === 'library' }"
@@ -248,7 +263,7 @@ const missFilters = [
     <p v-if="summary?.readOnly" class="knowledge-alert error">
       知识迁移失败，当前只读：{{ summary.migration.error }}。原文件已保留，请核对迁移备份。
     </p>
-    <div class="knowledge-toolbar">
+    <div v-if="view !== 'library' || tab !== 'training'" class="knowledge-toolbar">
       <input
         v-model="search"
         aria-label="搜索商品或问答"
@@ -283,7 +298,9 @@ const missFilters = [
       </button>
     </div>
     <div
-      v-if="(view === 'library' || view === 'review') && selection.length > 0"
+      v-if="
+        ((view === 'library' && tab !== 'training') || view === 'review') && selection.length > 0
+      "
       class="knowledge-selection"
     >
       <label
@@ -317,7 +334,20 @@ const missFilters = [
       />
     </section>
     <section class="knowledge-content" :aria-busy="loading">
-      <p v-if="loading" class="knowledge-empty">正在读取当前店铺…</p>
+      <template v-if="view === 'library' && tab === 'training'">
+        <ShopTrainingPanel
+          :store-id="storeId"
+          :store-name="currentStore?.storeName || storeId"
+          :products="trainingProducts"
+          :product-id="trainingProductId"
+          :session="trainingSession"
+          :product-loading="trainingLoading"
+          :product-error="trainingError"
+          @update:product-id="trainingProductId = $event"
+          @retry-products="loadTrainingProducts"
+        />
+      </template>
+      <p v-else-if="loading" class="knowledge-empty">正在读取当前店铺…</p>
       <template v-else-if="view === 'library' && tab === 'products'">
         <KnowledgeProductCards
           :products="products"
@@ -330,6 +360,7 @@ const missFilters = [
           :load-asset="client().asset"
           @select="select"
           @edit="(row) => run(() => openProduct(row))"
+          @training="(row) => run(() => openTraining(row))"
           @learn="(row) => run(() => learnProduct(row.binding))"
           @ocr="(row) => run(() => recognizeProduct(row.binding))"
           @remove="
@@ -590,7 +621,7 @@ const missFilters = [
       </form>
     </section>
     <footer
-      v-if="view === 'library' || view === 'review' || view === 'misses'"
+      v-if="(view === 'library' && tab !== 'training') || view === 'review' || view === 'misses'"
       class="knowledge-pagination"
     >
       <span

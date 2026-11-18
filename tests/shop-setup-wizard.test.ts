@@ -2,12 +2,16 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElMessage } from 'element-plus'
 import ShopSetupGuide from '../src/modules/shops/components/ShopSetupGuide.vue'
 import ShopOpsPanel from '../src/modules/reception/components/ShopOpsPanel.vue'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 import { useShopSetupStore } from '../src/modules/shops/setup-store'
-import { profileSchema, type ModelProfile } from '../src/shared/contracts/backend'
+import {
+  profileSchema,
+  type CommandInput,
+  type ModelProfile,
+} from '../src/shared/contracts/backend'
 import type { SchedulerRun } from '../src/shared/contracts/scheduler'
 import { getDesktop } from '../src/shared/platform/desktop'
 const wrappers: ReturnType<typeof mount>[] = []
@@ -176,6 +180,7 @@ it('点击步骤直接修改并保留草稿，保存和载入期间禁止跳转'
 afterEach(() => {
   wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
   document.body.innerHTML = ''
+  vi.restoreAllMocks()
 })
 async function fixture() {
   setActivePinia(createPinia())
@@ -447,6 +452,7 @@ it('物流与发货政策同页填写，下一步进入接待设置', async () =
 
 it('接待设置始终保存向导店铺，移除配置中心两个菜单入口', async () => {
   const { wrapper, runtime } = await fixture()
+  runtime.available = true
   await wrapper.findAll('.wizard-step')[3]!.trigger('click')
   runtime.selectedStoreId = 'another-shop'
   const run = vi
@@ -454,7 +460,11 @@ it('接待设置始终保存向导店铺，移除配置中心两个菜单入口'
     .mockResolvedValue({ status: 'ok', message: '已保存', data: {} })
   const panels = wrapper.findAllComponents({ name: 'ShopOpsPanel' })
   expect(wrapper.find('.runtime-store-select').exists()).toBe(false)
-  await panels[0]!.find('form').trigger('submit')
+  const inherit = panels[0]!
+    .findAllComponents({ name: 'ElSwitch' })
+    .find((control) => control.classes().includes('store-inherit-switch'))!
+  inherit.vm.$emit('update:modelValue', false)
+  inherit.vm.$emit('change', false)
   await panels[1]!.get('textarea[aria-label="文字欢迎语"]').setValue('欢迎光临')
   await panels[1]!.find('form').trigger('submit')
   await flushPromises()
@@ -577,7 +587,66 @@ it('保存期间工作区失效后，新向导不会保留旧的忙碌锁', asyn
   expect(wrapper.get('[data-next]').attributes('disabled')).toBeUndefined()
 })
 
-it('客服接管关键词独立保存，空默认且不改买家转人工关键词', async () => {
+it('全局与客服接管关键词并排等宽、等高的紧凑输入区，不再提供转接保存按钮', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  runtime.available = true
+  setup.step = 3
+  await flushPromises()
+  const grid = wrapper.get('.reception-keyword-settings')
+  expect(grid.findAll('.keyword-setting-card')).toHaveLength(2)
+  expect(grid.findAll('.keyword-setting-card .el-textarea__inner')).toHaveLength(2)
+  expect(
+    grid.findAll('.keyword-setting-card textarea').map((input) => input.attributes('rows')),
+  ).toEqual(['3', '3'])
+  const buttonTexts = wrapper
+    .findAllComponents({ name: 'ShopOpsPanel' })[0]!
+    .findAll('button')
+    .map((button) => button.text())
+  expect(buttonTexts).not.toContain('保存配置')
+  expect(buttonTexts).not.toContain('保存全局关键词')
+  expect(buttonTexts).not.toContain('保存客服接管关键词')
+  expect(wrapper.find('.keyword-switch-handoff').exists()).toBe(true)
+  expect(wrapper.find('.keyword-switch-manual').exists()).toBe(true)
+})
+
+it('非延后保存的继承开关和本店关键词也即时自动保存', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '已保存', data: {} })
+  const inherit = wrapper
+    .findAllComponents({ name: 'ElSwitch' })
+    .find((control) => control.classes().includes('store-inherit-switch'))!
+  inherit.vm.$emit('update:modelValue', false)
+  inherit.vm.$emit('change', false)
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-store-handoff',
+    storeId: 'shop-a',
+    values: { mode: 'custom', keywords: [] },
+  })
+  const input = wrapper.get('textarea[aria-label="本店关键词"]')
+  await input.setValue('本店转人工')
+  await input.trigger('blur')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-store-handoff',
+    storeId: 'shop-a',
+    values: { mode: 'custom', keywords: ['本店转人工'] },
+  })
+  inherit.vm.$emit('update:modelValue', true)
+  inherit.vm.$emit('change', true)
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-store-handoff',
+    storeId: 'shop-a',
+    values: { mode: 'inherit' },
+  })
+})
+
+it('客服接管关键词在失焦后自动保存，成功才显示保存成功，未修改的失焦不请求', async () => {
   const { wrapper, runtime } = await fixture()
   runtime.available = true
   await wrapper.findAll('.wizard-step')[3]!.trigger('click')
@@ -587,19 +656,90 @@ it('客服接管关键词独立保存，空默认且不改买家转人工关键�
   expect(area.text()).toContain('客服发出后暂停当前会话 AI')
   const input = area.get('textarea[aria-label="客服接管关键词"]')
   expect((input.element as HTMLTextAreaElement).value).toBe('')
-  const run = vi
-    .spyOn(runtime, 'run')
-    .mockResolvedValue({ status: 'ok', message: '客服接管关键词已保存', data: {} })
+  const run = vi.spyOn(runtime, 'run').mockResolvedValue({
+    status: 'ok',
+    message: '客服接管关键词已保存',
+    data: {},
+  })
+  const success = vi.spyOn(ElMessage, 'success')
+  await input.trigger('blur')
+  expect(run).not.toHaveBeenCalled()
   await input.setValue(' 我来接待 \n\n转人工 \n我来接待')
-  await area.get('form').trigger('submit')
+  await input.trigger('blur')
   await flushPromises()
   expect(run).toHaveBeenCalledWith({
     action: 'save-config',
-    screenId: 'MANUAL_REPLY_KEYWORDS',
-    values: { keywords: ['我来接待', '转人工'], expectedKeywords: [] },
+    screenId: 'RECEPTION_KEYWORDS',
+    values: {
+      kind: 'manual',
+      mode: 'keywords',
+      keywords: ['我来接待', '转人工'],
+      expectedKeywords: [],
+    },
   })
   expect(run).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'save-store-handoff' }))
-  expect(wrapper.text()).toContain('客服接管关键词已保存')
+  expect(success).toHaveBeenCalledWith('保存成功')
+})
+
+it('关键词开关即时保存且保留原文，运行时快照仍保存原始关键词', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const run = vi.spyOn(runtime, 'run').mockImplementation(async (command) => {
+    const values = command.values ?? {}
+    if (values.mode === 'keywords') {
+      runtime.snapshot.config.safety.handoffKeywords = [...(values.keywords as string[])]
+      return { status: 'ok', message: '已保存', data: {} }
+    }
+    runtime.snapshot.config.safety.handoffKeywordsEnabled = Boolean(values.enabled)
+    return { status: 'ok', message: '已保存', data: {} }
+  })
+  const success = vi.spyOn(ElMessage, 'success')
+  const input = wrapper.get('textarea[aria-label="全局人工处理关键词"]')
+  await input.setValue('投诉')
+  await input.trigger('blur')
+  await flushPromises()
+  const switchControl = wrapper
+    .findAllComponents({ name: 'ElSwitch' })
+    .find((control) => control.classes().includes('keyword-switch-handoff'))!
+  switchControl.vm.$emit('update:modelValue', false)
+  switchControl.vm.$emit('change', false)
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-config',
+    screenId: 'RECEPTION_KEYWORDS',
+    values: {
+      kind: 'handoff',
+      mode: 'enabled',
+      enabled: false,
+      expectedEnabled: true,
+    },
+  })
+  expect((input.element as HTMLTextAreaElement).value).toBe('投诉')
+  expect(runtime.snapshot.config.safety.handoffKeywords).toEqual(['投诉'])
+  expect(success).toHaveBeenCalledWith('保存成功')
+})
+
+it('关键词开关保存失败时回退开关并保留文本草稿', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
+  await input.setValue('保留的草稿')
+  vi.spyOn(runtime, 'run').mockRejectedValue(new Error('开关保存失败'))
+  const success = vi.spyOn(ElMessage, 'success')
+  const control = wrapper
+    .findAllComponents({ name: 'ElSwitch' })
+    .find((item) => item.classes().includes('keyword-switch-manual'))!
+  control.vm.$emit('update:modelValue', false)
+  control.vm.$emit('change', false)
+  await flushPromises()
+  expect(control.props('modelValue')).toBe(true)
+  expect(wrapper.text()).toContain('开关保存失败')
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('保留的草稿')
+  expect(success).not.toHaveBeenCalled()
 })
 
 it('客服接管关键词草稿在步骤和关闭重开后保留，切换工作区后清除', async () => {
@@ -637,16 +777,64 @@ it('客服接管关键词保存失败显示错误并保留草稿，不伪造成�
   const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
   await input.setValue('需要保留的关键词')
   vi.spyOn(runtime, 'run').mockRejectedValue(new Error('客服接管关键词保存失败'))
-  await wrapper.get('.reception-manual form').trigger('submit')
+  const success = vi.spyOn(ElMessage, 'success')
+  await input.trigger('blur')
   await flushPromises()
   expect(wrapper.text()).toContain('客服接管关键词保存失败')
   expect(
     (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
   ).toBe('需要保留的关键词')
-  expect(wrapper.text()).not.toContain('客服接管关键词已保存')
+  expect(success).not.toHaveBeenCalled()
 })
 
-it('切店后迟到的客服接管关键词保存不回填新页面', async () => {
+it('提交等待期间继续编辑并失焦时排队保存，不丢失较新的草稿', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
+  const requests: {
+    command: CommandInput
+    resolve: () => void
+  }[] = []
+  vi.spyOn(runtime, 'run').mockImplementation(
+    (command) =>
+      new Promise((resolve) => {
+        requests.push({
+          command,
+          resolve: () => {
+            runtime.snapshot.config.safety.manualReplyKeywords = [
+              ...((command.values?.keywords as string[]) ?? []),
+            ]
+            resolve({ status: 'ok', message: '已保存', data: {} })
+          },
+        })
+      }),
+  )
+  await input.setValue('已提交甲')
+  await input.trigger('blur')
+  await flushPromises()
+  expect(requests).toHaveLength(1)
+  await input.setValue('等待期间新输入乙')
+  await input.trigger('blur')
+  await flushPromises()
+  expect(requests).toHaveLength(1)
+  requests[0]!.resolve()
+  await flushPromises()
+  expect(requests).toHaveLength(2)
+  expect(requests[1]!.command.values).toEqual({
+    kind: 'manual',
+    mode: 'keywords',
+    keywords: ['等待期间新输入乙'],
+    expectedKeywords: ['已提交甲'],
+  })
+  requests[1]!.resolve()
+  await flushPromises()
+  expect(
+    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('等待期间新输入乙')
+})
+
+it('切店后迟到的客服接管关键词保存不提示成功也不回填新页面', async () => {
   setActivePinia(createPinia())
   const runtime = useRuntimeStore()
   runtime.snapshot.workspaceId = 'panel-workspace'
@@ -680,6 +868,7 @@ it('切店后迟到的客服接管关键词保存不回填新页面', async () =
   })
   wrappers.push(wrapper)
   await flushPromises()
+  const success = vi.spyOn(ElMessage, 'success')
   const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
   await input.setValue('甲店草稿')
   let complete!: (value: { status: 'ok'; message: string; data: Record<string, unknown> }) => void
@@ -689,7 +878,7 @@ it('切店后迟到的客服接管关键词保存不回填新页面', async () =
         complete = resolve
       }),
   )
-  await wrapper.get('.reception-manual form').trigger('submit')
+  await input.trigger('blur')
   await flushPromises()
   await wrapper.setProps({ storeId: 'shop-b' })
   await flushPromises()
@@ -698,7 +887,30 @@ it('切店后迟到的客服接管关键词保存不回填新页面', async () =
   ).toBe('')
   complete({ status: 'ok', message: '客服接管关键词已保存', data: {} })
   await flushPromises()
-  expect(wrapper.text()).not.toContain('客服接管关键词已保存')
+  expect(success).not.toHaveBeenCalled()
+})
+
+it('组件卸载后迟到保存不提示成功也不回填', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
+  await input.setValue('卸载前草稿')
+  let complete!: (value: { status: 'ok'; message: string; data: Record<string, unknown> }) => void
+  vi.spyOn(runtime, 'run').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve
+      }),
+  )
+  const success = vi.spyOn(ElMessage, 'success')
+  await input.trigger('blur')
+  await flushPromises()
+  wrapper.unmount()
+  wrappers.splice(wrappers.indexOf(wrapper), 1)
+  complete({ status: 'ok', message: '已保存', data: {} })
+  await flushPromises()
+  expect(success).not.toHaveBeenCalled()
 })
 
 it('外部更新客服接管关键词后，旧草稿仍用载入时的 expected 提交', async () => {
@@ -711,12 +923,17 @@ it('外部更新客服接管关键词后，旧草稿仍用载入时的 expected 
   const run = vi
     .spyOn(runtime, 'run')
     .mockResolvedValue({ status: 'ok', message: '客服接管关键词已保存', data: {} })
-  await wrapper.get('.reception-manual form').trigger('submit')
+  await input.trigger('blur')
   await flushPromises()
   expect(run).toHaveBeenCalledWith({
     action: 'save-config',
-    screenId: 'MANUAL_REPLY_KEYWORDS',
-    values: { keywords: ['甲草稿'], expectedKeywords: [] },
+    screenId: 'RECEPTION_KEYWORDS',
+    values: {
+      kind: 'manual',
+      mode: 'keywords',
+      keywords: ['甲草稿'],
+      expectedKeywords: [],
+    },
   })
 })
 
@@ -737,12 +954,48 @@ it('未保存的客服接管草稿重挂后保留载入时的 expected', async (
   const run = vi
     .spyOn(runtime, 'run')
     .mockResolvedValue({ status: 'ok', message: '客服接管关键词已保存', data: {} })
-  await wrapper.get('.reception-manual form').trigger('submit')
+  await wrapper.get('textarea[aria-label="客服接管关键词"]').trigger('blur')
   await flushPromises()
   expect(run).toHaveBeenCalledWith({
     action: 'save-config',
-    screenId: 'MANUAL_REPLY_KEYWORDS',
-    values: { keywords: ['甲草稿'], expectedKeywords: [] },
+    screenId: 'RECEPTION_KEYWORDS',
+    values: {
+      kind: 'manual',
+      mode: 'keywords',
+      keywords: ['甲草稿'],
+      expectedKeywords: [],
+    },
+  })
+})
+
+it('未保存的全局关键词草稿重挂后也保留载入时的 expected', async () => {
+  const { wrapper, setup, runtime } = await fixture()
+  runtime.available = true
+  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
+  await wrapper.get('textarea[aria-label="全局人工处理关键词"]').setValue('全局甲')
+  runtime.snapshot.config.safety.handoffKeywords = ['外部乙']
+  setup.loaded = true
+  setup.dismiss()
+  await flushPromises()
+  setup.open('shop-a')
+  await flushPromises()
+  expect(
+    (wrapper.get('textarea[aria-label="全局人工处理关键词"]').element as HTMLTextAreaElement).value,
+  ).toBe('全局甲')
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '已保存', data: {} })
+  await wrapper.get('textarea[aria-label="全局人工处理关键词"]').trigger('blur')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-config',
+    screenId: 'RECEPTION_KEYWORDS',
+    values: {
+      kind: 'handoff',
+      mode: 'keywords',
+      keywords: ['全局甲'],
+      expectedKeywords: [],
+    },
   })
 })
 
@@ -772,42 +1025,9 @@ it('冲突载入最新关键词只替换本字段，不覆盖其他未保存草�
   expect(run).not.toHaveBeenCalled()
 })
 
-it('提交等待期间继续输入时，成功后新输入仍是未保存草稿', async () => {
-  const { wrapper, setup, runtime } = await fixture()
-  runtime.available = true
-  await wrapper.findAll('.wizard-step')[3]!.trigger('click')
-  const input = wrapper.get('textarea[aria-label="客服接管关键词"]')
-  await input.setValue('已提交甲')
-  let complete!: (value: { status: 'ok'; message: string; data: Record<string, unknown> }) => void
-  vi.spyOn(runtime, 'run').mockImplementation(
-    () =>
-      new Promise((resolve) => {
-        complete = (value) => {
-          runtime.snapshot.config.safety.manualReplyKeywords = ['已提交甲']
-          resolve(value)
-        }
-      }),
-  )
-  await wrapper.get('.reception-manual form').trigger('submit')
-  await flushPromises()
-  await input.setValue('等待期间新输入乙')
-  complete({ status: 'ok', message: '客服接管关键词已保存', data: {} })
-  await flushPromises()
-  expect(
-    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
-  ).toBe('等待期间新输入乙')
-  setup.loaded = true
-  setup.dismiss()
-  await flushPromises()
-  setup.open('shop-a')
-  await flushPromises()
-  expect(
-    (wrapper.get('textarea[aria-label="客服接管关键词"]').element as HTMLTextAreaElement).value,
-  ).toBe('等待期间新输入乙')
-})
-
 it('全局人工关键词与平台接待规则常驻展开，编辑不触发保存', async () => {
   const { wrapper, setup, runtime } = await fixture()
+  runtime.available = true
   const run = vi.spyOn(runtime, 'run')
   setup.step = 3
   await flushPromises()
@@ -829,6 +1049,18 @@ it('全局人工关键词与平台接待规则常驻展开，编辑不触发保�
   expect(wrapper.get('textarea[aria-label="全局人工处理关键词"]').element).toBe(input.element)
   expect((input.element as HTMLTextAreaElement).value).toBe('退款争议\n需要人工')
   expect(run).not.toHaveBeenCalled()
+  await input.trigger('blur')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'save-config',
+    screenId: 'RECEPTION_KEYWORDS',
+    values: {
+      kind: 'handoff',
+      mode: 'keywords',
+      keywords: ['退款争议', '需要人工'],
+      expectedKeywords: [],
+    },
+  })
 })
 
 it('历史平台操作仍保留折叠', async () => {

@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import ElementPlus from 'element-plus'
 import MainLayout from '../src/app/layouts/MainLayout.vue'
+import { routes } from '../src/app/router'
 import StoreSidebarCard from '../src/modules/shops/components/StoreSidebarCard.vue'
 import { useShopSetupStore } from '../src/modules/shops/setup-store'
 import { useRuntimeStore } from '../src/shared/state/runtime'
@@ -39,20 +40,37 @@ async function fixture() {
   const present = vi.spyOn(runtime, 'presentStore').mockResolvedValue(undefined)
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: ['/', '/settings'].map((path) => ({ path, component: { template: '<div />' } })),
+    routes: [
+      {
+        path: '/',
+        component: MainLayout,
+        children: [
+          { path: '', component: { template: '<div>店铺内容</div>' } },
+          {
+            path: 'shop/manage',
+            name: 'shop-manage',
+            component: { template: '<div>配置内容</div>' },
+          },
+          { path: 'settings', component: { template: '<div />' } },
+        ],
+      },
+    ],
   })
   await router.push('/')
-  const wrapper = mount(MainLayout, {
-    global: {
-      plugins: [pinia, router, ElementPlus],
-      stubs: {
-        AddShopDialog: true,
-        QuickReplyDialog: true,
-        ScheduledTasksDialog: true,
-        LoginDialog: true,
+  const wrapper = mount(
+    { template: '<router-view />' },
+    {
+      global: {
+        plugins: [pinia, router, ElementPlus],
+        stubs: {
+          AddShopDialog: true,
+          QuickReplyDialog: true,
+          ScheduledTasksDialog: true,
+          LoginDialog: true,
+        },
       },
     },
-  })
+  )
   wrappers.push(wrapper)
   await wrapper.find('[role="tab"]').trigger('click')
   await flushPromises()
@@ -171,4 +189,41 @@ it('待恢复店铺点击实际关闭的 AI 开关会取消恢复而非另发开
     storeId: 'shop-a',
     values: { enabled: false },
   })
+})
+
+it('配置中心与首页复用同一个工作台，原生店铺页随内容切换隐藏和恢复', async () => {
+  const { wrapper, router, runtime, present, run } = await fixture()
+  const header = wrapper.get('.workbench-titlebar').element
+  const search = wrapper.get('.store-sidebar input')
+  await search.setValue('验收')
+  const config = wrapper
+    .findAll('.top-navigation button')
+    .find((button) => button.text() === '配置中心')!
+  await config.trigger('click')
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/shop/manage')
+  expect(wrapper.get('.workbench-titlebar').element).toBe(header)
+  expect(wrapper.get('.store-sidebar').attributes('style')).toContain('display: none')
+  expect(config.classes()).toContain('active')
+  expect(present).toHaveBeenLastCalledWith('shop-a', false)
+  await wrapper
+    .findAll('.top-navigation button')
+    .find((button) => button.text() === '店铺首页')!
+    .trigger('click')
+  await flushPromises()
+  expect(wrapper.get('.workbench-titlebar').element).toBe(header)
+  expect(wrapper.get('.store-sidebar').attributes('style') ?? '').not.toContain('display: none')
+  expect((wrapper.get('.store-sidebar input').element as HTMLInputElement).value).toBe('验收')
+  expect(runtime.platformStoreId).toBe('shop-a')
+  expect(present).toHaveBeenLastCalledWith('shop-a', true)
+  expect(run).not.toHaveBeenCalled()
+})
+it('正式配置中心路由归属工作台外壳，保持原有链接地址', () => {
+  const router = createRouter({ history: createMemoryHistory(), routes })
+  const home = router.resolve('/')
+  const configuration = router.resolve('/shop/manage?panel=shops')
+  expect(configuration.matched).toHaveLength(2)
+  expect(configuration.matched[0]).toBe(home.matched[0])
+  expect(configuration.name).toBe('shop-manage')
+  expect(configuration.query.panel).toBe('shops')
 })
