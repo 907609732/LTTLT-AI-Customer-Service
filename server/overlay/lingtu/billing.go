@@ -229,6 +229,13 @@ func (s *BillingStore) Credit(payment BillingPayment, now time.Time) error {
 		if err := tx.Model(&PaidGrant{}).Where("user_id = ?", order.UserID).Updates(map[string]any{"call_limit": limit + order.Plan.Calls, "expires_at": expiry, "epoch": epoch}).Error; err != nil {
 			return err
 		}
+		// Keep the pools and counters separate, but carry an active trial through
+		// the paid validity period. Expired trials and historical receipts stay unchanged.
+		if err := tx.Model(&TrialGrant{}).
+			Where("user_id = ? AND expires_at > ? AND expires_at < ?", order.UserID, now.Unix(), expiry).
+			UpdateColumn("expires_at", expiry).Error; err != nil {
+			return err
+		}
 		receipt := BillingCredit{OrderID: order.ID, EventID: payment.EventID, UserID: order.UserID, Calls: order.Plan.Calls, CreatedAt: now.Unix(), ProviderKey: &key, Channel: payment.Channel, MerchantID: payment.MerchantID, TransactionID: payment.TransactionID, PaidAt: payment.PaidAt}
 		if err := tx.Create(&receipt).Error; err != nil {
 			return err

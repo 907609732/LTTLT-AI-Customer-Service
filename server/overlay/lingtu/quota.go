@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// New paid grants never share an expiry or counters with trial grants.
+// Paid and trial counters remain separate; recharge may extend an active trial's expiry.
 type PaidGrant struct {
 	Epoch     int64 `gorm:"not null;default:0"`
 	UserID    int   `gorm:"primaryKey;autoIncrement:false"`
