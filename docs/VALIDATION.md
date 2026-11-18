@@ -12,11 +12,11 @@
 
 最终云验收：[44306942021](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44306942021) 对 commit `fb9bcb28acbe56f13c7e2c1b96f04e3f80e02427` 成功；Unit `175` 文件/`1366` 测试、上游 `242/242`、native `94/94`、knowledge manager `18`/ingestion `7`、packaged `10` 项均通过；installer/ZIP/manifest 三项 SHA256 匹配，manifest version/sourceCommit/workflow 精确；解压版 package-smoke exit 0；ASAR 的 hook/reply-engine/shop-window 与当前源码及 1c221df 已验收源逐字节相同，`main.cjs` 含 PR39 三个 ASCII 标记。
 
-启动验收（实测，2026-11-18 20:59:14）：从 `release/ci-fb9bcb2/unpacked/LingtuAI.exe` 启动，PID `115308`，`diagnosticFlags=false`，界面版本 `1.0.67`；原 profile `yunduo-ui-restored`，`configuredStores=2` 全部保留，目标店（米配匠）`targetStoreConnected=true`，A/B 历史画面 `buyersAandBHistoryVisible=true`，两店 `aiBothOff=true`；旧 1.0.66 `old66ClosedNormally=true` 且 `oldDiagnosticListeners=0`。启动后 `windowsNetworkPermissionPrompt=pending-user-manual-action`，等待用户手动处理；`mainIntegration=pending`。证据 `artifacts/pdd-1067-integration-20261118/codex-normal-startup.json`。
+启动验收（实测，2026-11-18 20:59:14）：从 `release/ci-fb9bcb2/unpacked/LingtuAI.exe` 启动，PID `115308`，`diagnosticFlags=false`，界面版本 `1.0.67`；原 profile `yunduo-ui-restored`，`configuredStores=2` 全部保留，目标店（米配匠）`targetStoreConnected=true`，A/B 历史画面 `buyersAandBHistoryVisible=true`，两店 `aiBothOff=true`；旧 1.0.66 `old66ClosedNormally=true` 且 `oldDiagnosticListeners=0`。启动时的 Windows 网络安全弹窗已由用户手动关闭，Codex 复核 `windowsNetworkPermissionPrompt=closed-by-user-and-visually-confirmed`、`windowUsable=true`、`targetStoreConnected=true`、A/B 历史与历史商品卡可见、`targetAiOff=true`、`diagnosticListeners=0`、`buyerMessagesSentThisCheck=0`，第二家店铺窗口未打开。启动证据 `artifacts/pdd-1067-integration-20261118/codex-normal-startup.json`，关闭后复核 `codex-post-firewall-final.json`。
 
 状态边界：1.0.66 实店用户已确认 A/B/A 与 3 个不同商品，6 条 app candidates 均 sent，trace/card/source title 一致，native 自身回复唯一、另一买家 0；A→B 19:42:26.294、B→A 19:43:54.994，3 个不同商品短哈希 9B3213594CBA/FD05E46B5441/F8A9D9BEF823。最后一次 A 实际是第三件，不能写成原商品回切；.66 三轮实店归属复核通过并已正常启动。**1.0.67 没有新增买家发送**，实店证据仍只对应 .66。
 
-main 整合回执（本次）：本分支已快进并入 `main` 并推送，`main` 最终提交即本轮文档回执提交；打包与云验收代码固定为 `fb9bcb28acbe56f13c7e2c1b96f04e3f80e02427`，其后仅 `docs/HANDOFF.md`、`docs/VALIDATION.md` 两份文档跟进，产品源码与该 SHA 逐字节相同，故不重新打包、不升版本（仍 1.0.67）。剩余待办只有 Windows 网络安全弹窗，仍需用户手动处理，尚未关闭。日志与报告在 ignored `artifacts/pdd-1067-integration-20261118/`。
+main 整合回执（本次）：本分支已快进并入 `main` 并推送，`main` 最终提交即本轮文档回执提交；打包与云验收代码固定为 `fb9bcb28acbe56f13c7e2c1b96f04e3f80e02427`，其后仅 `docs/HANDOFF.md`、`docs/VALIDATION.md` 两份文档跟进，产品源码与该 SHA 逐字节相同，故不重新打包、不升版本（仍 1.0.67）。Windows 网络安全弹窗已由用户手动处理并经 Codex 画面复核通过，启动验收无剩余待办。日志与报告在 ignored `artifacts/pdd-1067-integration-20261118/`。
 
 ## 2026-11-18：PDD 新商品卡来源修复（1.0.66 / hook v15，Codex 独立预审可进入 CI；实店新卡待测）
 

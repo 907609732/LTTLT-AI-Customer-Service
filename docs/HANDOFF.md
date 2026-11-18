@@ -12,9 +12,9 @@
 
 最终云验收：[44306942021](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44306942021) 对 commit `fb9bcb28acbe56f13c7e2c1b96f04e3f80e02427` 成功；Unit `175` 文件/`1366` 测试、上游 `242/242`、native `94/94`、knowledge manager `18`/ingestion `7`、packaged `10` 项均通过。installer/ZIP/manifest 三项 SHA256 匹配，manifest version/sourceCommit/workflow 精确；解压版 package-smoke exit 0。ASAR 的 hook/reply-engine/shop-window 与当前源码及 1c221df 已验收源逐字节相同，`main.cjs` 含 PR39 三个 ASCII 标记。证据见 `artifacts/pdd-1067-integration-20261118/cloud-acceptance-final.json`。
 
-1.0.67 正常启动验收（2026-11-18 20:59:14，实测）：从 `release/ci-fb9bcb2/unpacked/LingtuAI.exe` 启动，PID `115308`，无诊断参数，界面版本 `1.0.67`；仍用原 profile `yunduo-ui-restored`，原两家店铺保留，米配匠连接成功且 A/B 历史画面正常显示，两店 AI 均保持关闭；旧 1.0.66 正常关闭，诊断端口监听为 0。启动后仅弹出 Windows 网络安全窗口，等待用户手动处理，未代点。实测事实见 `artifacts/pdd-1067-integration-20261118/codex-normal-startup.json`。
+1.0.67 正常启动验收（2026-11-18 20:59:14，实测）：从 `release/ci-fb9bcb2/unpacked/LingtuAI.exe` 启动，PID `115308`，无诊断参数，界面版本 `1.0.67`；仍用原 profile `yunduo-ui-restored`，原两家店铺保留，米配匠连接成功且 A/B 历史画面正常显示，两店 AI 均保持关闭；旧 1.0.66 正常关闭，诊断端口监听为 0。启动时的 Windows 网络安全弹窗已由用户手动关闭，Codex 于 22:08 实测复核弹窗画面消失、1.0.67 窗口可用、米配匠在线、A/B 历史与历史商品卡可见、目标店 AI 关闭、诊断端口监听 0，且本次未发送买家消息；第二家店铺窗口未打开。启动事实见 `artifacts/pdd-1067-integration-20261118/codex-normal-startup.json`，关闭后复核见同目录 `codex-post-firewall-final.json`。
 
-main 整合回执：本分支已快进并入 `main` 并推送，`main` 的最终提交即本轮文档回执提交。打包与云验收代码固定为 `fb9bcb28acbe56f13c7e2c1b96f04e3f80e02427`，其后只有 `docs/HANDOFF.md` 与 `docs/VALIDATION.md` 两份文档跟进，产品源码与该 SHA 逐字节相同，因此不重新打包、不升版本（仍 1.0.67）。剩余待办只有 Windows 网络安全弹窗，仍需用户手动处理，尚未关闭。1.0.67 没有新增买家发送，实店证据仍只对应 .66。
+main 整合回执：本分支已快进并入 `main` 并推送，`main` 的最终提交即本轮文档回执提交。打包与云验收代码固定为 `fb9bcb28acbe56f13c7e2c1b96f04e3f80e02427`，其后只有 `docs/HANDOFF.md` 与 `docs/VALIDATION.md` 两份文档跟进，产品源码与该 SHA 逐字节相同，因此不重新打包、不升版本（仍 1.0.67）。Windows 网络安全弹窗已由用户手动处理并经 Codex 画面复核通过，1.0.67 启动验收无剩余待办。1.0.67 没有新增买家发送，实店证据仍只对应 .66。
 
 ## 2026-11-18：PDD 新商品卡来源最小修复（1.0.66 / hook v15，Codex 独立预审可进入 CI；实店新卡待测）
 
