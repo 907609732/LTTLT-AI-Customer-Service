@@ -73,9 +73,23 @@ describe('trusted knowledge window', () => {
   it('focuses one clamped window with explicit local shop context; close waits for draft then hides', async () => {
     const f = fixture()
     await f.manager.open({ workspaceId: 'w', storeId: 'a' })
-    await f.manager.open({ workspaceId: 'w', storeId: 'b' })
+    await f.manager.open({
+      workspaceId: 'w',
+      storeId: 'b',
+      tab: 'training',
+      productId: 'sku-b',
+    })
     expect(f.create).toHaveBeenCalledTimes(1)
-    expect(f.manager.context()).toMatchObject({ storeId: 'b', revision: 2 })
+    expect(f.manager.context()).toMatchObject({
+      storeId: 'b',
+      tab: 'training',
+      productId: 'sku-b',
+      revision: 2,
+    })
+    expect(f.win.webContents.send).toHaveBeenLastCalledWith(
+      'knowledge:context',
+      expect.objectContaining({ tab: 'training', productId: 'sku-b' }),
+    )
     expect(f.win.setBounds).toHaveBeenCalledWith({ x: 10, y: 20, width: 900, height: 650 })
     const preventDefault = vi.fn()
     f.handlers.get('close')?.({ preventDefault })

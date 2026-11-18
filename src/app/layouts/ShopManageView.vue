@@ -6,6 +6,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useShopSetupStore } from '@/modules/shops'
+import { openKnowledgeManager } from '@/modules/knowledge'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/shared/ui/BrandMark.vue'
@@ -33,6 +34,25 @@ watch(
     setup.open(storeId)
     setup.step = 3
     void router.replace('/')
+  },
+  { immediate: true },
+)
+async function openLegacyTraining() {
+  const storeId = runtime.selectedStoreId,
+    { source: _source, ...rest } = route.query
+  void _source
+  await router.replace({ query: { ...rest, panel: 'shops' } })
+  await task.run(async () => {
+    if (!storeId || !runtime.snapshot.stores.some((shop) => shop.id === storeId))
+      throw Error('请先选择店铺，再从知识库打开 AI训练场')
+    await openKnowledgeManager(storeId, { tab: 'training' })
+  })
+}
+// 训练场已迁入知识库：旧收藏地址先离开废弃面板，再打开当前店铺的知识库训练 tab。
+watch(
+  () => route.query.panel,
+  (panel) => {
+    if (panel === 'training' || panel === 'sim') void openLegacyTraining()
   },
   { immediate: true },
 )

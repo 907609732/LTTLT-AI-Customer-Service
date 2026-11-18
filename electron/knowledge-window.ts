@@ -26,6 +26,8 @@ export function createKnowledgeWindow(options: {
   let context: KnowledgeWindowContext = {
     workspaceId: options.workspace(),
     storeId: '',
+    tab: 'products',
+    productId: '',
     revision: 0,
   }
   const assert = (workspaceId: string) => {
@@ -37,6 +39,9 @@ export function createKnowledgeWindow(options: {
       context = {
         workspaceId,
         storeId: options.stores().includes(storeId) ? storeId : '',
+        tab: context.tab,
+        // Restore/clear can change bindings, so never keep a stale product preset.
+        productId: '',
         revision: context.revision + 1,
       }
       if (win && !win.isDestroyed()) win.webContents.send('knowledge:context', context)
@@ -78,7 +83,13 @@ export function createKnowledgeWindow(options: {
     context() {
       return context.workspaceId === options.workspace()
         ? { ...context }
-        : { workspaceId: options.workspace(), storeId: '', revision: context.revision }
+        : {
+            workspaceId: options.workspace(),
+            storeId: '',
+            tab: 'products' as const,
+            productId: '',
+            revision: context.revision,
+          }
     },
     hide(workspaceId: string) {
       assert(workspaceId)

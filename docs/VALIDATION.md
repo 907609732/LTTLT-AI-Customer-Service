@@ -1,5 +1,13 @@
 # 客户端与独立服务端验证
 
+## 2026-11-19：AI训练场迁入知识库（1.0.69，隔离 worktree）
+
+范围：知识库商品 tab 右侧训练 tab、当前店铺分页商品选择、商品行预选、知识库店铺租约与迟到回复/商品列表隔离、旧 `?panel=training/sim` 和 ShopOpsPanel/店铺设置入口兼容。未改共享 runtime/backend、发送审批、模型请求参数、vendor 或真实数据。
+
+RED：先执行 `npx vitest run tests/knowledge-training.test.ts tests/configuration-navigation.test.ts tests/training-legacy-route.test.ts tests/shop-setup.test.ts tests/knowledge-window.test.ts`，exit 1，5 文件 13 失败/12 通过，失败断言均落在迁移行为。
+
+GREEN：新增 `tests/knowledge-training.test.ts` 7/7；相关既有 11 文件 131/131；`npm run typecheck` exit 0；改动 ESLint 与 Prettier check 通过；`npm run build` exit 0（仅既有依赖注释/chunk 警告）。一次 12 文件合并运行遇到 Vitest 临时目录 `EBUSY` unhandled error，拆分后两条命令均 exit 0，未将该次异常计为通过。未跑全量 check/desktop、打包、真实店铺/模型/买家，也未提交/推送/部署。版本冲突：开工时主树 1.0.68，任务中先由 `be1755c` 到 1.0.69、后由 `accbcc3` 到 1.0.70；本分支按指定保留 1.0.69，现低于主树，整合前须处理。详细设计、HANDOFF 与验收范围见 `docs/superpowers/plans/2026-11-19-training-knowledge.md`。
+
 ## 2026-11-18：主干整合验收（源码 1.0.68，设备授权注册回跳；已合入 main 并实际启动）
 
 范围与保留：`07a2ac6` + `a28750d` 真实两父 merge `b3a5f69`；只重放 redirect 网页补丁（`server/patches.json` 新增 3 键、2 键追加 hunks）、3 个新增自有 auth suite、`admin-login-hint.test.tsx` 更新、`server/source-files.json`（94→97，全部 hash 匹配）与 `server/PROVENANCE.md`；`server/scripts/verify.ts` 仅追加 3 份 suite 与 3 个实际改动 lint 输入（CI 3 suite 接线）。原 95 hunks / 94 条旧 manifest 条目 0 丢失；`package.json`/`package-lock.json` 仅 1.0.67→1.0.68，无依赖变化；`src`/`electron`/`vendor`/`.github`/Go 零差异。

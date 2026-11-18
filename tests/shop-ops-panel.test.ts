@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
@@ -8,6 +8,11 @@ import { useRuntimeStore } from '../src/shared/state/runtime'
 import { emptySnapshot } from '../src/shared/contracts/backend'
 import type { ReceptionWelcome } from '../src/modules/reception/setup'
 
+const knowledge = vi.hoisted(() => ({ open: vi.fn(async () => {}) }))
+vi.mock('../src/modules/knowledge/manager-service', () => ({
+  openKnowledgeManager: knowledge.open,
+  createKnowledgeClient: vi.fn(),
+}))
 vi.mock('../src/shared/platform/desktop', () => ({ getDesktop: () => ({ isElectron: false }) }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
@@ -59,6 +64,12 @@ describe('ShopOpsPanel', () => {
     await reload.trigger('click')
     expect(wrapper.text()).not.toContain('识图配置已更新')
     expect(wrapper.find('.el-switch').classes()).toContain('is-checked')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '到知识库训练场测试识图')!
+      .trigger('click')
+    await flushPromises()
+    expect(knowledge.open).toHaveBeenCalledWith('store-a', { tab: 'training' })
     wrapper.unmount()
   })
 

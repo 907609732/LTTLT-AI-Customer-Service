@@ -8,7 +8,16 @@ import { nextTick } from 'vue'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 import { useShopSetupStore } from '../src/modules/shops/setup-store'
 
-beforeEach(() => setActivePinia(createPinia()))
+const knowledge = vi.hoisted(() => ({ open: vi.fn(async () => {}) }))
+vi.mock('../src/modules/knowledge/manager-service', () => ({
+  openKnowledgeManager: knowledge.open,
+  createKnowledgeClient: vi.fn(),
+}))
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  knowledge.open.mockClear()
+})
 function fixture() {
   const runtime = useRuntimeStore()
   runtime.snapshot.workspaceId = 'workspace-a'
@@ -112,7 +121,7 @@ it('登录失败恢复引导，切工作区后的迟到结果不得呈现旧店�
   expect(setup.visible).toBe(false)
 })
 
-it('知识和训练入口进入真实配置页，移除旧模型设置入口', async () => {
+it('商品知识进入真实配置页，AI训练打开知识库训练场且移除旧模型设置入口', async () => {
   const { setup, runtime } = fixture()
   runtime.snapshot.stores[0]!.runtime.online = true
   const router = createRouter({
@@ -148,10 +157,11 @@ it('知识和训练入口进入真实配置页，移除旧模型设置入口', a
   expect(wrapper.text()).not.toContain('模型连接设置')
   await wrapper
     .findAll('button')
-    .find((button) => button.text().includes('AI 训练场'))!
+    .find((button) => button.text().includes('AI训练场'))!
     .trigger('click')
   await flushPromises()
-  expect(router.currentRoute.value.query.panel).toBe('training')
+  expect(knowledge.open).toHaveBeenCalledWith('shop-a', { tab: 'training' })
+  expect(router.currentRoute.value.query.panel).not.toBe('training')
   wrapper.unmount()
 })
 

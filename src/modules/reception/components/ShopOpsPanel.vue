@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import RuntimePanel from '@/shared/ui/RuntimePanel.vue'
 import StoreSelect from '@/shared/ui/StoreSelect.vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
+import { openKnowledgeManager } from '@/modules/knowledge'
 import { useReceptionOperations } from '../services/operations'
 import OperationApprovalPanel from './OperationApprovalPanel.vue'
 import ReceptionRulesPanel from './ReceptionRulesPanel.vue'
@@ -33,8 +33,7 @@ const emit = defineEmits<{
   'update:handoff': [value: ReceptionHandoff]
 }>()
 const runtime = useRuntimeStore(),
-  task = useTask(),
-  router = useRouter()
+  task = useTask()
 const deferred = computed(() => props.embedded && props.deferredSave && Boolean(props.setupDraft))
 const drafts = props.embedded ? useReceptionDraftCache() : undefined
 const receipts = useReceptionDraftCache()
@@ -219,6 +218,13 @@ function reloadWelcome() {
   load()
   task.error.value = ''
   task.message.value = ''
+}
+async function openTraining() {
+  await task.run(async () => {
+    const storeId = selectedStoreId.value
+    if (!storeId) throw Error('请先选择店铺，再打开 AI训练场')
+    await openKnowledgeManager(storeId, { tab: 'training' })
+  })
 }
 const visionConflict = computed(
   () =>
@@ -510,8 +516,8 @@ async function saveManualKeywords() {
             visionConflict ||
             (!runtime.snapshot.capabilities.vision.supported && !vision.enabled)
           "
-        /><el-button @click="router.push('/shop/manage?panel=training')"
-          >到训练场测试识图</el-button
+        /><el-button :disabled="task.pending.value" @click="openTraining"
+          >到知识库训练场测试识图</el-button
         ></template
       >
       <template v-else-if="viewKey === 'auto'"

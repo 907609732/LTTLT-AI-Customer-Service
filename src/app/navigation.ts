@@ -6,7 +6,6 @@ import {
   ShopIntentPanel,
   ShopIntentLearnPanel,
   ShopBannedWordPanel,
-  ShopTrainingPanel,
 } from '@/modules/knowledge'
 import { QcReplyPanel, ShopWorkOrderPanel } from '@/modules/quality'
 
@@ -21,7 +20,6 @@ export const panelRegistry = {
   intent: { title: '意图问法', component: ShopIntentPanel },
   'intent-doc': { title: '文档转意图', component: ShopIntentLearnPanel },
   'intent-chat': { title: '聊天转意图', component: ShopIntentLearnPanel },
-  training: { title: 'AI训练场', component: ShopTrainingPanel },
   kb: { title: '尺码规格', component: ShopKbPanel },
   banned: { title: 'AI禁用词', component: ShopBannedWordPanel },
   workorder: { title: '工单登记', component: ShopWorkOrderPanel },
@@ -37,9 +35,9 @@ export interface NavItem {
 export function isPanelKey(value: unknown): value is PanelKey {
   return typeof value === 'string' && Object.hasOwn(panelRegistry, value)
 }
-/** 旧测试入口归并至训练场，旧模型页面回到店铺列表，由本店基础设置维护规则。 */
+/** 旧训练入口由配置中心兼容打开知识库训练场；旧模型页面回店铺列表。 */
 export function resolvePanelKey(value: unknown): PanelKey {
-  if (value === 'sim') return 'training'
+  if (value === 'sim' || value === 'training') return 'shops'
   return isPanelKey(value) ? value : 'shops'
 }
 const item = (key: PanelKey, children?: PanelKey[]): NavItem => ({
@@ -55,12 +53,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   },
   {
     label: '教AI回答',
-    items: [
-      item('intent', ['intent-doc', 'intent-chat']),
-      item('training'),
-      item('kb'),
-      item('banned'),
-    ],
+    items: [item('intent', ['intent-doc', 'intent-chat']), item('kb'), item('banned')],
   },
   { label: '客服工单', items: [item('workorder')] },
   { label: '接待质量', items: [item('qc')] },

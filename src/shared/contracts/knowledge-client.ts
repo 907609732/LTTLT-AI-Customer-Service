@@ -220,12 +220,22 @@ export interface KnowledgeRestorePreview {
   originalFiles: string[]
   message: string
 }
+export const knowledgeManagerTabSchema = z.enum(['products', 'general', 'training'])
+export type KnowledgeManagerTab = z.infer<typeof knowledgeManagerTabSchema>
+/** The owner may request a tab and product preset; the renderer still resolves both against the shop. */
 export const knowledgeOpenSchema = z
-  .object({ workspaceId: z.string().min(1), storeId: z.string().max(200).default('') })
+  .object({
+    workspaceId: z.string().min(1),
+    storeId: z.string().max(200).default(''),
+    tab: knowledgeManagerTabSchema.default('products'),
+    productId: z.string().max(200).default(''),
+  })
   .strict()
 export interface KnowledgeWindowContext {
   workspaceId: string
   storeId: string
+  tab: KnowledgeManagerTab
+  productId: string
   revision: number
 }
 export interface KnowledgeTrial {

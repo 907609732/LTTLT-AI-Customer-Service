@@ -40,6 +40,7 @@ const emit = defineEmits<{
   'job-action': [input: KnowledgePipelineInput]
   select: [id: string, checked: boolean]
   edit: [row: KnowledgeProductCard]
+  training: [row: KnowledgeProductCard]
   learn: [row: KnowledgeProductCard]
   ocr: [row: KnowledgeProductCard]
   remove: [row: KnowledgeProductCard]
@@ -104,6 +105,7 @@ const emit = defineEmits<{
         开始学习</button
       ><button @click="emit('backup', row.canonical.id)">同款备份</button
       ><button @click="emit('edit', row)">编辑</button
+      ><button data-testid="product-training" @click="emit('training', row)">AI训练场</button
       ><button class="danger" @click="emit('remove', row)">解除关联</button>
     </div>
   </article>
