@@ -1,3 +1,17 @@
+## 2026-11-18：PDD 发送诊断修复（1.0.65 / hook v14，待 Codex 独立复核）
+
+**A/B 实店发送仍未通过，不能写成送达。** 已证：B 在平台机器人回复后从 `todayChatFilter` 待回复分组消失，`conversationFor(B)=null` 导致 `reviewHistory known:false`，尽管 current/原始列表/nativeID 有 B；A/B 底层均 `input_busy`，真实全屏 leave 层覆盖发送按钮，但 detail 当时丢失，不能唯一归因。平台自带机器人回复不是本软件送达。
+
+本批只做三项最小修复：
+
+- hook v14：`conversationFor` 原 getter 优先，仅目标缺失时只读精确补查原始三个列表；同 UID 多份 latestID 冲突（含一份有 ID、一份无 ID）fail closed；单份/全部候选都无 ID 时不由缺失本身直接判 null，仍由 current/listed、行 ID、DOM/Vuex role 校验决定。无冲突时同 latestID 也走全套校验；fallback 不扩大 `scanStore/conversationsOf`，但通过归属验证后可恢复当前目标 DOM 采集，不能写成所有采集范围完全不受影响。current 不作单独归属证据。
+- reply-engine：只在 `reply:review-result` 和发送失败 `reply:failed` 发 event 前附带 exact allowlist 的 ASCII detail 分类；任意原文/URL/Key/HTTP body 变 `unclassified`。ReviewConsole 再按同一 20 项 allowlist 边界防御并写 `发送分类: <code>`；reason、状态、授权、点击次数、不重发不变。
+- shop-window：仅 `pdd-web` WebContentsView 设 `backgroundThrottling:false`，其它平台不传该键保留默认 true；无全局 CLI flag，不改 opacity/style/弹窗/发送 guard。
+
+验证：定向 9 文件 106 项通过；真实 `ShopWindowManager` Electron 覆盖窗检查 2/2（v14 中间行 + 后台 rAF），原 true 在 host 主窗偏好下行为 RED timeout 1829ms，修复后 PDD 后台 rAF 0ms 通过、非 PDD 只断言属性默认 true；typecheck、check:vendor（80/94）、upstream 242/242、build 通过。日志在 `artifacts/pdd-send-fix-20261118/logs/`，完整范围/未测项见同目录 worker-report。
+
+**未执行**：实店、Inspector、平台消息、AI 开关、发送、重启 GUI、打包、commit/push。新 hook 的真实 A/B 归属、覆盖弹窗期间 hit/回显与实际送达仍待 Codex 与实店独立验收；本机结果不冒充实店通过。
+
 ## 2026-11-18：1.0.62 实店基线未通过与 PDD 真实消息行投影修正（1.0.64，hook v13，待独立复核）
 
 **1.0.62 实店基线未通过**：绑定目标店（idHash 5499ABA4B691，wcId=2）两买家 A/B 手工 focus 成功、selected/currentUserInfo/列表选中三路一致，但 `reviewHistory` 均为 `known:false`，首个 false 是 `dom_text_not_in_known_texts`（pdd-web-hook.js:952）。实店只读复核已撤销“右侧残留旧气泡/消息面板未切完”的旧归因：`BUBBLE_SEL`（`.chat-item p.chat-message-content, p.chat-message-content`）可见的 5 个命中全部位于左侧联系人预览 `.chat-item-box[data-random]`（x=60/108），不是中间消息行；中间真实消息是 `LI#middlePanel_list_<msgId>.clearfix.onemsg`（x=321，内部 `p.chat-message-content` 后代数为 0）。因此守卫拒绝的是被伪装成气泡的联系人预览文本，不是登录或 UID 误判。

@@ -1,5 +1,31 @@
 # 客户端与独立服务端验证
 
+## 2026-11-18：PDD 发送诊断修复（1.0.65 / hook v14，待 Codex 独立验收）
+
+**结论先行：1.0.64 的 A/B 实店发送验收未通过，本节不把离线测试、headless 或本地 Electron 检查写成实店已修复。** 已证事实：
+
+- 真实 B 在平台自带机器人回复后从 `todayChatFilter` 待回复分组消失；`conversationsOf` 在 getter 分组已有其它 A 时提前返回，`conversationFor(B)` 为 null，即使 `currentUserInfo`、原始 `state.chatList/todayChatList/searchChatList` 有 B 且 `middlePanel_list_*` native msgID 正确。旧树证据 `artifacts/pdd-send-B-diagnosis-20261118/progress.md`、`probe-b-output.json`、`rows-audit.json`。
+- A/B 底层发送均返回 `input_busy`；17:15 的 B 候选哈希与草稿哈希相同、`sends=0`、无 app 卖家回显。真实环境同时存在全屏 leave 弹窗覆盖发送按钮，但当时 detail 未落日志，无法回溯成 `send_button_obscured` 的唯一历史证明，不武断归因。平台自带机器人回复不是本软件送达。
+- 现场探针：PDD 子视图 `backgroundThrottlingLive=true`、`document.hidden=true`、rAF 输给 1000ms timeout（1119ms）；受控实验仅对 wc2 临时 `setBackgroundThrottling(false)` 后 rAF 8ms 完成，finally 恢复 true、`restoreOk=true`、草稿哈希不变、A/B 仍 failed/handoff、无发送。该实验只证明后台 rAF 可恢复，不证明它是 16:57/17:15 的唯一根因，也未证明清掉 overlay。
+
+本轮三项修复与验证：
+
+1. **hook v14 精确 UID fallback**：`conversationFor` 先原样走 `conversationsOf`；仅目标 UID 缺失时只读扫描 `state.todayChatList/chatList/searchChatList`。同 UID 多份候选的 latestMessageId **冲突**（含一份有 ID、一份无 ID）返回 null；若单份或所有候选都没有 ID，`conversationFor` 不会仅因“缺失”直接返回 null，而由后续 current/listed 最新 ID、已知行 ID 与 DOM/Vuex role 校验决定是否 fail closed。无冲突时按 `convMarked` → 原始列表顺序选择。fallback 不扩大 `scanStore`/`conversationsOf` 的采集范围，但补到 `listed` 并全部通过归属验证后，当前目标的 DOM 采集/pending 可以恢复；不是“所有采集范围完全不受影响”。`panelMatchesUid` 的 current/listed latestID、行 ID、DOM/Vuex role 检查全部保留；同 latestID 也不跳过。`currentUserInfo` 不单独作为归属证据。
+2. **发送 detail 安全分类**：reply-engine 在 `reply:review-result` 与发送失败 `reply:failed` 发 event 前，用 exact allowlist 过滤 detail；未知/任意原文只传固定 `unclassified`。ReviewConsole 再做同样的 20 项 allowlist 边界防御，日志只在既有失败行追加 `发送分类: <code>`，不持久化错误原文、买家文本、Key、URL 或 HTTP body。reason、候选状态、授权、点击次数与不重发语义不变。
+3. **PDD 后台节流**：`shop-window.js` 只对 `pdd-web` WebContentsView 设 `backgroundThrottling:false`；其它平台不传该键，保留默认 true。未加全局 CLI flag，不改 style/opacity/弹窗/发送 guard。
+
+RED/GREEN 证据（全部为隔离合成数据，不含真实客户 ID）：
+
+- `logs/red-v13-before-fix.log`（exit 1）：原 hook v13 上 B 的 getter-only-A 用例 `known=false`；原 review-console/engine 日志无安全分类。
+- `logs/green-engine-sanitized-v14.log` 与 `logs/green-targeted-9files.log`（exit 0）：9 文件 106 项通过，其中 hook 17 项、review-engine 14 项、review-console 23 项，另含 PDD 归属/面板/定位、DOM 适配器、协调器与发送授权。
+- `logs/red-background-throttling-true.log`：早期仅镜像字段断言失败，**不作为行为 RED**。`logs/green-background-throttling-false-failed-attempt.txt`：`show:false` 从未显示的 host 上 false 仍 timeout 1016ms，是失败尝试，**不能称 GREEN**。该次原始完整 log 后来被同路径新形态运行覆盖，因此保留终端实际输出摘录并明确标注“非重跑”；`logs/green-background-raf-covered-old-shape.log` 是后续 old-shape 通过记录，不能倒推首次尝试成功。
+- `logs/red-background-raf-covered-original-true.log`（exit 1，早期有效行为 RED）：真实 `ShopWindowManager` 合成视图、覆盖窗模拟后台，原 PDD true 时 rAF `timeout` 1775ms。其后按复核建议将 host 偏好改为与 `windows.ts` 一致（`backgroundThrottling:false`）、简化非 PDD 负对照并在断言前输出脱敏测量值，使用 `logs/red-background-raf-final-original-true.log` 重跑：`hostVisible=true, hostThrottling=false, pddThrottling=true, otherThrottling=true`，原 PDD true rAF `timeout` 1829ms、`hidden=true`。
+- `logs/green-background-raf-final.log`（exit 0，2/2）：PDD 视图 `backgroundThrottling=false`，`hostVisible=true`、`hostThrottling=false`、`pddThrottling=false`、`otherThrottling=true`；后台 rAF 在 0ms 胜出、`document.hidden=false`（构造时关闭节流可使 PageVisibility 变 visible，符合复核意见），非 PDD 只断言属性默认 true。同窗 frame 会联动，不再把非 PDD 的 rAF/timeout 当独立行为对照。报告见 `logs/desktop-selected-final-report.json`，同一组脱敏测量值已写入控制台日志。
+
+静态与完整性：`npm run typecheck`、`npm run check:vendor`（runtime 80 / server 94）、`npm run test:upstream`（242/242）、`npm run build` 均 exit 0；版本统一 1.0.65，`source-files.json` 更新 hook/reply-engine/shop-window 三个实际 SHA 并保留 upstream。详细日志、diff 与权限范围见 ignored `artifacts/pdd-send-fix-20261118/worker-report.md`。
+
+**未验证 / 不得冒充**：未操作实店、Inspector、平台消息、用户数据或 AI 开关；未发送、未重启、未打包、未提交/推送。新 hook 在真实 A/B 的 UID/role 归属、真实覆盖弹窗期间的 hit/回显、A/B 实际送达、后台节流对真实 leave 过渡的效果仍待 Codex 独立复核与实店验收。本机 headless 退出码和 final 事件只代表实现任务，不替代 Codex 验收。
+
 ## 2026-11-18：1.0.62 实店基线失败与 PDD 真实消息行投影（1.0.64 / hook v13）
 
 **结论先行：1.0.62 实店基线未通过，1.0.64 仍待 Codex 独立复核与实店新消息/商品/发送验收。本节不把离线红绿或只读采样表述为实店已修复。**

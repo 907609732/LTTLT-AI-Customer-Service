@@ -58,6 +58,10 @@ AI 调试记录真实构造的 messages（系统规则、协议、检索知识�
 
 1.0.62 实店诊断显示 DOM 采集把左侧联系人预览（`.chat-item-box[data-random]` 内的 `p.chat-message-content`）当成了消息气泡，真实消息行 `LI#middlePanel_list_<msgId>.onemsg` 反而没被读取，导致 `document_uid_conflict=0` 但 `reviewHistory` 持续 `known:false`。hook v13 起，DOM 采集、网页基线（`reviewHistory`）、卖家回显（`sellerEchoCount/waitForEcho`）和准备/确认发送统一读取真实消息行：消息 ID 取自 `middlePanel_list_`，方向取自行内 `cs-item`/`buyer-item` 或同一 UID 的 Vuex `from.role`，`merchantMessage` 不再作为卖家证据（它是所有行的包裹层）。日志中的 `bubbleNodes` 统计因此表示真实消息行数，不再包含联系人预览或隐藏缓存。方向无法证明的行直接跳过，不会显示为买家待回复或卖家已发送；同文新消息以真实消息 ID 区分。联系人预览、时间/昵称/菜单/按钮文本不进入消息内容。
 
+## 2026-11-18 PDD 发送 detail 安全分类（1.0.65 / hook v14）
+
+1.0.64 A/B 实店发送只保留到 `input_busy`，底层 detail 在 review-result 日志中丢失；真实全屏 leave 层覆盖按钮虽与 `send_button_obscured` 相容，但不能据此回溯成唯一历史证明。1.0.65 起，reply-engine 在既有 `reply:review-result` 和发送失败 `reply:failed` 事件离开 vendor 前，只附带 exact allowlist 中的 ASCII snake_case detail 分类码；未知、任意错误原文、买家文本、URL、Key 或 HTTP body 一律变为固定 `unclassified` 或省略，不把规范 snake_case 外形当过滤依据。ReviewConsole 再做同样 20 项 allowlist 的边界防御，只在既有失败日志行追加 `发送分类: <code>`，不新增持久化文件、不扩大 500 条内存上限。`reason`、候选状态、授权、点击次数、发送失败隔离及不自动重发语义保持不变；`input_busy` 等失败不会因有 detail 分类而显示为成功。
+
 ## 维护入口
 
 - electron/review-console.ts：有界日志、模型请求记录、候选状态、过期与一次性批准；按真实 `reviewContext` 投影同店当前商品编号/标题，候选只复制同店同买家 trace。

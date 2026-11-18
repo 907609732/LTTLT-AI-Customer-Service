@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VER = 13;
+  var VER = 14;
   var reviewPageId=Date.now().toString(36)+Math.random().toString(36).slice(2);
   window.__PDD_WEB_VER = VER;
 
@@ -870,11 +870,42 @@
     try {
       var store = storeOf();
       if (!store) return null;
+      // 原 getter 路径优先，命中即保持既有行为；不改 conversationsOf 的采集分组/提前返回。
       var convs = conversationsOf(store);
       for (var i = convs.length - 1; i >= 0; i--) {
         var conv = convs[i];
         if (conv && conv.userInfo && normUid(conv.userInfo.uid) === uid) return conv;
       }
+      // 1.0.64 实店：平台机器人回复后，目标买家可能已漂移到 todayChatFilter 未参与
+      // conversationFor 的原始列表。只在“原 getter 没有目标 UID”时做只读精确补查，
+      // 不扩大 scanStore 的主采集范围，也不把 currentUserInfo 当成归属证据。
+      var st = store.state || {};
+      var lists = [st.todayChatList, st.chatList, st.searchChatList];
+      var candidates = [];
+      for (var l = 0; l < lists.length; l++) {
+        var list = lists[l];
+        if (!Array.isArray(list)) continue;
+        for (var j = 0; j < list.length; j++) {
+          var item = list[j];
+          if (!item || !item.userInfo || normUid(item.userInfo.uid) !== uid) continue;
+          if (candidates.indexOf(item) < 0) candidates.push(item);
+        }
+      }
+      if (!candidates.length) return null;
+      // 同 UID 多份副本必须证明是同一更新状态。latestID 不一致或一份有 ID、一份无 ID
+      // 都返回 null，让 panelMatchesUid 继续 fail closed；不挑“最像 current”的那份。
+      // latestID 相同仍要经过 current/listed ID、行 ID 和 DOM/Vuex role 全套校验。
+      var latest = null;
+      for (var c = 0; c < candidates.length; c++) {
+        var id = latestMessageId(messageListOf(candidates[c]));
+        if (c === 0) latest = id;
+        else if (latest !== id) return null;
+      }
+      // 与原 pushConv 的 marked 优先一致；仍有同 UID 同更新状态副本时按列表顺序取首个。
+      for (var m = 0; m < candidates.length; m++) {
+        if (convMarked(candidates[m])) return candidates[m];
+      }
+      return candidates[0];
     } catch (e) {}
     return null;
   }

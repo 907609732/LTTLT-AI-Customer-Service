@@ -1,7 +1,11 @@
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ReviewConsole, type SendProposal } from '../electron/review-console'
+import {
+  ReviewConsole,
+  SEND_DIAGNOSTIC_CODES as REVIEW_DIAGNOSTIC_CODES,
+  type SendProposal,
+} from '../electron/review-console'
 import { emptySnapshot } from '../src/shared/contracts/backend'
 import { createConversationThread } from '../electron/conversation-context'
 import { configureDomTextAdapter } from '../electron/dom-text-adapter'
@@ -15,9 +19,13 @@ interface Worker {
   tick(): Promise<unknown>
   settle(): Promise<void>
 }
-const { StoreWorker } = createRequire(import.meta.url)(
+const engine = createRequire(import.meta.url)(
   path.resolve('vendor/lingtu-runtime/desk-v1/src/main/reply-engine.js'),
-) as { StoreWorker: new (options: Record<string, unknown>) => Worker }
+) as {
+  StoreWorker: new (options: Record<string, unknown>) => Worker
+  SEND_DIAGNOSTIC_CODES: readonly string[]
+}
+const { StoreWorker } = engine
 const cleanup: (() => void)[] = []
 afterEach(() => {
   cleanup.splice(0).forEach((stop) => stop())
@@ -107,7 +115,10 @@ function harness(question = '你好', goods: { goodsId?: string; goodsTitle?: st
   return { worker, review, sent, store, adapter, queue, snap, aiClient }
 }
 
-function approvalHarness(blockOnSendingFocus = false) {
+function approvalHarness(
+  blockOnSendingFocus = false,
+  prepareResult?: { reason: string; detail: string },
+) {
   const at = Date.now(),
     snap = emptySnapshot()
   const store = {
@@ -136,6 +147,7 @@ function approvalHarness(blockOnSendingFocus = false) {
   const queue = [{ uid: 'buyer', messages }]
   const pageMessages = [{ from: 'buyer', content: '你好', media: [] as string[] }]
   const deliveryFailures: Array<{ reason: string }> = []
+  const events: unknown[] = []
   let prepares = 0,
     clicks = 0,
     confirms = 0,
@@ -189,6 +201,7 @@ function approvalHarness(blockOnSendingFocus = false) {
         return { known: true, uid: String(args[0]), page: 'page-a', messages: pageMessages }
       if (method === 'prepareNativeTextSend') {
         prepares += 1
+        if (prepareResult) return { ok: false, ...prepareResult }
         return { ok: true, token: 'token-a', point: { x: 6, y: 7 } }
       }
       if (method === 'confirmNativeTextSend') {
@@ -265,7 +278,10 @@ function approvalHarness(blockOnSendingFocus = false) {
     aiClient,
     getConfig: () => cfg,
     welcomePolicy: { claim: () => '', noteOutbound: () => {} },
-    onEvent: (event: unknown) => review.event(event),
+    onEvent: (event: unknown) => {
+      events.push(event)
+      review.event(event)
+    },
   })
   cleanup.push(() => {
     authorizations.dispose()
@@ -280,6 +296,7 @@ function approvalHarness(blockOnSendingFocus = false) {
     queue,
     pageMessages,
     deliveryFailures,
+    events,
     get prepares() {
       return prepares
     },
@@ -561,5 +578,59 @@ describe('批准后的会话当前性', () => {
     expect(f.clicks).toBe(2)
     expect(f.confirms).toBe(1)
     expect(f.review.snapshot().replies[0].status).toBe('sent')
+  })
+
+  it('发送失败保留 input_busy 与安全 detail 分类，状态失败且不点击不重发', async () => {
+    const f = approvalHarness(false, { reason: 'input_busy', detail: 'send_button_obscured' })
+    f.worker.start()
+    await f.worker.tick()
+    await vi.waitFor(() => expect(f.review.snapshot().replies).toHaveLength(1))
+    const row = f.review.snapshot().replies[0]
+    await f.review.decide({ id: row.id, approve: true })
+    await f.worker.settle()
+
+    expect(f.prepares).toBe(1)
+    expect(f.clicks).toBe(0)
+    expect(f.confirms).toBe(0)
+    expect(f.deliveryFailures).toEqual([{ reason: 'input_busy' }])
+    expect(f.review.snapshot().replies[0].status).toBe('failed')
+    expect(JSON.stringify(f.events)).toContain('"detail":"send_button_obscured"')
+    const log = f.review.snapshot().logs.find((item) => item.kind === 'reply:review-result')
+    expect(log?.text).toContain('input_busy')
+    expect(log?.text).toContain('发送分类: send_button_obscured')
+    const failed = f.review.snapshot().logs.find((item) => item.kind === 'reply:failed')
+    expect(failed?.text).toContain('发送分类: send_button_obscured')
+    expect(f.review.snapshot().logs.some((item) => item.kind === 'reply:sent')).toBe(false)
+  })
+
+  it('恶意 detail 在引擎事件与最终日志中均只留下 unclassified', async () => {
+    const raw = '客户私有文本 Bearer fixture-secret https://example.test/?key=sk-secret&body=<html>'
+    const f = approvalHarness(false, { reason: 'input_busy', detail: raw })
+    f.worker.start()
+    await f.worker.tick()
+    await vi.waitFor(() => expect(f.review.snapshot().replies).toHaveLength(1))
+    const row = f.review.snapshot().replies[0]
+    await f.review.decide({ id: row.id, approve: true })
+    await f.worker.settle()
+
+    const eventPayload = JSON.stringify(f.events)
+    expect(eventPayload).toContain('"detail":"unclassified"')
+    expect(eventPayload).not.toContain('客户私有文本')
+    expect(eventPayload).not.toContain('fixture-secret')
+    expect(eventPayload).not.toContain('sk-secret')
+    expect(eventPayload).not.toContain('example.test')
+    const logPayload = JSON.stringify(f.review.snapshot().logs)
+    expect(logPayload).toContain('发送分类: unclassified')
+    expect(logPayload).not.toContain('客户私有文本')
+    expect(logPayload).not.toContain('fixture-secret')
+    expect(logPayload).not.toContain('sk-secret')
+    expect(logPayload).not.toContain('example.test')
+    expect(f.review.snapshot().replies[0].status).toBe('failed')
+    expect(f.clicks).toBe(0)
+    expect(f.confirms).toBe(0)
+  })
+
+  it('vendor 与日志边界的发送分类 allowlist 完全一致', () => {
+    expect(REVIEW_DIAGNOSTIC_CODES).toEqual(engine.SEND_DIAGNOSTIC_CODES)
   })
 })

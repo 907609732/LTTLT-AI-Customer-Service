@@ -1,5 +1,23 @@
 # 上游来源与维护边界
 
+## 2026-11-18：PDD 发送诊断修复（1.0.65 / hook v14）
+
+1.0.64 的 A/B 实店发送验收仍未通过，已有证据只到失败事实与可复现路径，不能写成已送达或已修复。B 在平台自带机器人回复后从 `todayChatFilter` 待回复分组消失；`conversationsOf` 只要 getter 分组中有任意其它 A 就提前返回，`conversationFor(B)` 为 null，尽管 `currentUserInfo`、原始 `state.chatList/todayChatList/searchChatList` 中存在 B 且 native msgID 正确。A/B 的底层发送均返回 `input_busy`，真实环境同时存在全屏 leave 弹窗覆盖发送按钮；16:57/17:15 的具体 detail 未落日志，不能武断归因，也没有 app 卖家回显或平台送达证明。平台自带机器人回复不是本软件送达。
+
+本轮只做三个最小修复：
+
+- `pdd-web-hook.js` 升至 v14：`conversationFor` 先走原 `conversationsOf`；仅目标精确 UID 缺失时，只读扫描原始 `todayChatList/chatList/searchChatList`。同 UID 多份候选的 latestMessageId **冲突**（含一份有 ID、一份无 ID）返回 null；单份或所有候选都无 ID 时不因缺失本身直接返回 null，而由 `panelMatchesUid` 的 current/listed latestID、行 ID、DOM/Vuex role 全量检查决定是否 fail closed；同 latestID 也不能跳过这些检查。`currentUserInfo` 从不作为单独归属证据。fallback 不扩大 `scanStore/conversationsOf` 的采集范围，但补到 `listed` 并通过归属验证后，可恢复当前目标的 DOM 采集，不是所有采集范围完全不受影响。
+- `reply-engine.js`：只在既有 `reply:review-result` 和发送失败 `reply:failed` 事件中附带 exact allowlist 的 ASCII detail 分类码；未知/任意原文在 vendor 发 event 前变为固定 `unclassified`。reason、状态、授权、点击次数、不自动重发均不变。
+- `shop-window.js`：只对 `pdd-web` 的 `WebContentsView` 设 `backgroundThrottling:false`，其它平台不传该键，保留 Electron 默认值。现场探针证明 PDD 子视图默认节流为 true、后台 rAF 被暂停；受控实验只在 wc2 临时关闭节流后 rAF 约 8ms 完成，恢复 true 成功，草稿哈希不变、无发送。该实验不能证明它是 16:57/17:15 的唯一根因，也未证明清掉 overlay；只证明关闭节流可恢复后台 rAF。未加全局 CLI flag，未改 opacity/style/弹窗/发送 guard。
+
+实际 sha256（source-files.json 保留 upstreamGitBlob/upstreamSha256）：
+
+- `pdd-web-hook.js` `b70f05981c92835885d78c59dfbb23573a208ee8b709c73149d9112c8762f84a`
+- `reply-engine.js` `105a745721d46313fc9bbfd306f85c6d7ff938098b260597e7593ea97f37e491`
+- `shop-window.js` `1655a231b9b979ffa66f2177e960f2432c93eb69d7cf4a27823907daa2aca73b`
+
+隔离验证包括合成 UID 的 hook 用例、真实 StoreWorker/ReviewConsole 的 detail 事件与日志、以及真实 `ShopWindowManager` + 隐藏/覆盖窗口的 Electron rAF 对照；RED 原始 true 为 timeout，GREEN PDD false 为 rAF、非 PDD 仍 timeout。离线夹具、headless 与本地 Electron 结果不代表实店通过。**A/B 真实发送、覆盖弹窗期间的 hit/回显、新 hook 在实店的 UID/role 归属仍待 Codex 与实店独立验收。**
+
 ## 2026-11-18：PDD 真实消息行投影（hook v13，1.0.62 实店基线失败的后续修正）
 
 1.0.62 实店基线在绑定店 wcId=2 的 A/B 两买家上均 `known:false`，首个 false 为 `dom_text_not_in_known_texts`。只读容器诊断证明 `BUBBLE_SEL`（`.chat-item p.chat-message-content, p.chat-message-content`）的可见命中全部是左侧联系人预览 `.chat-item-box[data-random]`，真实消息区是 `LI#middlePanel_list_<msgId>.clearfix.onemsg` 且不含 `p.chat-message-content`；原“右侧残留旧气泡/面板未切完”归因撤销。后续同店只读采样进一步证明 `DIV.merchantMessage` 在每条消息行都存在（买卖双方都有），不能作为卖家标记；方向由行内 `DIV.cs-item`（`from.role=mall_cs`）与 `DIV.buyer-item`（`from.role=user`）明确给出，正文/卡片/图片叶子为 `DIV.floor_item.text`、`P.msg-content-box`、`.good-name/.good-price/.good-part`、`.title/.content`、`img` 等，装饰含 `P.message-time`、昵称、`robot-text`、`menu_item`、`.btn`。

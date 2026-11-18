@@ -166,6 +166,43 @@ describe('AI 回复人工确认', () => {
     console.event({ type: 'reply:error', storeId: 'shop', uid: 'buyer' })
     expect(console.snapshot().logs).toHaveLength(1)
   })
+  it('发送失败只记录 allowlist 分类码，任意 detail 原文不进入日志', () => {
+    const { console } = setup()
+    console.event({
+      type: 'reply:review-result',
+      storeId: 'shop',
+      uid: 'buyer',
+      ok: false,
+      reason: 'input_busy',
+      detail: 'send_button_obscured',
+    })
+    expect(console.snapshot().logs.at(-1)?.text).toContain('发送分类: send_button_obscured')
+
+    console.event({
+      type: 'reply:failed',
+      storeId: 'shop',
+      uid: 'buyer',
+      reason: 'input_busy',
+      detail: 'send_button_obscured',
+    })
+    expect(console.snapshot().logs.at(-1)?.text).toContain('发送分类: send_button_obscured')
+
+    const unsafe = '客户私有文本 Bearer fixture-secret https://example.test/?key=sk-secret'
+    console.event({
+      type: 'reply:review-result',
+      storeId: 'shop',
+      uid: 'buyer',
+      ok: false,
+      reason: 'input_busy',
+      detail: unsafe,
+    })
+    const snapshot = JSON.stringify(console.snapshot())
+    expect(console.snapshot().logs.at(-1)?.text).toContain('发送分类: unclassified')
+    expect(snapshot).not.toContain('客户私有文本')
+    expect(snapshot).not.toContain('fixture-secret')
+    expect(snapshot).not.toContain('sk-secret')
+    expect(snapshot).not.toContain('example.test')
+  })
   it('生成耗时记录完成后固定，不随人工确认和发送结果延长', () => {
     const { console } = setup()
     const id = console.trace({

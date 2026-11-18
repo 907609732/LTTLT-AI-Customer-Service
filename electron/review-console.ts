@@ -51,6 +51,38 @@ type Pending = {
   checking?: boolean
 }
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
+// 发送 detail 只允许已知分类码，避免页面/适配器错误原文、买家文本、Key 或 HTTP body
+// 经日志持久化。新增发送分类时必须先在这里登记，未登记内容统一显示 unclassified。
+export const SEND_DIAGNOSTIC_CODES = Object.freeze([
+  'approved_page_changed',
+  'conversation_changed_while_filling',
+  'conversation_changed_while_typing',
+  'dom_send_failed',
+  'editor_changed_before_send',
+  'editor_changed_while_typing',
+  'editor_still_has_text',
+  'focus_failed',
+  'invalid_button_preparation',
+  'invalid_dom_result',
+  'native_input_unavailable',
+  'no_dom_or_stream_echo',
+  'no_media_echo',
+  'no_native_send_echo',
+  'page_review_unavailable',
+  'send_button_not_found',
+  'send_button_obscured',
+  'send_click_failed',
+  'send_in_progress',
+  'typing_cancelled',
+])
+const SEND_DIAGNOSTIC_CODE_SET = new Set(SEND_DIAGNOSTIC_CODES)
+const sendDiagnosticCode = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value !== 'string') return 'unclassified'
+  const code = value.trim()
+  if (!/^[a-z][a-z0-9_]{0,63}$/.test(code)) return 'unclassified'
+  return SEND_DIAGNOSTIC_CODE_SET.has(code) ? code : 'unclassified'
+}
 const httpsImage = (value: unknown) => {
   if (typeof value !== 'string' || !value || value.length > 2000) return undefined
   try {
@@ -263,12 +295,17 @@ export class ReviewConsole {
         row.reason = '发送失败或结果不确定，请在平台核对，不自动重发。'
       }
     }
-    if (/^(shop:|collection:|reply:)/.test(type))
+    if (/^(shop:|collection:|reply:)/.test(type)) {
+      const detail =
+        type === 'reply:failed' || (type === 'reply:review-result' && event.ok === false)
+          ? sendDiagnosticCode(event.detail)
+          : ''
       this.log(
         type,
         [
           text(event.text),
           text(event.reason),
+          detail ? `发送分类: ${detail}` : '',
           type === 'reply:error' ? '处理失败，请检查模型配置或平台状态' : '',
         ]
           .filter(Boolean)
@@ -276,6 +313,7 @@ export class ReviewConsole {
         storeId,
         uid,
       )
+    }
   }
   trace(input: unknown): string | undefined {
     if (!input || typeof input !== 'object' || this.closed) return

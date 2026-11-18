@@ -156,6 +156,10 @@ class ShopWindowManager {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        // PDD 工作页即使父窗口可绘制也可能 document.hidden；子视图默认节流会暂停
+        // rAF/前端回调，导致平台自身的过渡/弹窗状态无法收尾。只对 PDD 关闭后台节流，
+        // 其它平台不传该键，保持 Electron 默认值；不修改任何页面样式或发送门。
+        ...(store.platform === 'pdd-web' ? { backgroundThrottling: false } : {}),
       },
     });
     // Merchant pages leave some regions transparent; keep their native light background.

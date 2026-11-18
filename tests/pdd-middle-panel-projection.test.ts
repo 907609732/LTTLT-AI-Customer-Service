@@ -64,7 +64,11 @@ function row(id: string, side: 'cs' | 'buyer' | 'none', text: string, extra = ''
 
 function mount(options: {
   currentUid: string
-  conversations: Conversation[]
+  current?: Conversation
+  conversations?: Conversation[]
+  todayChatList?: Conversation[]
+  searchChatList?: Conversation[]
+  getters?: Record<string, unknown>
   previews: string[]
   rows: string[]
 }) {
@@ -80,16 +84,24 @@ function mount(options: {
   window.document.querySelector('#send')!.addEventListener('click', () => {
     editor.innerHTML = ''
   })
-  const current = options.conversations.find((c) => c.userInfo.uid === options.currentUid)!
+  const all = [
+    ...(options.conversations ?? []),
+    ...(options.todayChatList ?? []),
+    ...(options.searchChatList ?? []),
+  ]
+  const current =
+    options.current ?? all.find((conversation) => conversation.userInfo.uid === options.currentUid)!
   Object.assign(window.document.querySelector('#app')!, {
     __vue__: {
       $store: {
         state: {
           selectingChatUid: options.currentUid,
           currentUserInfo: current,
-          chatList: options.conversations,
+          chatList: options.conversations ?? [],
+          todayChatList: options.todayChatList,
+          searchChatList: options.searchChatList,
         },
-        getters: {},
+        getters: options.getters ?? {},
       },
     },
   })
@@ -157,6 +169,137 @@ it('中间消息行按 ID/正文归属当前买家时 known=true，角色来自�
   expect(api.pending()[B]?.messages.map((m) => m.content) ?? []).not.toContain('B 的隐藏缓存')
   expect(api.pending()[A].messages.map((m) => m.content)).not.toContain('B 的隐藏缓存')
   expect(api.sent(A).map((m) => m.content)).toEqual(['A 的答复'])
+})
+
+it('getter 仅含 A 时，conversationFor 只从原始列表精确补 B，B 基线与 pending 不串 A', () => {
+  const currentB = convB()
+  const { api } = mount({
+    currentUid: B,
+    current: currentB,
+    conversations: [convA(), currentB],
+    getters: { 'l/todayChatFilter': { fiveMinutesList: [convA()] } },
+    previews: [preview(A, 'A 的问题'), preview(B, 'B 的私有问题')],
+    rows: [row('8000000000001', 'buyer', 'B 的私有问题')],
+  })
+  const history = api.reviewHistory(B)
+  expect(history.known).toBe(true)
+  expect(history.messages.map((m) => [m.from, m.content])).toEqual([['buyer', 'B 的私有问题']])
+  expect(api.pending()[B].messages.map((m) => m.content)).toEqual(['B 的私有问题'])
+  expect(api.pending()[B].messages.map((m) => m.content)).not.toContain('A 的问题')
+  // 主采集仍保留原 getter 范围，A 正常入自己的 pending；fallback 只补 B 的精确查询，不串内容。
+  expect(api.pending()[A].messages.map((m) => m.content)).toEqual(['A 的问题'])
+})
+
+it('目标买家在所有原始列表缺失时，仅 currentUserInfo 不能生成网页基线', () => {
+  const currentB = convB()
+  const { api } = mount({
+    currentUid: B,
+    current: currentB,
+    conversations: [],
+    getters: {},
+    previews: [],
+    rows: [row('8000000000001', 'buyer', 'B 的私有问题')],
+  })
+  const history = api.reviewHistory(B)
+  expect(history.known).toBe(false)
+  expect(history.reason).toBe('conversation_identity_unconfirmed')
+  expect(api.pending()[B]).toBeUndefined()
+})
+
+it('原始列表唯一副本与 current 的 latestID 不一致时保持 fail closed', () => {
+  const currentB = convB()
+  const stale = convB()
+  stale.messageList[0].msg_id = '8000000000002'
+  const { api } = mount({
+    currentUid: B,
+    current: currentB,
+    conversations: [stale],
+    getters: { 'l/todayChatFilter': { fiveMinutesList: [convA()] } },
+    previews: [],
+    rows: [row('8000000000001', 'buyer', 'B 的私有问题')],
+  })
+  const history = api.reviewHistory(B)
+  expect(history.known).toBe(false)
+  expect(history.reason).toBe('conversation_identity_unconfirmed')
+  expect(api.pending()[B]).toBeUndefined()
+})
+
+it('同 UID 的原始列表多份副本 latestID 冲突时不挑选“最像 current”的一份', () => {
+  const currentB = convB()
+  const newer = convB()
+  newer.messageList.push({
+    msg_id: '8000000000002',
+    from: { role: 'buyer', uid: B },
+    content: 'B 的后续问题',
+    ts: now + 2,
+  })
+  const { api } = mount({
+    currentUid: B,
+    current: currentB,
+    conversations: [currentB],
+    searchChatList: [newer],
+    getters: { 'l/todayChatFilter': { fiveMinutesList: [convA()] } },
+    previews: [],
+    rows: [row('8000000000001', 'buyer', 'B 的私有问题')],
+  })
+  const history = api.reviewHistory(B)
+  expect(history.known).toBe(false)
+  expect(history.reason).toBe('conversation_identity_unconfirmed')
+  expect(api.pending()[B]).toBeUndefined()
+})
+
+it('fallback 补到 B 后，中间行出现外国 ID 仍 fail closed', () => {
+  const currentB = convB()
+  const { api } = mount({
+    currentUid: B,
+    current: currentB,
+    conversations: [convA(), currentB],
+    getters: { 'l/todayChatFilter': { fiveMinutesList: [convA()] } },
+    previews: [],
+    rows: [
+      row('8000000000001', 'buyer', 'B 的私有问题'),
+      row('9000000000001', 'buyer', 'A 的问题'),
+    ],
+  })
+  const history = api.reviewHistory(B)
+  expect(history.known).toBe(false)
+  expect(history.reason).toBe('conversation_identity_unconfirmed')
+  expect(api.pending()[B]).toBeUndefined()
+})
+
+it('fallback 补到 B 后，DOM 与同 ID Vuex 角色冲突仍 fail closed', () => {
+  const currentB = convB()
+  const { api } = mount({
+    currentUid: B,
+    current: currentB,
+    conversations: [currentB],
+    getters: { 'l/todayChatFilter': { fiveMinutesList: [convA()] } },
+    previews: [],
+    rows: [row('8000000000001', 'cs', 'B 的私有问题')],
+  })
+  const history = api.reviewHistory(B)
+  expect(history.known).toBe(false)
+  expect(history.reason).toBe('conversation_identity_unconfirmed')
+  expect(api.pending()[B]).toBeUndefined()
+})
+
+it('fallback 补到 B 后，未知新 ID 仍不进入已知基线', () => {
+  const currentB = convB()
+  const { api } = mount({
+    currentUid: B,
+    current: currentB,
+    conversations: [currentB],
+    getters: { 'l/todayChatFilter': { fiveMinutesList: [convA()] } },
+    previews: [],
+    rows: [
+      row('8000000000001', 'buyer', 'B 的私有问题'),
+      row('8000000000009', 'buyer', '未同步的新消息'),
+    ],
+  })
+  const history = api.reviewHistory(B)
+  expect(history.known).toBe(false)
+  expect(history.reason).toBe('conversation_identity_unconfirmed')
+  expect(api.pending()[B]).toBeUndefined()
 })
 
 it('中间行 ID 与当前买家已知消息不完全对应时 fail closed，不采信任何预览文本', () => {

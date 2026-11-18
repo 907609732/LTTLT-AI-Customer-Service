@@ -63,8 +63,8 @@ export async function domSendChecks(check: Check) {
   const load = async (mode: string) => {
     nativeInputs = 0
     // 旧 DOM 夹具没有真实 MMS 的 LI#middlePanel_list_<msgId>，因此显式声明聊天消息区
-    // `.chatMessage` 边界；hook v13 的 legacy 兜底只在该边界内读无 ID 气泡，绝不读左侧
-    // 联系人预览。真实 v13 结构另由下方 dom-send:v13-real-middle-row 覆盖。
+    // `.chatMessage` 边界；hook v14 的 legacy 兜底只在该边界内读无 ID 气泡，绝不读左侧
+    // 联系人预览。真实中间消息结构另由下方 dom-send:v14-real-middle-row 覆盖。
     const html = `<!doctype html><html><body><div class="chat-item-box active" data-random="buyer-1">测试买家</div><div class="chatMessage"><div id="buyer-history"><div class="chat-item customerMessage"><p class="chat-message-content">买家原始问题</p></div></div></div><textarea style="width:400px;height:80px"></textarea>${mode === 'no-button' ? '' : '<button>发送</button>'}<div class="chatMessage"><div id="messages"></div></div><script>
       window.clicks=0;window.keys=0;window.inputs=[];document.addEventListener('keydown',()=>window.keys++);
       const input=document.querySelector('textarea');
@@ -77,7 +77,7 @@ export async function domSendChecks(check: Check) {
     assert.equal((await adapter.ensure()).ok, true)
   }
   // 真实 1.0.62/1.0.64 中央消息结构：LI#middlePanel_list_<msgId> + 同 UID Vuex 角色，
-  // 左侧只放联系人预览。用于确认 v13 发送/回显通路，不替代上面的 legacy 兼容断言。
+  // 左侧只放联系人预览。用于确认 v14 发送/回显通路，不替代上面的 legacy 兼容断言。
   const loadV13 = async () => {
     nativeInputs = 0
     const html = `<!doctype html><html><body><div id="app"><div class="chat-item-box active" data-random="buyer-0-reply"><p class="chat-message-content">左侧预览旧缓存</p></div></div><div class="middlePanel"><ul class="message-list"><li id="middlePanel_list_9001" class="clearfix onemsg"><div class="merchantMessage"><div class="buyer-item"><div class="msg-content"><p class="msg-content-box">买家原始问题</p></div></div></div></li></ul></div><textarea style="width:400px;height:80px"></textarea><button>发送</button><script>
@@ -216,16 +216,16 @@ export async function domSendChecks(check: Check) {
       assert.equal(nativeInputs, 2)
       assert.equal(await fixture.webContents.executeJavaScript('window.trusted'), true)
     })
-    await check('dom-send:v13-real-middle-row', '/fixture/pdd', async () => {
+    await check('dom-send:v14-real-middle-row', '/fixture/pdd', async () => {
       await loadV13()
-      const text = 'v13 真实中间消息行单次发送'
+      const text = 'v14 真实中间消息行单次发送'
       assert.equal((await bulkAdapter.sendText('buyer', text)).ok, true)
       const s = (await fixture.webContents.executeJavaScript(
         `({clicks:window.clicks,keys:window.keys,hook:window.__PDD_WEB_VER,rows:document.querySelectorAll('[id^="middlePanel_list_"]').length,text:document.querySelector('.message-list').textContent})`,
       )) as { clicks: number; keys: number; hook: number; rows: number; text: string }
       assert.equal(s.clicks, 1)
       assert.equal(s.keys, 0)
-      assert.equal(s.hook, 13)
+      assert.equal(s.hook, 14)
       assert.equal(s.rows, 2, '初始消息 + 一条真实回显')
       assert.ok(s.text.includes(text))
       const history = (await adapter.reviewHistory('buyer', false)) as {
@@ -358,6 +358,150 @@ export async function domSendChecks(check: Check) {
       assert.equal(s.clicks, 1)
       assert.equal(s.keys, 0)
       assert.equal(nativeInputs, 2)
+    })
+    await check('dom-send:pdd-background-raf', '/fixture/pdd-background', async () => {
+      // 真实 ShopWindowManager + 隔离 BrowserWindow + 独立临时 session：唯一网络输入是 data: HTML。
+      const { ShopWindowManager } = loader(
+        path.join(__dirname, '..', 'vendor/lingtu-runtime/desk-v1/src/main/shop-window.js'),
+      ) as {
+        ShopWindowManager: new (options: Record<string, unknown>) => {
+          open(storeId: string): Promise<unknown>
+          webContentsOf(storeId: string): Electron.WebContents | null
+          closeAll(): void
+        }
+      }
+      const host = new BrowserWindow({
+        show: false,
+        x: 300,
+        y: 300,
+        width: 900,
+        height: 700,
+        webPreferences: {
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          webviewTag: false,
+          backgroundThrottling: false,
+        },
+      })
+      let cover: BrowserWindow | undefined
+      const html = encodeURIComponent(
+        '<!doctype html><html><body><p>pdd background rAF fixture</p></body></html>',
+      )
+      const stores: Record<
+        string,
+        { id: string; storeName: string; platform: string; url: string }
+      > = {
+        'bg-pdd': {
+          id: 'bg-pdd',
+          storeName: '合成 PDD 后台页',
+          platform: 'pdd-web',
+          url: `data:text/html;charset=utf-8,${html}`,
+        },
+        'bg-other': {
+          id: 'bg-other',
+          storeName: '合成其它平台页',
+          platform: 'sim-local',
+          url: `data:text/html;charset=utf-8,${html}`,
+        },
+      }
+      const manager = new ShopWindowManager({
+        window: host,
+        registry: {
+          get: (id: string) => stores[id],
+          markOpened: () => {},
+          markError: () => {},
+        },
+        logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+        resolveEntryUrl: async (store: { url: string }) => store.url,
+        resolveAccessMode: async () => 'webview',
+        prepareStore: async () => ({ ok: true }),
+        partitionNamespace: `pdd-bg-${process.pid}-${Date.now()}`,
+      })
+      try {
+        await manager.open('bg-pdd')
+        await manager.open('bg-other')
+        const pdd = manager.webContentsOf('bg-pdd')
+        const other = manager.webContentsOf('bg-other')
+        assert.ok(pdd, '真实 ShopWindowManager 未创建 PDD 视图')
+        assert.ok(other, '真实 ShopWindowManager 未创建非 PDD 视图')
+        const pddThrottling = pdd.getBackgroundThrottling()
+        const otherThrottling = other.getBackgroundThrottling()
+        // 用真实前台窗口覆盖两个子视图，模拟本次“窗口存在但页面在后台”的状态。
+        // 同窗 frame 会联动，不能拿另一个视图的 rAF 当独立行为对照；核心是 PDD rAF
+        // 真实执行，非 PDD 只断言属性仍为默认 true，证明平台范围未扩大。
+        host.showInactive()
+        cover = new BrowserWindow({
+          show: false,
+          x: 300,
+          y: 300,
+          width: 900,
+          height: 700,
+          alwaysOnTop: true,
+          backgroundColor: '#ffffff',
+          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+        })
+        cover.show()
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        const race = (wc: Electron.WebContents) =>
+          wc.executeJavaScript(`new Promise((resolve) => {
+            const started = performance.now();
+            let settled = false;
+            const done = (winner) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              resolve({
+                winner,
+                elapsedMs: Math.round(performance.now() - started),
+                hidden: document.hidden,
+                visibilityState: document.visibilityState,
+              });
+            };
+            const timer = setTimeout(() => done('timeout'), 1000);
+            requestAnimationFrame(() => done('raf'));
+          })`) as Promise<{
+            winner: 'raf' | 'timeout'
+            elapsedMs: number
+            hidden: boolean
+            visibilityState: string
+          }>
+        const pddRace = await race(pdd)
+        // 先执行真实竞争并输出脱敏测量值，再做断言；RED 也能从 CI 日志审阅同一组值。
+        console.log(
+          '[smoke] background-raf',
+          JSON.stringify({
+            hostVisible: host.isVisible(),
+            hostThrottling: host.webContents.getBackgroundThrottling(),
+            pddThrottling,
+            otherThrottling,
+            pddRace,
+          }),
+        )
+        assert.equal(
+          pddRace.winner,
+          'raf',
+          `PDD 后台 rAF 被暂停：${JSON.stringify(pddRace)}（backgroundThrottling=${String(pddThrottling)}）`,
+        )
+        assert.ok(pddRace.elapsedMs < 1000, `PDD 后台 rAF 超时：${pddRace.elapsedMs}ms`)
+        assert.equal(
+          pddThrottling,
+          false,
+          `PDD 视图应关闭后台节流（实际 ${String(pddThrottling)}）`,
+        )
+        assert.equal(otherThrottling, true, '非 PDD 平台必须保留 Electron 默认后台节流')
+        assert.equal(host.isVisible(), true, '对照窗口应可见但被覆盖，而不是最小化')
+      } finally {
+        try {
+          manager.closeAll()
+        } finally {
+          try {
+            cover?.destroy()
+          } finally {
+            host.destroy()
+          }
+        }
+      }
     })
   } finally {
     fixture.destroy()

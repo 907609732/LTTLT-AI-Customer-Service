@@ -23,6 +23,38 @@ const DEFAULT_PER_UID_INTERVAL_MS = 60000;
 const DEFAULT_PER_STORE_PER_MINUTE = 20;
 const DEFAULT_JITTER_MIN_MS = 500;
 const DEFAULT_JITTER_MAX_MS = 2000;
+// 发送 detail 只允许已知安全分类码。vendor 事件还可能被别的监听消费，因此必须在
+// 发 event 前过滤，不能把适配器/页面异常原文交给后续日志或渲染通道。
+const SEND_DIAGNOSTIC_CODES = Object.freeze([
+  'approved_page_changed',
+  'conversation_changed_while_filling',
+  'conversation_changed_while_typing',
+  'dom_send_failed',
+  'editor_changed_before_send',
+  'editor_changed_while_typing',
+  'editor_still_has_text',
+  'focus_failed',
+  'invalid_button_preparation',
+  'invalid_dom_result',
+  'native_input_unavailable',
+  'no_dom_or_stream_echo',
+  'no_media_echo',
+  'no_native_send_echo',
+  'page_review_unavailable',
+  'send_button_not_found',
+  'send_button_obscured',
+  'send_click_failed',
+  'send_in_progress',
+  'typing_cancelled',
+]);
+const SEND_DIAGNOSTIC_CODE_SET = new Set(SEND_DIAGNOSTIC_CODES);
+function safeSendDiagnosticCode(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string') return 'unclassified';
+  const code = value.trim();
+  if (!/^[a-z][a-z0-9_]{0,63}$/.test(code)) return 'unclassified';
+  return SEND_DIAGNOSTIC_CODE_SET.has(code) ? code : 'unclassified';
+}
 
 function buyerTexts(messages) {
   return (Array.isArray(messages) ? messages : []).filter((m) => m?.from === 'buyer' && m?.content);
@@ -489,7 +521,7 @@ class StoreWorker {
         // Claim disposition must happen even if storing the review record fails.
         try{this.aiClient.onDeliveryFailure({reason:sent.reason||'send_unconfirmed',throttled:!!sent.throttled,storeId:this.store.id,uid,buyerName:row.username||row.name||'',buyerMessage:latest.content,reply:text});}
         finally{await dispose(()=>sent.reason==='send_unconfirmed'?this.adapter.discard(uid):this.adapter.release(uid));}
-        this.onEvent?.({type:'reply:failed',storeId:this.store.id,uid,reason:sent.reason});
+        this.onEvent?.({type:'reply:failed',storeId:this.store.id,uid,reason:sent.reason,detail:safeSendDiagnosticCode(sent.detail)});
         return;
       }
       if (sent.throttled) {
@@ -513,7 +545,7 @@ class StoreWorker {
         // 可能已发出，自动重发会造成重复消息，交给人工与去重兜底
         this.logger?.warn(`会话 ${uid} 发送未确认，不自动重发`);
         await dispose(() => this.adapter.discard(uid));
-        this.onEvent?.({ type: 'reply:failed', storeId: this.store.id, uid, reason: sent.reason });
+        this.onEvent?.({ type: 'reply:failed', storeId: this.store.id, uid, reason: sent.reason, detail: safeSendDiagnosticCode(sent.detail) });
         return;
       }
       const attempts = (this.attempts.get(uid) || 0) + 1;
@@ -521,7 +553,7 @@ class StoreWorker {
       this.logger?.warn(`会话 ${uid} 发送失败(${sent.reason})，第 ${attempts} 次`);
       if (attempts >= MAX_ATTEMPTS) {
         await dispose(() => this.adapter.discard(uid));
-        this.onEvent?.({ type: 'reply:failed', storeId: this.store.id, uid, reason: sent.reason });
+        this.onEvent?.({ type: 'reply:failed', storeId: this.store.id, uid, reason: sent.reason, detail: safeSendDiagnosticCode(sent.detail) });
       } else {
         await dispose(() => this.adapter.release(uid));
       }
@@ -651,7 +683,7 @@ class StoreWorker {
     if(!reviewedCurrent())return {ok:false,throttled:true,reason:'cancelled'};
     const result = await this.adapter.sendText(uid, String(text),{isCurrent:()=>reviewedCurrent()&&this.#active(generation)&&!this.manualSuppressed.has(String(uid))});
     assertResult(result, 'sendText');
-    if(this.aiClient.beforeSend)this.onEvent?.({type:'reply:review-result',storeId:this.store.id,uid,ok:result.ok,reason:result.reason});
+    if(this.aiClient.beforeSend)this.onEvent?.({type:'reply:review-result',storeId:this.store.id,uid,ok:result.ok,reason:result.reason,detail:safeSendDiagnosticCode(result.detail)});
     if (result.ok || result.reason === 'send_unconfirmed') {
       try{this.welcomePolicy?.noteOutbound?.({storeId:this.store.id,uid});}catch{this.logger?.warn('欢迎去重状态未能写入，请检查磁盘');}
       const at = this.now();
@@ -856,5 +888,7 @@ module.exports = {
   matchKeyword,
   filterBannedWords,
   MAX_ATTEMPTS,
+  SEND_DIAGNOSTIC_CODES,
+  safeSendDiagnosticCode,
 };
 
