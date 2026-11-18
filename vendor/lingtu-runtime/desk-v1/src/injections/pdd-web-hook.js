@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VER = 14;
+  var VER = 15;
   var reviewPageId=Date.now().toString(36)+Math.random().toString(36).slice(2);
   window.__PDD_WEB_VER = VER;
 
@@ -190,6 +190,12 @@
       }
     }
     return false;
+  }
+  function hasNativeMessageId(id) {
+    var text = trimStr(id);
+    if (!text) return false;
+    // h-/st:/dom: 是本 hook 在缺少平台 ID 时的本地指纹，不构成跨卡独立证据。
+    return text.indexOf('h-') !== 0 && text.indexOf('st:') !== 0 && text.indexOf('dom:') !== 0;
   }
   function trimMap(map) {
     if (map.size <= CONF.seenMax) return;
@@ -368,6 +374,75 @@
     return { type: declared && declared !== 'text' ? declared : guessed, content: s };
   }
 
+  function nestedObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  }
+  // 新增卡片路径只接受页面实际给出的安全原始类型。顶层旧字段仍走原 trimStr
+  // 契约（历史测试和旧页面可能使用非纯数字键），不能因新校验倒退。
+  function explicitProductId(value) {
+    if (typeof value === 'number') {
+      if (!(isFinite(value) && value > 0 && Math.floor(value) === value && value <= 9007199254740991))
+        return '';
+      value = String(value);
+    }
+    if (typeof value !== 'string') return '';
+    var text = value.trim();
+    return /^[1-9][0-9]{5,31}$/.test(text) ? text : '';
+  }
+  function explicitProductTitle(value) {
+    return typeof value === 'string' ? trimStr(value, 200) : '';
+  }
+  /**
+   * 当前消息自身的显式商品字段，范围固定、绝不递归：
+   * - 顶层 goods_id/goodsId、goods_name/goodsName/goods_title 保留原有优先权和字符串口径；
+   * - type41 只读 info.goods_info.goods_id/goods_name；
+   * - type0 只读 info.goodsID/goodsName。
+   * ID 与标题必须来自同一个完整来源，不能把顶层标题和嵌套 ID 拼成不存在的商品。
+   * 不解析正文/URL/JSON，不调用推荐商品，也不把历史卡或联系人预览补进当前消息。
+   */
+  function nestedProductOf(node) {
+    var out = { goodsId: '', goodsTitle: '' };
+    var info = nestedObject(node && node.info);
+    if (!info) return out;
+    var type = Number(node.type !== undefined ? node.type : node.msg_type);
+    if (type === 41) {
+      var goodsInfo = nestedObject(info.goods_info);
+      if (!goodsInfo) return out;
+      out.goodsId = explicitProductId(goodsInfo.goods_id);
+      if (out.goodsId) out.goodsTitle = explicitProductTitle(goodsInfo.goods_name);
+      return out;
+    }
+    if (type === 0) {
+      out.goodsId = explicitProductId(info.goodsID);
+      if (out.goodsId) out.goodsTitle = explicitProductTitle(info.goodsName);
+    }
+    return out;
+  }
+  function productOf(node) {
+    var out = { goodsId: '', goodsTitle: '', productCard: false };
+    if (!node || typeof node !== 'object') return out;
+    var legacyId = trimStr(node.goods_id || node.goodsId || '');
+    var legacyTitle = trimStr(node.goods_name || node.goodsName || node.goods_title || '');
+    if (legacyId) {
+      out.goodsId = legacyId;
+      out.goodsTitle = legacyTitle;
+    } else {
+      var nested = nestedProductOf(node);
+      if (nested.goodsId) {
+        out.goodsId = nested.goodsId;
+        out.goodsTitle = nested.goodsTitle;
+      } else {
+        // 只有旧顶层标题、没有可用 ID 时保留原 legacy 展示口径；它不会被拼到另一来源 ID。
+        out.goodsTitle = legacyTitle;
+      }
+    }
+    var type = Number(node.type !== undefined ? node.type : node.msg_type);
+    // 只有原始 type0/41 且最终商品 ID 为明确数字时，才把它当作可独立于占位正文的实体卡。
+    out.productCard =
+      (type === 0 || type === 41) && !!explicitProductId(out.goodsId);
+    return out;
+  }
+
   function normalizeNode(node) {
     if (!node || typeof node !== 'object') return null;
     var from = node.from || node.sender || {};
@@ -391,6 +466,7 @@
     if (ts > 0 && ts < 1e12) ts = ts * 1000;
     var msgId = trimStr(node.msg_id || node.msgId || node.message_id || node.id || '');
     if (!msgId) msgId = 'h-' + hash32(uid + '|' + ts + '|' + body.content);
+    var product = productOf(node);
     return {
       uid: uid,
       from: dir,
@@ -400,13 +476,15 @@
         type: body.type,
         content: body.content,
         ts: ts,
-        goodsId: trimStr(node.goods_id || node.goodsId || ''),
-        goodsTitle: trimStr(node.goods_name || node.goodsName || node.goods_title || ''),
+        goodsId: product.goodsId,
+        goodsTitle: product.goodsTitle,
+        productCard: product.productCard,
         orderId: trimStr(node.order_id || node.orderId || ''),
       },
       username: trimStr(node.username || node.user_name || node.nickname || node.buyer_name || ''),
-      goodsId: trimStr(node.goods_id || node.goodsId || ''),
-      goodsTitle: trimStr(node.goods_name || node.goodsName || node.goods_title || ''),
+      goodsId: product.goodsId,
+      goodsTitle: product.goodsTitle,
+      productCard: product.productCard,
       orderId: trimStr(node.order_id || node.orderId || ''),
       orderStatus: trimStr(node.order_status || node.orderStatus || ''),
     };
@@ -529,22 +607,36 @@
       return;
     }
 
-    // 跨通道去重：同一条消息在 store 与 DOM 里的 id 体系不同，用文本指纹兜底
+    // 跨通道去重：同一条消息在 store 与 DOM 里的 id 体系不同，用文本指纹兜底。
+    // 但买家显式商品卡如果有平台 native ID 和商品 ID，就代表一张独立实体卡：
+    // 两张不同商品卡可能共用同一占位正文（如 [乐高卡片]），不能被文本指纹吞掉。
+    // 纯文字、无商品 ID 或无 native ID 的消息仍走原去重规则。
+    var incomingGoodsId = trimStr(norm.goodsId || m.goodsId || '');
+    var incomingGoodsTitle = incomingGoodsId
+      ? trimStr(norm.goodsId ? norm.goodsTitle : m.goodsTitle)
+      : trimStr(norm.goodsTitle || m.goodsTitle || '');
+    var distinctProductCard =
+      m.from === 'buyer' &&
+      !!(norm.productCard || m.productCard) &&
+      !!incomingGoodsId &&
+      hasNativeMessageId(m.msgId);
     var tkey = uid + '|' + m.from + '|' + trimStr(m.content, 200);
-    var seenAt = state.seenText.get(tkey);
-    if (seenAt && Date.now() - seenAt < CONF.textDedupeMs) {
-      noteWatermark(uid, m);
-      return;
+    if (!distinctProductCard) {
+      var seenAt = state.seenText.get(tkey);
+      if (seenAt && Date.now() - seenAt < CONF.textDedupeMs) {
+        noteWatermark(uid, m);
+        return;
+      }
+      // 跨通道同文去重：同一句话在 store 与 DOM 里 from 可能判得不一样，20 秒内只留先到的一条
+      var anyKey = uid + '|' + trimStr(m.content, 200);
+      var prevAny = state.seenTextAny.get(anyKey);
+      if (prevAny && prevAny.from !== m.from && Date.now() - prevAny.ts < CONF.crossDedupeMs) {
+        noteWatermark(uid, m);
+        return;
+      }
+      state.seenTextAny.set(anyKey, { ts: Date.now(), from: m.from });
+      trimMap(state.seenTextAny);
     }
-    // 跨通道同文去重：同一句话在 store 与 DOM 里 from 可能判得不一样，20 秒内只留先到的一条
-    var anyKey = uid + '|' + trimStr(m.content, 200);
-    var prevAny = state.seenTextAny.get(anyKey);
-    if (prevAny && prevAny.from !== m.from && Date.now() - prevAny.ts < CONF.crossDedupeMs) {
-      noteWatermark(uid, m);
-      return;
-    }
-    state.seenTextAny.set(anyKey, { ts: Date.now(), from: m.from });
-    trimMap(state.seenTextAny);
     state.seenText.set(tkey, Date.now());
     trimMap(state.seenText);
     state.stats.ingested++;
@@ -569,12 +661,16 @@
 
     row = rowFor(uid);
     if (norm.username) row.username = norm.username;
-    if (norm.goodsId) row.goodsId = norm.goodsId;
-    if (norm.goodsTitle) row.goodsTitle = norm.goodsTitle;
+    // ID 和标题按同一来源成对更新；新 ID 即使没有标题也要清掉旧标题，不能 P2+T1。
+    // 只有标题没有 ID 的元数据不能覆盖已有 ID 的标题，也不能与旧 ID 拼成假商品。
+    if (incomingGoodsId) {
+      row.goodsId = incomingGoodsId;
+      row.goodsTitle = incomingGoodsTitle;
+    } else if (!row.goodsId && incomingGoodsTitle) {
+      row.goodsTitle = incomingGoodsTitle;
+    }
     if (norm.orderId) row.orderId = norm.orderId;
     if (norm.orderStatus) row.orderStatus = norm.orderStatus;
-    if (m.goodsId && !row.goodsId) row.goodsId = m.goodsId;
-    if (m.goodsTitle && !row.goodsTitle) row.goodsTitle = m.goodsTitle;
     if (m.orderId && !row.orderId) row.orderId = m.orderId;
     row.messages.push(m);
     if (row.messages.length > CONF.pendingTailMax) row.messages = row.messages.slice(-CONF.pendingTailMax);
@@ -1038,11 +1134,15 @@
       try {
         body = extractContent(m);
       } catch (e) {}
+      var product = productOf(m);
       byId[id] = {
         role: role,
         ts: isFinite(ts) && ts > 0 ? ts : 0,
         type: body && body.type ? body.type : 'unknown',
         content: storeMessageText(m),
+        goodsId: product.goodsId,
+        goodsTitle: product.goodsTitle,
+        productCard: product.productCard,
       };
     }
     return byId;
@@ -1187,6 +1287,10 @@
     }
     var info = (node && node.info) || {};
     var title = trimStr(info.title || info.goods_name || info.goodsName || '');
+    if (!title) {
+      var product = productOf(node);
+      if (product.goodsId) title = product.goodsTitle;
+    }
     if (title) return { type: 'card', content: '[商品] ' + title };
     return { type: 'text', content: '' };
   }
@@ -1217,11 +1321,24 @@
         ts = i === list.length - 1 ? nowSec() * 1000 : 0;
       }
       if (!msgId) msgId = 'st:' + uid + ':' + hash32(String(ts) + '|' + body.content + '|' + from);
+      var product = productOf(m);
       try {
         ingestMessage({
           uid: uid,
           username: nick,
-          message: { msgId: msgId, from: from, type: body.type, content: body.content, ts: ts },
+          message: {
+            msgId: msgId,
+            from: from,
+            type: body.type,
+            content: body.content,
+            ts: ts,
+            goodsId: product.goodsId,
+            goodsTitle: product.goodsTitle,
+            productCard: product.productCard,
+          },
+          goodsId: product.goodsId,
+          goodsTitle: product.goodsTitle,
+          productCard: product.productCard,
         });
       } catch (e) {
         fail('scanStore.ingest', e);
@@ -1315,6 +1432,15 @@
       var ts = (stored && stored.ts) || timeNear(row);
       if (!ts && i >= rows.length - 3) ts = Date.now();
       var type = MEDIA_RE.test(text) ? (typeFromContent(text) === 'text' ? 'card' : typeFromContent(text)) : typeFromContent(text);
+      // DOM 只从同一 UID、同一 native msgId 的 Vuex 条目取商品字段；联系人预览、
+      // 其他会话和未知行没有 known[id]，因此绝不会借用当前页面其它 UID 的商品。
+      var product = stored
+        ? {
+            goodsId: stored.goodsId || '',
+            goodsTitle: stored.goodsTitle || '',
+            productCard: !!stored.productCard,
+          }
+        : { goodsId: '', goodsTitle: '', productCard: false };
       try {
         ingestMessage({
           uid: uid,
@@ -1327,7 +1453,13 @@
             type: type,
             content: text,
             ts: ts,
+            goodsId: product.goodsId,
+            goodsTitle: product.goodsTitle,
+            productCard: product.productCard,
           },
+          goodsId: product.goodsId,
+          goodsTitle: product.goodsTitle,
+          productCard: product.productCard,
         });
       } catch (e) {
         fail('scanBubbles.ingest', e);
@@ -1836,6 +1968,7 @@
           content: e.content,
           msgId: e.msgId,
           ts: e.ts,
+          goodsId: e.goodsId,
           goodsTitle: e.goodsTitle,
         };
       });

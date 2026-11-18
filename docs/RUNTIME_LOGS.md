@@ -58,6 +58,16 @@ AI 调试记录真实构造的 messages（系统规则、协议、检索知识�
 
 1.0.62 实店诊断显示 DOM 采集把左侧联系人预览（`.chat-item-box[data-random]` 内的 `p.chat-message-content`）当成了消息气泡，真实消息行 `LI#middlePanel_list_<msgId>.onemsg` 反而没被读取，导致 `document_uid_conflict=0` 但 `reviewHistory` 持续 `known:false`。hook v13 起，DOM 采集、网页基线（`reviewHistory`）、卖家回显（`sellerEchoCount/waitForEcho`）和准备/确认发送统一读取真实消息行：消息 ID 取自 `middlePanel_list_`，方向取自行内 `cs-item`/`buyer-item` 或同一 UID 的 Vuex `from.role`，`merchantMessage` 不再作为卖家证据（它是所有行的包裹层）。日志中的 `bubbleNodes` 统计因此表示真实消息行数，不再包含联系人预览或隐藏缓存。方向无法证明的行直接跳过，不会显示为买家待回复或卖家已发送；同文新消息以真实消息 ID 区分。联系人预览、时间/昵称/菜单/按钮文本不进入消息内容。
 
+## 2026-11-18 PDD 新商品卡来源（1.0.66 / hook v15）
+
+新商品字段只从当前消息自身的显式路径提取：顶层旧字段 `goods_id/goodsId`、`goods_name/goodsName/goods_title` 的优先顺序和字符串口径保留；新增只识别 type41 `info.goods_info.goods_id/goods_name` 与 type0 `info.goodsID/goodsName`。嵌套 ID 必须是正安全整数或 6–32 位纯数字字符串，标题必须是字符串；不递归扫描任意对象/文本/URL/JSON，不调用推荐商品、不按标题或联系人预览猜 ID。缺失标题保持空。
+
+`normalizeNode`、store `ingestConv`、DOM `scanBubbles` 统一把商品带到 pending row、`popPending` claim 和 `drainEvents`；`goodsContext` 仍只读该 UID 的 pending/claimed row。DOM 的商品只取同 UID、同 native msgId 的 Vuex 条目，并仍先通过原有 UID 三路一致、`panelMatchesUid`、行 ID 和角色守卫；其它 UID、未知行、冲突角色或联系人预览没有可借用的商品。
+
+ID 和标题只能来自同一原子来源：顶层 ID 不借嵌套标题，嵌套 ID 不借顶层标题，标题缺失留空。row 更新时 ID/标题成对写入，新 ID 无标题会清掉旧标题；只有标题没有 ID 的元数据不能覆盖已有 ID 的标题。只有“原始 type0/41 + 明确数值商品 ID + 平台 native msgId”的买家实体卡才跳过原文本/跨角色去重，避免同占位正文的不同商品卡被吞；普通文字、legacy `goods_id` 文字、卖家和纯文本仍保持原去重语义。info-only store 卡由同一显式标题补出卡片正文后入队，不凭空拼正文。
+
+只有新卡本身能为其新入队 row 赋商品；同一未处理 row 的已有绑定按原语义保留。bootstrap 历史卡、被水位/去重吸收的旧卡、纯文字均不会回填商品；没有新增全局或跨请求商品缓存。当前纯文字 turn 商品为空是 unknown，不是需要历史补全的失败。完整测试、RED/GREEN 与实店未验边界见 VALIDATION、HANDOFF 和 `artifacts/pdd-product-fix-20261118/worker-report.md`。
+
 ## 2026-11-18 PDD 发送 detail 安全分类（1.0.65 / hook v14）
 
 1.0.64 A/B 实店发送只保留到 `input_busy`，底层 detail 在 review-result 日志中丢失；真实全屏 leave 层覆盖按钮虽与 `send_button_obscured` 相容，但不能据此回溯成唯一历史证明。1.0.65 起，reply-engine 在既有 `reply:review-result` 和发送失败 `reply:failed` 事件离开 vendor 前，只附带 exact allowlist 中的 ASCII snake_case detail 分类码；未知、任意错误原文、买家文本、URL、Key 或 HTTP body 一律变为固定 `unclassified` 或省略，不把规范 snake_case 外形当过滤依据。ReviewConsole 再做同样 20 项 allowlist 的边界防御，只在既有失败日志行追加 `发送分类: <code>`，不新增持久化文件、不扩大 500 条内存上限。`reason`、候选状态、授权、点击次数、发送失败隔离及不自动重发语义保持不变；`input_busy` 等失败不会因有 detail 分类而显示为成功。

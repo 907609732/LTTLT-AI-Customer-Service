@@ -1,5 +1,29 @@
 # 客户端与独立服务端验证
 
+## 2026-11-18：PDD 新商品卡来源修复（1.0.66 / hook v15，Codex 独立预审可进入 CI；实店新卡待测）
+
+**结论先行：离线 GREEN 只证明合成输入下的字段提取、队列/认领/事件/上下文透传和同 UID/同 msgId 归属。** 实店验收侧后续报告 1.0.65 A/B 真实收发通过，已覆盖下方 1.0.65 诊断节的旧未通过状态；本隔离树未访问现场、Inspector、正式用户数据或旧工作树，不能独立复述送达。新商品卡在实店到达、进入正确候选并显示仍待实测；当前纯文字 turn 的 product 为空是 expected unknown，不能用历史卡补成当前咨询。
+
+范围：`vendor/lingtu-runtime/desk-v1/src/injections/pdd-web-hook.js`（v15）只增加有界 `productOf` 和统一透传，新增 native `tests/pdd-product-source.test.ts`；`electron/dom-send-checks.ts` 增加真实 `ShopWindowManager` + 真实 hook 的合成商品来源检查。未改发送适配器、授权、节奏、窗口、知识业务、平台配置、`panelMatchesUid`、`reviewHistory`、`sellerEcho` 或批准/新消息作废逻辑。
+
+RED（先失败，使用未修改 v14）：
+
+- `logs/red-targeted-v14-final.log`（exit 1）：9 项中 6 失败、3 通过。失败直接落在新路径空商品、A/B 归属、DOM 同 ID 和 event `goodsId`；type41/type0 显式字段、legacy 顶层字符串优先、历史卡+新文字不回填和角色冲突负例仍通过。更早两次夹具自检失败日志 `red-targeted-v14.log`、`red-targeted-v14-attempt2.log` 保留，不计为行为 RED。
+- Codex 独立边界预审 `artifacts/pdd-product-fix-20261118/codex-boundaries.test.ts` + `logs/codex-boundaries-red.log`（exit 1）：6 例中 5 失败，覆盖跨来源 ID/标题拼接、旧标题残留、同占位正文新卡被吞、type41 info-only 丢失。Codex 后续补普通 legacy 文字去重反例后共 7 例；这些均纳入正式 21 项测试。
+- 新增 native 检查在最终构建后的 Electron 上 2/2 通过；没有把首次旧 hook 的 native 运行伪称为 RED。
+
+GREEN（当前文件）：
+
+- `logs/green-product-source.log`：`tests/pdd-product-source.test.ts` 21/21，exit 0。覆盖 type41/type0 正例、来源原子配对、info-only store、新 ID 清旧标题、title-only 不拼旧 ID、同占位正文不同 native 卡、普通 legacy 文字仍去重、顶层 legacy 优先、store/WS 入队、`popPending` claim、release/discard、`drainEvents`、`goodsContext`、A/B 不同商品交替、B 先于 A claim、后续同 UID 新卡替换、纯文字保留同 row 绑定、DOM 同 UID 同 native msgId 归属、外 UID/未知 ID/角色冲突不借商品、历史卡+新文字不回填、旧卡去重不污染、畸形/非数字/错误 type/泛文本不推断。
+- `logs/green-targeted-13files.log`：13 文件 189 项通过，exit 0；包含原 PDD 归属/面板/定位、DOM 发送适配器、发送协调、review-engine/review-console、回复监控以及 operation-pdd-native/provider。
+- `logs/native-product-and-middle-final.log`：真实 Electron `dom-send:pdd-product-source` + `dom-send:v15-real-middle-row` 2/2 通过，报告 `artifacts/desktop-selected-1795000022298/report.json`。商品检查使用真实 `ShopWindowManager`、独立 partitionNamespace、真实 hook/adapter 和 data: HTML 合成 Vuex（info-only type41）；无真实店铺、网络或模型。
+- `logs/typecheck-final.log`、`logs/lint-final.log`、`logs/format-check-final.log`、`logs/check-vendor.log`：均 exit 0。格式检查首轮失败日志 `logs/format-check-targeted.log` 保留（测试文件待格式化，exit 1）；仅执行 Prettier 后复跑通过，未改业务断言。
+- `logs/upstream.log`：上游 242/242，exit 0。`logs/build-final.log`：renderer + desktop 构建通过，exit 0；仅保留既有 chunk 大小警告。
+- `logs/codex-boundaries-green.log`：Codex 独立 7/7 通过。
+- `source-files.json` 中 hook 实际 sha256 为 `39cada660756f6e85703102c6c0fd8eebe289210ceb5571552781ff23b827af1`，保留 `upstreamGitBlob/upstreamSha256`；`npm run check:vendor` runtime 80 / server 94 通过。完整日志与 diff 见 ignored `artifacts/pdd-product-fix-20261118/`。
+
+**未验证 / 不得冒充**：未访问实店进程 91888、未操作 Inspector、真实店铺/买家、AI 开关、队列、模型或发送；未打包、commit、push、发布。未运行全量 `npm run check` 或全量 `npm run test:desktop`；新商品卡实店行为、真实 A/B 商品隔离和送达仍需 实店独立验收（CI 由 Codex 安排）。本修复的保证范围仅限：受支持的 Store/DOM/有正文 WS 通道中，新显式 type0/41 卡透传商品；info-only WS 仍不支持，需同 nativeId 的 Store/DOM 承接；仅有 ID 但正文与同源标题都为空的卡仍 unknown/不入队。若只有历史 schema、没有 baseline 之后的新卡，不能承诺实店商品来源通过。
+
 ## 2026-11-18：PDD 发送诊断修复（1.0.65 / hook v14，待 Codex 独立验收）
 
 **结论先行：1.0.64 的 A/B 实店发送验收未通过，本节不把离线测试、headless 或本地 Electron 检查写成实店已修复。** 已证事实：

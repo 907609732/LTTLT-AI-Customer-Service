@@ -1,3 +1,15 @@
+## 2026-11-18：PDD 新商品卡来源最小修复（1.0.66 / hook v15，Codex 独立预审可进入 CI；实店新卡待测）
+
+实店验收侧后续报告 1.0.65 A/B 真实收发通过，已覆盖下方 1.0.65 诊断节的旧未通过状态；原正式云包进程 91888 继续保留验收。本隔离树未访问该进程、Inspector、正式用户数据或旧源码。**新商品卡仍待实店实测，不能把本节离线 GREEN 写成实店通过。**
+
+已确认事实：type41 买家入口卡在 `message.info.goods_info.goods_id/goods_name` 有显式商品字段，type0 分享卡在 `message.info.goodsID/goodsName`；旧 v14 的 `normalizeNode` 只读顶层，store `ingestConv` 与 DOM `scanBubbles` 也不携带同 msgId 商品，所以新显式卡会丢商品。当前新纯文字 turn 的 product 为空是 expected unknown，历史卡不得回填。
+
+本批只改 hook v15：新增有界 `productOf`，保留原顶层字段优先级和字符串口径，再仅接 type41 `info.goods_info`、type0 `info.goodsID/goodsName`；新增路径只接受 6–32 位明确数字 ID/安全原始类型和字符串标题，不递归、不猜 ID、不扫入口正文/URL/JSON、不调用 `recommendGoods`、不读联系人预览。`normalizeNode`、`ingestConv`、`scanBubbles` 统一透传，event 增加同卡 `goodsId`；DOM 仅从同 UID、同 native msgId 的 Vuex 条目取，先过原 UID/行 ID/角色守卫。商品只赋给该卡所属 UID 的新 pending row，同一未处理 row 保留既有绑定；bootstrap/水位/去重旧卡、纯文字、错 UID 和角色冲突不回填。未新增全局/跨请求缓存，未改发送、授权、节奏、窗口、知识或平台配置。
+
+验证：新增 21 项商品来源测试先 RED（最终 `logs/red-targeted-v14-final.log` 6 失败/3 通过；Codex 边界预审 5/6 失败），修复后 21/21 通过，Codex 独立 7/7 通过；PDD/发送/监控定向 13 文件 189 项通过；真实 `ShopWindowManager` + hook 的 `dom-send:pdd-product-source` 与 v15 真实中间行 2/2 通过（`artifacts/desktop-selected-1795000022298/report.json`，临时 userData/合成 data HTML/无真实网络）；typecheck、改动 ESLint/Prettier、check:vendor（80/94）、upstream 242/242、完整 build 退出 0。完整日志、失败记录与 diff 见 ignored `artifacts/pdd-product-fix-20261118/worker-report.md`。
+
+**未执行**：实店/91888、Inspector、真实平台消息、真实买家发送、AI 开关、模型、重启 GUI、打包、commit/push。实店新卡是否到达、A/B 不同商品能否隔离、候选商品显示与最终收发仍需 Codex 和实店独立验收；本修复只保证：受支持的 Store/DOM/有正文 WS 通道中，新显式 type0/41 卡会透传商品；info-only WS 仍不支持，需同 nativeId 的 Store/DOM 承接；仅有 ID 但正文与同源标题都为空的卡仍 unknown/不入队。因此不承诺商品来源实店通过。
+
 ## 2026-11-18：PDD 发送诊断修复（1.0.65 / hook v14，待 Codex 独立复核）
 
 **A/B 实店发送仍未通过，不能写成送达。** 已证：B 在平台机器人回复后从 `todayChatFilter` 待回复分组消失，`conversationFor(B)=null` 导致 `reviewHistory known:false`，尽管 current/原始列表/nativeID 有 B；A/B 底层均 `input_busy`，真实全屏 leave 层覆盖发送按钮，但 detail 当时丢失，不能唯一归因。平台自带机器人回复不是本软件送达。
@@ -10,7 +22,7 @@
 
 验证：定向 9 文件 106 项通过；真实 `ShopWindowManager` Electron 覆盖窗检查 2/2（v14 中间行 + 后台 rAF），原 true 在 host 主窗偏好下行为 RED timeout 1829ms，修复后 PDD 后台 rAF 0ms 通过、非 PDD 只断言属性默认 true；typecheck、check:vendor（80/94）、upstream 242/242、build 通过。日志在 `artifacts/pdd-send-fix-20261118/logs/`，完整范围/未测项见同目录 worker-report。
 
-**未执行**：实店、Inspector、平台消息、AI 开关、发送、重启 GUI、打包、commit/push。新 hook 的真实 A/B 归属、覆盖弹窗期间 hit/回显与实际送达仍待 Codex 与实店独立验收；本机结果不冒充实店通过。
+**未执行**：实店、Inspector、平台消息、AI 开关、发送、重启 GUI、打包、commit/push。新 hook 的真实 A/B 归属、覆盖弹窗期间 hit/回显与实际送达仍待 实店独立验收（CI 由 Codex 安排）；本机结果不冒充实店通过。
 
 ## 2026-11-18：1.0.62 实店基线未通过与 PDD 真实消息行投影修正（1.0.64，hook v13，待独立复核）
 

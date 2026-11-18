@@ -63,8 +63,8 @@ export async function domSendChecks(check: Check) {
   const load = async (mode: string) => {
     nativeInputs = 0
     // 旧 DOM 夹具没有真实 MMS 的 LI#middlePanel_list_<msgId>，因此显式声明聊天消息区
-    // `.chatMessage` 边界；hook v14 的 legacy 兜底只在该边界内读无 ID 气泡，绝不读左侧
-    // 联系人预览。真实中间消息结构另由下方 dom-send:v14-real-middle-row 覆盖。
+    // `.chatMessage` 边界；hook v15 的 legacy 兜底只在该边界内读无 ID 气泡，绝不读左侧
+    // 联系人预览。真实中间消息结构另由下方 dom-send:v15-real-middle-row 覆盖。
     const html = `<!doctype html><html><body><div class="chat-item-box active" data-random="buyer-1">测试买家</div><div class="chatMessage"><div id="buyer-history"><div class="chat-item customerMessage"><p class="chat-message-content">买家原始问题</p></div></div></div><textarea style="width:400px;height:80px"></textarea>${mode === 'no-button' ? '' : '<button>发送</button>'}<div class="chatMessage"><div id="messages"></div></div><script>
       window.clicks=0;window.keys=0;window.inputs=[];document.addEventListener('keydown',()=>window.keys++);
       const input=document.querySelector('textarea');
@@ -77,7 +77,7 @@ export async function domSendChecks(check: Check) {
     assert.equal((await adapter.ensure()).ok, true)
   }
   // 真实 1.0.62/1.0.64 中央消息结构：LI#middlePanel_list_<msgId> + 同 UID Vuex 角色，
-  // 左侧只放联系人预览。用于确认 v14 发送/回显通路，不替代上面的 legacy 兼容断言。
+  // 左侧只放联系人预览。用于确认 v15 发送/回显通路，不替代上面的 legacy 兼容断言。
   const loadV13 = async () => {
     nativeInputs = 0
     const html = `<!doctype html><html><body><div id="app"><div class="chat-item-box active" data-random="buyer-0-reply"><p class="chat-message-content">左侧预览旧缓存</p></div></div><div class="middlePanel"><ul class="message-list"><li id="middlePanel_list_9001" class="clearfix onemsg"><div class="merchantMessage"><div class="buyer-item"><div class="msg-content"><p class="msg-content-box">买家原始问题</p></div></div></div></li></ul></div><textarea style="width:400px;height:80px"></textarea><button>发送</button><script>
@@ -216,16 +216,16 @@ export async function domSendChecks(check: Check) {
       assert.equal(nativeInputs, 2)
       assert.equal(await fixture.webContents.executeJavaScript('window.trusted'), true)
     })
-    await check('dom-send:v14-real-middle-row', '/fixture/pdd', async () => {
+    await check('dom-send:v15-real-middle-row', '/fixture/pdd', async () => {
       await loadV13()
-      const text = 'v14 真实中间消息行单次发送'
+      const text = 'v15 真实中间消息行单次发送'
       assert.equal((await bulkAdapter.sendText('buyer', text)).ok, true)
       const s = (await fixture.webContents.executeJavaScript(
         `({clicks:window.clicks,keys:window.keys,hook:window.__PDD_WEB_VER,rows:document.querySelectorAll('[id^="middlePanel_list_"]').length,text:document.querySelector('.message-list').textContent})`,
       )) as { clicks: number; keys: number; hook: number; rows: number; text: string }
       assert.equal(s.clicks, 1)
       assert.equal(s.keys, 0)
-      assert.equal(s.hook, 14)
+      assert.equal(s.hook, 15)
       assert.equal(s.rows, 2, '初始消息 + 一条真实回显')
       assert.ok(s.text.includes(text))
       const history = (await adapter.reviewHistory('buyer', false)) as {
@@ -358,6 +358,100 @@ export async function domSendChecks(check: Check) {
       assert.equal(s.clicks, 1)
       assert.equal(s.keys, 0)
       assert.equal(nativeInputs, 2)
+    })
+    await check('dom-send:pdd-product-source', '/fixture/pdd-product', async () => {
+      // Real ShopWindowManager + real page hook + isolated profile. The only URL is a
+      // data: document with synthetic Vuex data; no platform API, model or network.
+      const { ShopWindowManager } = loader(
+        path.join(__dirname, '..', 'vendor/lingtu-runtime/desk-v1/src/main/shop-window.js'),
+      ) as {
+        ShopWindowManager: new (options: Record<string, unknown>) => {
+          open(storeId: string): Promise<unknown>
+          webContentsOf(storeId: string): Electron.WebContents | null
+          closeAll(): void
+        }
+      }
+      const host = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          webviewTag: false,
+        },
+      })
+      const buyer = 'fixtureProductBuyer'
+      const productId = '640000000099'
+      const html = encodeURIComponent(
+        `<!doctype html><html><body><div id="app"></div>` +
+          `<div class="chat-item-box active" data-random="${buyer}-0-reply"></div>` +
+          `<ul class="message-list"></ul><script>` +
+          `const conv={userInfo:{uid:${JSON.stringify(buyer)}},messageList:[{` +
+          `msg_id:'fixture-product-card',from:{role:'user'},type:41,` +
+          `info:{goods_info:{goods_id:${productId},` +
+          `goods_name:'合成Electron商品卡'}},ts:Date.now()}]};` +
+          `document.querySelector('#app').__vue__={$store:{state:{` +
+          `selectingChatUid:${JSON.stringify(buyer)},currentUserInfo:conv,chatList:[conv]},getters:{}}};` +
+          `</script></body></html>`,
+      )
+      const stores: Record<
+        string,
+        { id: string; storeName: string; platform: string; url: string }
+      > = {
+        'product-pdd': {
+          id: 'product-pdd',
+          storeName: '合成商品来源店',
+          platform: 'pdd-web',
+          url: `data:text/html;charset=utf-8,${html}`,
+        },
+      }
+      const manager = new ShopWindowManager({
+        window: host,
+        registry: {
+          get: (id: string) => stores[id],
+          markOpened: () => {},
+          markError: () => {},
+        },
+        logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+        resolveEntryUrl: async (store: { url: string }) => store.url,
+        resolveAccessMode: async () => 'webview',
+        prepareStore: async () => ({ ok: true }),
+        partitionNamespace: `pdd-product-${process.pid}-${Date.now()}`,
+      })
+      try {
+        await manager.open('product-pdd')
+        const wc = manager.webContentsOf('product-pdd')
+        assert.ok(wc, '真实 ShopWindowManager 未创建商品来源视图')
+        const productAdapter = new PddWebAdapter({ getWebContents: () => wc }) as {
+          ensure(): Promise<{ ok: boolean }>
+          preparePending(): Promise<{ ok: boolean }>
+          popPending(): Promise<{ uid: string; goodsId?: string; goodsTitle?: string } | null>
+          goodsContext(uid: string): Promise<{
+            ok: boolean
+            context?: { goodsId?: string; goodsTitle?: string }
+          }>
+          drainEvents(): Promise<{
+            ok: boolean
+            events?: Array<{ msgId: string; goodsId?: string; goodsTitle?: string }>
+          }>
+        }
+        assert.equal((await productAdapter.ensure()).ok, true)
+        assert.equal((await productAdapter.preparePending()).ok, true)
+        const row = await productAdapter.popPending()
+        assert.equal(row?.uid, buyer)
+        assert.equal(row?.goodsId, productId)
+        assert.equal(row?.goodsTitle, '合成Electron商品卡')
+        const context = await productAdapter.goodsContext(buyer)
+        assert.equal(context.context?.goodsId, productId)
+        assert.equal(context.context?.goodsTitle, '合成Electron商品卡')
+        const events = await productAdapter.drainEvents()
+        const event = events.events?.find((item) => item.msgId === 'fixture-product-card')
+        assert.equal(event?.goodsId, productId)
+        assert.equal(event?.goodsTitle, '合成Electron商品卡')
+      } finally {
+        manager.closeAll()
+        host.destroy()
+      }
     })
     await check('dom-send:pdd-background-raf', '/fixture/pdd-background', async () => {
       // 真实 ShopWindowManager + 隔离 BrowserWindow + 独立临时 session：唯一网络输入是 data: HTML。

@@ -1,5 +1,20 @@
 # 上游来源与维护边界
 
+## 2026-11-18：PDD 新商品卡来源最小修复（1.0.66 / hook v15）
+
+事实边界：实店验收侧后续报告 1.0.65 A/B 真实收发通过，已覆盖下方 1.0.65 诊断节的旧未通过状态；本隔离工作树没有访问该现场、Inspector、正式用户数据或旧工作树源码。新商品卡是否在实店到达、能否按正确 UID 进入新候选并显示，仍待实店新卡实测，不能由离线 GREEN 反推。
+
+已有只读诊断证明 native type41 买家入口卡在 `message.info.goods_info.goods_id/goods_name` 有显式商品字段，type0 分享卡在 `message.info.goodsID/goodsName`；旧 `normalizeNode` 只读顶层，store `ingestConv` 和 DOM `scanBubbles` 也不携带同一 msgId 的商品字段。当前新纯文字 turn 的 product 为空是 expected unknown，历史卡不能补成当前咨询。
+
+本轮只改 `desk-v1/src/injections/pdd-web-hook.js` 并升至 v15：
+
+- 新增有界 `productOf(node)`：保留原顶层 `goods_id/goodsId`、`goods_name/goodsName/goods_title` 的优先级和字符串口径，再仅接受已观察到的 type41 `info.goods_info.goods_id/goods_name` 与 type0 `info.goodsID/goodsName`。新增路径只接受正安全整数或 6–32 位纯数字字符串 ID、字符串标题；不递归扫对象/文本/URL/JSON，不调用 `recommendGoods`，不按标题或联系人预览猜 ID。ID 与标题按单一来源原子取得：顶层 ID 不借嵌套标题，嵌套 ID 不借顶层标题，标题缺失留空。
+- `normalizeNode`、`ingestConv`、`scanBubbles` 统一传递商品字段，并携带“原始 type0/41 且数值商品 ID 明确”的 `productCard` 证据；`drainEvents` additive 增加同卡 `goodsId`。DOM 仅从同 UID、同 native msgId 的 Vuex 条目取商品，且仍先通过既有 `identityUid`、`panelMatchesUid`、行 ID 和角色检查。
+- 商品只写入该卡所属 UID 的新 pending row，ID/标题成对更新（新 ID 无标题会清旧标题）；title-only 元数据不能与旧 ID 拼接。仅对带 `productCard` 证据和 native msgId 的买家显式卡跳过文本去重，普通文字/legacy goods 文字仍用原去重；`bodyOf` 为 info-only store 卡补同来源标题后入队。bootstrap 历史卡、被水位/去重吸收的旧卡、纯文字、其他 UID 和角色未知行均不会回填。没有新增全局/跨请求商品缓存。
+- 未改发送适配器、授权、节奏、窗口、知识业务、平台配置、`panelMatchesUid`、`reviewHistory`、`sellerEcho`、批准基线或新消息作废逻辑。
+
+实际 sha256 与 targeted Electron 覆盖见 `source-files.json`、`docs/VALIDATION.md` 和本工程 ignored `artifacts/pdd-product-fix-20261118/worker-report.md`。当前离线结果不代表实店通过。`desk-v1/src/injections/pdd-web-hook.js` 实际 sha256 为 `39cada660756f6e85703102c6c0fd8eebe289210ceb5571552781ff23b827af1`；source-files 保留 `upstreamGitBlob` 与 `upstreamSha256`。
+
 ## 2026-11-18：PDD 发送诊断修复（1.0.65 / hook v14）
 
 1.0.64 的 A/B 实店发送验收仍未通过，已有证据只到失败事实与可复现路径，不能写成已送达或已修复。B 在平台自带机器人回复后从 `todayChatFilter` 待回复分组消失；`conversationsOf` 只要 getter 分组中有任意其它 A 就提前返回，`conversationFor(B)` 为 null，尽管 `currentUserInfo`、原始 `state.chatList/todayChatList/searchChatList` 中存在 B 且 native msgID 正确。A/B 的底层发送均返回 `input_busy`，真实环境同时存在全屏 leave 弹窗覆盖发送按钮；16:57/17:15 的具体 detail 未落日志，不能武断归因，也没有 app 卖家回显或平台送达证明。平台自带机器人回复不是本软件送达。
