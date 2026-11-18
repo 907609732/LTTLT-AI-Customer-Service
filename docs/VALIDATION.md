@@ -1,5 +1,13 @@
 # 客户端与独立服务端验证
 
+## 2026-11-18：1.0.67 整合候选（1c221df + 00a7ec6；待 CI/运行验收）
+
+来源与保留：1.0.66 实店验收代码 `1c221df` + `origin/main` `00a7ec6`（PR39 商品主图采集修复），保留双方代码。`electron/platform-product-dom.ts`、`tests/platform-product-dom.test.ts` 与 00a7ec6 逐字节相同；hook/reply-engine/shop-window/DOM 发送/授权/monitor 源码与 1c221df 逐字节相同；package.json/package-lock.json 统一 1.0.67。逐文件哈希见 `artifacts/pdd-1067-integration-20261118/source-equivalence.json`。
+
+本机有界验证：合并前 `platform-product-dom` + `pdd-product-source` 31/31；合并后 7 文件 92/92（单 worker，含 platform-product-dom、pdd-product-source、pdd-panel-ownership、pdd-conversation-attribution、dom-text-adapter、review-engine、send-mode-authorizations）；typecheck、改动 ESLint/边界/Prettier、check:vendor（runtime 80 / server 94）、完整 build 均 exit 0；真实 Electron 五项 5/5（`dom-send:pdd-product-source`、`v15-real-middle-row`、`wrong-buyer-no-send`、`no-echo-no-retry`、`pdd-background-raf`），使用临时 userData、合成 data: HTML/Vuex 与离线夹具，无真实店铺、网络、模型或买家发送。未跑全量 unit/upstream/knowledge；云端统一后续执行。
+
+状态边界：1.0.66 实店用户已确认 A/B/A 与 3 个不同商品；最后一次 A 实际是第三件，不能写成原商品回切。.66三轮实店归属复核通过；67待同次CI与运行验收。已完成两父 merge commit 并推送分支；未启动正式 GUI、未打包/发布。日志与报告在 ignored `artifacts/pdd-1067-integration-20261118/`。
+
 ## 2026-11-18：PDD 新商品卡来源修复（1.0.66 / hook v15，Codex 独立预审可进入 CI；实店新卡待测）
 
 **结论先行：离线 GREEN 只证明合成输入下的字段提取、队列/认领/事件/上下文透传和同 UID/同 msgId 归属。** 实店验收侧后续报告 1.0.65 A/B 真实收发通过，已覆盖下方 1.0.65 诊断节的旧未通过状态；本隔离树未访问现场、Inspector、正式用户数据或旧工作树，不能独立复述送达。新商品卡在实店到达、进入正确候选并显示仍待实测；当前纯文字 turn 的 product 为空是 expected unknown，不能用历史卡补成当前咨询。
