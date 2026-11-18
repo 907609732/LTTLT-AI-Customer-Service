@@ -42,6 +42,11 @@ export interface ModelConnection {
   is_default: boolean
   revision: number
   test_status: string
+  config_hash?: string
+  image_test_status?: string
+  image_tested_at?: number
+  vision_verified?: boolean
+  vision_ready?: boolean
   input_cny?: string
   output_cny?: string
   cache_read_cny?: string
@@ -52,12 +57,14 @@ export type Payload = Record<string, unknown> & { section: string }
 export interface SaveResult {
   saved: true
   tested?: boolean
+  image_verified?: boolean
   connection_id?: number
   model_connections?: ModelConnection[]
 }
 export interface SaveFailure {
   saved: false
   unconfirmed: boolean
+  reason?: string
 }
 export type ModelSave = (
   payload: Payload
@@ -125,6 +132,14 @@ function connectionStatus(rows: ModelConnection[], draft: boolean) {
   if (rows.some((row) => row.enabled)) return 'Awaiting connection test'
   if (rows.length) return 'Configured but disabled'
   return draft ? 'Unsaved draft' : 'Not configured'
+}
+function imageVerificationStatus(row: ModelConnection | undefined) {
+  if (row?.vision_verified && row.image_test_status === 'success') {
+    return 'Image verified'
+  }
+  if (row?.image_test_status === 'failed') return 'Image verification failed'
+  if (row?.image_test_status === 'stale') return 'Image verification expired'
+  return 'Image not verified'
 }
 export function AdminModels(props: {
   catalog: ModelProvider[]
@@ -247,7 +262,7 @@ export function AdminModels(props: {
     setVisible(false)
   }
   async function submit(
-    action: 'save' | 'test' | 'select' | 'delete',
+    action: 'save' | 'test' | 'select' | 'delete' | 'verify_vision',
     testAfterSave = false
   ) {
     if (!provider || !active || props.busy || submitting.current) return
@@ -274,6 +289,9 @@ export function AdminModels(props: {
       connection_id: captured.connection_id,
       ...(captured.revision ? { revision: captured.revision } : {}),
     }
+    if (action === 'verify_vision') {
+      Object.assign(payload, { config_hash: saved?.config_hash })
+    }
     if (action === 'save') {
       Object.assign(payload, {
         cost_rates: {
@@ -299,8 +317,24 @@ export function AdminModels(props: {
         if (action === 'save' && result && result.unconfirmed) {
           markUnconfirmed(captured, owner)
         }
+        if (action === 'verify_vision') {
+          setResultMessage(
+            result && result.reason === 'vision_verification_stale'
+              ? 'The API changed during image verification. Reload it and verify again.'
+              : 'Image verification failed. The saved text connection was not changed.'
+          )
+          return
+        }
         setResultMessage(
           'Save could not be confirmed. Refresh configuration and review before retrying.'
+        )
+        return
+      }
+      if (action === 'verify_vision') {
+        setResultMessage(
+          result.image_verified
+            ? 'Image verification succeeded. This API can now be selected as the image route.'
+            : 'Image verification failed. The saved text connection was not changed.'
         )
         return
       }
@@ -677,6 +711,36 @@ export function AdminModels(props: {
                   {t('Use this API')}
                 </Button>
               </div>
+              {saved && (
+                <div className='space-y-2 rounded-lg border border-blue-100 p-3'>
+                  <div className='flex items-center justify-between gap-3'>
+                    <div>
+                      <p className='text-sm font-medium'>
+                        {t('Image verification')}:{' '}
+                        {t(imageVerificationStatus(saved))}
+                      </p>
+                      <p className='admin-help'>
+                        {t(
+                          'Image requests use this API only after the fixed synthetic image probe succeeds. Text connection tests do not grant image capability.'
+                        )}
+                      </p>
+                    </div>
+                    <Button
+                      variant='outline'
+                      disabled={
+                        props.busy ||
+                        active.dirty ||
+                        revisionConflict ||
+                        !saved.ready ||
+                        !saved.config_hash
+                      }
+                      onClick={() => void submit('verify_vision')}
+                    >
+                      {t('Verify image')}
+                    </Button>
+                  </div>
+                </div>
+              )}
               {provider.required_fields
                 .filter(
                   (key) =>

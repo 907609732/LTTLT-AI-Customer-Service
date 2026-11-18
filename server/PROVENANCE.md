@@ -1,5 +1,20 @@
 # 来源与本地适配
 
+## 2026-11-19 托管视觉路由与图片验证（本机实现，未部署）
+
+来源仍为固定提交 `fd45e3832f3cceefefa64f8ff43d05da2cffe5e9`，New API 固定提交 `48a6c87f9e7757fdc58e5be9bcb4f8281ad0dfd0`，未新增依赖、SDK、通用路由或公开端点。变更交付说明见 `VISION_MODEL.md`，执行日志和未解决项见根 `artifacts/size-vision-20261119/managed-vision-implementation-report.md`。
+
+- `overlay/lingtu/settings.go`：`TrialPolicy` 新增可选 `vision_model`，缺字段保持旧 Qwen 路由。
+- `overlay/lingtu/model_connection.go`：新增独立图片验证状态/哈希/时间字段，继续复用加密渠道凭证，不复制 Key。
+- `overlay/lingtuhost/model_policy.go`、`chat.go`、`routes.go`：显式视觉路由必须已授权、ready、图片验证有效；图片请求在 `ReserveWithLimits` 前失败，客户端文字模型不能覆盖视觉上游；旧空字段语义保留。
+- `overlay/lingtuhost/admin.go`、`admin_models.go`：管理员 `action=verify_vision` 绑定连接、revision、config_hash；固定合成图探针只更新图片验证字段并做 CAS，不创建 `managedUsage`、不扣额度、不改内部渠道状态；普通文字测试不写入图片验证。
+- `overlay/controller/lingtu_channel.go`：新增受限图片探针，复用固定上游 relay 测试入口。`patches.json` 仅增加 `controller/channel-test.go` 的注入图文消息和读取测试响应体三个精确锚点，未修改 `.upstream` 源文件。
+- 前端 `admin-page.tsx`、`admin-models.tsx` 增加授权/ready/已验证候选筛选、独立“验证图片”动作和状态；`admin-page.test.tsx` 增加定向 UI 回归。
+
+实际 SHA256：`overlay/controller/lingtu_channel.go` `5397dc929131bf0b00e3bbb6e5bd62879796267c39c4dcac51ecc14e75b85d66`；`overlay/lingtu/model_connection.go` `9edb839161f6e299688b736477c307a86eeb6a88015a32fc69b2dd7b11a7a58a`；`overlay/lingtu/settings.go` `1a9d0ee0aef60cf54a612841756b8a47b4fa7ff492e9f91bd2d076899588df2c`；`overlay/lingtuhost/admin.go` `4a69a513e33a5444fc4ce0be1299a33d5d7164802639836da572657fa977a8ad`；`overlay/lingtuhost/admin_models.go` `8c05c9352f697a90922492a3af41e565ffa5e1e2b221e36f6d17f15eefd49e34`；`overlay/lingtuhost/chat.go` `53ee6c9759c5977c8d933626e935660fbec9cc3cd0548f3c02afd636c4089899`；`overlay/lingtuhost/routes.go` `f83b79a0017c0feb0cf97f75ecbfd17bd0cf0d06b9d2c5265e7204669fc0be5a`；`overlay/web/src/features/lingtu/admin-models.tsx` `e771c08c84547e88b312c5266c88e4b940399d55bb41fbcccfcb2600e456bb95`；`admin-page.tsx` `81f180098402541ee6e8aa18b6a2e76f8231c0b3c00e84ea7301a684ca19878d`；`admin-page.test.tsx` `9f90dfc69a1e969d9bf93532ea081e5421e4b403f384991b10b3759ead3dd621`；`patches.json` `794786664af5aa476171b53d6c3b82f57c53bf416d6be9ba122c33dde5592aea`；`translations.json` `4be7c2bfacc1b1a66f967457027da6971dd6fa29e47d51d2bfa5b6d9a68f48b1`。自有新增 `overlay/controller/lingtu_channel_test.go` `29ba491274aa58e1bb18a3aa46b28aa35d846d018a3bb55c54e746982c3ee0e8`、`overlay/lingtuhost/managed_vision_test.go` `f8c7fc38b6fdae537f29a7163359258d7c906744616d89a879afae7266f61796`、`VISION_MODEL.md` `6acbfbbcc6ac87f356edaec0109cf87afb34150e9b9fcb26d8308c3cc90e294d`。新增测试不写入 `source-files.json`（该清单只登记导入文件）；`source-files.json` 已按上述导入文件实际字节更新摘要。未部署生产、未改真实账号/额度/密钥、未调用付费模型。
+
+验证范围：`go test ./lingtuhost -run TestLingtu`、仅图片探针与相关上下文策略子集、`go test ./lingtu` 受影响用例、原生网页 `admin-page.test.tsx`、typecheck、oxlint、oxfmt check、build 和 `preparation.test.mjs`。未运行全量上游 controller 回归、全库 Go、MySQL/PostgreSQL 矩阵或真实供应商验收；这些不得据本条声称已通过。
+
 ## 2026-11-18 设备授权注册回跳整合（候选，待复核）
 
 来源：`a28750d`（`codex/device-registration-redirect-20261117`，base `377193d`）。本轮以真实合并父整合到 `07a2ac6` 之上，只重放 redirect 功能补丁：`patches.json` 为 `web/src/features/auth/sign-up/components/sign-up-form.tsx` 增加 5 个精确锚点（`AuthFormProps`、`redirectTo`、`redirectToLogin(redirectTo)`、`handleLoginResult(..., redirectTo)`、`OAuthProviders redirectTo`），为 `web/src/features/auth/sign-in/index.tsx` 增加 `search={{ redirect }}`，并新增 `web/src/features/auth/sign-up/index.tsx`、`web/src/routes/(auth)/sign-up.tsx`、`web/src/features/auth/hooks/use-auth-redirect.ts` 三个补丁键（可选 `redirect` 搜索参数，已登录用户经既有 `sanitizeAuthRedirect` 决定目标）。未新增依赖、公开端点、重定向白名单或 Go 业务改动；外部地址仍回退 `/dashboard`。main 既有成本、支付、上下文策略与限流补丁全部保留。

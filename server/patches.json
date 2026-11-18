@@ -264,6 +264,18 @@
     {
       "before": "if httpResp.StatusCode != http.StatusOK {",
       "after": "if httpResp.StatusCode != http.StatusOK {\n if c.GetBool(\"lingtu_internal\") {\n _ = httpResp.Body.Close()\n err := errors.New(\"managed model connection test failed\")\n return testResult{context:c,localErr:err,newAPIError:types.NewOpenAIError(err,types.ErrorCodeBadResponse,http.StatusBadGateway)}\n }"
+    },
+    {
+      "before": "type testResult struct {\n\tcontext     *gin.Context\n\tlocalErr    error\n\tnewAPIError *types.NewAPIError\n}",
+      "after": "type testResult struct {\n\tcontext     *gin.Context\n\tlocalErr    error\n\tnewAPIError *types.NewAPIError\n\tresponseBody []byte\n}"
+    },
+    {
+      "before": "request := buildTestRequest(testModel, endpointType, channel, isStream)",
+      "after": "request := buildTestRequest(testModel, endpointType, channel, isStream)\n\tif messages, ok := ctx.Value(managedImageTestRequestKey{}).([]dto.Message); ok && len(messages) > 0 {\n\t\tif openAIRequest, ok := request.(*dto.GeneralOpenAIRequest); ok {\n\t\t\topenAIRequest.Messages = messages\n\t\t\topenAIRequest.MaxTokens = lo.ToPtr(uint(32))\n\t\t}\n\t}"
+    },
+    {
+      "before": "return testResult{\n\t\tcontext:     c,\n\t\tlocalErr:    nil,\n\t\tnewAPIError: nil,\n\t}",
+      "after": "return testResult{\n\t\tcontext:     c,\n\t\tlocalErr:    nil,\n\t\tnewAPIError: nil,\n\t\tresponseBody: respBody,\n\t}"
     }
   ],
   "controller/relay.go": [

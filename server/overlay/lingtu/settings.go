@@ -47,6 +47,7 @@ type TrialPolicy struct {
 	DefaultModel         string   `json:"default_model"`
 	ModelScope           string   `json:"model_scope,omitempty"`
 	AllowedModels        []string `json:"allowed_models,omitempty"`
+	VisionModel          string   `json:"vision_model,omitempty"`
 	DailyCalls           int      `json:"daily_calls"`
 	MaxTokens            int      `json:"max_tokens"`
 	PerAccountConcurrent int      `json:"per_account_concurrent"`

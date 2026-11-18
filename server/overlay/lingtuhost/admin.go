@@ -35,6 +35,7 @@ type configurationRequest struct {
 	UpstreamModel        string            `json:"upstream_model"`
 	Action               string            `json:"action"`
 	Revision             int               `json:"revision"`
+	ConfigHash           string            `json:"config_hash"`
 	APIVersion           string            `json:"api_version"`
 	Region               string            `json:"region"`
 	AccountID            string            `json:"account_id"`
@@ -48,6 +49,7 @@ type configurationRequest struct {
 	Model                string            `json:"model"`
 	ModelScope           string            `json:"model_scope"`
 	AllowedModels        []string          `json:"allowed_models"`
+	VisionModel          *string           `json:"vision_model"`
 	Calls                int               `json:"calls"`
 	Days                 int               `json:"days"`
 	DailyCalls           int               `json:"daily_calls"`
@@ -291,6 +293,24 @@ func (h *Host) saveConfig(c *gin.Context) {
 			}
 			return
 		}
+		if request.Section == "model_connection" && request.Action == "verify_vision" {
+			policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
+			if loadErr != nil {
+				clientFailure(c, 503, "configuration_update_unconfirmed")
+				return
+			}
+			connections, loadErr := modelConnectionViews(model.DB, policy.DefaultModel)
+			if loadErr != nil {
+				clientFailure(c, 503, "configuration_update_unconfirmed")
+				return
+			}
+			status, code := 400, "vision_verification_failed"
+			if errors.Is(err, errVisionVerificationStale) {
+				status, code = 409, "vision_verification_stale"
+			}
+			c.JSON(status, gin.H{"saved": false, "image_verified": false, "connection_id": request.ConnectionID, "error": code, "policy": policy, "model_connections": connections})
+			return
+		}
 		if request.Section == "model_connection" && ((request.Action == "test" && request.ConnectionID > 0) || c.GetBool("lingtu_connection_saved")) {
 			connectionID := request.ConnectionID
 			if c.GetBool("lingtu_connection_saved") {
@@ -333,6 +353,10 @@ func (h *Host) saveConfig(c *gin.Context) {
 		connectionID := request.ConnectionID
 		if c.GetBool("lingtu_connection_saved") {
 			connectionID = c.GetInt("lingtu_saved_connection_id")
+		}
+		if request.Action == "verify_vision" {
+			c.JSON(200, gin.H{"saved": true, "tested": false, "image_verified": true, "connection_id": connectionID, "model_connections": connections, "policy": policy})
+			return
 		}
 		c.JSON(200, gin.H{"saved": true, "tested": request.Action == "test" || request.TestAfterSave, "connection_id": connectionID, "model_connections": connections, "policy": policy})
 		return

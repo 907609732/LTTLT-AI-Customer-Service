@@ -344,9 +344,7 @@ it('navigates to hosted model context and submits the exact policy with one secu
   fireEvent.change(screen.getByLabelText('Hidden system prompt'), {
     target: { value: 'Updated hidden rules' },
   })
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Save context policy' })
-  )
+  fireEvent.click(screen.getByRole('button', { name: 'Save context policy' }))
   await waitFor(() => expect(posts).toHaveLength(1))
   expect(posts[0]).toEqual({
     section: 'context_policy',
@@ -402,9 +400,7 @@ it('does not POST a hosted context policy when administrator verification is can
   renderAdmin()
   const prompt = await hostedContextView()
   fireEvent.change(prompt, { target: { value: 'Unconfirmed draft' } })
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Save context policy' })
-  )
+  fireEvent.click(screen.getByRole('button', { name: 'Save context policy' }))
   await waitFor(() => expect(verify).toHaveBeenCalledTimes(1))
   expect(posts).toBe(0)
   expect(
@@ -454,9 +450,7 @@ it('keeps a dirty hosted context policy through a 409 and reloads it only from t
   renderAdmin()
   const prompt = await hostedContextView()
   fireEvent.change(prompt, { target: { value: 'Unsaved draft prompt' } })
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Save context policy' })
-  )
+  fireEvent.click(screen.getByRole('button', { name: 'Save context policy' }))
   await waitFor(() => expect(posts).toHaveLength(1))
   expect(
     await screen.findByText(
@@ -646,8 +640,22 @@ it('warns when a ready visual model is outside the authorized scope', async () =
       allowed_models: ['deepseek-flash'],
     },
     model_connections: [
-      { connection_id: 1, model_id: 'deepseek-flash', name: 'DeepSeek', upstream_model: 'deepseek-flash', ready: true, enabled: true },
-      { connection_id: 2, model_id: 'qwen3-vl-plus', name: 'Qwen3-VL', upstream_model: 'qwen3-vl-plus', ready: true, enabled: true },
+      {
+        connection_id: 1,
+        model_id: 'deepseek-flash',
+        name: 'DeepSeek',
+        upstream_model: 'deepseek-flash',
+        ready: true,
+        enabled: true,
+      },
+      {
+        connection_id: 2,
+        model_id: 'qwen3-vl-plus',
+        name: 'Qwen3-VL',
+        upstream_model: 'qwen3-vl-plus',
+        ready: true,
+        enabled: true,
+      },
     ],
   })
   renderAdmin()
@@ -1045,6 +1053,164 @@ it('keeps separate API drafts through navigation and submits one exact-body proo
     'first-draft'
   )
 })
+it('offers only authorized ready image-verified routes and saves the optional route', async () => {
+  allowProtectedSave()
+  const posts: Record<string, unknown>[] = []
+  const configuration = {
+    ...config,
+    policy: {
+      ...config.policy,
+      model_scope: 'selected',
+      allowed_models: ['deepseek-flash', 'managed-vision'],
+    },
+    model_connections: [
+      {
+        connection_id: 1,
+        model_id: 'deepseek-flash',
+        name: 'DeepSeek',
+        upstream_model: 'deepseek-flash',
+        ready: true,
+        enabled: true,
+      },
+      {
+        connection_id: 2,
+        model_id: 'managed-unverified',
+        name: 'Unverified image',
+        upstream_model: 'vision-unverified',
+        ready: true,
+        enabled: true,
+        vision_verified: false,
+        vision_ready: false,
+        image_test_status: 'never',
+      },
+      {
+        connection_id: 3,
+        model_id: 'managed-vision',
+        name: 'Verified image',
+        upstream_model: 'vision-verified',
+        ready: true,
+        enabled: true,
+        vision_verified: true,
+        vision_ready: true,
+        image_test_status: 'success',
+      },
+      {
+        connection_id: 4,
+        model_id: 'managed-other',
+        name: 'Unauthorized image',
+        upstream_model: 'vision-other',
+        ready: true,
+        enabled: true,
+        vision_verified: true,
+        vision_ready: true,
+        image_test_status: 'success',
+      },
+    ],
+  }
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data as string))
+    }
+    return {
+      data:
+        request.method === 'post'
+          ? { saved: true }
+          : fixtureData(request.url || '', request.params, configuration),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('button', { name: 'English' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Trial settings' }))
+  const route = await screen.findByRole('combobox', {
+    name: 'Image route model',
+  })
+  const options = within(route)
+    .getAllByRole('option')
+    .map((option) => option.textContent || '')
+  expect(options.some((text) => text.includes('Legacy Qwen3-VL route'))).toBe(
+    true
+  )
+  expect(options.some((text) => text.includes('vision-verified'))).toBe(true)
+  expect(options.some((text) => text.includes('vision-unverified'))).toBe(false)
+  expect(options.some((text) => text.includes('vision-other'))).toBe(false)
+  fireEvent.change(route, { target: { value: 'managed-vision' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() =>
+    expect(posts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          section: 'trial',
+          vision_model: 'managed-vision',
+          allowed_models: ['deepseek-flash', 'managed-vision'],
+        }),
+      ])
+    )
+  )
+})
+
+it('runs image verification separately and binds the saved revision hash', async () => {
+  allowProtectedSave()
+  let connections: Record<string, unknown>[] = [
+    {
+      ...connection,
+      config_hash: 'a'.repeat(64),
+      image_test_status: 'never',
+      image_tested_at: 0,
+      vision_verified: false,
+      vision_ready: false,
+    },
+  ]
+  const posts: Record<string, unknown>[] = []
+  api.defaults.adapter = async (request) => {
+    let data: unknown = fixtureData(request.url || '', request.params, {
+      ...config,
+      model_catalog: catalog,
+      model_connections: connections,
+    })
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data as string))
+      connections = [
+        {
+          ...connections[0],
+          image_test_status: 'success',
+          image_tested_hash: connections[0].config_hash,
+          image_tested_at: 1900000000,
+          vision_verified: true,
+          vision_ready: true,
+        },
+      ]
+      data = {
+        saved: true,
+        image_verified: true,
+        connection_id: 7,
+        model_connections: connections,
+      }
+    }
+    return { data, status: 200, statusText: 'OK', headers: {}, config: request }
+  }
+  renderAdmin()
+  await modelView()
+  expect(screen.getByText(/Image not verified/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts[0]).toMatchObject({
+    section: 'model_connection',
+    action: 'verify_vision',
+    provider: 'deepseek',
+    connection_id: 7,
+    revision: 2,
+    config_hash: 'a'.repeat(64),
+  })
+  await waitFor(() =>
+    expect(screen.getAllByText(/Image verified/).length).toBeGreaterThan(0)
+  )
+})
+
 it('omits blank secrets and retains drafts when save is unconfirmed', async () => {
   allowProtectedSave()
   const posts: Record<string, unknown>[] = []

@@ -1,6 +1,7 @@
 package lingtuhost
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
@@ -25,6 +26,9 @@ type Host struct {
 	devices     *lingtu.DeviceStore
 	portal      string
 	apiOrigin   string
+	// A separate image probe is injectable for isolated tests. Production falls
+	// back to the native relay adapter in controller.TestManagedImageChannel.
+	imageProbe func(context.Context, *model.Channel, int) error
 }
 
 func Register(router *gin.Engine) error {
@@ -219,7 +223,7 @@ func (h *Host) accountResponse(c *gin.Context, uid int) {
 	// (DeepSeek) does not remove image support; the reported model stays the
 	// text default because managed traces label text replies with it.
 	capability := visionCapability(selected)
-	if _, ok := imageModel(selection); ok {
+	if visionRouteAvailable(policy, selection) {
 		capability["vision"] = true
 	}
 	quota, err := lingtu.NewBillingStore(model.DB).Quota(uid, time.Now())
