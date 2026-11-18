@@ -115,10 +115,9 @@ func syncLegacyModelBinding(tx *gorm.DB, ch *model.Channel) error {
 			next.Revision = old.Revision
 			sameConfig := old.ConfigHash == next.ConfigHash && old.Enabled == next.Enabled
 			if sameConfig {
-				// Legacy importers rebuild the row from the native channel, which
-				// does not carry the independent image probe. A no-op save must not
-				// erase a still-valid image verification.
-				next.TestStatus, next.TestedHash, next.TestedAt = old.TestStatus, old.TestedHash, old.TestedAt
+				// The legacy adapter rebuilds the row from the native channel. Keep
+				// only the independent image probe here; the current save's real
+				// text-test status and TestTime must win.
 				next.ImageTestStatus, next.ImageTestedHash, next.ImageTestedAt = old.ImageTestStatus, old.ImageTestedHash, old.ImageTestedAt
 			} else {
 				next.Revision++
@@ -472,7 +471,9 @@ func (h *Host) saveModelConnection(c *gin.Context, r configurationRequest) error
 
 // commitVisionVerification is a database CAS, not a whole-row Save. Another
 // process may update the binding or native channel while the relay probe is in
-// flight; only the image-test fields owned by this operation may be written.
+// flight; only the image-test fields and the CAS revision may be written. The
+// atomic revision bump makes a successful no-op-looking probe visible as one
+// changed row even when MySQL clientFoundRows is false.
 func commitVisionVerification(db *gorm.DB, expected lingtu.ModelConnection, testedHash, status string, testedAt int64) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		var native model.Channel
@@ -484,7 +485,7 @@ func commitVisionVerification(db *gorm.DB, expected lingtu.ModelConnection, test
 		}
 		result := tx.Model(&lingtu.ModelConnection{}).
 			Where("channel_id = ? AND revision = ? AND config_hash = ? AND enabled = ?", expected.ChannelID, expected.Revision, testedHash, true).
-			Updates(map[string]any{"image_test_status": status, "image_tested_hash": testedHash, "image_tested_at": testedAt})
+			Updates(map[string]any{"image_test_status": status, "image_tested_hash": testedHash, "image_tested_at": testedAt, "revision": gorm.Expr("revision + 1")})
 		if result.Error != nil {
 			return result.Error
 		}

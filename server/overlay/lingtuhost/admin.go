@@ -475,7 +475,11 @@ func (h *Host) saveModel(c *gin.Context, r configurationRequest) error {
 		if channel.Key == "" {
 			return lingtu.ErrInvalidTrialInput
 		}
-		if err = controller.TestManagedChannel(c.Request.Context(), &channel, c.GetInt("id")); err != nil {
+		probe := h.textProbe
+		if probe == nil {
+			probe = controller.TestManagedChannel
+		}
+		if err = probe(c.Request.Context(), &channel, c.GetInt("id")); err != nil {
 			return err
 		}
 		channel.Status = common.ChannelStatusEnabled

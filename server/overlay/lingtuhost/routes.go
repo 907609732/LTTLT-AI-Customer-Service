@@ -26,8 +26,9 @@ type Host struct {
 	devices     *lingtu.DeviceStore
 	portal      string
 	apiOrigin   string
-	// A separate image probe is injectable for isolated tests. Production falls
-	// back to the native relay adapter in controller.TestManagedImageChannel.
+	// Separate text/image probes are injectable for isolated tests. Production
+	// falls back to the native relay adapters.
+	textProbe  func(context.Context, *model.Channel, int) error
 	imageProbe func(context.Context, *model.Channel, int) error
 }
 

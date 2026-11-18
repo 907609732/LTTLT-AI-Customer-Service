@@ -15,8 +15,8 @@
 - `POST /api/lingtu/admin/config` 的 `section=model_connection` 新增 `action=verify_vision`，请求绑定 `connection_id`、`revision`、`config_hash`。
 - 验证使用服务端生成的固定合成 PNG：上半红色、下半蓝色；提示词不包含颜色答案，响应必须精确给出 `red, blue`（忽略大小写、标点和空白），仅“有非空响应”不算成功。
 - 探针复用固定上游的渠道 relay 测试入口，只读取探测结果；不创建 `managedUsage`、不预留/扣减试用或付费额度、不改动内部渠道状态或能力。
-- 探针完成后使用条件 `UPDATE`，只写 `image_test_status/image_tested_hash/image_tested_at`，`WHERE channel_id + revision + config_hash + enabled` 并检查 `RowsAffected`；同时复核当前渠道 hash/状态。并发保存、改 Key/端点/模型或禁用渠道后的旧结果被拒绝，不覆盖整行 Enabled/配置/凭证。
-- 普通文字连接测试成功不会写入 `image_test_status`。图片验证失败只关闭显式视觉路由，不清空原文字连接；旧入口的 no-op 保存保留仍有效的图片验证，真实配置变化才清零。
+- 探针完成后使用条件 `UPDATE`，只写 `image_test_status/image_tested_hash/image_tested_at` 和原子递增的 CAS `revision`，`WHERE channel_id + revision + config_hash + enabled` 并检查 `RowsAffected`；同时复核当前渠道 hash/状态。每次真实提交都会改变 revision，因此 MySQL `clientFoundRows=false` 下同秒相同图片结果也能明确区分成功与 stale；旧 ticket 仍被拒绝。管理员响应返回 fresh revision，后续请求使用该 revision。
+- 普通文字连接测试成功不会写入 `image_test_status`。图片验证失败只关闭显式视觉路由，不清空原文字连接；legacy section 的 no-op 保存只保留仍有效的图片验证，本次真实文字探针的 success/TestTime/TestedHash 必须生效，真实配置变化才清零图片验证。
 
 ## 固定上游补丁
 
@@ -29,4 +29,4 @@
 
 ## 验证范围
 
-已执行的聚焦命令与结果见 `artifacts/size-vision-20261119/managed-vision-implementation-report.md` 和 `managed-vision-fix1-report.md`。测试只使用隔离 SQLite、固定合成图、mock 回环和 Bun 本地依赖，不部署生产、不写真实账本、不调用付费模型。
+已执行的聚焦命令与结果见 `artifacts/size-vision-20261119/managed-vision-implementation-report.md`、`managed-vision-fix1-report.md` 和 `managed-vision-fix2-report.md`。测试只使用隔离 SQLite、固定合成图、mock 回环和 Bun 本地依赖，不部署生产、不写真实账本、不调用付费模型。

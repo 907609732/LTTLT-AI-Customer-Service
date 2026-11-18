@@ -1189,6 +1189,7 @@ it('runs image verification separately and binds the saved revision hash', async
       connections = [
         {
           ...connections[0],
+          revision: 3,
           image_test_status: 'success',
           image_tested_hash: connections[0].config_hash,
           image_tested_at: 1900000000,
@@ -1221,6 +1222,14 @@ it('runs image verification separately and binds the saved revision hash', async
   await waitFor(() =>
     expect(screen.getAllByText(/Image verified/).length).toBeGreaterThan(0)
   )
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(2))
+  expect(posts[1]).toMatchObject({
+    action: 'verify_vision',
+    connection_id: 7,
+    revision: 3,
+    config_hash: 'a'.repeat(64),
+  })
 })
 
 it('omits blank secrets and retains drafts when save is unconfirmed', async () => {

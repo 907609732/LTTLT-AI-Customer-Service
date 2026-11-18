@@ -521,6 +521,46 @@ func TestLingtuLegacyVisionBindingNoOpPreservesImageVerification(t *testing.T) {
 	}
 }
 
+func TestLingtuLegacyVisionRealTextProbeUpdatesTextKeepsImageVerification(t *testing.T) {
+	db := managedModelDB(t)
+	base := "https://dashscope.aliyuncs.com/compatible-mode"
+	override := "{}"
+	channel := &model.Channel{Name: "lingtu-qwen-vision", Type: 1, Group: "default", Models: visionModel, BaseURL: &base, ParamOverride: &override, Status: common.ChannelStatusEnabled, Key: "legacy-text-probe-key"}
+	if err := db.Create(channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := channel.UpdateAbilities(db); err != nil {
+		t.Fatal(err)
+	}
+	hash := channelHash(*channel)
+	imageAt := time.Now().Add(-time.Minute).Unix()
+	row := lingtu.ModelConnection{ChannelID: channel.Id, Provider: "qwen", Name: "qwen-vision", ModelID: visionModel, Enabled: true, Revision: 1, ConfigHash: hash, TestStatus: "never", ImageTestStatus: "success", ImageTestedHash: hash, ImageTestedAt: imageAt}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now().Unix()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/", nil)
+	host := &Host{textProbe: func(context.Context, *model.Channel, int) error { return nil }}
+	if err := host.saveModel(c, configurationRequest{Section: "qwen-vision", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	var after lingtu.ModelConnection
+	if err := db.First(&after, row.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	var native model.Channel
+	if err := db.First(&native, channel.Id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.TestStatus != "success" || after.TestedHash != after.ConfigHash || after.TestedAt < before || after.TestedAt != native.TestTime {
+		t.Fatalf("legacy text probe state not committed: row=%+v native_test_time=%d", after, native.TestTime)
+	}
+	if after.ImageTestStatus != "success" || after.ImageTestedHash != hash || after.ImageTestedAt != imageAt || after.Revision != row.Revision {
+		t.Fatalf("legacy text probe erased image verification: %+v", after)
+	}
+}
+
 func TestLingtuVisionVerificationCommitUsesDatabaseCAS(t *testing.T) {
 	db := managedModelDB(t)
 	_, row := managedVisionFixture(t, db, false)
@@ -556,7 +596,8 @@ func TestLingtuVisionVerificationCommitUsesDatabaseCAS(t *testing.T) {
 		t.Fatalf("native channel CAS overwrote image state: %+v", channelAfter)
 	}
 
-	// A current snapshot commits only image fields and leaves text/channel state intact.
+	// A current snapshot commits only image fields and CAS metadata. The
+	// revision bump makes same-second MySQL no-op-looking updates visible.
 	db2 := managedModelDB(t)
 	channel, current := managedVisionFixture(t, db2, false)
 	if err := commitVisionVerification(db2, current, current.ConfigHash, "success", now+1); err != nil {
@@ -570,8 +611,47 @@ func TestLingtuVisionVerificationCommitUsesDatabaseCAS(t *testing.T) {
 	if err := db2.First(&native, channel.Id).Error; err != nil {
 		t.Fatal(err)
 	}
-	if committed.ImageTestStatus != "success" || committed.ImageTestedHash != current.ConfigHash || committed.ImageTestedAt != now+1 || committed.TestStatus != "success" || committed.Revision != current.Revision || !committed.Enabled || native.Key != channel.Key || native.Models != channel.Models {
+	if committed.ImageTestStatus != "success" || committed.ImageTestedHash != current.ConfigHash || committed.ImageTestedAt != now+1 || committed.TestStatus != "success" || committed.Revision != current.Revision+1 || !committed.Enabled || native.Key != channel.Key || native.Models != channel.Models {
 		t.Fatalf("conditional image CAS changed unrelated fields: %+v native=%+v", committed, native)
+	}
+
+	// Two identical results in the same second must both commit when the second
+	// call uses the revision returned by the first. RowsAffected cannot be
+	// confused with a MySQL zero-row "no change" response.
+	if err := commitVisionVerification(db2, committed, committed.ConfigHash, "success", now+1); err != nil {
+		t.Fatalf("same-second repeat with fresh revision: %v", err)
+	}
+	var repeated lingtu.ModelConnection
+	if err := db2.First(&repeated, current.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if repeated.Revision != current.Revision+2 || repeated.ImageTestStatus != "success" || repeated.ImageTestedAt != now+1 {
+		t.Fatalf("same-second repeat did not commit: %+v", repeated)
+	}
+	if err := commitVisionVerification(db2, current, current.ConfigHash, "success", now+1); !errors.Is(err, errVisionVerificationStale) {
+		t.Fatalf("old revision after repeat error = %v", err)
+	}
+	var afterOld lingtu.ModelConnection
+	if err := db2.First(&afterOld, current.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if afterOld.Revision != repeated.Revision || afterOld.ImageTestedAt != repeated.ImageTestedAt {
+		t.Fatalf("old revision overwrote fresh CAS result: %+v", afterOld)
+	}
+
+	// A concurrent disable with a newer revision must win over the first ticket.
+	if err := db2.Model(&lingtu.ModelConnection{}).Where("channel_id = ?", current.ChannelID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "enabled": false}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := commitVisionVerification(db2, repeated, repeated.ConfigHash, "success", now+2); !errors.Is(err, errVisionVerificationStale) {
+		t.Fatalf("disabled newer-row CAS error = %v", err)
+	}
+	var disabled lingtu.ModelConnection
+	if err := db2.First(&disabled, current.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if disabled.Enabled || disabled.Revision != repeated.Revision+1 || disabled.ImageTestedAt != repeated.ImageTestedAt {
+		t.Fatalf("stale CAS overwrote disabled row: %+v", disabled)
 	}
 }
 

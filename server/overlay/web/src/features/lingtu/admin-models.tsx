@@ -338,6 +338,21 @@ export function AdminModels(props: {
         return
       }
       if (action === 'verify_vision') {
+        const persisted = result.model_connections?.find(
+          (row) =>
+            row.connection_id === captured.connection_id &&
+            row.provider === owner
+        )
+        if (persisted) {
+          // The image probe commits a fresh CAS revision. Adopt that exact
+          // saved row so the next verify/auth action uses the current revision.
+          setDrafts((old) => ({
+            ...old,
+            [owner]: old[owner].map((row) =>
+              row.key === captured.key ? fromSaved(persisted) : row
+            ),
+          }))
+        }
         setResultMessage(
           result.image_verified
             ? 'Image verification succeeded. This API can now be selected as the image route.'
