@@ -49,6 +49,7 @@ watch(orders, (rows) => {
     ordersExpanded.value = true
 })
 const cashierOpen = ref(false)
+const existingOrderNotice = ref('')
 const selectedPlan = ref<BillingPlan | null>(null)
 const selectedChannel = ref<BillingChannel>('alipay')
 const qrImage = ref('')
@@ -56,21 +57,72 @@ const qrError = ref('')
 const channelReady = (id: BillingChannel) =>
   channels.value.some((channel) => channel.id === id && channel.ready)
 const createLabel = computed(() =>
-  activePayment.value && ['pending', 'reconciling'].includes(activePayment.value.order.state)
-    ? '关闭原订单后重新支付'
-    : '创建支付订单',
+  checkoutError.value || paymentError.value
+    ? '重试加载二维码'
+    : activePayment.value && ['pending', 'reconciling'].includes(activePayment.value.order.state)
+      ? '关闭原订单并切换支付方式'
+      : '加载支付二维码',
 )
 function channelReason(channel: { ready: boolean; reason: string }) {
   if (channel.ready) return ''
   return channel.reason && !/^[a-z_]+$/.test(channel.reason) ? channel.reason : '商户支付尚未配置'
 }
-function choose(plan: BillingPlan) {
+async function choose(plan: BillingPlan, preferredChannel?: BillingChannel) {
+  if (pending.value) return
+  existingOrderNotice.value = ''
+  paymentError.value = ''
   selectedPlan.value = plan
-  selectedChannel.value = channels.value.find((channel) => channel.ready)?.id ?? 'alipay'
+  selectedChannel.value =
+    preferredChannel ?? channels.value.find((channel) => channel.ready)?.id ?? 'alipay'
   cashierOpen.value = true
+  if (ordersError.value || !ordersLoaded.value) {
+    paymentError.value = '暂时无法核实充值订单，请刷新订单后重试。'
+    return
+  }
+  const current =
+    activePayment.value && ['pending', 'reconciling'].includes(activePayment.value.order.state)
+      ? activePayment.value.order
+      : orders.value.find((order) => ['pending', 'reconciling'].includes(order.state))
+  // Reopening a cashier must not replace an unpaid order or generate another payment code.
+  if (current && ['pending', 'reconciling'].includes(current.state)) {
+    if (current.plan.id !== plan.id)
+      existingOrderNotice.value = '您有一笔未完成的订单，请先完成支付或关闭原订单。'
+    selectedPlan.value = current.plan
+    if (current.channel === 'alipay' || current.channel === 'wechat')
+      selectedChannel.value = current.channel
+    await billing.resumeOrder(current)
+    return
+  }
+  await billing.checkout(plan, selectedChannel.value)
+}
+async function checkoutSelected() {
+  const plan = selectedPlan.value
+  if (!plan) return
+  const current = activePayment.value?.order
+  // Only an explicit channel change may close the known active order first.
+  if (
+    current &&
+    ['pending', 'reconciling'].includes(current.state) &&
+    current.channel !== selectedChannel.value
+  )
+    await billing.checkout(plan, selectedChannel.value)
+  else await choose(plan, selectedChannel.value)
+}
+async function refreshCashierOrders() {
+  const identity = billing.identity.value
+  const plan = selectedPlan.value
+  await billing.refreshOrders()
+  if (
+    identity === billing.identity.value &&
+    cashierOpen.value &&
+    plan === selectedPlan.value &&
+    plan
+  )
+    await choose(plan)
 }
 function resume(order: BillingOrder) {
   cashierOpen.value = true
+  existingOrderNotice.value = ''
   selectedPlan.value = null
   void billing.resumeOrder(order)
 }
@@ -85,6 +137,7 @@ watch(
   billing.identity,
   () => {
     cashierOpen.value = false
+    existingOrderNotice.value = ''
     quotaExpanded.value = false
     ordersExpanded.value = false
     selectedPlan.value = null
@@ -283,81 +336,119 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
       </p>
       <p class="section-note">充值额度叠加，未到期的试用余额同步延长有效期。</p>
     </section>
-    <section
-      v-if="cashierOpen && !compact && signedIn && billing.transport"
-      class="card cashier"
-      role="dialog"
-      aria-label="扫码收银台"
+    <el-dialog
+      v-if="!compact && signedIn && billing.transport"
+      v-model="cashierOpen"
+      title="扫码收银台"
+      class="billing-cashier-dialog"
+      width="520px"
+      align-center
+      append-to-body
+      destroy-on-close
+      :close-on-click-modal="false"
     >
-      <div class="section-head">
-        <h2>扫码收银台</h2>
-        <el-button @click="cashierOpen = false">收起收银台</el-button>
-      </div>
-      <p v-if="selectedPlan">
-        {{ selectedPlan.name }} · {{ money(selectedPlan.amount) }} · {{ selectedPlan.calls }} 次 ·
-        有效期 {{ selectedPlan.valid_days }} 天
-      </p>
-      <p v-if="selectedPlan && isPremium(selectedPlan)" class="premium-benefits">
-        专属一对一客服 · 程序开发者一对一对接
-      </p>
-      <fieldset v-if="selectedPlan" class="billing-channels">
-        <legend>选择支付方式</legend>
-        <label v-for="channel in channels" :key="channel.id"
-          ><input
-            v-model="selectedChannel"
-            type="radio"
-            :value="channel.id"
-            :disabled="!channelReady(channel.id) || pending"
-          />{{ channelName(channel.id)
-          }}<small v-if="!channel.ready">（暂不可用：{{ channelReason(channel) }}）</small></label
-        >
-      </fieldset>
-      <el-alert v-if="paymentError" type="error" :closable="false" :title="paymentError" />
-      <template v-if="activePayment">
-        <p>
-          订单 {{ activePayment.order.id }} · {{ channelName(activePayment.order.channel) }} ·
-          {{ stateName(activePayment.order.state) }}
+      <div class="cashier">
+        <p v-if="selectedPlan">
+          {{ selectedPlan.name }} · {{ money(selectedPlan.amount) }} · {{ selectedPlan.calls }} 次 ·
+          有效期 {{ selectedPlan.valid_days }} 天
         </p>
-        <template v-if="activePayment.order.state === 'pending'">
-          <img v-if="qrImage" :src="qrImage" alt="支付二维码" class="billing-qr" />
-          <p v-else>
-            {{
-              qrError ||
-              (activePayment.qr_code ? '正在生成二维码…' : '暂无可用二维码，请查询订单结果。')
-            }}
-          </p>
+        <p v-if="selectedPlan && isPremium(selectedPlan)" class="premium-benefits">
+          专属一对一客服 · 程序开发者一对一对接
+        </p>
+        <fieldset v-if="selectedPlan" class="billing-channels">
+          <legend>选择支付方式</legend>
+          <label v-for="channel in channels" :key="channel.id"
+            ><input
+              v-model="selectedChannel"
+              type="radio"
+              :value="channel.id"
+              :disabled="!channelReady(channel.id) || pending"
+            />{{ channelName(channel.id)
+            }}<small v-if="!channel.ready">（暂不可用：{{ channelReason(channel) }}）</small></label
+          >
+        </fieldset>
+        <p v-if="checkoutPending" role="status">正在加载支付二维码…</p>
+        <p v-else-if="paymentPending" role="status">正在查询支付结果…</p>
+        <el-alert v-if="checkoutError" type="error" :closable="false" :title="checkoutError" />
+        <el-alert v-if="paymentError" type="error" :closable="false" :title="paymentError" />
+        <el-button
+          v-if="ordersError || !ordersLoaded"
+          :loading="pending"
+          @click="refreshCashierOrders"
+        >
+          刷新订单并重试
+        </el-button>
+        <p
+          v-if="
+            existingOrderNotice &&
+            activePayment &&
+            ['pending', 'reconciling'].includes(activePayment.order.state)
+          "
+        >
+          {{ existingOrderNotice }}
+        </p>
+        <template v-if="activePayment && !checkoutPending && !checkoutError">
           <p>
-            请使用{{ channelName(activePayment.order.channel) }}扫码。有效期至
-            {{ date(activePayment.expires_at || activePayment.order.expires_at || 0) }}
+            订单 {{ activePayment.order.id }} · {{ channelName(activePayment.order.channel) }} ·
+            {{ stateName(activePayment.order.state) }}
           </p>
+          <template v-if="activePayment.order.state === 'pending'">
+            <img v-if="qrImage" :src="qrImage" alt="支付二维码" class="billing-qr" />
+            <p v-else>
+              {{
+                qrError ||
+                (activePayment.qr_code ? '正在生成二维码…' : '暂无可用二维码，请查询订单结果。')
+              }}
+            </p>
+            <p>
+              请使用{{ channelName(activePayment.order.channel) }}扫码。有效期至
+              {{ date(activePayment.expires_at || activePayment.order.expires_at || 0) }}
+            </p>
+          </template>
+          <p v-if="activePayment.order.state === 'paid'">
+            服务端已确认付款并入账，请查看最新额度。
+          </p>
+          <p v-if="activePayment.order.state === 'reconciling'">
+            渠道结果尚未确认，请勿重复付款；可重试查询，确认关闭前不能更换渠道。
+          </p>
+          <p v-if="pollingExpired">自动查询已暂停，可手动重试；请勿重复付款。</p>
+          <el-button :loading="paymentPending" @click="billing.checkPayment(true)"
+            >重试查询结果</el-button
+          >
+          <el-button
+            v-if="
+              activePayment.order.state === 'pending' || activePayment.order.state === 'reconciling'
+            "
+            :disabled="pending"
+            @click="billing.closePayment"
+            >关闭原订单</el-button
+          >
         </template>
-        <p v-if="activePayment.order.state === 'paid'">服务端已确认付款并入账，请查看最新额度。</p>
-        <p v-if="activePayment.order.state === 'reconciling'">
-          渠道结果尚未确认，请勿重复付款；可重试查询，确认关闭前不能更换渠道。
-        </p>
-        <p v-if="pollingExpired">自动查询已暂停，可手动重试；请勿重复付款。</p>
-        <el-button :loading="paymentPending" @click="billing.checkPayment(true)"
-          >重试查询结果</el-button
-        >
         <el-button
           v-if="
-            activePayment.order.state === 'pending' || activePayment.order.state === 'reconciling'
+            selectedPlan &&
+            !checkoutPending &&
+            (checkoutError || !activePayment || activePayment.order.channel !== selectedChannel)
           "
-          :disabled="pending"
-          @click="billing.closePayment"
-          >关闭原订单</el-button
+          type="primary"
+          :loading="checkoutPending"
+          :disabled="
+            !channelReady(selectedChannel) ||
+            !signedIn ||
+            Boolean(catalogError) ||
+            Boolean(ordersError) ||
+            !ordersLoaded ||
+            pending
+          "
+          @click="checkoutSelected"
+          >{{ createLabel }}</el-button
         >
+        <p>支付成功后额度自动到账。关闭弹窗不影响支付结果查询。</p>
+      </div>
+      <template #footer>
+        <el-button @click="cashierOpen = false">稍后支付</el-button>
       </template>
-      <el-button
-        v-if="selectedPlan"
-        type="primary"
-        :loading="checkoutPending"
-        :disabled="!channelReady(selectedChannel) || !signedIn || Boolean(catalogError) || pending"
-        @click="billing.checkout(selectedPlan, selectedChannel)"
-        >{{ createLabel }}</el-button
-      >
-      <p>切换渠道须先确认原订单已关闭。收起收银台后仍可继续查单，离开本页则停止。</p>
-    </section>
+    </el-dialog>
     <section v-if="section !== 'usage'" class="card orders-card">
       <div class="section-head orders-head">
         <h2>最近充值订单</h2>
@@ -659,6 +750,11 @@ p {
 .cashier {
   display: grid;
   gap: 14px;
+}
+:global(.billing-cashier-dialog) {
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
 }
 .cashier > .el-button {
   justify-self: start;

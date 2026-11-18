@@ -108,18 +108,20 @@ describe('扫码渠道收银台', () => {
         stubs: { RouterLink: { template: '<a><slot /></a>' } },
         provide: {
           [billingTransportKey as symbol]: {
-            request: async (_method: string, path: string) =>
-              path.endsWith('/orders')
-                ? { orders: [] }
-                : {
-                    ready: true,
-                    reason: '',
-                    plans: [{ ...plan, list_amount: 1000 }],
-                    channels: [
-                      { id: 'alipay', ready: true, reason: '' },
-                      { id: 'wechat', ready: false, reason: '商户支付尚未配置' },
-                    ],
-                  },
+            request: async (method: string, path: string) =>
+              method === 'POST'
+                ? { order, checkout_url: '', qr_code: 'alipay://test' }
+                : path.endsWith('/orders')
+                  ? { orders: [] }
+                  : {
+                      ready: true,
+                      reason: '',
+                      plans: [{ ...plan, list_amount: 1000 }],
+                      channels: [
+                        { id: 'alipay', ready: true, reason: '' },
+                        { id: 'wechat', ready: false, reason: '商户支付尚未配置' },
+                      ],
+                    },
             openCheckout: async () => {},
           },
         },
@@ -132,8 +134,13 @@ describe('扫码渠道收银台', () => {
     expect(choose, 'native channel needs a plan entry').toBeDefined()
     await choose?.trigger('click')
     await flushPromises()
-    expect(wrapper.find('input[value="wechat"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('商户支付尚未配置')
+    expect(
+      document.querySelector<HTMLInputElement>('.billing-cashier-dialog input[value="wechat"]')
+        ?.disabled,
+    ).toBe(true)
+    expect(document.querySelector('.billing-cashier-dialog')?.textContent).toContain(
+      '商户支付尚未配置',
+    )
     expect(wrapper.text()).not.toContain('USDT')
     wrapper.unmount()
   })
