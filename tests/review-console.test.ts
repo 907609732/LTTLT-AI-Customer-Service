@@ -309,6 +309,102 @@ describe('AI 回复人工确认', () => {
       expect(await result).toBe(false)
     }
   })
+  it('商品只在真实 reviewContext 中投影，同店解析标题/图片，模型正文不能补商品', () => {
+    const resolveProduct = vi.fn(() => ({
+      title: '静音门锁',
+      imageUrl: 'https://img.example/door.jpg',
+    }))
+    const { console } = setup({ resolveProduct })
+    const id = console.trace({
+      type: 'request',
+      reviewContext: {
+        storeId: 'shop',
+        uid: 'buyer',
+        productId: 'door-1',
+        goodsTitle: '页面原始标题',
+      },
+      messages: [],
+      thread: [],
+      knowledge: [{ source: 'product', productId: 'recommended' }],
+    })
+    expect(resolveProduct).toHaveBeenCalledWith('shop', 'door-1')
+    expect(console.snapshot().traces[0]?.product).toEqual({
+      productId: 'door-1',
+      title: '静音门锁',
+      imageUrl: 'https://img.example/door.jpg',
+    })
+    console.trace({
+      type: 'result',
+      traceId: id,
+      reply: '也可以看看推荐商品 B',
+      reviewContext: { storeId: 'shop', uid: 'buyer' },
+    })
+    expect(console.snapshot().traces[0]?.product).toEqual({
+      productId: 'door-1',
+      title: '静音门锁',
+      imageUrl: 'https://img.example/door.jpg',
+    })
+  })
+  it('没有现成商品资料时保留可靠标题/编号，缺失不回退推荐商品', () => {
+    const { console } = setup()
+    console.trace({
+      type: 'request',
+      reviewContext: {
+        storeId: 'shop',
+        uid: 'buyer',
+        productId: 'door-2',
+        goodsTitle: '页面展示标题',
+      },
+      messages: [],
+      thread: [],
+      knowledge: [{ source: 'product', productId: 'recommended', title: '推荐商品' }],
+    })
+    expect(console.snapshot().traces[0]?.product).toEqual({
+      productId: 'door-2',
+      title: '页面展示标题',
+    })
+    console.trace({
+      type: 'request',
+      reviewContext: { storeId: 'shop', uid: 'buyer' },
+      messages: [],
+      thread: [],
+    })
+    expect(console.snapshot().traces[1]?.product).toBeUndefined()
+  })
+  it('候选只复制同店铺同买家 trace 的商品，非 HTTPS 图片不进入快照', async () => {
+    const resolveProduct = vi.fn(() => ({
+      title: '静音门锁',
+      imageUrl: 'javascript:alert(1)',
+    }))
+    const { console, proposal } = setup({ resolveProduct })
+    const id = console.trace({
+      type: 'request',
+      reviewContext: { storeId: 'shop', uid: 'other', productId: 'door-9' },
+      messages: [],
+      thread: [],
+    })
+    const decision = console.propose({ ...proposal, traceId: id })
+    expect(console.snapshot().replies[0]?.product).toBeUndefined()
+    await console.decide({ id: console.snapshot().replies[0]!.id, approve: false })
+    expect(await decision).toBe(false)
+
+    const own = console.trace({
+      type: 'request',
+      reviewContext: { storeId: 'shop', uid: 'buyer', productId: 'door-1' },
+      messages: [],
+      thread: [],
+    })
+    const current = console.propose({ ...proposal, traceId: own })
+    expect(console.snapshot().replies.find((row) => row.traceId === own)?.product).toEqual({
+      productId: 'door-1',
+      title: '静音门锁',
+    })
+    await console.decide({
+      id: console.snapshot().replies.find((row) => row.traceId === own)!.id,
+      approve: false,
+    })
+    expect(await current).toBe(false)
+  })
   it('消息日志去重，保留模型实际上下文及返回值，不接收请求头', () => {
     const { console } = setup()
     console.sync()

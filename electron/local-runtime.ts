@@ -388,7 +388,28 @@ export function createLocalRuntime(options: {
     read,
     notifyReview,
     (id) => backendRef.current?.engine?.worker(id) ?? undefined,
-    { readMode: (id) => sendModes.read(id) },
+    {
+      readMode: (id) => sendModes.read(id),
+      // 只按同店精确编号读取现有商品知识/平台详情，作为监控摘要的可靠来源。
+      resolveProduct: (storeId, productId) => {
+        let detail: ReturnType<typeof platformProducts.get> = null
+        try {
+          detail = platformProducts.get(storeId, productId)
+        } catch {
+          // 商品详情未采集或编号越界不影响回复监控的其余状态。
+        }
+        const binding = knowledgeRepository
+          .listBindings()
+          .find((row) => row.storeId === storeId && row.productId === productId)
+        const canonical = binding
+          ? knowledgeRepository.getCanonical(binding.canonicalId)
+          : undefined
+        return {
+          title: detail?.title || binding?.title || canonical?.title || '',
+          imageUrl: detail?.images[0],
+        }
+      },
+    },
   )
   // 关闭本地服务时让欢迎延迟在下一档（≤100ms）结束，不能继续等待或发送。
   const welcomeDelayAbort = new AbortController()

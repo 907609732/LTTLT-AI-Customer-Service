@@ -22,7 +22,7 @@ RuntimeLogsView 是独立日志窗口：已采集的店铺/买家/客服消息�
 
 修改前阅读根目录 AGENTS.md 和 docs/CONSTRAINTS.md。修改后运行相关类型、构建、单元与桌面检查，并更新 docs/HANDOFF.md。
 
-ReplyMonitorView 通过 /reply-monitor 展示紧凑白色回复监控：店铺/买家、店铺发送模式、最新状态、待确认正文及失败原因。所有 pending 候选保留显式确认/取消（包括切换模式前的审核候选与自动复核暂时不可读的候选），复用 review-reply，UI 不自行批准。高级日志手动打开原 /logs，完整调试保留。
+ReplyMonitorView 通过 /reply-monitor 展示紧凑白色回复监控：店铺/买家、店铺发送模式、上方当前咨询商品摘要、当前会话左侧买家/右侧我方气泡、系统与未知来源、候选状态、最新原因及待确认动作。气泡区独立滚动并默认看最新一条；候选（未发送/发送中/失败/平台回执）不冒充真实卖家回显。会话严格按店铺+UID匹配，商品只来自同店同买家真实 trace，缺失明确未识别，不回退推荐商品。所有 pending 候选保留显式确认/取消（包括切换模式前的审核候选与自动复核暂时不可读的候选），复用 review-reply，UI 不自行批准；高级日志手动打开原 /logs。完整规则见 docs/REPLY_MONITOR.md。
 
 2026-11-18：源码运行在同一监控窗底栏提供“开发调试”，展开后左 340px 仍是原审批区，右侧为 GM 指令/CMD 终端。组件经 `services/developer-debug.ts` 使用 shared 窄契约，不直接访问 Electron；DeveloperTerminal 只在首次进入 CMD 标签时异步加载 xterm，收起保留 shell，关闭窗口由主进程结束会话。GM 的 help/status/stores/logs/pdd-popup 和 CMD owner/工作区/打包 gate 见 docs/DEVELOPER_DEBUG.md。浏览器预览、打包版及其他窗口不显示或获得这些方法。
 

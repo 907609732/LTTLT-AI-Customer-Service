@@ -1,3 +1,18 @@
+## 2026-11-18 回复监控会话视图（1.0.59 源码工作树，未提交/未重启）
+
+已按“规划→交互→界面→实现”完成只读监控：当前会话按 `storeId + uid` 精确匹配，左侧买家、右侧我方，系统/未知来源居中；候选（未发送/发送中/失败/平台回执）与真实卖家回显分开，已发送有同文回显时不重复。商品摘要固定在气泡区上方，气泡区独立滚动并默认看最新一条；显示店铺/买家、发送模式、单行状态和一次原因。保留原确认/取消、高级日志和源码版 GM/CMD 展开；未加编辑、删除、质检或任何发送能力。
+
+商品只沿真实生成 trace 的 `reviewContext.productId/goodsTitle` 投影；候选只复制同店同买家 trace。主进程按同店精确 productId 查询现有知识绑定/平台详情，只有现成 HTTPS 图才显示；缺失显示编号/平台标题或“当前咨询商品未识别”，不从模型正文、推荐商品、商品目录、跨店/跨买家数据补全。vendor 仅给 reply-engine 的既有 reviewContext 增加平台行 `goodsTitle`，source-files.json 双哈希/PROVENANCE 已同步。
+
+实际验证：
+
+- `npx vitest run tests/reply-monitor-conversation.test.ts tests/reply-monitor.test.ts tests/reply-monitor-developer.test.ts tests/reply-monitor-window.test.ts tests/review-console.test.ts tests/review-engine.test.ts tests/developer-debug-review.test.ts`：7 文件 63 项通过（含跨店同 UID、买卖/系统/未知、旧候选按时间插入、候选与回显、失败/发送中、商品隔离与未识别、HTTPS 图、原因一次、滚动、确认/取消、GM 隔离）。
+- `npx vue-tsc --noEmit`、`npx tsc -p config/tsconfig.electron.json --noEmit`：通过。
+- `npm run build`：renderer + desktop 构建通过；保留既有 Zod 注释和 500kB chunk 警告，无新增失败。
+- 改动文件 ESLint、Prettier 检查通过；`npm run check:vendor` 通过（vendor 80 文件、server 94 文件）；`node --test vendor/lingtu-runtime/desk-v1/test/reply-engine.test.js` 39/39 通过。
+
+未执行：真实店铺、真实买家消息、打包安装包、全量 `npm run check`/`npm run test:desktop`、提交/推送/重启。`package.json` 版本未改（按用户要求由 Codex 整合时统一更新）。已知限制：商品标题/图片依赖已采集的平台详情或知识绑定；归档晚于实时日志时先显示真实消息事件；商品切换识别依赖下一次真实生成上下文。下一项：整合时统一递增版本并跑 Release 全量，补一次 340×300 受影响界面截图；验收条件为商品摘要与最新气泡同时可见、系统/未知来源不冒充买卖方、候选与真实回显不重复、确认/取消/高级日志/GM 展开不回归，旧快照缺商品字段仍能解析。
+
 ## 2026-11-18：1.0.58 整理后最终验收与正常打开
 
 本机 DeepSeek 执行、Codex 独立复核。最终验收提交 fadc03d（1.0.58），[CI 44137539038](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44137539038) 全绿：源码 169 文件/1268 项、原生桌面 91/91、知识库与来源学习、打包及真实打包程序 10 项检查通过。初次 CI 的 cwd 断言误写本机目录名 client，最终仅验收脚本修正，另补真实 xterm 键盘及打包回复监控检查；未额外改产品行为、未重复升级版本。
@@ -674,3 +689,7 @@ Codex独立验证9个相关测试文件共122项通过（后端68、manager47、
 已复现旧代码在 selected 先更新而气泡仍旧时错归属、同文旧气泡误作基线，以及定位与发送分开排队导致 hook_not_ready。复用现有 PDD hook/DOM adapter/PlatformWriteCoordinator 修正，来源与哈希见 vendor/lingtu-runtime/PROVENANCE.md。Codex 独立验证相关 11 文件 89 项通过、Electron 类型与变更文件 ESLint 通过；DeepSeek 退出码 0、final completed，另执行上游 242 项和 vendor 完整性通过。实店重启验收待进行，不能据此声称真实发送已修复；现场两个会话保持 handoff，旧候选不恢复、不自动补发。下一步核对实际版本并用两位测试买家的新消息验收，仅该链路，不运行全量桌面套件。
 
 本机启动核验：2026-11-18 02:23（北京时间）从主项目 client 重启，主进程 PID 115828，真实窗口显示 v1.0.59；build 与 vendor 检查通过。实店双买家新消息验收已请用户配合，尚未完成，不宣称实店通过。
+
+## 2026-11-18 回复监控会话与商品（1.0.60）
+
+当前监控按店铺和买家显示对话气泡、已识别咨询商品与候选状态。保留原确认流程和监控子窗尺寸。Codex 独立复跑 54 项专项测试、vendor 完整性与 242 项上游测试，源码构建和 340×300 原生监控检查通过。原生验收报告位于 artifacts/desktop-selected-1794980474063/report.json。真实店铺商品显示尚待新一轮实店验收。
