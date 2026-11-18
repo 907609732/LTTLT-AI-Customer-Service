@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import BillingDashboard from '../src/modules/billing/components/BillingDashboard.vue'
-import { billingTransportKey } from '../src/modules/billing/services'
+import { billingTransportKey, type BillingTransport } from '../src/modules/billing/services'
 import DashboardView from '../src/modules/workbench/components/DashboardView.vue'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { servicesKey } from '../src/shared/contracts/services'
@@ -32,8 +32,22 @@ function setup(state = 'paid', compact = false) {
     trial: { limit: 100, used: 20, reserved: 1, remaining: 79, expiresAt: 2000000000 },
   }
   const run = vi.spyOn(runtime, 'run').mockResolvedValue({ status: 'ok', message: '', data: {} })
-  const request = vi.fn(async (_method: string, path: string) =>
-    path.endsWith('/orders')
+  const request = vi.fn<BillingTransport['request']>(async (method, path, body) => {
+    if (method === 'POST')
+      return {
+        order: {
+          ...order,
+          plan:
+            body?.plan_id === 'support_100000'
+              ? { ...plan, id: 'support_100000', name: '共创支持包', amount: 100000, calls: 100000 }
+              : plan,
+          state: 'pending',
+          paid_at: 0,
+        },
+        checkout_url: '',
+        qr_code: 'weixin://test',
+      }
+    return path.endsWith('/orders')
       ? { orders: [{ ...order, state }] }
       : {
           ready: true,
@@ -44,8 +58,8 @@ function setup(state = 'paid', compact = false) {
           ],
           channels: [{ id: 'alipay', ready: true, reason: '' }],
           quota: { trial: pool, paid: pool, remaining: 158 },
-        },
-  )
+        }
+  })
   const wrapper = mount(BillingDashboard, {
     attachTo: document.body,
     props: { section: compact ? 'orders' : 'plans', compact },
@@ -96,8 +110,8 @@ describe('简化充值页', () => {
     expect(card.text()).toContain('一对一客服')
     expect(card.text()).toContain('程序开发者一对一对接')
     await card.get('button').trigger('click')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('共创支持包')
-    expect(request.mock.calls.every((call) => call[0] !== 'POST')).toBe(true)
+    expect(document.querySelector('.billing-cashier-dialog')?.textContent).toContain('共创支持包')
+    expect(request.mock.calls.filter((call) => call[0] === 'POST')).toHaveLength(1)
   })
   it('默认收起明细与已完成记录，仅保留统一刷新，并展示支持开源文案', async () => {
     const { wrapper, request, run } = setup()
