@@ -6,7 +6,11 @@
 
 **让店铺知识融入每一次回复，让客服接待更有条理。**
 
-面向电商客服的 Windows 桌面工作台，集中管理店铺、商品知识、AI 回复与接待记录。
+**灵兔电商 AI 溯源套件的客服与售后协同工作台。**
+
+集中管理店铺、商品知识、AI 回复与接待记录，辅助处理商品问题、物流咨询和售后沟通。搭配[采购订单整理](https://github.com/907609732/lingtu-order-export)与[拆包录像取证](https://github.com/907609732/lingtu-recorder)，覆盖采购核对、包裹留证和售后接待。
+
+**简体中文** · [English](README.en.md)
 
 **支持 MCP 功能调用**，可让外部 AI 查询店铺与知识；源码版还提供 CLI 和配置读写能力。
 
@@ -25,6 +29,18 @@
 
 ---
 
+## 灵兔电商 AI 溯源套件
+
+采购来源整理 → 包裹过程留证 → 售后核对与 AI 接待。三款软件各有分工，可按业务搭配使用。
+
+|                                                                                                                     Logo                                                                                                                     | 项目与用途                                                                                                                 |
+| :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------------- |
+|                 <a href="https://github.com/907609732/lingtu-recorder"><img src="https://raw.githubusercontent.com/907609732/lingtu-recorder/main/docs/assets/logo.png" width="96" height="96" alt="灵兔拆包智录 Logo"></a>                  | **[灵兔拆包智录](https://github.com/907609732/lingtu-recorder)**<br>物流溯源与过程取证：按单号查拆包/打包录像、照片和异常备注。                      |
+|           <a href="https://github.com/907609732/lingtu-order-export"><img src="https://raw.githubusercontent.com/907609732/lingtu-order-export/master/build/icon.png" width="96" height="96" alt="电商平台采购订单导出 Logo"></a>            | **[电商平台采购订单导出](https://github.com/907609732/lingtu-order-export)**<br>采购溯源：整理买家订单、商品明细与物流信息，导出 Excel/CSV。        |
+| <a href="https://github.com/907609732/LTTLT-AI-Customer-Service"><img src="https://raw.githubusercontent.com/907609732/LTTLT-AI-Customer-Service/main/src/assets/lingtu-ai-icon.png" width="96" height="96" alt="灵兔 AI 电商客服 Logo"></a> | **[本项目：灵兔 AI 电商客服](https://github.com/907609732/LTTLT-AI-Customer-Service)**<br>售后协同：管理店铺与商品知识，辅助处理咨询和售后回复。 |
+
+各应用独立安装、分别保存数据；可按单号核对采购与包裹记录，目前不自动互传订单、录像或客服数据。
+
 |         管理店铺         |         整理知识         |         辅助接待         |
 | :----------------------: | :----------------------: | :----------------------: |
 | 登录平台，配置模型与店铺 | 维护商品、意图与回复规则 | 生成候选回复，确认后发送 |
@@ -38,16 +54,6 @@
 安装包未做代码签名，需要手动下载安装。v1.0.48 对应确切源码 `12b31cae66e6d9d1b4e0db3cfa7b3ac0448b546f`，已包含闲鱼接入、共用本机工作区及知识库工具栏分组。托管双模型路由属于独立服务端功能，需单独部署并保存管理员策略；本次 Windows 发布不部署生产服务端。GitHub 的 Source code ZIP 是源码，不是安装包。
 
 发布范围、确切源码和验证边界见 [v1.0.48 发布验收](docs/RELEASE_V1.0.48.md)。
-
-## 灵兔电商工具套件
-
-|                                                                                                                     Logo                                                                                                                     | 项目与用途                                                                                                                 |
-| :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------------- |
-|                 <a href="https://github.com/907609732/lingtu-recorder"><img src="https://raw.githubusercontent.com/907609732/lingtu-recorder/main/docs/assets/logo.png" width="96" height="96" alt="灵兔拆包智录 Logo"></a>                  | **[灵兔拆包智录](https://github.com/907609732/lingtu-recorder)**<br>Windows 拆包/打包录像与记录管理。                      |
-|           <a href="https://github.com/907609732/lingtu-order-export"><img src="https://raw.githubusercontent.com/907609732/lingtu-order-export/master/build/icon.png" width="96" height="96" alt="电商平台采购订单导出 Logo"></a>            | **[电商平台采购订单导出](https://github.com/907609732/lingtu-order-export)**<br>买家采购订单整理及 Excel/CSV 导出。        |
-| <a href="https://github.com/907609732/LTTLT-AI-Customer-Service"><img src="https://raw.githubusercontent.com/907609732/LTTLT-AI-Customer-Service/main/src/assets/lingtu-ai-icon.png" width="96" height="96" alt="灵兔 AI 电商客服 Logo"></a> | **[本项目：灵兔 AI 电商客服](https://github.com/907609732/LTTLT-AI-Customer-Service)**<br>店铺知识管理与 AI 客服辅助接待。 |
-
-以上工具可按需要选用，功能、版本和许可请以各项目说明为准。
 
 ## 主要功能
 
