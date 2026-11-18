@@ -190,6 +190,17 @@ describe('size candidate generation binding', () => {
     expect(guard.finalTextReason({ traceId: 'trace-known-none', text: '普通回复' })).toBe('')
   })
 
+  it('fails closed when valid selection evidence has no captured canonical', () => {
+    const guard = createSizeCandidateGuard({ currentReason: () => '' })
+    const value = evidence('99999999-9999-4999-8999-999999999999', 'product-missing')
+    guard.capture('trace-missing-canonical', messages(value))
+    expect(
+      guard.finalTextReason({ traceId: 'trace-missing-canonical', text: '推荐M码' }),
+    ).toContain('缺少本次尺码生成证据')
+    guard.capture('trace-known-none', [])
+    expect(guard.finalTextReason({ traceId: 'trace-known-none', text: '普通回复' })).toBe('')
+  })
+
   it('does not attach evidence from a different trace or fall back to the latest trace', () => {
     const guard = createSizeCandidateGuard({ currentReason: () => '' })
     const value = evidence('33333333-3333-4333-8333-333333333333', 'product-c')

@@ -1,18 +1,19 @@
 ## 2026-11-19：尺码/视觉公共整合与最终发布修复（1.0.74，隔离分支待 root 合并）
 
-隔离分支 `codex/size-vision-integration-20261119` 已合入 main `9ab671a`、本机视觉 `9e4809f`、managed vision `8a56466` 与 billing support `786dbb0`。server `source-files.json` 合并后 107 项，billing 与视觉两方路径无缺失，当前所有 SHA256 与 server 实际文件一致；billing 代码未重跑未变 Go/React 测试，仅复用其 31 项客户端与两包 Go 验收回执。保留 1.0.70 MCP、1.0.71 训练迁移、1.0.72 欢迎自动保存、1.0.73 配置中心嵌入。
+隔离分支 `codex/size-vision-integration-20261119` 已合入 main `9ab671a`、本机视觉 `9e4809f`、managed vision `8a56466`、billing support `786dbb0`，并同步最新 main `3ce4f84`（仅 README/`start-source.ps1`/`一键启动源码.bat`）。server `source-files.json` 合并后 107 项，billing 与视觉两方路径无缺失，当前所有 SHA256 与 server 实际文件一致；billing 代码未重跑未变 Go/React 测试，仅复用其 31 项客户端与两包 Go 验收回执。保留 1.0.70 MCP、1.0.71 训练迁移、1.0.72 欢迎自动保存、1.0.73 配置中心嵌入。
 
 - P2 终态尺码修复：使用生成时确定性回复作为 canonical，对 eligible 标签加仅内存占位后调用真实 vendor `filterBannedWords`，还原标签并按同店最终文本做“完全相等或长度前缀”校验。任意标签替换（M→L/2XL/3XL/加大码/大号/自定义标签）均拒绝；普通非标签禁词删除和店铺长度截断允许；不重写实际 final text、不重插禁词、不引入占位到真实消息。
-- 正式 `beforeSend` 与兼容 `start-training` 两链都使用同一 canonical 校验；training 的 canonical 在同一 AsyncLocalStorage 请求链内捕获，beforeSend 从 reply trace 捕获。知识库主 trial 仍在原预算/租约链注入证据并复核版本。
+- 正式 `beforeSend` 与兼容 `start-training` 两链都使用同一 canonical 校验。`installSizeReplyGuard` 在 `enforceSizeReply` 之后以 guarded 结果自身的真实 traceId 回调 candidate guard；不再读取 vendor 早于 guard 的 raw result 事件。training 的 canonical 在同一 AsyncLocalStorage owner 内取出。valid selection 有证据但 canonical 缺失时直接闭锁，不再使用旧正则兜底；known `evidence=null` 与无 trace 欢迎/非模型路径保持普通。知识库主 trial 仍在原预算/租约链注入证据并复核版本。
+- 正式 proposal 若含厂商欢迎装饰，使用当前 `welcomeByStore` 且版本与 `proposal.welcome.version` 一致的可信 greeting（同一 vendor 禁词过滤）仅剥离精确的 `greeting + 换行` 前缀；任意第一行/任意前缀不剥离，不修改待批准正文。
 - 候选证据为每个 reply trace 的 `evidence|null` 有界 Map（1000）；unknown/淘汰 trace 闭锁，明确 null 正常；训练/试问 trace 不占正式回复候选。
 - 本机视觉公共 assembly、五命令、六字段快照、LoginDialog 挂载、损坏文件只闭锁图片、managed 最早分支旁路已完成；买家含图回复原路径不变。
 - 移除“客服工单/工单登记”菜单与独立本机/团队登记页；保留后台工单数据/API、辅助中心历史/状态/跟进、平台工单和数据看板卡。旧 `?panel=workorder` 回落店铺列表。
 - 尺码 CSV 导出复用 `shared/platform/files.downloadText`，保留 owner/卸载迟到检查；ShopKb 与结构化区域说明改为简短用户操作提示。
 - Vitest 配置统一 `maxWorkers=2/minWorkers=1`，保留原断言和 5 秒单项超时；`knowledge-model-learning.test.ts` 25 项一次通过（10.8 秒），解决 GitHub 全量并行争用导致的两个 5 秒超时。
 
-验证：最终相关回归 9 文件 63 项通过（尺码终态/候选/trial/UI 32、billing 31）；图片学习 25 项；P2 真实 vendor 过滤探针 7 种替换全红转闭锁、允许删除/截断；完整 `npm run typecheck`、`npm run lint`（含 boundaries）、changed Prettier、`npm run build` 退出 0。真实隔离 Electron `business:size-vision-common` 1/1：renderer 结构化尺码编辑/绑定/保存、`.size-rules__paste` 精确“预览表格”按钮真实预览 2 行、knowledge trial 与 start-training 拒绝 XL、vendor M→L 被拒、店铺 5 字限制不扩字、视觉 get/save/probe/verify 双回环端点、LoginDialog 挂载图片模型且 Key 输入为空/原文不出现、工单旧链接回落、损坏 vision 后普通启动/文字训练正常，并在 finally 恢复原 vision 文件字节/不存在状态后 restart。证据：`artifacts/size-vision-20261118/final-integration-fix-report.md`、`native-final-fix-report.json`、`native-final-size-rules.png`、`native-final-login-vision-safe-key.png`、`native-final-workorder-entry-removed.png`。
+验证：本轮正式接线回归 4 文件 34 项通过；此前相关回归 9 文件 63 项（尺码 32、billing 31）与图片学习 25 项保留。真实 `AiClient.reply + 尺码 guard + ReviewConsole + candidate + vendor filter` 探针 GREEN：raw XL→guarded M，正式 2XL 拒绝，干净 M/删词/截断通过，欢迎前缀正确 M 通过且 2XL 拒绝，expired/unknown canonical 闭锁、known null 正常。P2 标签替换探针 7/7 拒绝。完整 `npm run typecheck`、`npm run lint`（含 boundaries）、changed Prettier、`npm run build` 退出 0。真实隔离 Electron `business:size-vision-common` 1/1（复用代码未受影响的上一轮证据）：renderer 结构化尺码编辑/绑定/保存、精确“预览表格”真实预览 2 行、knowledge trial 与 start-training 拒绝 XL、vendor M→L 被拒、店铺 5 字限制不扩字、视觉 get/save/probe/verify 双回环端点、LoginDialog 挂载图片模型且 Key 输入为空/原文不出现、工单旧链接回落、损坏 vision 后普通启动/文字训练正常，并在 finally 恢复原 vision 文件字节/不存在状态后 restart。证据：`artifacts/size-vision-20261118/final-guard-wiring-report.md`、`final-integration-fix-report.md`、`native-final-fix-report.json`、`native-final-size-rules.png`、`native-final-login-vision-safe-key.png`、`native-final-workorder-entry-removed.png`。
 
-未执行：main 合并、push、分支删除、真实平台/买家/付费模型/生产、辅助中心原生截图（harness 未注册 assist；辅助 19 项单元通过）、独立视觉知识图片原生学习（复用 53 项真实回环学习测试）。发布新版已获用户授权但尚未执行，由 root 通过现有 GitHub 全量检查/原生/云 package 后发布。下一项：root 合并/推送/正式 profile 重启与 Release，验收条件为 main 合入后同版本 build 与原生入口无回归。
+未执行：将本分支合入 main、push、分支删除、真实平台/买家/付费模型/生产、辅助中心原生截图（harness 未注册 assist；辅助 19 项单元通过）、独立视觉知识图片原生学习（复用 53 项真实回环学习测试）。发布新版已获用户授权但尚未执行，由 root 通过现有 GitHub 全量检查/原生/云 package 后发布。下一项：root 合并/推送/正式 profile 重启与 Release，验收条件为 main 合入后同版本 build 与原生入口无回归。
 
 ## 2026-11-19：进店欢迎自动保存与紧凑布局（1.0.72）
 
