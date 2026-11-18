@@ -52,7 +52,7 @@ function preview() {
     id="viewKb"
     data-v-5f3c24c3=""
     title="尺码规格"
-    description="保留自由文本尺码候选；结构化规则使用当前本机商品目录绑定准确店铺与商品，先审核再启用。"
+    description="自由文本尺码先生成候选；结构化规则可绑定商品，用于接待和训练。"
     :error="task.error.value"
   >
     <form class="runtime-form" @submit.prevent="preview">

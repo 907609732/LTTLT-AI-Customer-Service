@@ -1234,6 +1234,9 @@ export async function businessChecks(options: {
     })
     await check('business:size-vision-common', '/shop/manage', async () => {
       const log = (step: string) => console.log(`[size-vision] ${step}`)
+      const visionFile = path.join(dataDir, 'vision-model.json')
+      const visionBefore = fs.existsSync(visionFile) ? fs.readFileSync(visionFile) : null
+      let visionCorrupted = false
       interface VisionView {
         snapshot: {
           mode: string
@@ -1368,6 +1371,20 @@ export async function businessChecks(options: {
           ),
           true,
         )
+        await wait(`!document.querySelector('.size-rules__form fieldset')?.disabled`)
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `(() => {const paste=document.querySelector('.size-rules__paste'); if(!paste) return false; paste.open=true; const button=[...paste.querySelectorAll('button')].find(item=>item.textContent.trim()==='预览表格'); if(!button||button.disabled) return false; button.click(); return true;})()`,
+          ),
+          true,
+        )
+        await wait(
+          `document.querySelectorAll('.size-rules__preview tbody tr').length === 2 && document.querySelector('.size-rules__preview')?.innerText.includes('预览：2 行、2 列')`,
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.size-rules').scrollIntoView({block:'start'})`,
+        )
+        await new Promise((resolve) => setTimeout(resolve, 300))
         await win.webContents.executeJavaScript(
           `document.querySelector('.size-rules__form').requestSubmit()`,
         )
@@ -1536,7 +1553,37 @@ export async function businessChecks(options: {
           (await win.webContents.capturePage()).toPNG(),
         )
         log('workorder-fallback')
-        fs.writeFileSync(path.join(dataDir, 'vision-model.json'), '{broken')
+        await load('/shop/manage?panel=shops')
+        await wait(
+          `Boolean([...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='自己的 Key'))`,
+        )
+        await win.webContents.executeJavaScript(
+          `[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='自己的 Key').click()`,
+        )
+        await wait(`Boolean(document.querySelector('.vision-model-settings'))`)
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.querySelector('[aria-label="图片模型 API Key"]')?.value`,
+          ),
+          '',
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.body.innerText.includes('fixture-vision-key')`,
+          ),
+          false,
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.vision-model-settings').scrollIntoView({block:'center'})`,
+        )
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/login-vision-safe-key.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+        log('login-vision-mounted')
+        fs.writeFileSync(visionFile, '{broken')
+        visionCorrupted = true
         await restart()
         const afterRestart = await snapshot()
         assert.equal(afterRestart.capabilities.visionModel.status, 'stale')
@@ -1548,6 +1595,13 @@ export async function businessChecks(options: {
         assert.ok(String(ordinary.data.reply).length > 0)
       } finally {
         if (visionServer) await new Promise<void>((resolve) => visionServer!.close(() => resolve()))
+        if (visionCorrupted) {
+          if (visionBefore === null) fs.rmSync(visionFile, { force: true })
+          else fs.writeFileSync(visionFile, visionBefore)
+          assert.equal(fs.existsSync(visionFile), visionBefore !== null)
+          if (visionBefore !== null) assert.deepEqual(fs.readFileSync(visionFile), visionBefore)
+          await restart()
+        }
         await execute({ action: 'save-banned-words', values: { rules: [] } }).catch(() => {})
         await execute({
           action: 'remove-store',

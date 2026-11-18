@@ -1400,10 +1400,12 @@ export function createLocalRuntime(options: {
       let result: BackendResult
       if (command.action === 'start-training') {
         let evidence: ReturnType<typeof capturedSizeEvidence>
+        let canonical: string | undefined
         result = resultSchema.parse(
           await withSizeRequest(async () => {
             const value = await aiRestore.userExecute(raw)
             evidence = capturedSizeEvidence()
+            canonical = capturedSizeCanonicalReply()
             return value
           }),
         )
@@ -1414,7 +1416,7 @@ export function createLocalRuntime(options: {
           result = {
             ...result,
             data: applySizeTrainingOutput(evidence, result.data, reason, {
-              canonical: capturedSizeCanonicalReply(),
+              canonical,
               bannedWords: read().bannedWords,
             }),
           }

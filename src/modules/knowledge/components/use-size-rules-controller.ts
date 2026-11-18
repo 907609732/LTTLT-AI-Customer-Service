@@ -12,6 +12,7 @@ import {
   type SizeRuleTemplateKind,
 } from '@/shared/contracts/size-rules'
 import { useRuntimeStore } from '@/shared/state/runtime'
+import { downloadText } from '@/shared/platform/files'
 import { createSizeRulesClient } from '../size-rules-service'
 
 export type SizeRuleDraft = SizeRuleFields & {
@@ -383,15 +384,7 @@ export function useSizeRulesController() {
     void run(async (ownerValue) => {
       const result = await client.exportCsv(id)
       if (!current(ownerValue)) return
-      if (typeof URL.createObjectURL !== 'function') throw new Error('当前环境不支持下载表格')
-      const url = URL.createObjectURL(
-        new Blob(['\uFEFF' + result.csv], { type: 'text/csv;charset=utf-8' }),
-      )
-      const link = document.createElement('a')
-      link.href = url
-      link.download = '尺码规格表.csv'
-      link.click()
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      downloadText('尺码规格表.csv', '\uFEFF' + result.csv, 'text/csv;charset=utf-8')
     })
   }
 

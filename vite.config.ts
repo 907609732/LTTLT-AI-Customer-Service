@@ -14,5 +14,11 @@ export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   server: { host: '127.0.0.1', port: 5173, strictPort: true },
   build: { outDir: 'dist', assetsDir: 'assets' },
-  test: { environment: 'jsdom', include: ['tests/**/*.test.ts'], restoreMocks: true },
+  test: {
+    environment: 'jsdom',
+    include: ['tests/**/*.test.ts'],
+    restoreMocks: true,
+    maxWorkers: 2,
+    minWorkers: 1,
+  },
 })

@@ -8,6 +8,8 @@ import SizeRulesPanel from '../src/modules/knowledge/components/SizeRulesPanel.v
 
 const bridge = vi.hoisted(() => ({ snapshot: vi.fn(), execute: vi.fn(), subscribe: vi.fn() }))
 vi.mock('../src/shared/platform/backend', () => ({ getBackendBridge: () => bridge }))
+vi.mock('../src/shared/platform/files', () => ({ downloadText: vi.fn() }))
+import { downloadText } from '../src/shared/platform/files'
 
 const record = {
   id: '9f7f45ea-896e-4b9a-a78f-2ec39e62fa81',
@@ -365,12 +367,35 @@ describe('structured size rules UI', () => {
     expect(wrapper.text()).not.toContain('预览：1 行')
   })
 
+  it('exports saved CSV through the shared download helper', async () => {
+    bridge.execute.mockImplementation(async (command: { action: string }) => {
+      if (command.action === 'list-size-rules') return listResult()
+      if (command.action === 'list-products')
+        return {
+          status: 'ok',
+          message: '',
+          data: { revision: 1, codesRevision: 0, total: 0, items: [] },
+        }
+      if (command.action === 'export-size-table')
+        return { status: 'ok', message: '', data: { csv: '规格,长度(cm)' } }
+      return { status: 'ok', message: '', data: {} }
+    })
+    const wrapper = await mountPanel()
+    await wrapper.get('[aria-label="选择尺码规则 本店上衣尺码"]').trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '导出已保存 CSV')!
+      .trigger('click')
+    await flushPromises()
+    expect(downloadText).toHaveBeenCalledWith(
+      '尺码规格表.csv',
+      '\uFEFF规格,长度(cm)',
+      'text/csv;charset=utf-8',
+    )
+  })
+
   it('does not download an export that completes after the panel was left', async () => {
     const exportPending = deferred<unknown>()
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-    const create = vi.fn(() => 'blob:size')
-    Object.defineProperty(URL, 'createObjectURL', { value: create, configurable: true })
-    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true })
     bridge.execute.mockImplementation(async (command: { action: string }) => {
       if (command.action === 'list-size-rules') return listResult()
       if (command.action === 'list-products')
@@ -393,16 +418,11 @@ describe('structured size rules UI', () => {
     await flushPromises()
     exportPending.resolve({ status: 'ok', message: '', data: { csv: '规格,长度(cm)' } })
     await flushPromises()
-    expect(create).not.toHaveBeenCalled()
-    expect(click).not.toHaveBeenCalled()
+    expect(downloadText).not.toHaveBeenCalled()
   })
 
   it('does not download an export after the component unmounts', async () => {
     const exportPending = deferred<unknown>()
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-    const create = vi.fn(() => 'blob:size')
-    Object.defineProperty(URL, 'createObjectURL', { value: create, configurable: true })
-    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true })
     bridge.execute.mockImplementation(async (command: { action: string }) => {
       if (command.action === 'list-size-rules') return listResult()
       if (command.action === 'list-products')
@@ -424,8 +444,7 @@ describe('structured size rules UI', () => {
     wrapper.unmount()
     exportPending.resolve({ status: 'ok', message: '', data: { csv: '规格,长度(cm)' } })
     await flushPromises()
-    expect(create).not.toHaveBeenCalled()
-    expect(click).not.toHaveBeenCalled()
+    expect(downloadText).not.toHaveBeenCalled()
   })
 
   it('does not show a late template error in the new workspace', async () => {

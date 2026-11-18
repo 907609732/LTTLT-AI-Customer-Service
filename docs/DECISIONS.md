@@ -2,7 +2,7 @@
 
 ## 2026-11-19：尺码终态只校验不重写；本机视觉独立但托管旁路
 
-尺码问题在 vendor 禁用词/店铺长度处理之后只能做终态校验：发现范围外/未知尺码或规则迟到变化就拒绝，不再重新生成“正确 M”，避免把禁词插回或扩过店铺上限。知识库试问也走同一尺码证据和版本复核，但保留原 resolution/租约/预算且不发送。候选按 reply trace 有界保存 `evidence|null`：明确无尺码记为 null 并保持普通回复，unknown/被淘汰的 AI trace 闭锁；训练/试问 trace 不占正式回复候选。
+尺码问题在 vendor 禁用词/店铺长度处理之后只能做终态校验：以 guard 生成时 canonical 为基准，只在内存中用占位保护 eligible 标签并调用真实 vendor 过滤器，实际 final 必须等于期望或为其长度前缀。任意标签替换（含 2XL/3XL/加大码/中文自定义码）拒绝；普通非标签删除和店铺截断允许；不重写 final text、不重插禁词、占位不进入真实消息。知识库试问也走同一尺码证据和版本复核，但保留原 resolution/租约/预算且不发送。候选按 reply trace 有界保存 `evidence|null`：明确无尺码记为 null 并保持普通回复，unknown/被淘汰的 AI trace 闭锁；训练/试问 trace 不占正式回复候选。
 
 本机图片模型独立保存在 `vision-model.json`，Key 只走 safeStorage；公共 assembly 在 `onKnowledgeModel` 包装知识端口。`inherit` 继续原能力，`custom` 只在当前配置通过图片验证后分流知识图片；managed 在最早分支直接回调原端口，不读取本机视觉 generation。损坏本机视觉文件只关闭图片，不阻断文字和启动；命令 probe/verify 必须带 expected revision。买家图片回复保持原路径。
 
