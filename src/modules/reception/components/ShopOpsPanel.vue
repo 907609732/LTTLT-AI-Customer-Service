@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import RuntimePanel from '@/shared/ui/RuntimePanel.vue'
 import StoreSelect from '@/shared/ui/StoreSelect.vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
+import { RECEPTION_KEYWORDS_SCREEN, type ReceptionKeywordKind } from '@/shared/contracts/backend'
 import { useReceptionOperations } from '../services/operations'
 import OperationApprovalPanel from './OperationApprovalPanel.vue'
 import ReceptionRulesPanel from './ReceptionRulesPanel.vue'
@@ -99,6 +101,9 @@ const inherited = ref(true),
   globalKeywords = ref(''),
   manualKeywords = ref(''),
   manualExpected = ref<string[]>([]),
+  globalExpected = ref<string[]>([]),
+  globalEnabled = ref(true),
+  manualEnabled = ref(true),
   fallbackEnabled = ref(false),
   fallbackSeconds = ref(15),
   fallbackText = ref('')
@@ -120,6 +125,320 @@ watch(
 let baseline: ReceptionSettingsDraft = {}
 let loadRevision = 0
 let unmounted = false
+type KeywordField = ReceptionKeywordKind
+interface KeywordTextQueue {
+  generation: number
+  running: boolean
+  queued: string | null
+}
+interface KeywordSwitchQueue {
+  generation: number
+  running: boolean
+  queued: boolean | null
+}
+interface HandoffSave {
+  inherited: boolean
+  keywords: string[]
+}
+interface HandoffQueue {
+  generation: number
+  running: boolean
+  queued: HandoffSave | null
+}
+const textQueues: Record<KeywordField, KeywordTextQueue> = {
+  handoff: { generation: 0, running: false, queued: null },
+  manual: { generation: 0, running: false, queued: null },
+}
+const switchQueues: Record<KeywordField, KeywordSwitchQueue> = {
+  handoff: { generation: 0, running: false, queued: null },
+  manual: { generation: 0, running: false, queued: null },
+}
+const textConfirmed: Record<KeywordField, { text: string; expected: string[] }> = {
+  handoff: { text: '', expected: [] },
+  manual: { text: '', expected: [] },
+}
+const switchConfirmed: Record<KeywordField, boolean> = { handoff: true, manual: true }
+const handoffQueue: HandoffQueue = { generation: 0, running: false, queued: null }
+let handoffConfirmed: HandoffSave = { inherited: true, keywords: [] }
+function resetKeywordAutosave(input: {
+  globalKeywords: string[]
+  globalExpected?: string[]
+  manualKeywords: string[]
+  manualExpected?: string[]
+  handoffKeywords: string[]
+  handoffInherited: boolean
+  globalEnabled: boolean
+  manualEnabled: boolean
+}) {
+  for (const kind of ['handoff', 'manual'] as const) {
+    const textQueue = textQueues[kind]
+    textQueue.generation += 1
+    textQueue.running = false
+    textQueue.queued = null
+    const words = kind === 'handoff' ? input.globalKeywords : input.manualKeywords
+    textConfirmed[kind] = {
+      text: words.join('\n'),
+      // 重挂的未保存草稿保留其载入时 CAS 基线，不能被新快照悄悄抬成“已确认”。
+      expected:
+        kind === 'manual'
+          ? [...(input.manualExpected ?? words)]
+          : [...(input.globalExpected ?? words)],
+    }
+    const switchQueue = switchQueues[kind]
+    switchQueue.generation += 1
+    switchQueue.running = false
+    switchQueue.queued = null
+    switchConfirmed[kind] = kind === 'handoff' ? input.globalEnabled : input.manualEnabled
+  }
+  handoffQueue.generation += 1
+  handoffQueue.running = false
+  handoffQueue.queued = null
+  handoffConfirmed = {
+    inherited: input.handoffInherited,
+    keywords: [...input.handoffKeywords],
+  }
+}
+const keywordLease = () => ({
+  workspaceId: runtime.snapshot.workspaceId,
+  storeId: selectedStoreId.value,
+  view: props.viewKey,
+  revision: loadRevision,
+})
+function keywordLeaseCurrent(lease: ReturnType<typeof keywordLease>) {
+  return (
+    !unmounted &&
+    runtime.snapshot.workspaceId === lease.workspaceId &&
+    selectedStoreId.value === lease.storeId &&
+    props.viewKey === lease.view &&
+    loadRevision === lease.revision
+  )
+}
+function keywordError(cause: unknown) {
+  return (cause instanceof Error ? cause.message : String(cause)).replace(
+    /^Error invoking remote method '[^']+': (?:Error: )?/,
+    '',
+  )
+}
+function normalizedKeywordText(kind: KeywordField) {
+  return lines(kind === 'handoff' ? globalKeywords.value : manualKeywords.value).join('\n')
+}
+function keywordWords(text: string) {
+  return text ? text.split('\n') : []
+}
+function keywordSwitchValue(kind: KeywordField) {
+  return kind === 'handoff' ? globalEnabled.value : manualEnabled.value
+}
+function setKeywordSwitchValue(kind: KeywordField, value: boolean) {
+  if (kind === 'handoff') globalEnabled.value = value
+  else manualEnabled.value = value
+}
+async function pumpKeywordText(kind: KeywordField) {
+  const queue = textQueues[kind]
+  if (queue.running) return
+  queue.running = true
+  const generation = queue.generation
+  try {
+    while (generation === queue.generation && queue.queued !== null && !unmounted) {
+      const submittedText = queue.queued
+      queue.queued = null
+      if (submittedText === textConfirmed[kind].text) continue
+      const submitted = keywordWords(submittedText)
+      const lease = keywordLease()
+      const expected = [...textConfirmed[kind].expected]
+      task.error.value = ''
+      let result
+      try {
+        result = await runtime.run({
+          action: 'save-config',
+          screenId: RECEPTION_KEYWORDS_SCREEN,
+          values: {
+            kind,
+            mode: 'keywords',
+            keywords: submitted,
+            expectedKeywords: expected,
+          },
+        })
+      } catch (cause) {
+        if (generation === queue.generation) {
+          queue.queued = null
+          if (keywordLeaseCurrent(lease)) task.error.value = keywordError(cause)
+        }
+        return
+      }
+      if (result.status !== 'ok') {
+        if (generation === queue.generation && keywordLeaseCurrent(lease))
+          task.error.value = '无法确认保存结果，当前草稿仍保留；请稍后重试。'
+        return
+      }
+      if (generation !== queue.generation || !keywordLeaseCurrent(lease)) return
+      textConfirmed[kind] = { text: submittedText, expected: [...submitted] }
+      if (kind === 'handoff') {
+        globalExpected.value = [...submitted]
+        baseline.globalKeywords = submittedText
+      } else {
+        manualExpected.value = [...submitted]
+        baseline.manualKeywords = submittedText
+      }
+      ElMessage.success('保存成功')
+    }
+  } finally {
+    if (generation === queue.generation) queue.running = false
+  }
+}
+function requestKeywordTextSave(kind: KeywordField) {
+  if (!runtime.available) return
+  const queue = textQueues[kind]
+  const text = normalizedKeywordText(kind)
+  if (!queue.running && text === textConfirmed[kind].text && queue.queued === null) return
+  if (queue.queued === text) return
+  queue.queued = text
+  void pumpKeywordText(kind)
+}
+async function pumpKeywordSwitch(kind: KeywordField) {
+  const queue = switchQueues[kind]
+  if (queue.running) return
+  queue.running = true
+  const generation = queue.generation
+  try {
+    while (generation === queue.generation && queue.queued !== null && !unmounted) {
+      const enabled = queue.queued
+      queue.queued = null
+      if (enabled === switchConfirmed[kind]) continue
+      const lease = keywordLease()
+      const expectedEnabled = switchConfirmed[kind]
+      task.error.value = ''
+      let result
+      try {
+        result = await runtime.run({
+          action: 'save-config',
+          screenId: RECEPTION_KEYWORDS_SCREEN,
+          values: { kind, mode: 'enabled', enabled, expectedEnabled },
+        })
+      } catch (cause) {
+        if (generation === queue.generation) {
+          queue.queued = null
+          if (keywordLeaseCurrent(lease)) {
+            setKeywordSwitchValue(kind, switchConfirmed[kind])
+            task.error.value = keywordError(cause)
+          }
+        }
+        return
+      }
+      if (result.status !== 'ok') {
+        if (generation === queue.generation && keywordLeaseCurrent(lease)) {
+          setKeywordSwitchValue(kind, switchConfirmed[kind])
+          task.error.value = '无法确认保存结果，关键词开关未更改。'
+        }
+        return
+      }
+      if (generation !== queue.generation || !keywordLeaseCurrent(lease)) return
+      switchConfirmed[kind] = enabled
+      ElMessage.success('保存成功')
+    }
+  } finally {
+    if (generation === queue.generation) queue.running = false
+  }
+}
+function requestKeywordSwitch(kind: KeywordField) {
+  const value = keywordSwitchValue(kind)
+  if (!runtime.available) {
+    setKeywordSwitchValue(kind, switchConfirmed[kind])
+    return
+  }
+  const queue = switchQueues[kind]
+  if (!queue.running && value === switchConfirmed[kind] && queue.queued === null) return
+  if (queue.queued === value) return
+  queue.queued = value
+  void pumpKeywordSwitch(kind)
+}
+function normalizedHandoffSave(): HandoffSave {
+  return {
+    inherited: inherited.value,
+    keywords: inherited.value ? [] : lines(keywords.value),
+  }
+}
+function sameHandoff(left: HandoffSave, right: HandoffSave) {
+  return (
+    left.inherited === right.inherited &&
+    (left.inherited ||
+      (left.keywords.length === right.keywords.length &&
+        left.keywords.every((word, index) => word === right.keywords[index])))
+  )
+}
+async function pumpStoreHandoff() {
+  if (deferred.value) return
+  if (handoffQueue.running) return
+  handoffQueue.running = true
+  const generation = handoffQueue.generation
+  try {
+    while (generation === handoffQueue.generation && handoffQueue.queued !== null && !unmounted) {
+      const submitted = handoffQueue.queued
+      handoffQueue.queued = null
+      if (sameHandoff(submitted, handoffConfirmed)) continue
+      const changedMode = submitted.inherited !== handoffConfirmed.inherited
+      const lease = keywordLease()
+      task.error.value = ''
+      let result
+      try {
+        result = await runtime.run({
+          action: 'save-store-handoff',
+          storeId: lease.storeId,
+          values: submitted.inherited
+            ? { mode: 'inherit' }
+            : { mode: 'custom', keywords: submitted.keywords },
+        })
+      } catch (cause) {
+        if (generation === handoffQueue.generation) {
+          handoffQueue.queued = null
+          if (keywordLeaseCurrent(lease)) {
+            if (changedMode && inherited.value === submitted.inherited)
+              inherited.value = handoffConfirmed.inherited
+            task.error.value = keywordError(cause)
+          }
+        }
+        return
+      }
+      if (result.status !== 'ok') {
+        if (generation === handoffQueue.generation && keywordLeaseCurrent(lease))
+          task.error.value = '无法确认本店关键词保存结果，当前草稿仍保留。'
+        return
+      }
+      if (generation !== handoffQueue.generation || !keywordLeaseCurrent(lease)) return
+      handoffConfirmed = {
+        inherited: submitted.inherited,
+        keywords: [...submitted.keywords],
+      }
+      baseline.inherited = submitted.inherited
+      baseline.keywords = submitted.inherited ? '' : submitted.keywords.join('\n')
+      if (submitted.inherited && inherited.value && handoffQueue.queued === null) {
+        keywords.value = ''
+      }
+      ElMessage.success('保存成功')
+    }
+  } finally {
+    if (generation === handoffQueue.generation) handoffQueue.running = false
+  }
+}
+function requestStoreHandoffSave() {
+  if (deferred.value || !runtime.available) return
+  const submitted = normalizedHandoffSave()
+  if (
+    !handoffQueue.running &&
+    sameHandoff(submitted, handoffConfirmed) &&
+    handoffQueue.queued === null
+  )
+    return
+  if (handoffQueue.queued && sameHandoff(submitted, handoffQueue.queued)) return
+  handoffQueue.queued = submitted
+  void pumpStoreHandoff()
+}
+function submitForm() {
+  if (props.viewKey === 'transfer') {
+    requestStoreHandoffSave()
+    return
+  }
+  void save()
+}
 function load(restoreDraft = false) {
   loadRevision += 1
   const id = selectedStoreId.value,
@@ -135,13 +454,19 @@ function load(restoreDraft = false) {
     else confirmed = normalizeWelcomeSetting(receipt)
   }
   const latestManualKeywords = [...snap.config.safety.manualReplyKeywords]
+  const latestGlobalKeywords = [...snap.config.safety.handoffKeywords]
+  const latestHandoffKeywords = [...(snap.handoffByStore[id]?.keywords ?? [])]
+  const latestInherited = !snap.handoffByStore[id]
   welcome.value = normalizeWelcomeSetting(cached.get(cacheKey(snap.workspaceId, id)) || confirmed)
   vision.value = { ...(snap.visionByStore[id] || { enabled: false, version: 0 }) }
-  inherited.value = !snap.handoffByStore[id]
-  keywords.value = snap.handoffByStore[id]?.keywords.join('\n') || ''
-  globalKeywords.value = snap.config.safety.handoffKeywords.join('\n')
+  inherited.value = latestInherited
+  keywords.value = latestHandoffKeywords.join('\n')
+  globalKeywords.value = latestGlobalKeywords.join('\n')
   manualKeywords.value = latestManualKeywords.join('\n')
+  globalExpected.value = latestGlobalKeywords
   manualExpected.value = latestManualKeywords
+  globalEnabled.value = snap.config.safety.handoffKeywordsEnabled
+  manualEnabled.value = snap.config.safety.manualReplyKeywordsEnabled
   fallbackEnabled.value = snap.config.reply.fallbackAfterMs > 0
   fallbackSeconds.value = Math.max(1, snap.config.reply.fallbackAfterMs / 1000 || 15)
   fallbackText.value = snap.config.reply.fallbackText
@@ -160,7 +485,10 @@ function load(restoreDraft = false) {
     if (previous.welcome) welcome.value = normalizeWelcomeSetting(previous.welcome)
     if (previous.inherited !== undefined) inherited.value = previous.inherited
     if (previous.keywords !== undefined) keywords.value = previous.keywords
-    if (previous.globalKeywords !== undefined) globalKeywords.value = previous.globalKeywords
+    if (previous.globalKeywords !== undefined) {
+      globalKeywords.value = previous.globalKeywords
+      globalExpected.value = [...(previous.globalExpectedKeywords ?? latestGlobalKeywords)]
+    }
     if (previous.manualKeywords !== undefined) {
       manualKeywords.value = previous.manualKeywords
       manualExpected.value = [...(previous.manualExpectedKeywords ?? latestManualKeywords)]
@@ -177,6 +505,16 @@ function load(restoreDraft = false) {
     inherited.value = props.setupDraft.handoff.inherited
     keywords.value = props.setupDraft.handoff.keywords.join('\n')
   }
+  resetKeywordAutosave({
+    globalKeywords: latestGlobalKeywords,
+    globalExpected: globalExpected.value,
+    manualKeywords: latestManualKeywords,
+    manualExpected: manualExpected.value,
+    handoffKeywords: latestHandoffKeywords,
+    handoffInherited: latestInherited,
+    globalEnabled: snap.config.safety.handoffKeywordsEnabled,
+    manualEnabled: snap.config.safety.manualReplyKeywordsEnabled,
+  })
 }
 onBeforeUnmount(() => {
   unmounted = true
@@ -188,7 +526,10 @@ onBeforeUnmount(() => {
     ...(inherited.value !== baseline.inherited ? { inherited: inherited.value } : {}),
     ...(keywords.value !== baseline.keywords ? { keywords: keywords.value } : {}),
     ...(globalKeywords.value !== baseline.globalKeywords
-      ? { globalKeywords: globalKeywords.value }
+      ? {
+          globalKeywords: globalKeywords.value,
+          globalExpectedKeywords: [...globalExpected.value],
+        }
       : {}),
     ...(manualKeywords.value !== baseline.manualKeywords
       ? {
@@ -231,11 +572,36 @@ const manualConflict = computed(() => {
     manualExpected.value.some((word, index) => word !== latest[index])
   )
 })
+const globalConflict = computed(() => {
+  const latest = runtime.snapshot.config.safety.handoffKeywords
+  return (
+    globalExpected.value.length !== latest.length ||
+    globalExpected.value.some((word, index) => word !== latest[index])
+  )
+})
+function loadLatestGlobalKeywords() {
+  const latest = [...runtime.snapshot.config.safety.handoffKeywords]
+  globalKeywords.value = latest.join('\n')
+  globalExpected.value = latest
+  baseline.globalKeywords = globalKeywords.value
+  const queue = textQueues.handoff
+  queue.generation += 1
+  queue.running = false
+  queue.queued = null
+  textConfirmed.handoff = { text: globalKeywords.value, expected: [...latest] }
+  task.error.value = ''
+  task.message.value = ''
+}
 function loadLatestManualKeywords() {
   const latest = [...runtime.snapshot.config.safety.manualReplyKeywords]
   manualKeywords.value = latest.join('\n')
   manualExpected.value = latest
   baseline.manualKeywords = manualKeywords.value
+  const queue = textQueues.manual
+  queue.generation += 1
+  queue.running = false
+  queue.queued = null
+  textConfirmed.manual = { text: manualKeywords.value, expected: [...latest] }
   task.error.value = ''
   task.message.value = ''
 }
@@ -375,49 +741,6 @@ async function save() {
     }
   })
 }
-async function saveGlobal() {
-  await task.run(async () => {
-    const result = await runtime.run({
-      action: 'save-config',
-      screenId: 'UX08',
-      values: { handoffKeywords: lines(globalKeywords.value) },
-    })
-    baseline.globalKeywords = globalKeywords.value
-    task.message.value = result.message
-  })
-}
-async function saveManualKeywords() {
-  const submittedKeywords = lines(manualKeywords.value)
-  const submittedText = submittedKeywords.join('\n')
-  const expectedKeywords = [...manualExpected.value]
-  const lease = {
-    workspaceId: runtime.snapshot.workspaceId,
-    storeId: selectedStoreId.value,
-    view: props.viewKey,
-  }
-  const revision = loadRevision
-  await task.run(async () => {
-    const result = await runtime.run({
-      action: 'save-config',
-      screenId: 'MANUAL_REPLY_KEYWORDS',
-      values: { keywords: submittedKeywords, expectedKeywords },
-    })
-    // 切店/切换账号/重新载入后的迟到结果只丢弃，不回填新页面。
-    if (
-      runtime.snapshot.workspaceId !== lease.workspaceId ||
-      selectedStoreId.value !== lease.storeId ||
-      props.viewKey !== lease.view ||
-      revision !== loadRevision
-    )
-      return
-    // 成功保存的是提交时的 X；等待期间的新输入 Y 相对 X 仍是未保存草稿。
-    manualExpected.value = [...submittedKeywords]
-    baseline.manualKeywords = submittedText
-    if (lines(manualKeywords.value).join('\n') === submittedText)
-      manualKeywords.value = submittedText
-    task.message.value = result.message
-  })
-}
 </script>
 <template>
   <RuntimePanel
@@ -444,7 +767,11 @@ async function saveManualKeywords() {
     </template>
     <StoreSelect v-if="!embedded" :disabled="task.pending.value" />
     <p v-if="viewKey !== 'auto' && !selectedStoreId">请先在店铺与商品中添加店铺。</p>
-    <form v-if="selectedStoreId || viewKey === 'auto'" class="runtime-form" @submit.prevent="save">
+    <form
+      v-if="selectedStoreId || viewKey === 'auto'"
+      class="runtime-form"
+      @submit.prevent="submitForm"
+    >
       <template v-if="viewKey === 'welcome'"
         ><el-alert
           v-if="welcomeConflict"
@@ -537,14 +864,18 @@ async function saveManualKeywords() {
       <template v-else>
         <el-switch
           v-model="inherited"
+          class="store-inherit-switch"
           active-text="继承全局关键词"
-          :disabled="task.pending.value" /><label v-if="!inherited"
+          :disabled="task.pending.value"
+          @change="requestStoreHandoffSave" /><label v-if="!inherited"
           >本店关键词（每行一个）<el-input
             v-model="keywords"
             type="textarea"
-            :rows="embedded ? 3 : 6" /></label
+            aria-label="本店关键词"
+            :rows="embedded ? 3 : 6"
+            @blur="requestStoreHandoffSave" /></label
       ></template>
-      <div v-if="!deferred" class="runtime-actions">
+      <div v-if="!deferred && viewKey !== 'transfer'" class="runtime-actions">
         <el-button
           type="primary"
           native-type="submit"
@@ -556,7 +887,7 @@ async function saveManualKeywords() {
           "
           >保存配置</el-button
         ><el-button
-          v-if="viewKey !== 'transfer' && viewKey !== 'welcome'"
+          v-if="viewKey !== 'welcome'"
           :disabled="task.pending.value"
           @click="
             () => {
@@ -567,48 +898,74 @@ async function saveManualKeywords() {
           >载入最新配置</el-button
         >
       </div>
-      <p v-else class="reception-deferred" role="status">
+      <p v-else-if="deferred" class="reception-deferred" role="status">
         导入内容将在最后统一保存；这里仍可修改，不会单独写入本店配置。
       </p>
     </form>
-    <section v-if="viewKey === 'transfer'" class="reception-advanced">
-      <h2 v-if="!embedded">全局人工处理关键词</h2>
-      <h3 v-else class="reception-section-title">
-        全局人工关键词 <span>影响所有继承全局配置的店铺</span>
-      </h3>
-      <form class="runtime-form" @submit.prevent="saveGlobal">
+    <section v-if="viewKey === 'transfer'" class="reception-keyword-settings">
+      <form
+        class="runtime-form keyword-setting-card"
+        @submit.prevent="requestKeywordTextSave('handoff')"
+      >
+        <div class="keyword-setting-card__head">
+          <h3>
+            全局人工关键词
+            <span>仅影响继承全局配置的店铺</span>
+          </h3>
+          <el-switch
+            v-model="globalEnabled"
+            class="keyword-switch-handoff"
+            aria-label="启用全局人工关键词"
+            active-text="开"
+            inactive-text="关"
+            inline-prompt
+            @change="requestKeywordSwitch('handoff')"
+          />
+        </div>
         <el-input
           v-model="globalKeywords"
           type="textarea"
-          :rows="5"
+          :rows="3"
           aria-label="全局人工处理关键词"
-        /><el-button :disabled="!runtime.available || task.pending.value" native-type="submit"
-          >保存全局关键词</el-button
-        >
-      </form>
-    </section>
-    <section v-if="viewKey === 'transfer'" class="reception-advanced reception-manual">
-      <form class="runtime-form" @submit.prevent="saveManualKeywords">
-        <h3>客服接管关键词 <span>全局 · 作用所有店</span></h3>
-        <p>每行一个；客服发出后暂停当前会话 AI。</p>
-        <div v-if="manualConflict" class="manual-conflict" role="status">
-          <span>关键词已更新，当前草稿仍保留。</span>
-          <el-button
-            native-type="button"
-            :disabled="task.pending.value"
-            @click="loadLatestManualKeywords"
-            >载入最新关键词</el-button
+          @blur="requestKeywordTextSave('handoff')"
+        />
+        <div v-if="globalConflict" class="keyword-conflict" role="status">
+          <span>全局关键词已更新，当前草稿仍保留。</span>
+          <el-button native-type="button" @click="loadLatestGlobalKeywords"
+            >载入最新全局关键词</el-button
           >
+        </div>
+      </form>
+      <form
+        class="runtime-form keyword-setting-card reception-manual"
+        @submit.prevent="requestKeywordTextSave('manual')"
+      >
+        <div class="keyword-setting-card__head">
+          <h3>
+            客服接管关键词
+            <span>全局 · 客服发出后暂停当前会话 AI</span>
+          </h3>
+          <el-switch
+            v-model="manualEnabled"
+            class="keyword-switch-manual"
+            aria-label="启用客服接管关键词"
+            active-text="开"
+            inactive-text="关"
+            inline-prompt
+            @change="requestKeywordSwitch('manual')"
+          />
         </div>
         <el-input
           v-model="manualKeywords"
           type="textarea"
-          :rows="embedded ? 2 : 4"
+          :rows="3"
           aria-label="客服接管关键词"
+          @blur="requestKeywordTextSave('manual')"
         />
-        <div class="runtime-actions">
-          <el-button :disabled="!runtime.available || task.pending.value" native-type="submit"
-            >保存客服接管关键词</el-button
+        <div v-if="manualConflict" class="keyword-conflict" role="status">
+          <span>客服接管关键词已更新，当前草稿仍保留。</span>
+          <el-button native-type="button" @click="loadLatestManualKeywords"
+            >载入最新关键词</el-button
           >
         </div>
       </form>
@@ -731,6 +1088,64 @@ async function saveManualKeywords() {
   max-width: none;
   gap: 12px;
   margin: 0;
+}
+/* 两个关键词区始终各占一半；输入框行数相同，窄容器也不互相挤压。 */
+.reception-keyword-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f5;
+}
+.keyword-setting-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e8edf4;
+  border-radius: 6px;
+  background: #fbfcfe;
+}
+.keyword-setting-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+}
+.keyword-setting-card__head h3 {
+  margin: 0;
+  color: #4a5d76;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.keyword-setting-card__head h3 span {
+  display: block;
+  margin: 2px 0 0;
+  color: #94a0b1;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.keyword-setting-card :deep(.el-switch) {
+  flex: 0 0 auto;
+}
+.keyword-setting-card :deep(.el-textarea) {
+  flex: 1;
+}
+.keyword-setting-card :deep(.el-textarea__inner) {
+  min-height: 72px;
+}
+.keyword-conflict {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #a26b00;
+  font-size: 12px;
 }
 .embedded-reception .runtime-form > p {
   margin: 0;

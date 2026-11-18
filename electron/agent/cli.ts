@@ -19,7 +19,7 @@ const help = `灵兔AI本机配置命令行 ${__APP_VERSION__}
 --json 也可省略并从 stdin 读取 JSON。输出为结构化 JSON；失败时退出码非0。
 config get 参数示例:
   {"workspaceId":"...","group":"welcome","storeId":"..."}
-先运行 status 获取 workspaceId，再用 stores {"workspaceId":"..."} 查询 storeId。
+先运行 status 获取 workspaceId，再用 stores --json '{"workspaceId":"..."}' 查询 storeId。
 config preview 额外接受 "patch"；config apply 还须唯一 "requestId"，并将
 get/preview 返回的 "version" 填入 "expectedVersion"。分组固定为 reply-pacing、welcome、vision。
 写操作不会自动重试；结果未知时先重新读取配置。请先启动最新版灵兔AI。

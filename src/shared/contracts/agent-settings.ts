@@ -104,7 +104,7 @@ export interface AgentConfigFieldDescription {
   min?: number
   max?: number
   maxLength?: number
-  default?: string | number
+  default?: string | number | boolean
   note?: string
 }
 

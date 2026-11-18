@@ -8,6 +8,7 @@ export interface ReceptionSettingsDraft {
   inherited?: boolean
   keywords?: string
   globalKeywords?: string
+  globalExpectedKeywords?: string[]
   manualKeywords?: string
   manualExpectedKeywords?: string[]
 }

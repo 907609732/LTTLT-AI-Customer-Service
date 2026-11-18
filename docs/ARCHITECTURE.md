@@ -194,3 +194,9 @@ knowledge runtime 的既有 backup/restore-preview 请求新增可选 storeId，
 单店恢复继续由工作区所有者停止写者，使用现有staging、恢复意图和回滚。共享身份克隆到本店隔离副本；只保留原本适用于本店的草稿、审核版本和历史，不通过恢复扩大其他店批准范围。外店依赖只核对不覆写，依赖缺失/变化拒绝恢复；其他店私有数据及解析内容保持。原全库与family路径保留在高级入口。
 
 客服接管关键词入口复用现有ConfigStore与ReplyEngine D-07，保存命令在既有save-config白名单下增加MANUAL_REPLY_KEYWORDS屏幕标识；自有manual-reply-keywords helper在主进程规范化输入，vendor仅最小配置保存分支。快照新字段manualReplyKeywords默认空，旧数据兼容；没有新增IPC通道、依赖或独立暂停调度器。源代码出处与hash见vendor/lingtu-runtime/PROVENANCE.md。
+
+## 关键词开关与自动保存（1.0.69）
+
+接待界面把全局人工关键词与客服接管关键词并列展示，各自带开关；没有独立保存按钮。文本失焦与开关变更分别通过既有 `save-config` 业务命令的 `RECEPTION_KEYWORDS` 屏幕保存，主进程 `electron/reception-keyword-settings.ts` 负责严格解析、预期旧值检查和开关原子文件；`electron/local-runtime.ts` 串行化读改写并在快照中叠加开关字段。ConfigStore 的关键词原文保持不变。
+
+厂商 `backend.cjs` 只新增可选 `resolveKeywordSafety` 注入点，ReplyEngine 每次读取配置时仅替换生效的 handoff/manual 数组；本店自定义人工词仍优先于全局开关，客服接管开关只停止卖家侧匹配。复用向导的 handoff 仍由向导最后统一保存，关键词设置自身独立自动保存；来源和哈希记录在 vendor PROVENANCE/source-files。

@@ -42,6 +42,8 @@ Files: docs/AI_INTERFACE.md, docs/ARCHITECTURE.md, docs/DECISIONS.md, docs/HANDO
 
 ## Progress
 
+- Integration ruling: main advanced to be1755c with the separately accepted keyword autosave feature at 1.0.69. Merge that committed baseline into this isolated branch, preserve both handoff records, and deliver these AI interfaces at 1.0.70 to avoid a version collision. No uncommitted work from another task is moved or changed.
+
 - Baseline: existing agent-interface.test.ts 8/8 passed on 2026-11-19. System Node v24.18.0 and installed MCP dependency available.
 - Design and scope approved by user; routine implementation decisions delegated. Execution follows that authorization without another planning approval.
 - 2026-11-19 worker: Task 1/2 and Task 3 docs/verification complete in isolated worktree; focused suite 35/35, typecheck/lint/format/boundaries/build exit 0. Commit recorded in artifacts/ai-configuration/worker-report.md. Codex review/integration remains.
