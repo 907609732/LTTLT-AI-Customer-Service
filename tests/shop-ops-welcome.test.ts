@@ -57,7 +57,11 @@ beforeEach(async () => {
           delayMaxSeconds: Number(command.values.delayMaxSeconds),
         }
       }
-      return { status: 'ok', message: '已保存', data: {} }
+      return {
+        status: 'ok',
+        message: '已保存',
+        data: structuredClone(snapshot.welcomeByStore['store-a']),
+      }
     },
   )
   await useRuntimeStore().refresh()

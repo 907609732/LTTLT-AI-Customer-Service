@@ -1,5 +1,11 @@
 # 客户端与独立服务端验证
 
+## 2026-11-18：1.0.67 同批欢迎保存回执修复（待 CI 复验）
+
+范围：仅 `ShopOpsPanel` 欢迎成功分支消费 `save-welcome` 经 `welcomeSettingSchema` 校验的权威 `result.data`，更新本欢迎 baseline/cache/版本；不写回共享 snapshot，不 reload 其他字段，不改共享 runtime/backend/CAS。保存期间新输入保留；确认版本高于迟到快照时不误报冲突，真正更高版本仍冲突/阻止覆盖。
+
+验证：最终 7 用例在 0803 baseline RED 5 fail / 2 pass，修复后 GREEN 7/7；root 独立 43/43（4 文件）及完整 native 94/94；typecheck、改动 ESLint/边界/Prettier、build 通过。1.0.67 未重做实店发送，最终 CI/启动仍待复验。日志与 diff 见 ignored `artifacts/pdd-1067-integration-20261118/welcome-race/`。
+
 ## 2026-11-18：1.0.67 整合候选（1c221df + 00a7ec6；待 CI/运行验收）
 
 来源与保留：1.0.66 实店验收代码 `1c221df` + `origin/main` `00a7ec6`（PR39 商品主图采集修复），保留双方代码。`electron/platform-product-dom.ts`、`tests/platform-product-dom.test.ts` 与 00a7ec6 逐字节相同；hook/reply-engine/shop-window/DOM 发送/授权/monitor 源码与 1c221df 逐字节相同；package.json/package-lock.json 统一 1.0.67。逐文件哈希见 `artifacts/pdd-1067-integration-20261118/source-equivalence.json`。

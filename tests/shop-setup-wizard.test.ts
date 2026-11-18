@@ -528,7 +528,11 @@ it('接待保存期间禁止离开步骤，完成后恢复最新版本', async (
             enabled: false,
             version: 1,
           }
-          resolve({ status: 'ok', message: '已保存', data: {} })
+          resolve({
+            status: 'ok',
+            message: '已保存',
+            data: { ...runtime.snapshot.welcomeByStore['shop-a'] },
+          })
         }
       }),
   )

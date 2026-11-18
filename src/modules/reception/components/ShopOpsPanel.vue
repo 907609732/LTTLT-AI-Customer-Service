@@ -12,6 +12,7 @@ import { useReceptionDraftCache, type ReceptionSettingsDraft } from '../draft-ca
 import {
   normalizeWelcomeSetting,
   welcomeDelayIssue,
+  welcomeSettingSchema,
   type NormalizedWelcomeSetting,
 } from '@/shared/contracts/welcome'
 import type { ReceptionHandoff, ReceptionSetupDraft, ReceptionWelcome } from '../setup'
@@ -36,6 +37,7 @@ const runtime = useRuntimeStore(),
   router = useRouter()
 const deferred = computed(() => props.embedded && props.deferredSave && Boolean(props.setupDraft))
 const drafts = props.embedded ? useReceptionDraftCache() : undefined
+const receipts = useReceptionDraftCache()
 let draftLease = {
   workspaceId: runtime.snapshot.workspaceId,
   storeId: props.storeId,
@@ -101,23 +103,39 @@ const inherited = ref(true),
   fallbackSeconds = ref(15),
   fallbackText = ref('')
 const cached = new Map<string, NormalizedWelcomeSetting>()
+const cacheKey = (workspaceId: string, storeId: string) => JSON.stringify([workspaceId, storeId])
+watch(
+  () => runtime.snapshot.workspaceId,
+  () => cached.clear(),
+  { flush: 'sync' },
+)
 watch(
   welcome,
   (value) => {
-    if (selectedStoreId.value) cached.set(selectedStoreId.value, { ...value })
+    if (selectedStoreId.value)
+      cached.set(cacheKey(runtime.snapshot.workspaceId, selectedStoreId.value), { ...value })
   },
   { deep: true },
 )
 let baseline: ReceptionSettingsDraft = {}
 let loadRevision = 0
+let unmounted = false
 function load(restoreDraft = false) {
   loadRevision += 1
   const id = selectedStoreId.value,
     snap = runtime.snapshot
-  const latestManualKeywords = [...snap.config.safety.manualReplyKeywords]
-  welcome.value = normalizeWelcomeSetting(
-    cached.get(id) || snap.welcomeByStore[id] || { text: '', enabled: false, version: 0 },
+  const snapshotWelcome = normalizeWelcomeSetting(
+    snap.welcomeByStore[id] || { text: '', enabled: false, version: 0 },
   )
+  const receipt = receipts.getWelcomeReceipt(snap.workspaceId, id)
+  let confirmed = snapshotWelcome
+  if (receipt) {
+    if (snapshotWelcome.version >= receipt.version)
+      receipts.deleteWelcomeReceipt(snap.workspaceId, id)
+    else confirmed = normalizeWelcomeSetting(receipt)
+  }
+  const latestManualKeywords = [...snap.config.safety.manualReplyKeywords]
+  welcome.value = normalizeWelcomeSetting(cached.get(cacheKey(snap.workspaceId, id)) || confirmed)
   vision.value = { ...(snap.visionByStore[id] || { enabled: false, version: 0 }) }
   inherited.value = !snap.handoffByStore[id]
   keywords.value = snap.handoffByStore[id]?.keywords.join('\n') || ''
@@ -161,6 +179,7 @@ function load(restoreDraft = false) {
   }
 }
 onBeforeUnmount(() => {
+  unmounted = true
   if (deferred.value) return
   drafts?.putSettings(draftLease.workspaceId, draftLease.storeId, draftLease.view, {
     ...(JSON.stringify(welcome.value) !== JSON.stringify(baseline.welcome)
@@ -184,18 +203,19 @@ watch(
   () => load(true),
   { immediate: true },
 )
-const welcomeConflict = computed(
-  () =>
-    !deferred.value &&
-    welcome.value.version !==
-      (runtime.snapshot.welcomeByStore[selectedStoreId.value]?.version || 0),
-)
+const welcomeConflict = computed(() => {
+  if (deferred.value) return false
+  const snapshotVersion = runtime.snapshot.welcomeByStore[selectedStoreId.value]?.version || 0
+  // The draft's version is its CAS baseline. A delayed snapshot below it is
+  // stale; a truly higher snapshot is another edit and must block this draft.
+  return snapshotVersion > welcome.value.version
+})
 // 回车提交也必须先通过范围校验；不能依赖保存按钮的 disabled。
 const welcomeDelayInvalid = computed(() =>
   welcomeDelayIssue(welcome.value.delayMinSeconds, welcome.value.delayMaxSeconds),
 )
 function reloadWelcome() {
-  cached.delete(selectedStoreId.value)
+  cached.delete(cacheKey(runtime.snapshot.workspaceId, selectedStoreId.value))
   load()
   task.error.value = ''
   task.message.value = ''
@@ -278,6 +298,13 @@ async function save() {
       return
     }
   }
+  const lease = {
+    workspaceId: runtime.snapshot.workspaceId,
+    storeId,
+    view: props.viewKey,
+  }
+  const revision = loadRevision
+  const submitted = { ...welcome.value }
   await task.run(async () => {
     let result
     if (key === 'welcome')
@@ -305,8 +332,44 @@ async function save() {
           ? { mode: 'inherit' }
           : { mode: 'custom', keywords: lines(keywords.value) },
       })
+    if (key === 'welcome') {
+      // 仅欢迎权威回执使用完整租约；其他设置保持原有 store/view 成功判断。
+      if (
+        runtime.snapshot.workspaceId !== lease.workspaceId ||
+        selectedStoreId.value !== lease.storeId ||
+        props.viewKey !== lease.view ||
+        revision !== loadRevision ||
+        unmounted
+      )
+        return
+      // save-welcome 的 result.data 是后端 CAS 后实际落库的权威记录。
+      // 不能用提交值代替回执，也不能立即 load 一个可能仍落后的快照。
+      const receipt = welcomeSettingSchema.safeParse(result?.data)
+      if (!receipt.success) {
+        task.error.value = '无法确认保存结果，当前草稿仍保留；请重新载入后再保存。'
+        return
+      }
+      const stored = normalizeWelcomeSetting(receipt.data)
+      receipts.putWelcomeReceipt(lease.workspaceId, storeId, stored)
+      baseline.welcome = { ...stored }
+      const unchanged =
+        welcome.value.text === submitted.text &&
+        welcome.value.enabled === submitted.enabled &&
+        welcome.value.delayMinSeconds === submitted.delayMinSeconds &&
+        welcome.value.delayMaxSeconds === submitted.delayMaxSeconds
+      if (unchanged) {
+        welcome.value = { ...stored }
+        cached.set(cacheKey(lease.workspaceId, storeId), { ...stored })
+      } else {
+        // Preserve edits typed while the request was in flight, but advance CAS
+        // to the version the backend actually committed.
+        welcome.value.version = stored.version
+      }
+      task.message.value = result.message
+      return
+    }
     if (storeId === selectedStoreId.value && key === props.viewKey) {
-      cached.delete(storeId)
+      cached.delete(cacheKey(lease.workspaceId, storeId))
       load()
       task.message.value = result.message
     }
@@ -497,7 +560,7 @@ async function saveManualKeywords() {
           :disabled="task.pending.value"
           @click="
             () => {
-              cached.delete(selectedStoreId)
+              cached.delete(cacheKey(runtime.snapshot.workspaceId, selectedStoreId))
               load()
             }
           "
