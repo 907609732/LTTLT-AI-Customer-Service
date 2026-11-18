@@ -1,5 +1,7 @@
 # 架构导航
 
+2026-11-19 本机视觉与尺码：`local-runtime → createVisionModelAssembly → VisionModelSettingsStore/Runtime → onKnowledgeModel → knowledge.setModel` 形成独立知识图片端口。`visionAssembly` 在 store 损坏时返回仅关闭图片的端口，managed 模式直接使用原托管端口；`capabilities.visionModel` 只投影安全六字段，`get/save/probe/verify/clear-vision-key` 走现有 business 命令，`LoginDialog` 经 settings 模块服务挂载组件。知识库 trial 在 `knowledge-runtime` 的原预算/租约链中注入尺码证据并在模型返回后复核规则版本；正式接待 beforeSend 只校验 vendor 过滤后的最终文本，不做重写。尺码候选按生成 trace 有界记录，淘汰证据用 tombstone 闭锁，普通无尺码证据不受影响。
+
 自定义模型目录沿 `LoginDialog → list-custom-models 业务命令 → local-runtime → electron/list-custom-models.ts → 用户提供的 /models` 查询；Bearer Key 仅由主进程临时使用，不记录日志或持久化，组件不直接联网。模型返回只接受 `data[].id` 或 `models[].id`，去重并限制最多 5000 项；用户仍可手动输入模型名。查询失败不更改已保存的模型配置。该能力面向兼容 OpenAI Models API 的服务，不保证所有自定义 API 都提供相同目录端点。
 
 1.0.13 图片识别：`local-runtime → knowledge/image-ocr → windows-ocr → Windows.Media.Ocr`，复用既有图片分块、来源资产和元数据缓存。source-pipeline 在学习估算前识别，learning 将缓存 OCR 作为不可信辅助材料与实际像素一同提交；预览沿原 knowledge/pipeline 增加 recognize-images 动作，无新增 IPC 或外部 MCP 工具。取消、店铺/来源版本和账号租约保护延续至异步完成。

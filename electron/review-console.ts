@@ -761,6 +761,10 @@ export class ReviewConsole {
     }
     item.resolve(true)
   }
+  /** A final-text safety check can reject before creating or approving a candidate. */
+  rejectFinalText(storeId: string, uid: string, reason: string) {
+    this.log('候选未放行', reason, storeId, uid)
+  }
   /** 批准后的欢迎延迟被取消时结束“正在发送”显示；不产生发送结果，也不重发。 */
   cancelSending(storeId: string, uid: string, reason: string) {
     for (const row of this.replies)

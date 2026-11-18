@@ -560,9 +560,9 @@ describe('独立图片模型配置', () => {
       apiKeyConfigured: true,
       status: 'stale',
     })
-    expect(restarted.snapshot().reason).toContain('套件')
+    expect(restarted.snapshot().reason).toContain('验证方式')
     expect(readFileSync(file, 'utf8')).toBe(JSON.stringify(raw))
-    expect(() => restarted.resolveCustomRoute(true)).toThrow(/套件/)
+    expect(() => restarted.resolveCustomRoute(true)).toThrow(/验证方式|重新验证/)
   })
 
   it('清除 Key 需要显式调用，成功后移除密文并关闭独立图片路由', () => {

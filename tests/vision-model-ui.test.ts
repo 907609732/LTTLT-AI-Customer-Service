@@ -112,6 +112,7 @@ describe('图片模型设置组件', () => {
     expect(fixture.probe).not.toHaveBeenCalled()
     expect(fixture.verify).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('保存、连接测试和图片验证都需要手动点击')
+    expect(wrapper.text()).toContain('连接成功只表示服务可访问')
     wrapper.unmount()
   })
 
@@ -281,13 +282,13 @@ describe('图片模型设置组件', () => {
       snapshot({
         ...configured,
         status: 'stale',
-        reason: '图片验证套件已更新，旧验证不能继续用于图片学习，请重新验证。',
+        reason: '图片识别验证方式已更新，请重新验证。',
       }),
     )
     const wrapper = mountComponent(fixture.service)
     await flushPromises()
     expect(wrapper.text()).toContain('配置已变更，需重新验证')
-    expect(wrapper.text()).toContain('图片验证套件已更新')
+    expect(wrapper.text()).toContain('验证方式已更新')
     expect(wrapper.text()).not.toContain('已验证')
     expect(fixture.probe).not.toHaveBeenCalled()
     expect(fixture.verify).not.toHaveBeenCalled()

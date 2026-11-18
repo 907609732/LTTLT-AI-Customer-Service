@@ -7,7 +7,7 @@ import {
   ShopIntentLearnPanel,
   ShopBannedWordPanel,
 } from '@/modules/knowledge'
-import { QcReplyPanel, ShopWorkOrderPanel } from '@/modules/quality'
+import { QcReplyPanel } from '@/modules/quality'
 
 /** 标题、面板和菜单共用此注册表；不再维护三份相互漂移的映射。 */
 export const panelRegistry = {
@@ -22,7 +22,6 @@ export const panelRegistry = {
   'intent-chat': { title: '聊天转意图', component: ShopIntentLearnPanel },
   kb: { title: '尺码规格', component: ShopKbPanel },
   banned: { title: 'AI禁用词', component: ShopBannedWordPanel },
-  workorder: { title: '工单登记', component: ShopWorkOrderPanel },
   qc: { title: '客服质检', component: QcReplyPanel },
 } satisfies Record<string, { title: string; component: Component }>
 
@@ -55,6 +54,5 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
     label: '教AI回答',
     items: [item('intent', ['intent-doc', 'intent-chat']), item('kb'), item('banned')],
   },
-  { label: '客服工单', items: [item('workorder')] },
   { label: '接待质量', items: [item('qc')] },
 ]

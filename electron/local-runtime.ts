@@ -110,12 +110,18 @@ import {
 import { createKnowledgeLearningAssembly } from './runtime/knowledge-learning-assembly'
 import { createSizeRulesService } from './size-rules/service'
 import { createSizeRulesAssembly } from './size-rules/runtime-assembly'
+import { createVisionModelAssembly } from './vision-model-assembly'
 import { createSizeContextPreparation } from './size-rules/inject'
 import { installSizeReplyGuard } from './size-rules/guard'
 import { createSizeCandidateGuard } from './size-rules/candidate-guard'
 import { applySizeTrainingOutput } from './size-rules/training-output'
 import { capturedSizeEvidence, withSizeRequest } from './size-rules/request-state'
 import { sizeRuleActions, type SizeRuleAction } from '../src/shared/contracts/size-rules'
+import {
+  defaultVisionModelSnapshot,
+  visionModelCommands,
+  type VisionModelCommand,
+} from '../src/shared/contracts/vision'
 
 interface UpstreamBackend {
   engine?: {
@@ -194,6 +200,7 @@ export function createLocalRuntime(options: {
   // 尺码服务需要真实商品目录，而目录又依赖后端；请求到达时再读取当前组合根实例。
   const sizeRulesRef: { current?: ReturnType<typeof createSizeRulesService> } = {}
   let sizeRulesUnavailable = ''
+  const visionAssemblyRef: { current?: ReturnType<typeof createVisionModelAssembly> } = {}
   // 免费摘要绑定只属于当前托管身份；身份变化时由 changed 回调清空。
   const managedContextRef: { current?: ReturnType<typeof createManagedContextBridge> } = {}
   let managedContextIdentity = ''
@@ -273,6 +280,15 @@ export function createLocalRuntime(options: {
     // and config failures resolve null so the reviewed legacy path stays intact.
     managedContextPolicy: () =>
       managed.active.mode === 'managed' ? managed.contextPolicy() : Promise.resolve(null),
+    sizeContext: {
+      resolve: (storeId, productId, question, thread) =>
+        sizeRulesRef.current?.resolve(storeId, productId, question, thread) ??
+        Promise.resolve(null),
+      unavailable: () =>
+        sizeRulesUnavailable
+          ? `尺码规则不可用：${sizeRulesUnavailable}；未使用未经核对的尺码表，请恢复备份后重试。`
+          : '',
+    },
     resolveSku: (storeId, productId, question) => {
       const detail = platformProducts.get(storeId, productId)
       if (!detail) return ''
@@ -361,6 +377,10 @@ export function createLocalRuntime(options: {
     })
     return {
       ...snapshot,
+      capabilities: {
+        ...snapshot.capabilities,
+        visionModel: visionAssemblyRef.current?.snapshot() ?? defaultVisionModelSnapshot(),
+      },
       stores: snapshot.stores.map((store) => ({
         ...store,
         sendMode: sendModes.read(store.id).mode,
@@ -487,7 +507,9 @@ export function createLocalRuntime(options: {
     const id = review.trace(event)
     if (id && event && typeof event === 'object' && Reflect.get(event, 'type') === 'request') {
       knowledge.captureTrace(id, Reflect.get(event, 'knowledge'))
-      sizeCandidates.capture(id, Reflect.get(event, 'messages'))
+      const context = Reflect.get(event, 'reviewContext')
+      if (context && typeof context === 'object' && Reflect.get(context, 'purpose') === 'reply')
+        sizeCandidates.capture(id, Reflect.get(event, 'messages'))
     }
     return id
   }
@@ -499,6 +521,16 @@ export function createLocalRuntime(options: {
       })
     return traceWithKnowledge(event)
   }
+  const visionAssembly = createVisionModelAssembly({
+    dataDir,
+    safeStorage,
+    assertActive: () => {
+      if (closed || !managed.canAccessWorkspace() || managed.snapshot().restartRequired)
+        throw Error('当前账号图片模型不可用，请切换工作区后重试')
+    },
+    modelSource: () => managed.active.mode,
+  })
+  visionAssemblyRef.current = visionAssembly
   // 压缩/改写器只构造一次，摘要与通用话术注入都经同一条 trace 记录。
   const assistedContext = createAssistedContext(traceModel)
   const sizeContext = createSizeContextPreparation(
@@ -694,8 +726,8 @@ export function createLocalRuntime(options: {
     localVisionSupport: localVisionCapability,
     knowledgePorts: createKnowledgeCompatibilityPorts(knowledgeRepository),
     knowledgeContext: knowledge.context,
-    onKnowledgeModel: (port: KnowledgeModelPort) =>
-      knowledge.setModel({
+    onKnowledgeModel: (port: KnowledgeModelPort) => {
+      const basePort: KnowledgeModelPort = {
         complete: port.complete,
         // Keep bulk learning below the managed service's standard five-per-minute ceiling.
         minimumIntervalMs: () => (managed.active.mode === 'managed' ? 13000 : 0),
@@ -720,7 +752,9 @@ export function createLocalRuntime(options: {
                 reason: '当前托管账号未提供图片学习能力',
               }
             : port.vision(),
-      }),
+      }
+      knowledge.setModel(visionAssembly.wrap(basePort))
+    },
     // 每次引擎读取配置时叠加开关；自定义本店关键词仍由厂商 handoff 记录优先。
     resolveKeywordSafety: (
       safety: { handoffKeywords: string[]; manualReplyKeywords: string[] },
@@ -736,6 +770,11 @@ export function createLocalRuntime(options: {
     beforeSend: (proposal: SendProposal) => {
       knowledge.guardProposal(proposal)
       sizeCandidates.attach(proposal)
+      const sizeTextReason = sizeCandidates.finalTextReason(proposal)
+      if (sizeTextReason) {
+        review.rejectFinalText(proposal.storeId, proposal.uid, sizeTextReason)
+        return false
+      }
       // 统一确认门放行后才进入欢迎延迟；普通回复没有 welcome 元数据，立即返回。
       const decide = async () => {
         const approved = await review.propose(proposal)
@@ -1321,6 +1360,11 @@ export function createLocalRuntime(options: {
         const result = await sizeRulesAssembly.execute(sizeAction, command.values)
         return { status: 'ok' as const, message: result.message, data: result.data }
       }
+      if (visionModelCommands.includes(command.action as VisionModelCommand)) {
+        const action = command.action as VisionModelCommand
+        const data = await visionAssembly.execute(action, command.values)
+        return { status: 'ok' as const, message: '', data }
+      }
       // 不允许厂商底层 SecretStore 的历史明文降级进入本工程业务入口。
       if (
         command.action === 'save-model-settings' &&
@@ -1360,12 +1404,7 @@ export function createLocalRuntime(options: {
             (sizeRulesRef.current ? '' : '尺码规则服务不可用，旧结论已失效。')
           result = {
             ...result,
-            data: applySizeTrainingOutput(
-              evidence,
-              result.data,
-              reason,
-              read().config.reply.maxReplyChars,
-            ),
+            data: applySizeTrainingOutput(evidence, result.data, reason),
           }
         }
       } else result = resultSchema.parse(await aiRestore.userExecute(raw))

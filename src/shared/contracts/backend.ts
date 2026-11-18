@@ -4,6 +4,7 @@ import { managedStateSchema, emptyManagedState } from './managed'
 import { reportingSnapshotSchema } from './reporting'
 import { storeSendModeSchema } from './review'
 import { welcomeSettingSchema, type WelcomeSetting } from './welcome'
+import { defaultVisionModelSnapshot, visionModelSnapshotSchema } from './vision'
 export { storeSendModeSchema, type StoreSendMode } from './review'
 export type { WelcomeSetting } from './welcome'
 
@@ -67,6 +68,11 @@ export const actions = [
   'save-automation-fallback',
   'save-welcome',
   'save-vision-settings',
+  'get-vision-model-settings',
+  'save-vision-model-settings',
+  'probe-vision-model',
+  'verify-vision-model',
+  'clear-vision-key',
   'create-work-order',
   'set-work-order-status',
   'add-work-order-note',
@@ -323,6 +329,7 @@ export const snapshotSchema = z.object({
       maxImages: z.number(),
       reason: z.string(),
     }),
+    visionModel: visionModelSnapshotSchema.default(defaultVisionModelSnapshot()),
   }),
   selection: z.object({ storeId: z.string(), conversationId: z.string() }),
   conversations: z.array(conversationSchema),
@@ -421,6 +428,7 @@ export function emptySnapshot(): BackendSnapshot {
         maxImages: 4,
         reason: '请先在桌面中配置支持识图的模型',
       },
+      visionModel: defaultVisionModelSnapshot(),
     },
     bannedWords: [],
     handoffByStore: {},

@@ -93,13 +93,10 @@ export function registerDesktopIpc(
     },
     'assist:open-main-section': async (event: IpcMainInvokeEvent, input: unknown) => {
       sourceWindow(event)
-      const section = z.enum(['workorder', 'settings']).parse(input)
+      z.literal('settings').parse(input)
       const primary = options.primary?.()
       if (!primary || primary.isDestroyed()) throw new Error('主工作台尚未就绪')
-      await loadRenderer(
-        primary,
-        section === 'workorder' ? '/shop/manage?panel=workorder' : '/settings',
-      )
+      await loadRenderer(primary, '/settings')
       if (primary.isMinimized()) primary.restore()
       primary.show()
       primary.focus()

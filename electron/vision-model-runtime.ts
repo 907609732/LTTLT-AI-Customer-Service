@@ -257,11 +257,11 @@ export class VisionModelRuntime {
     this.assertActive()
     if (input.signal?.aborted) throw new Error('知识任务已取消')
     if (input.isCurrent?.() === false) throw new Error('知识任务已取消')
+    // Managed learning keeps its account identity and pace; local vision generation
+    // must never invalidate an in-flight managed request.
+    if (this.modelSource() === 'managed') return this.base.complete(input)
     const generation = this.store.generation()
-    const independent =
-      this.modelSource() === 'local' &&
-      this.store.snapshot().mode === 'custom' &&
-      hasImage(input.messages)
+    const independent = this.store.snapshot().mode === 'custom' && hasImage(input.messages)
     if (!independent) {
       const result = await this.base.complete(input)
       this.assertReturnAllowed(generation, input.isCurrent, input.signal)
@@ -303,14 +303,20 @@ export class VisionModelRuntime {
   identity(): string {
     this.assertActive()
     const baseIdentity = this.base.identity?.() ?? 'configured'
+    if (this.modelSource() === 'managed') return baseIdentity
     // 代次只进入主进程学习计划 identity，不进入渲染快照；配置改变会让旧估算失效。
     return `${baseIdentity}|vision:${this.store.snapshot().mode}:${this.store.generation()}`
   }
 
   async probe(
-    options: { signal?: AbortSignal; isCurrent?: () => boolean } = {},
+    options: {
+      signal?: AbortSignal
+      isCurrent?: () => boolean
+      expected?: import('../src/shared/contracts/vision').VisionModelExpected
+    } = {},
   ): Promise<VisionModelProbeResult> {
     this.assertActive()
+    if (options.expected) this.store.assertExpected(options.expected)
     let route: VisionCustomRoute
     try {
       route = this.store.resolveCustomRoute(false)
@@ -363,9 +369,14 @@ export class VisionModelRuntime {
   }
 
   async verify(
-    options: { signal?: AbortSignal; isCurrent?: () => boolean } = {},
+    options: {
+      signal?: AbortSignal
+      isCurrent?: () => boolean
+      expected?: import('../src/shared/contracts/vision').VisionModelExpected
+    } = {},
   ): Promise<VisionModelVerifyResult> {
     this.assertActive()
+    if (options.expected) this.store.assertExpected(options.expected)
     const route = this.store.resolveCustomRoute(false)
     const ticket: VisionVerificationTicket = this.store.captureVerificationTicket()
     const generation = this.store.generation()

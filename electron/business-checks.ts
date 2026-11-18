@@ -20,7 +20,7 @@ export async function businessChecks(options: {
   restart: () => Promise<void>
   knowledge: KnowledgeBridge['request']
 }) {
-  const { win, dataDir, check, load } = options
+  const { win, dataDir, check, load, restart } = options
   const snapshot = () =>
     win.webContents.executeJavaScript(
       'window.yunduoDesktop.backendSnapshot()',
@@ -47,6 +47,7 @@ export async function businessChecks(options: {
     oldWorkspace = '',
     productId = ''
   const calls: Record<string, unknown>[] = []
+  const primaryAuth: string[] = []
   const server = createServer(async (request, response) => {
     let body = ''
     for await (const chunk of request) {
@@ -58,21 +59,16 @@ export async function businessChecks(options: {
       }
     }
     const parsedBody = JSON.parse(body) as Record<string, unknown>
+    primaryAuth.push(String(request.headers.authorization || ''))
     calls.push(parsedBody)
+    const serialized = JSON.stringify(parsedBody.messages)
+    const content = serialized.includes('[上下文压缩]')
+      ? '历史记录摘要：买家咨询商品，尚未新增任何售后承诺。'
+      : serialized.includes('身高170cm，体重60kg，推荐什么尺码')
+        ? JSON.stringify({ reply: 'XL 最合适', sizeLabel: 'XL' })
+        : JSON.stringify({ reply: '本机模型夹具回复' })
     response.setHeader('content-type', 'application/json')
-    response.end(
-      JSON.stringify({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify(parsedBody.messages).includes('[上下文压缩]')
-                ? '历史记录摘要：买家咨询商品，尚未新增任何售后承诺。'
-                : JSON.stringify({ reply: '本机模型夹具回复' }),
-            },
-          },
-        ],
-      }),
-    )
+    response.end(JSON.stringify({ choices: [{ message: { content } }] }))
   })
   try {
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -1235,6 +1231,330 @@ export async function businessChecks(options: {
       assert.equal(visionSwitch, true)
       const shot = await win.webContents.capturePage()
       fs.writeFileSync(path.resolve('artifacts/desktop/image-current-model.png'), shot.toPNG())
+    })
+    await check('business:size-vision-common', '/shop/manage', async () => {
+      const log = (step: string) => console.log(`[size-vision] ${step}`)
+      interface VisionView {
+        snapshot: {
+          mode: string
+          baseUrl: string
+          model: string
+          apiKeyConfigured: boolean
+          status: string
+          reason: string
+        }
+        revision: number
+      }
+      log('start')
+      await load('/')
+      log('app-loaded')
+      await execute({
+        action: 'save-model-settings',
+        values: {
+          baseUrl,
+          model: 'fixture-custom-multimodal',
+          apiKey: safeStorage.isEncryptionAvailable() ? 'fixture-only-not-a-provider-key' : '',
+          testConnection: true,
+        },
+      })
+      log('text-model-configured')
+      const store = String(
+        (
+          await execute({
+            action: 'add-store',
+            values: { platform: 'sim-local', storeName: '尺码视觉隔离店' },
+          })
+        ).data.id,
+      )
+      log('store-created')
+      let profileId = ''
+      let visionServer: ReturnType<typeof createServer> | undefined
+      try {
+        await execute({
+          action: 'save-product',
+          storeId: store,
+          values: {
+            productId: 'size-product',
+            title: '尺码测试上衣',
+            description: '尺码测试商品',
+            specifications: '',
+            price: '19.90',
+            enabled: true,
+          },
+        })
+        const productCards = (await options.knowledge({
+          workspaceId: (await snapshot()).workspaceId,
+          operation: 'query',
+          query: { type: 'products', page: { storeId: store } },
+        })) as KnowledgePage<KnowledgeProductCard>
+        const productCard = productCards.items.find(
+          (item) => item.binding?.productId === 'size-product',
+        )
+        assert.ok(productCard, JSON.stringify(productCards.items.slice(0, 2)))
+        const productDetail = (await options.knowledge({
+          workspaceId: (await snapshot()).workspaceId,
+          operation: 'query',
+          query: {
+            type: 'detail',
+            canonicalId: productCard.canonical.id,
+            storeId: store,
+          },
+        })) as KnowledgeDetail
+        const productDraft = productDetail.entries.find((entry) =>
+          entry.draft.answer.includes('尺码测试商品'),
+        )?.draft
+        assert.ok(productDraft)
+        await options.knowledge({
+          workspaceId: (await snapshot()).workspaceId,
+          operation: 'command',
+          command: {
+            type: 'publish',
+            review: {
+              entryId: productDraft.id,
+              expectedDraftRevision: productDraft.revision,
+              expectedSourceRevisions: Object.fromEntries(
+                productDraft.sourceRefs.map((ref) => [ref.sourceId, ref.revision]),
+              ),
+            },
+          },
+        })
+        log('product-created')
+        const fields = {
+          name: '本店上衣尺码',
+          enabled: true,
+          columns: [
+            { id: 'height', name: '身高', kind: 'number' as const, unit: 'cm' as const },
+            { id: 'weight', name: '体重', kind: 'number' as const, unit: 'kg' as const },
+          ],
+          rows: [
+            { label: 'M', values: { height: '160~175', weight: '50~65' } },
+            { label: 'L', values: { height: '176~185', weight: '66~75' } },
+          ],
+          advice: '',
+          measurements: [
+            { name: '身高', unit: 'cm' as const },
+            { name: '体重', unit: 'kg' as const },
+          ],
+          bindings: [{ storeId: store, productId: 'size-product' }],
+        }
+        log('store-product-created')
+        const saved = (await execute({
+          action: 'save-size-rule',
+          values: { ...fields, expectedRevision: 0 },
+        })) as unknown as {
+          data: { rule: { id: string; version: number }; revision: number }
+        }
+        assert.ok(saved.data.rule.id)
+        log('size-rule-created')
+        await execute({ action: 'select-store', storeId: store })
+        await load('/shop/manage?panel=kb')
+        log('kb-loaded')
+        await wait(`document.body.innerText.includes('本店上衣尺码')`)
+        await win.webContents.executeJavaScript(
+          `document.querySelector('[aria-label="选择尺码规则 本店上衣尺码"]').click()`,
+        )
+        await wait(`Boolean(document.querySelector('[aria-label="尺码规则名称"]'))`)
+        await setInput('尺码规则名称', '界面编辑尺码')
+        await setInput('尺码表格文本', '规格,胸围(cm),衣长(cm)\nM,92~96,64\nL,96~100,66')
+        const csvPreview = await execute({
+          action: 'preview-size-table',
+          values: { table: '规格,胸围(cm),衣长(cm)\nM,92~96,64\nL,96~100,66' },
+        })
+        assert.equal(csvPreview.data.count, 2)
+        await wait(`Boolean(document.querySelector('[aria-label="绑定商品 size-product"]'))`)
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Boolean(document.querySelector('[aria-label="绑定商品 size-product"]')?.checked)`,
+          ),
+          true,
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.size-rules__form').requestSubmit()`,
+        )
+        await wait(`document.body.innerText.includes('尺码规则已保存')`)
+        log('size-ui-saved')
+        fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/size-rules-common.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+
+        const trial = (await options.knowledge({
+          workspaceId: (await snapshot()).workspaceId,
+          operation: 'trial',
+          input: {
+            storeId: store,
+            productId: 'size-product',
+            query: '身高170cm，体重60kg，推荐什么尺码',
+          },
+        })) as { answer: string }
+        log('trial-returned')
+        assert.match(trial.answer, /M/)
+        assert.doesNotMatch(trial.answer, /XL/)
+        const training = await execute({
+          action: 'start-training',
+          storeId: store,
+          values: {
+            question: '身高170cm，体重60kg，推荐什么尺码',
+            productId: 'size-product',
+            history: [],
+          },
+        })
+        log('training-returned')
+        assert.match(String(training.data.reply), /M/)
+        assert.doesNotMatch(String(training.data.reply), /XL/)
+
+        await execute({
+          action: 'save-banned-words',
+          values: { rules: [{ word: 'M', replacement: 'L' }] },
+        })
+        try {
+          await assert.rejects(
+            execute({
+              action: 'start-training',
+              storeId: store,
+              values: {
+                question: '身高170cm，体重60kg，推荐什么尺码',
+                productId: 'size-product',
+                history: [],
+              },
+            }),
+            /尺码|范围外|未知/,
+          )
+        } finally {
+          await execute({ action: 'save-banned-words', values: { rules: [] } })
+        }
+        log('banned-rejected')
+
+        const profile = await execute({
+          action: 'save-model-profile',
+          values: { name: '五字店铺限制', prompt: 'fixture-only-system-rule', maxReplyChars: 5 },
+        })
+        profileId = String(profile.data.id)
+        const profiles = await execute({ action: 'list-model-profiles' })
+        await execute({
+          action: 'bind-model-profile',
+          storeId: store,
+          values: { profileId, revision: profiles.data.revision },
+        })
+        const shortTraining = await execute({
+          action: 'start-training',
+          storeId: store,
+          values: {
+            question: '身高170cm，体重60kg，推荐什么尺码',
+            productId: 'size-product',
+            history: [],
+          },
+        })
+        log('short-profile-returned')
+        assert.ok(String(shortTraining.data.reply).length <= 5)
+        assert.doesNotMatch(String(shortTraining.data.reply), /M|XL/)
+
+        let visionModels = 0,
+          visionChats = 0,
+          visionAuth = '',
+          visionImage = false
+        visionServer = createServer(async (request, response) => {
+          visionAuth = String(request.headers.authorization || '')
+          if (request.url?.endsWith('/models')) {
+            visionModels += 1
+            response.setHeader('content-type', 'application/json')
+            response.end(JSON.stringify({ data: [{ id: 'fixture-vision-model' }] }))
+            return
+          }
+          visionChats += 1
+          const body = await new Promise<string>((resolve) => {
+            let data = ''
+            request.on('data', (chunk) => (data += chunk))
+            request.on('end', () => resolve(data))
+          })
+          visionImage = body.includes('image_url')
+          response.setHeader('content-type', 'application/json')
+          response.end(JSON.stringify({ choices: [{ message: { content: 'red, blue' } }] }))
+        })
+        await new Promise<void>((resolve) => visionServer!.listen(0, '127.0.0.1', resolve))
+        const visionAddress = visionServer.address()
+        assert.ok(visionAddress && typeof visionAddress !== 'string')
+        const visionBase = `http://127.0.0.1:${visionAddress.port}`
+        const initial = (await execute({ action: 'get-vision-model-settings' }))
+          .data as unknown as VisionView
+        const expected = (view: VisionView) => ({
+          mode: view.snapshot.mode as 'inherit' | 'custom',
+          baseUrl: view.snapshot.baseUrl,
+          model: view.snapshot.model,
+          apiKeyConfigured: view.snapshot.apiKeyConfigured,
+          revision: view.revision,
+        })
+        const savedVision = (
+          await execute({
+            action: 'save-vision-model-settings',
+            values: {
+              mode: 'custom',
+              baseUrl: visionBase,
+              model: 'fixture-vision-model',
+              apiKey: 'fixture-vision-key',
+              expected: expected(initial),
+            },
+          })
+        ).data as unknown as VisionView
+        const probe = await execute({
+          action: 'probe-vision-model',
+          values: expected(savedVision),
+        })
+        log('vision-probed')
+        assert.equal(probe.data.ok, true)
+        const verified = await execute({
+          action: 'verify-vision-model',
+          values: expected(savedVision),
+        })
+        log('vision-verified')
+        assert.equal(verified.data.status, 'verified')
+        assert.equal(visionModels, 1)
+        assert.ok(visionChats >= 1)
+        assert.equal(visionImage, true)
+        assert.match(visionAuth, /fixture-vision-key/)
+        const visionSnapshot = (await snapshot()).capabilities.visionModel
+        assert.equal(visionSnapshot.status, 'verified')
+        assert.equal(JSON.stringify(visionSnapshot).includes('fixture-vision-key'), false)
+        assert.equal(primaryAuth.at(-1), 'Bearer fixture-only-not-a-provider-key')
+        const visionChatsBeforeText = visionChats
+        await execute({
+          action: 'start-training',
+          storeId: store,
+          values: { question: '发货时间', history: [] },
+        })
+        assert.equal(visionChats, visionChatsBeforeText)
+
+        await load('/shop/manage?panel=shops')
+        await wait(
+          "!document.body.innerText.includes('客服工单') && !document.body.innerText.includes('工单登记')",
+        )
+        await load('/shop/manage?panel=workorder')
+        await wait("document.body.innerText.includes('店铺与商品')")
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/workorder-entry-removed.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+        log('workorder-fallback')
+        fs.writeFileSync(path.join(dataDir, 'vision-model.json'), '{broken')
+        await restart()
+        const afterRestart = await snapshot()
+        assert.equal(afterRestart.capabilities.visionModel.status, 'stale')
+        const ordinary = await execute({
+          action: 'start-training',
+          storeId: storeA,
+          values: { question: '你好', history: [] },
+        })
+        assert.ok(String(ordinary.data.reply).length > 0)
+      } finally {
+        if (visionServer) await new Promise<void>((resolve) => visionServer!.close(() => resolve()))
+        await execute({ action: 'save-banned-words', values: { rules: [] } }).catch(() => {})
+        await execute({
+          action: 'remove-store',
+          storeId: store,
+          values: { confirmed: true },
+        }).catch(() => {})
+      }
     })
     await check('business:work-order-persistence', '/shop/manage', async () => {
       const result = await execute({

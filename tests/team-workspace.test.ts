@@ -5,7 +5,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 import TeamPanel from '../src/modules/account/components/TeamPanel.vue'
-import TeamWorkOrderPanel from '../src/modules/quality/components/TeamWorkOrderPanel.vue'
 import { useTeamWorkspace } from '../src/modules/account/services/use-team-workspace'
 import {
   teamServiceKey,
@@ -134,32 +133,6 @@ describe('team permission UI and workspace lifecycle', () => {
     })
     expect(team!.message.value).toContain('服务端已保存，但最新列表刷新失败')
     expect(team!.snapshot.value).toBeNull()
-    wrapper.unmount()
-  })
-  it('hides creation and assignment controls for the read-only quality role', async () => {
-    const { service } = fixture()
-    const snap = snapshot()
-    snap.self.role = 'auditor'
-    snap.tickets = [
-      {
-        id: 1,
-        teamId: 1,
-        shopId: 'a',
-        text: '待核对',
-        status: 'pending',
-        assignee: 2,
-        createdBy: 1,
-      },
-    ]
-    service.snapshot = vi.fn(async () => snap)
-    const wrapper = mount(TeamWorkOrderPanel, {
-      global: { plugins: [ElementPlus], provide: { [teamServiceKey as symbol]: service } },
-    })
-    await flushPromises()
-    expect(wrapper.find('[aria-label="团队工单说明"]').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="分配团队工单"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('当前授权范围内最新 200 条工单')
-    expect(service.execute).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

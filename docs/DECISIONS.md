@@ -1,5 +1,11 @@
 # 架构决策
 
+## 2026-11-19：尺码终态只校验不重写；本机视觉独立但托管旁路
+
+尺码问题在 vendor 禁用词/店铺长度处理之后只能做终态校验：发现范围外/未知尺码或规则迟到变化就拒绝，不再重新生成“正确 M”，避免把禁词插回或扩过店铺上限。知识库试问也走同一尺码证据和版本复核，但保留原 resolution/租约/预算且不发送。候选按 reply trace 有界保存 `evidence|null`：明确无尺码记为 null 并保持普通回复，unknown/被淘汰的 AI trace 闭锁；训练/试问 trace 不占正式回复候选。
+
+本机图片模型独立保存在 `vision-model.json`，Key 只走 safeStorage；公共 assembly 在 `onKnowledgeModel` 包装知识端口。`inherit` 继续原能力，`custom` 只在当前配置通过图片验证后分流知识图片；managed 在最早分支直接回调原端口，不读取本机视觉 generation。损坏本机视觉文件只关闭图片，不阻断文字和启动；命令 probe/verify 必须带 expected revision。买家图片回复保持原路径。
+
 ## 2026-11-18：回复监控会话用只读投影，商品不猜测
 
 用户要求监控显示当前会话的买/卖消息和当前咨询商品，同时明确候选与真实已发送。决定不把编辑、删除或质检塞进小窗，也不让前端自行发送；复用现有 snapshot、`ReviewConsole` 和统一确认门，新增纯函数投影按 `storeId + uid` 精确匹配会话，系统/未知来源保持中立。候选按 pending/sending/failed/sent 分型，已发送优先采用真实卖家回显，避免重复。

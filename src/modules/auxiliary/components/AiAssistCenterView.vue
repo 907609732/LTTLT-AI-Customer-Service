@@ -336,8 +336,7 @@ const orderLabels = { pending: '待处理', working: '处理中', waiting: '等�
       </div>
       <template v-if="tab === 'ticket' && ticketMode === 'local'"
         ><div class="assist-toolbar">
-          <span>未完结客服工单</span><span class="assist-spacer"></span
-          ><button @click="openMain('workorder')">登记</button>
+          <span>未完结客服工单</span><span class="assist-spacer"></span>
         </div>
         <div class="assist-feed">
           <button
@@ -353,9 +352,7 @@ const orderLabels = { pending: '待处理', working: '处理中', waiting: '等�
           <div v-if="!orders.length" class="assist-empty">
             <div class="assist-empty-card">
               <span class="assist-empty-icon soft"><IconMonitor /></span
-              ><strong>还没有客服工单</strong>
-              <p>聊天里没办完、还要按订单跟的事，在工单登记里添加。</p>
-              <button @click="openMain('workorder')">去登记</button>
+              ><strong>暂无未完结客服工单</strong>
             </div>
           </div>
         </div></template

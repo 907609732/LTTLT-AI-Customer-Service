@@ -6,6 +6,8 @@ import { useTask } from '@/shared/ui/use-task'
 import { modelPresets } from '../model-presets'
 import { Refresh } from '@element-plus/icons-vue'
 import ModelSourceSettings from './ModelSourceSettings.vue'
+import VisionModelSettings from './VisionModelSettings.vue'
+import { createVisionModelService } from '../services/vision-model-client'
 import { AccountBillingDetails } from '@/modules/billing'
 const visible = defineModel<boolean>({ default: false })
 const runtime = useRuntimeStore(),
@@ -21,6 +23,13 @@ const awaitingLogin = ref(false),
   activating = ref(false)
 const managed = computed(() => runtime.snapshot.managed)
 const session = computed(() => managed.value.session)
+const visionService = runtime.available
+  ? createVisionModelService((command) => runtime.run(command))
+  : undefined
+const visionMountKey = computed(
+  () =>
+    `${runtime.snapshot.workspaceId}:${managed.value.active.mode}:${managed.value.active.apiOrigin}`,
+)
 const billingSection = ref<'orders' | 'usage' | null>(null)
 const canViewBilling = computed(
   () =>
@@ -356,6 +365,7 @@ async function recharge() {
         </template>
       </section>
     </div>
+    <VisionModelSettings v-if="visible" :key="visionMountKey" :service="visionService" />
   </el-dialog>
   <el-dialog
     v-if="billingSection && visible && canViewBilling"

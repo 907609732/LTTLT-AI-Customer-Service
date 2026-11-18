@@ -1,5 +1,6 @@
 import type { SizeRuleContext } from '../../src/shared/contracts/size-rules'
 import { sizeEvidenceFromMessages } from './inject'
+import { sizeFinalTextReason } from './final-text'
 
 export interface SizeCandidateProposal {
   traceId?: string
@@ -10,30 +11,42 @@ export interface SizeCandidateProposal {
 export interface SizeCandidateGuard {
   capture(traceId: string, messages: unknown): void
   attach(proposal: SizeCandidateProposal): void
+  finalTextReason(proposal: { traceId?: string; text: string }): string
 }
 
+const CAPTURED_LIMIT = 1000
+const EXPIRED = '尺码证据已过期或无法确认，旧候选已失效；请重新生成。'
+
 /**
- * Candidate lifetime is tied to the exact generation trace, not a global "latest" value.
- * Two buyers can therefore have independent in-flight candidates in the same store.
+ * Every reply trace has an explicit entry: evidence or null (no size rule).
+ * Older entries are evicted; an unknown AI trace is not treated as "no evidence".
+ * Welcome/non-model paths without a traceId remain unaffected.
  */
 export function createSizeCandidateGuard(options: {
   currentReason(evidence: SizeRuleContext): string
 }): SizeCandidateGuard {
-  const evidenceByTrace = new Map<string, SizeRuleContext>()
+  const captured = new Map<string, SizeRuleContext | null>()
   const attached = new WeakSet<object>()
   return {
     capture(traceId, messages) {
-      const evidence = sizeEvidenceFromMessages(messages)
-      if (!evidence) return
-      evidenceByTrace.set(traceId, evidence)
-      while (evidenceByTrace.size > 200)
-        evidenceByTrace.delete(evidenceByTrace.keys().next().value!)
+      captured.delete(traceId)
+      captured.set(traceId, sizeEvidenceFromMessages(messages))
+      while (captured.size > CAPTURED_LIMIT) {
+        const oldest = captured.keys().next().value
+        if (!oldest) break
+        captured.delete(oldest)
+      }
     },
     attach(proposal) {
       if (!proposal.traceId || attached.has(proposal)) return
-      const evidence = evidenceByTrace.get(proposal.traceId)
-      if (!evidence) return
       attached.add(proposal)
+      if (!captured.has(proposal.traceId)) {
+        proposal.invalidReason = () => EXPIRED
+        proposal.isCurrent = () => false
+        return
+      }
+      const evidence = captured.get(proposal.traceId)
+      if (!evidence) return
       const previousCurrent = proposal.isCurrent.bind(proposal)
       const previousReason = proposal.invalidReason?.bind(proposal)
       const reason = () => {
@@ -47,6 +60,12 @@ export function createSizeCandidateGuard(options: {
       }
       proposal.invalidReason = reason
       proposal.isCurrent = () => previousCurrent() && !reason()
+    },
+    finalTextReason(proposal) {
+      if (!proposal.traceId) return ''
+      if (!captured.has(proposal.traceId)) return EXPIRED
+      const evidence = captured.get(proposal.traceId)
+      return evidence ? sizeFinalTextReason(evidence, proposal.text) : ''
     },
   }
 }

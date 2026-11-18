@@ -16,7 +16,7 @@
 | `electron/size-rules/guard.ts`                                  | 选码请求直接生成表内确定性结果；未知码不能靠正则绕过。                                                                      |
 | `electron/size-rules/request-state.ts`                          | 用 `AsyncLocalStorage` 把一次请求的提示证据与最终回复守卫绑定；训练在外层复用同一状态。                                     |
 | `electron/size-rules/candidate-guard.ts`                        | 按生成 trace 绑定候选到规则版本/商品/会话；规则变化时与 knowledge/PDD 当前性检查组合失效。                                  |
-| `electron/size-rules/training-output.ts`                        | 对训练最终禁用词/截字后的回复再次应用尺码白名单。                                                                           |
+| `electron/size-rules/training-output.ts`                        | 对训练最终禁用词/店铺截字后的回复只校验、不重写；违规明确失败。                                                             |
 | `electron/size-rules/runtime-assembly.ts`                       | 承载尺码文件损坏/不可用错误，只禁用尺码域，不阻断普通客服启动。                                                             |
 | `src/modules/knowledge/size-rules-service.ts`                   | 渲染层窄服务，只经现有 `runtime.run()` 业务命令。                                                                           |
 | `src/modules/knowledge/components/use-size-rules-controller.ts` | 草稿与所有异步请求的 workspace/存活/请求/草稿 owner；迟到成功、失败和导出均不应用。                                         |
@@ -48,9 +48,9 @@
 - **数据约束的 eligibleLabels**：只有请求选码、必需测量参数齐全，且存在同名数字参数列时才计算。测量值先换算到列单位，再用闭区间（含端点）筛选；只使用固定 `1e-9` 浮点表示容差，不做向区间内舍入，也不随数值放大。
 - **缺参数澄清**：仅真实选码推荐追问缺少的身高/体重/脚长等；普通问候和直接“M身高范围/ L体重上限”等查表请求不追问。出现“给妈妈/孩子/换个人”等换被测人语义时，按最后换人标记的字符位置截断，之后的新测量仍属于新对象。
 - **大表与预算**：证据 JSON 超过 9000 字节时返回 `rows: []`、`complete:false`、`rowLabels` 和明确“指定尺码/规格”澄清；不截断残缺 JSON。完整证据在压缩器前进入 `messages` 和 `knowledge`，并通过 `protectedMessages` 计入 16K 触发与 8K 目标；压缩重建仍缺证据时停止发送，不在压缩后无预算追加。
-- **同源接待/训练**：`createSizeContextPreparation` 由接待和训练共用的 `prepareModelContext` 调用；`installSizeReplyGuard` 包装同一个 `backend.engine.aiClient.reply`；训练最终禁用词/截字后由 `applySizeTrainingOutput` 再校验。训练不发送买家消息，也不改变 AI 开关或审批门。
+- **同源接待/训练/试问**：`createSizeContextPreparation` 由接待和训练共用的 `prepareModelContext` 调用；正式知识库 `trial` 也在 `knowledge-runtime` 的同一 `complete` 预算/租约链中注入证据并复核版本。`installSizeReplyGuard` 包装同一个 `backend.engine.aiClient.reply`。训练最终禁用词/店铺 `modelProfiles` 截字后由 `applySizeTrainingOutput` 只校验、不重写：出现范围外/未知尺码或迟到规则变化时明确失败，不重新插入禁词、不扩大店铺字数。接待 `beforeSend` 拿到过滤后的最终文本也执行同一只读校验，失败即拒绝发送并保留 knowledge/PDD 门。
 - **最终拒绝**：`selectionRequested=true` 时不再采用模型自由文本推荐，而由表内 `eligibleLabels`/`clarification` 生成确定性选码回复，因此“XL 最合适”“加大码更合适”等未知码无法绕过；直接查表请求和普通问候保留原流程。模型返回后再次读取当前证据，规则停用、改绑或 `ruleVersion` 变化时返回安全失败。
-- **候选失效**：候选按生成 trace 绑定规则版本、商品、测量和会话；规则停用/解绑/编辑于生成或待审核期间，`invalidReason/isCurrent` 与现有 knowledge 引用守卫、PDD 一次性发送授权组合，不覆盖也不绕过原确认门。两个买家并行候选各自使用自己的 trace，不读取全局 latest trace。
+- **候选失效**：候选按生成 trace 绑定规则版本、商品、测量和会话；规则停用/解绑/编辑于生成或待审核期间，`invalidReason/isCurrent` 与现有 knowledge 引用守卫、PDD 一次性发送授权组合，不覆盖也不绕过原确认门。两个买家并行候选各自使用自己的 trace，不读取全局 latest trace。证据表最多 1000 个 reply trace，每个显式保存 `evidence|null`；明确无尺码的 null 保持普通回复，unknown/淘汰的 AI trace 闭锁。训练/试问 trace 不占用正式回复候选位置。
 - **自由文本兼容**：`ShopKbPanel` 原自由文本预览、审核入库与 `source.kind='size'` 知识包保持不变；结构化规则不自动迁移旧知识，不覆盖知识包，不自动启用或绑定。
 
 ## 存储与并发

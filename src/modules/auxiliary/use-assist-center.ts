@@ -423,7 +423,7 @@ export function useAssistCenter() {
       }
     })
   }
-  async function openMain(section: 'workorder' | 'settings') {
+  async function openMain(section: 'settings') {
     await runTask(async () => {
       if (!desktop.openMainSection) throw new Error('请从桌面主窗口进入配置中心')
       await desktop.openMainSection(section)

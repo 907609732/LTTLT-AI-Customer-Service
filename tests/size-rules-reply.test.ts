@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import { describe, expect, it, vi } from 'vitest'
 import {
   installSizeReplyGuard,
@@ -13,6 +14,12 @@ import { captureSizeEvidence } from '../electron/size-rules/request-state'
 import { applySizeTrainingOutput } from '../electron/size-rules/training-output'
 import type { CompressionInput } from '../electron/context-compression'
 import type { SizeRuleContext } from '../src/shared/contracts/size-rules'
+
+const { filterBannedWords } = createRequire(import.meta.url)(
+  '../vendor/lingtu-runtime/desk-v1/src/main/reply-engine.js',
+) as {
+  filterBannedWords(text: string, rules: { word: string; replacement: string }[]): string
+}
 
 const evidence: SizeRuleContext = {
   source: 'size-rule',
@@ -130,20 +137,23 @@ describe('final size recommendation guard', () => {
     expect(result.reply).not.toContain('L码')
   })
 
-  it('revalidates the final training reply after banned-word/length normalization', () => {
-    const normalized = applySizeTrainingOutput(evidence, { reply: 'XL 最合适。' }, '', 80)
-    expect(normalized.reply).toContain('M')
-    expect(normalized.reply).not.toMatch(/XL/)
-    const truncated = applySizeTrainingOutput(evidence, { reply: 'XL 最合适。' }, '', 12)
-    expect(String(truncated.reply)).toHaveLength(12)
-    const stale = applySizeTrainingOutput(
-      evidence,
-      { reply: '推荐M码' },
-      '尺码规则已更新，旧候选失效',
-      80,
+  it('validates the final training text without rebuilding or exceeding shop limits', () => {
+    const safe = { reply: '按本商' }
+    expect(applySizeTrainingOutput(evidence, safe, '')).toEqual(safe)
+    expect(() => applySizeTrainingOutput(evidence, { reply: '推荐L码' }, '')).toThrow(/范围外尺码/)
+    expect(() => applySizeTrainingOutput(evidence, { reply: 'XL 最合适' }, '')).toThrow(/未知尺码/)
+    expect(() =>
+      applySizeTrainingOutput(evidence, { reply: '推荐M码' }, '尺码规则已更新，旧候选失效'),
+    ).toThrow(/已更新/)
+    const filtered = filterBannedWords('M', [{ word: 'M', replacement: 'L' }])
+    expect(filtered).toBe('L')
+    expect(() => applySizeTrainingOutput(evidence, { reply: filtered.slice(0, 5) }, '')).toThrow(
+      /范围外尺码|未知尺码/,
     )
-    expect(stale.reply).toContain('已更新')
-    expect(stale.reply).not.toContain('M码')
+    const safeTruncated = filterBannedWords('按本商品尺码表核对', [{ word: 'M', replacement: 'L' }])
+    expect(applySizeTrainingOutput(evidence, { reply: safeTruncated.slice(0, 5) }, '')).toEqual({
+      reply: '按本商品尺',
+    })
   })
 
   it('fails closed when the rule version changes while the model response is late', async () => {

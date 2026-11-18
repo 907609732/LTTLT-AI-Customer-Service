@@ -1,14 +1,14 @@
 # quality 模块
 
-职责：工单、质检和售后预警界面。
+职责：质检、售后预警和保留的工单数据服务。
 
 公开入口：index.ts。跨模块必须从该入口引用，禁止访问 components 或 demo 的内部路径。
 
-界面入口：QcReplyPanel、ShopWorkOrderPanel、ShopAftersaleWarningView。2026-11-17 维护清理删除了仅显示“开发中”的 ShopWipPanel、其 demo 和 `learn/supervise/drill` 面板注册；这三个旧 `?panel=` 键现在回落到店铺列表，真实训练与学习入口仍在 knowledge 的 training/intent 面板。
+界面入口：QcReplyPanel、ShopAftersaleWarningView。2026-11-19 用户明确移除“客服工单/工单登记”菜单与独立本机/团队登记页面；`?panel=workorder` 作为旧链接回落店铺列表。本机工单数据、命令、平台工单和辅助中心历史查看/跟进保留，不删除用户记录。
 
-当前业务状态：ShopWorkOrderPanel、QcReplyPanel 已接本机工单、质检和纠错知识。工单页可切换独立 TeamWorkOrderPanel，团队登记/主管分配/本人处理/跟进由 account 公开团队服务接入服务端，按租户与店铺授权校验；本机模式和未装配传输明确不可用。本机记录不自动迁移团队，平台售后执行和平台同步未接入。
+当前业务状态：QcReplyPanel 已接质检和纠错知识；辅助中心仍可查看、更新状态和添加跟进备注。团队工单 API/服务保留给后台数据和后续入口，但不再提供独立登记页面。平台售后执行和平台同步未接入。
 
-2026-11-18 第二轮清理删除无消费者的 `QcReplyPanel`、`ShopWorkOrderPanel` demo 工厂；真实组件和团队/本机服务入口不变。
+2026-11-18 第二轮清理删除无消费者的 `QcReplyPanel` demo 工厂；2026-11-19 删除仅由独立登记页使用的 `ShopWorkOrderPanel`、`TeamWorkOrderPanel` 及其测试入口。
 
 公共装配、增量验证与验收边界见 docs/parallel/team-handoff.md；本窗口不并发修改公共 HANDOFF.md。
 

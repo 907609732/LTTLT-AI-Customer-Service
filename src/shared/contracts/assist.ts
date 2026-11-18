@@ -36,7 +36,7 @@ export const defaultAssistPreferences = (): AssistPreferences => ({
   sort: 'newest',
   alertKinds: [...assistAlertKinds],
 })
-export type AssistMainSection = 'workorder' | 'settings'
+export type AssistMainSection = 'settings'
 export const openAssistConversationSchema = z
   .object({
     workspaceId: z.string().uuid(),

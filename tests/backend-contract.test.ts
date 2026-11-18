@@ -14,6 +14,13 @@ describe('本地业务契约', () => {
   it('拒绝任意动作、畸形工作区和额外能力字段', () => {
     const workspaceId = '41895a31-2871-4e3c-a84a-3a5e5c0f5461'
     expect(commandSchema.safeParse({ workspaceId, action: 'refresh' }).success).toBe(true)
+    expect(
+      commandSchema.safeParse({ workspaceId, action: 'get-vision-model-settings', values: {} })
+        .success,
+    ).toBe(true)
+    expect(
+      commandSchema.safeParse({ workspaceId, action: 'probe-vision-model', values: {} }).success,
+    ).toBe(true)
     expect(commandSchema.safeParse({ workspaceId, action: 'exec-shell', values: {} }).success).toBe(
       false,
     )
@@ -30,5 +37,11 @@ describe('本地业务契约', () => {
     expect(value.capabilities.apiKeyConfigured).toBe(false)
     expect(value.config.reply.enabled).toBe(false)
     expect(value.capabilities.vision.supported).toBe(false)
+    expect(value.capabilities.visionModel).toMatchObject({
+      mode: 'inherit',
+      status: 'inherit',
+      apiKeyConfigured: false,
+    })
+    expect(JSON.stringify(value.capabilities.visionModel)).not.toMatch(/ciphertext|digest|apiKey:/)
   })
 })

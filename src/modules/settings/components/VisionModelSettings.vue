@@ -186,7 +186,10 @@ async function probe(): Promise<void> {
   if (!service || isPending.value || dirty.value) return
   const action = beginAction('probe')
   try {
-    const result = await service.probe({ signal: action.signal })
+    const result = await service.probe({
+      signal: action.signal,
+      expected: expectedState(),
+    })
     if (!action.isCurrent()) return
     connection.value = result.ok ? '连接成功' : '连接失败'
     if (result.ok) message.value = result.message
@@ -205,7 +208,10 @@ async function verify(): Promise<void> {
   if (!service || isPending.value || dirty.value) return
   const action = beginAction('verify')
   try {
-    const result = await service.verify({ signal: action.signal })
+    const result = await service.verify({
+      signal: action.signal,
+      expected: expectedState(),
+    })
     if (!action.isCurrent()) return
     loaded.value = { ...loaded.value, status: result.status, reason: result.message }
     loadedRevision.value = result.revision
@@ -284,7 +290,7 @@ onBeforeUnmount(() => {
     </p>
     <p class="vision-reason">{{ loaded.reason }}</p>
     <p v-if="mode === 'inherit'" class="vision-hint">
-      旧用户缺少独立视觉文件时保持原图片能力，不强制重新验证；该兼容路径不会被标记为“已验证”。
+      继续使用原图片能力；独立图片配置不会改变文字模型。
     </p>
 
     <div v-else class="vision-fields">
@@ -331,7 +337,7 @@ onBeforeUnmount(() => {
         @input="markDirty"
       />
       <p class="vision-key-state">
-        Key 状态：{{ apiKeyText }}。Key 只在主进程系统加密保存，不会回传或显示原文。
+        Key 状态：{{ apiKeyText }}。Key 会加密保存在本机，不会显示原文。
       </p>
       <div class="vision-key-actions">
         <el-button
@@ -385,7 +391,7 @@ onBeforeUnmount(() => {
       {{ connection }}；图片验证状态：{{ statusText }}
     </p>
     <p class="vision-hint">
-      保存、连接测试和图片验证都需要手动点击。保存不会自动连接，普通连接成功也不代表图片能力验证通过。
+      保存、连接测试和图片验证都需要手动点击。连接成功只表示服务可访问，图片识别仍需单独验证。
     </p>
     <p v-if="dirty" class="vision-hint">有未保存修改；请先保存再测试连接或验证图片。</p>
     <p v-if="error" class="vision-error" role="alert">{{ error }}</p>

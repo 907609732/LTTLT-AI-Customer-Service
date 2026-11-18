@@ -17,6 +17,7 @@ export const visionVerificationStatusSchema = z.enum([
 export type VisionVerificationStatus = z.infer<typeof visionVerificationStatusSchema>
 
 export const visionModelCommands = [
+  'get-vision-model-settings',
   'save-vision-model-settings',
   'probe-vision-model',
   'verify-vision-model',
@@ -32,6 +33,51 @@ export interface VisionModelSnapshot {
   status: VisionVerificationStatus
   reason: string
 }
+export const visionModelSnapshotSchema: z.ZodType<VisionModelSnapshot> = z
+  .object({
+    mode: visionModeSchema,
+    baseUrl: z.string().max(4096),
+    model: z.string().max(256),
+    apiKeyConfigured: z.boolean(),
+    status: visionVerificationStatusSchema,
+    reason: z.string().max(2000),
+  })
+  .strict()
+export const visionModelSettingsViewSchema = z
+  .object({
+    snapshot: visionModelSnapshotSchema,
+    revision: z.number().int().nonnegative(),
+  })
+  .strict()
+export const visionModelExpectedSchema: z.ZodType<VisionModelExpected> = z
+  .object({
+    mode: visionModeSchema,
+    baseUrl: z.string().max(4096),
+    model: z.string().max(256),
+    apiKeyConfigured: z.boolean(),
+    revision: z.number().int().nonnegative(),
+  })
+  .strict()
+export const visionModelSaveInputSchema = z
+  .object({
+    mode: visionModeSchema,
+    baseUrl: z.string().max(4096),
+    model: z.string().max(256),
+    apiKey: z.string().max(20_000).optional(),
+    expected: visionModelExpectedSchema,
+  })
+  .strict()
+export const visionModelProbeResultSchema: z.ZodType<VisionModelProbeResult> = z
+  .object({ ok: z.boolean(), message: z.string().max(2000) })
+  .strict()
+export const visionModelVerifyResultSchema: z.ZodType<VisionModelVerifyResult> = z
+  .object({
+    ok: z.boolean(),
+    message: z.string().max(2000),
+    status: visionVerificationStatusSchema,
+    revision: z.number().int().nonnegative(),
+  })
+  .strict()
 
 /**
  * 设置页的并发凭据：安全 revision 由主进程每次变更递增。它不含 Key 或摘要，
@@ -82,8 +128,12 @@ export interface VisionServiceCallOptions {
 export interface VisionModelService {
   load(options?: VisionServiceCallOptions): Promise<VisionModelSettingsView>
   save(input: VisionModelSaveInput): Promise<VisionModelSettingsView>
-  probe(options?: VisionServiceCallOptions): Promise<VisionModelProbeResult>
-  verify(options?: VisionServiceCallOptions): Promise<VisionModelVerifyResult>
+  probe(
+    options?: VisionServiceCallOptions & { expected?: VisionModelExpected },
+  ): Promise<VisionModelProbeResult>
+  verify(
+    options?: VisionServiceCallOptions & { expected?: VisionModelExpected },
+  ): Promise<VisionModelVerifyResult>
   clearKey(
     expected: VisionModelExpected,
     options?: VisionServiceCallOptions,

@@ -45,6 +45,14 @@ it('删除占位开发中面板，旧地址回到店铺列表', () => {
   expect(resolvePanelKey('intent-doc')).toBe('intent-doc')
 })
 
+it('移除客服工单菜单和登记页，旧链接安全回到店铺列表', () => {
+  const titles = navGroups.flatMap((group) => group.items.map((item) => item.title))
+  expect(titles).not.toContain('客服工单')
+  expect(titles).not.toContain('工单登记')
+  expect(Object.keys(panelRegistry)).not.toContain('workorder')
+  expect(resolvePanelKey('workorder')).toBe('shops')
+})
+
 it('旧店铺首页只保留兼容跳转到配置中心数据看板', () => {
   const legacy = routes.find((route) => route.path === '/shop/home')
   expect(legacy?.redirect).toBe('/shop/manage?panel=home')

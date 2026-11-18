@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import SettingsView from '../src/modules/settings/components/SettingsView.vue'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 import { listCustomModels } from '../electron/list-custom-models'
+import { defaultVisionModelSnapshot } from '../src/shared/contracts/vision'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -34,9 +35,15 @@ function loginFixture() {
   setActivePinia(createPinia())
   const runtime = useRuntimeStore()
   runtime.available = true
-  const run = vi
-    .spyOn(runtime, 'run')
-    .mockResolvedValue({ status: 'ok', message: '完成', data: {} })
+  const run = vi.spyOn(runtime, 'run').mockImplementation(async (command) => {
+    if (command.action === 'get-vision-model-settings')
+      return {
+        status: 'ok' as const,
+        message: '',
+        data: { snapshot: defaultVisionModelSnapshot(), revision: 0 },
+      }
+    return { status: 'ok' as const, message: '完成', data: {} }
+  })
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -59,7 +66,9 @@ it('充值从服务端登录区域打开原充值页，不创建支付或切换�
   await flushPromises()
   expect(router.currentRoute.value.path).toBe('/shop/recharge')
   expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([false])
-  expect(run).not.toHaveBeenCalled()
+  expect(run.mock.calls.every(([command]) => command.action === 'get-vision-model-settings')).toBe(
+    true,
+  )
   wrapper.unmount()
 })
 it('服务端账号展示真实总额度、剩余额度和额度到期时间，并提供订单与消耗入口', async () => {
@@ -80,7 +89,9 @@ it('服务端账号展示真实总额度、剩余额度和额度到期时间，�
   expect(wrapper.text()).toContain(new Date(1800000000 * 1000).toLocaleString('zh-CN'))
   expect(wrapper.get('[data-account-billing="orders"]').text()).toBe('我的订单')
   expect(wrapper.get('[data-account-billing="usage"]').text()).toBe('算力消耗')
-  expect(run).not.toHaveBeenCalled()
+  expect(run.mock.calls.every(([command]) => command.action === 'get-vision-model-settings')).toBe(
+    true,
+  )
   await wrapper.get('[data-account-billing="orders"]').trigger('click')
   expect(wrapper.get('billing-dashboard-stub').attributes('section')).toBe('orders')
   runtime.snapshot = {
@@ -263,7 +274,7 @@ it.each([false, true])(
     await wrapper.find('input[aria-label="登录 API Key"]').setValue('invalid-test-key')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(run).toHaveBeenLastCalledWith({
+    expect(run).toHaveBeenCalledWith({
       action: 'activate-model-source',
       values: { mode: 'managed' },
     })

@@ -117,12 +117,49 @@ describe('size candidate generation binding', () => {
     expect(proposal.isCurrent()).toBe(false)
   })
 
+  it('fails closed when the bounded evidence map evicted this trace', () => {
+    const value = evidence('66666666-6666-4666-8666-666666666666', 'product-f')
+    const guard = createSizeCandidateGuard({ currentReason: () => '' })
+    for (let index = 0; index < 1001; index += 1) guard.capture(`trace-${index}`, messages(value))
+    const evicted: {
+      traceId: string
+      invalidReason?: () => string
+      isCurrent: () => boolean
+    } = { traceId: 'trace-0', isCurrent: () => true }
+    guard.attach(evicted)
+    expect(evicted.isCurrent()).toBe(false)
+    expect(evicted.invalidReason?.()).toContain('证据已过期')
+    const unknown = { traceId: 'trace-unknown', isCurrent: () => true }
+    guard.attach(unknown)
+    expect(unknown.isCurrent()).toBe(false)
+    const knownNone: { traceId: string; isCurrent: () => boolean } = {
+      traceId: 'trace-known-none',
+      isCurrent: () => true,
+    }
+    guard.capture('trace-known-none', [])
+    guard.attach(knownNone)
+    expect(knownNone.isCurrent()).toBe(true)
+  })
+
+  it('rejects a vendor-filtered final text without rewriting it', () => {
+    const value = evidence('77777777-7777-4777-8777-777777777777', 'product-g')
+    const guard = createSizeCandidateGuard({ currentReason: () => '' })
+    guard.capture('trace-final', messages(value))
+    expect(guard.finalTextReason({ traceId: 'trace-final', text: '推荐L码' })).toMatch(
+      /范围外尺码|未知尺码/,
+    )
+    expect(guard.finalTextReason({ traceId: 'trace-final', text: '按本商品' })).toBe('')
+    expect(guard.finalTextReason({ traceId: 'other', text: '推荐M码' })).toContain('证据已过期')
+    guard.capture('trace-known-none', [])
+    expect(guard.finalTextReason({ traceId: 'trace-known-none', text: '普通回复' })).toBe('')
+  })
+
   it('does not attach evidence from a different trace or fall back to the latest trace', () => {
     const guard = createSizeCandidateGuard({ currentReason: () => '' })
     const value = evidence('33333333-3333-4333-8333-333333333333', 'product-c')
     guard.capture('trace-old', messages(value))
     const proposal = { traceId: 'trace-new', isCurrent: () => true }
     guard.attach(proposal)
-    expect(proposal.isCurrent()).toBe(true)
+    expect(proposal.isCurrent()).toBe(false)
   })
 })

@@ -1,6 +1,6 @@
 # 本机独立图片识别模型（领域实现与接线契约）
 
-本文件描述 2026-11-19 已实现的**本机独立视觉领域**。公共装配尚未完成：业务命令、快照投影、`local-runtime` 注入和登录弹窗挂载仍由后续统筹任务统一接线。当前代码不得被表述为“整个可配置视觉功能已交付”。
+本文件描述 2026-11-19 已实现并接入桌面公共运行时的**本机独立视觉领域**。托管视觉渠道仍由另一 server 分支完成，当前不声称托管视觉已交付。
 
 ## 已完成范围
 
@@ -17,8 +17,10 @@
 - 任何有效配置变化都会撤销旧图片验证，A→B→A 也必须重新验证，不能靠摘要复活。
 - 已验证图片请求只在 **local + custom + 含真实 `image_url`** 时进入独立 OpenAI 兼容 `/chat/completions`；文字请求、`inherit` 和 managed 模式始终委托原端口，不静默回退。
 - 独立组件 `VisionModelSettings.vue`，通过注入的 `VisionModelService` 工作；无服务时明确不可用，保存/连接/图片验证都需手动点击。
-- 53 项专项测试，覆盖注入式 mock、真实 `node:http` 127.0.0.1 回环 HTTP、图片分流、文字端点隔离、跨 origin Key、inherit 空地址绕过、旧 Key origin 来源未知、旧 suite 兼容、Key 不泄漏、继承兼容、过期响应、取消/超时、A→B→A 闭锁、原子写失败、普通文本不冒充图片验证、UI 草稿与清除确认。
-- 设置页 CAS 使用安全 revision；Key 轮换即使可见字段不变也会递增 revision，旧设置页保存/清 Key 明确冲突。
+- 55 项视觉专项测试（含公共装配 2 项），覆盖注入式 mock、真实 `node:http` 127.0.0.1 回环 HTTP、图片/文字双端点、跨 origin Key、inherit 空地址绕过、旧 Key origin 来源未知、旧 suite 兼容、Key 不泄漏、继承兼容、过期响应、取消/超时、A→B→A 闭锁、原子写失败、普通文本不冒充图片验证、UI 草稿与清除确认、损坏文件 containment、managed 旁路。
+- 设置页 CAS 使用安全 revision；Key 轮换即使可见字段不变也会递增 revision，旧设置页保存/清 Key 明确冲突。`probe`/`verify` 也必须携带载入时的 expected，旧页面不能测试刚被新页面改过的端点。
+- 公共装配：`createVisionModelAssembly` 在 `local-runtime` 中创建 store/runtime；`onKnowledgeModel` 用包装端口替换知识模型；快照 `capabilities.visionModel` 只投影六字段；五个固定命令进入现有 business IPC；`LoginDialog` 通过 settings 模块服务挂载组件，关闭/切换 workspace/模式销毁组件并清 Key 草稿。
+- 损坏 `vision-model.json` 只关闭图片能力：普通文字继续走原端口，图片明确失败并提示恢复；managed 模式直接使用原托管端口，不受本机视觉配置代次影响。
 
 ## 文件与职责
 
@@ -27,10 +29,13 @@
 | `src/shared/contracts/vision.ts`                          | 安全快照、命令输入/回执、服务接口、地址与表单校验                    |
 | `electron/vision-model-settings.ts`                       | 独立配置存储、safeStorage、Key、CAS、owner、验证票据、内部分流路由   |
 | `electron/vision-model-runtime.ts`                        | 普通连接探针、固定合成图验证、知识模型包装端口、trace/usage 安全投影 |
+| `electron/vision-model-assembly.ts`                       | 公共命令、损坏 containment、managed 旁路和六字段快照投影             |
 | `src/modules/settings/vision-model-service.ts`            | DeepSeek 视觉预设、UI 草稿校验、组件注入类型                         |
+| `src/modules/settings/services/vision-model-client.ts`    | 渲染层五个固定命令适配与 expected revision                           |
 | `src/modules/settings/components/VisionModelSettings.vue` | 独立可挂载设置组件；不直接网络、Electron 或持久化                    |
 | `tests/vision-model-settings.test.ts`                     | 存储、加密、CAS、owner、验证失效                                     |
 | `tests/knowledge-vision-routing.test.ts`                  | 注入/真实回环 HTTP、路由、隔离、过期/取消/超时、真实学习器接线       |
+| `tests/vision-model-integration.test.ts`                  | 公共命令、双端点分流、expected 闭锁、损坏 containment、managed 旁路  |
 | `tests/vision-model-ui.test.ts`                           | 继承/独立模式、显式动作、失败草稿、清 Key 确认、迟到 UI 结果         |
 
 ## 数据文件
@@ -79,12 +84,12 @@
 
 ## 状态语义
 
-| status       | 含义                                                      |
-| ------------ | --------------------------------------------------------- |
-| `inherit`    | 沿用原文字模型图片能力；明确“未独立验证”                  |
-| `unverified` | 已选独立模式但尚未成功完成固定图片验证                    |
-| `verified`   | 当前端点、模型、Key 版本、目录 owner 均与成功验证记录一致 |
-| `failed`     | 当前配置的固定图片验证请求或答案失败                      |
+| status       | 含义                                                          |
+| ------------ | ------------------------------------------------------------- |
+| `inherit`    | 沿用原文字模型图片能力；明确“未独立验证”                      |
+| `unverified` | 已选独立模式但尚未成功完成固定图片验证                        |
+| `verified`   | 当前端点、模型、Key 版本、目录 owner 均与成功验证记录一致     |
+| `failed`     | 当前配置的固定图片验证请求或答案失败                          |
 | `stale`      | 旧 Key 来源未知、旧验证套件或业务目录 owner 变化，需重验/重输 |
 
 设置服务通过 `VisionModelSettingsView = { snapshot, revision }` 返回安全 revision；`VisionModelSaveInput.expected` 和 `clearKey` 都带该 revision。`capabilities.visionModel` 仍只投影 `VisionModelSnapshot` 六字段，不把 revision 当成能力数据。验证成功/失败也会递增 revision，组件必须使用返回的新 revision 进行下一次清除/保存。
@@ -153,50 +158,38 @@
 
 `identity()` 返回 base identity 加 `vision:${mode}:${generation}`。generation 只在主进程存在，知识学习计划据此重新估算；不进入渲染快照。
 
-## 后续公共装配清单（尚未完成）
+## 公共装配
 
-后续统筹 worker 需要统一完成，本文不声称已接通：
+已接入：
 
-1. 在 `src/shared/contracts/backend.ts` 增加四个命令 `save-vision-model-settings`、`probe-vision-model`、`verify-vision-model`、`clear-vision-key`，并校验输入/回执。
-2. 在 `electron/local-runtime.ts`：
-   - 用真实 Electron `safeStorage` 创建 `VisionModelSettingsStore`，传入当前业务目录和当前 workspace `assertActive`；
-   - 创建 `VisionModelRuntime`，base port 使用现有 `onKnowledgeModel` 得到的文字/托管端口；
-   - `modelSource` 返回当前 `managed.active.mode`；
-   - 将 `knowledge.setModel(visionRuntime.knowledgePort())` 放在原端口装配位置；
-   - 只在 local 分支使用独立路由；managed 保持原端口。
-3. 在快照 `capabilities.visionModel` 只投影安全 `VisionModelSnapshot`，不得转发 `generation/revision/digest/keyVersion`；设置页单独使用 `VisionModelSettingsView.revision` 做 CAS。
-4. 在 `electron/model-capabilities.ts` 兼容旧调用：`inherit` 保持旧图片能力但标记未验证；`custom` 只在已验证时开放。不要修改本批文件。
-5. 在 `LoginDialog` 挂载 `VisionModelSettings`，并通过 settings 模块服务适配四个命令；组件不直接调用 runtime/IPC。
-6. 在 `src/modules/settings/index.ts` 导出组件/服务，在 settings README 更新入口说明，决定是否加入 `model-presets`。本批未改这些公共文件。
-7. 评估买家含图回复是否进入独立视觉路由。本批不做；现有买家图片回复保持原路径。
-8. 托管视觉渠道、授权、额度预留与管理员验证属于 Task 3 server 范围，本批未改 server。
-
-建议装配形状：
+1. `src/shared/contracts/backend.ts` 接受 `get-vision-model-settings`、`save-vision-model-settings`、`probe-vision-model`、`verify-vision-model`、`clear-vision-key`。
+2. `electron/vision-model-assembly.ts` 用真实 Electron `safeStorage` 创建 store，用 `onKnowledgeModel` 的现有端口创建 runtime，并把 `knowledge.setModel(runtime.knowledgePort())` 放回原注入点。
+3. `probe`/`verify` 必须带 `expected` revision；保存/清 Key 使用同一 expected 语义。
+4. `capabilities.visionModel` 只投影 `VisionModelSnapshot` 六字段；设置页单独用 `VisionModelSettingsView.revision` 做 CAS。
+5. `LoginDialog` 通过 `createVisionModelService` 挂载 `VisionModelSettings`；浏览器未装配时明确不可用。
+6. managed 模式在 `VisionModelRuntime.complete()` 和 `identity()` 最早分支直接使用原托管端口，不读取本机视觉 generation。
+7. 买家含图回复仍走原 `localVisionCapability` 路径；独立视觉只用于知识图片学习。托管视觉渠道/授权/额度属于 server Task3。
 
 ```ts
-const visionStore = new VisionModelSettingsStore({
-  dataDir: managed.dataDir,
+const visionAssembly = createVisionModelAssembly({
+  dataDir,
   safeStorage,
-  assertActive: () => workspace.assertActive(),
-})
-const visionRuntime = new VisionModelRuntime({
-  store: visionStore,
-  base: existingKnowledgeModelPort,
+  assertActive,
   modelSource: () => managed.active.mode,
-  assertActive: () => workspace.assertActive(),
 })
-knowledge.setModel(visionRuntime.knowledgePort())
+// onKnowledgeModel:
+knowledge.setModel(visionAssembly.wrap(existingKnowledgeModelPort))
 ```
 
-接线时需复核 `existingKnowledgeModelPort` 已包含原 managed/local 身份、图片门禁、限速、trace/用量和取消能力；不要把 `VisionModelRuntime` 叠成第二套通用 SDK。
+原有端口继续负责 managed/local 身份、限速、trace/用量和取消；不要叠第二套通用 SDK。
 
 ## 验证
 
 实际执行：
 
 ```text
-npx vitest run tests/vision-model-settings.test.ts tests/knowledge-vision-routing.test.ts tests/vision-model-ui.test.ts --no-file-parallelism --maxWorkers=2 --minWorkers=1
-# 3 files / 53 tests passed
+npx vitest run tests/vision-model-settings.test.ts tests/knowledge-vision-routing.test.ts tests/vision-model-integration.test.ts tests/vision-model-ui.test.ts --no-file-parallelism --maxWorkers=2 --minWorkers=1
+# 4 files / 55 tests passed
 
 npx vue-tsc --noEmit
 npx tsc -p config/tsconfig.electron.json --noEmit
@@ -218,7 +211,7 @@ npx prettier --check <changed files> --config config/prettier.json --ignore-path
 
 ## 已知边界
 
-- 当前只有领域与组件，公共 IPC、快照、挂载、预设入口和运行时装配未完成。
+- 本机公共 IPC、快照、登录弹窗挂载和知识图片路由已完成；托管视觉渠道/管理员验证未在本分支交付。
 - 买家含图回复未分流；只覆盖知识图片学习。
 - `probe` 依赖服务商提供兼容 `/models`；不提供时只能直接做图片验证。
 - 图片验证要求服务商对固定红/蓝顺序图返回可核对的双颜色答案；不同模型可能因提示遵循或图像能力失败，这是预期闭锁，不是自动降级理由。

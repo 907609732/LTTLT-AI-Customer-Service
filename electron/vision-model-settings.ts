@@ -131,12 +131,12 @@ const fileSchema = z
   })
   .strict()
 
-const FAILED_VERIFY_REASON = '固定合成图验证失败，请检查端点、模型和 Key 后重试。'
-const VERIFIED_REASON = '独立图片模型已完成固定合成图验证。'
-const UNVERIFIED_REASON = '已保存独立配置，尚未执行固定合成图验证。普通连接测试不能代替图片验证。'
-const STALE_CONFIG_REASON = '图片模型端点、模型或 Key 已改变，请重新执行固定合成图验证。'
-const STALE_OWNER_REASON = '视觉配置来自另一业务目录，图片验证已失效，请重新验证。'
-const STALE_SUITE_REASON = '图片验证套件已更新，旧验证不能继续用于图片学习，请重新验证。'
+const FAILED_VERIFY_REASON = '图片识别验证失败，请检查地址、模型和 Key 后重试。'
+const VERIFIED_REASON = '图片识别已通过验证，可用于商品图片学习。'
+const UNVERIFIED_REASON = '配置已保存，尚未验证图片识别能力；请点击“验证图片识别”。'
+const STALE_CONFIG_REASON = '图片模型地址、模型或 Key 已改变，请重新验证。'
+const STALE_OWNER_REASON = '图片配置来自另一业务目录，请重新验证。'
+const STALE_SUITE_REASON = '图片识别验证方式已更新，请重新验证。'
 const UNKNOWN_KEY_ORIGIN_REASON =
   '旧图片模型 Key 的来源未知，不能继续用于当前服务地址；请重新输入 API Key 后再测试或验证。'
 const KEY_CLEARED_REASON = '独立图片模型 Key 已清除，图片学习不可用。'
@@ -292,7 +292,7 @@ export class VisionModelSettingsStore {
     }
   }
 
-  private assertExpected(expected: VisionModelExpected): void {
+  assertExpected(expected: VisionModelExpected): void {
     if (this.comparable(expected) !== this.comparable(this.currentExpected()))
       throw new Error('图片模型配置已更新，请载入已保存配置后再修改')
   }

@@ -860,7 +860,7 @@ describe('独立图片模型连接与路由', () => {
       apiKeyConfigured: true,
       status: 'stale',
     })
-    expect(reloaded.snapshot().reason).toContain('套件')
+    expect(reloaded.snapshot().reason).toContain('验证方式')
     const calls: string[] = []
     const baseComplete = vi.fn<KnowledgeModelPort['complete']>(async () => 'base')
     const runtime = new VisionModelRuntime({
@@ -884,7 +884,7 @@ describe('独立图片模型连接与路由', () => {
       },
     })
     await expect(runtime.knowledgePort().complete({ messages: imageMessages() })).rejects.toThrow(
-      /套件|验证/,
+      /验证方式|重新验证/,
     )
     expect(calls).toHaveLength(0)
     expect(baseComplete).not.toHaveBeenCalled()

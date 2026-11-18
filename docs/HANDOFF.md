@@ -1,3 +1,17 @@
+## 2026-11-19：尺码/视觉公共整合与工单入口清理（1.0.74，隔离分支待 root 合并）
+
+隔离分支 `codex/size-vision-integration-20261119` 已合入 main `9ab671a`、本机视觉 `9e4809f` 与已复审 managed vision `8a56466`；server 目录与 `8a56466` tree hash 完全一致（`fbebbe239b1e58c954e5b1d0b3b9f839999e9df4`），未重跑未变 Go/全前端 servercheck。保留 1.0.70 MCP、1.0.71 训练迁移、1.0.72 欢迎自动保存、1.0.73 配置中心嵌入。
+
+- 尺码终态只校验不重写：training 在 vendor 禁词/店铺 `modelProfiles` 截字后不重插 M、不突破 5/200；正式 `beforeSend` 对过滤后文本同策略拒绝，保留 knowledge/PDD 门。知识库主 trial 在原预算/租约链注入证据并复核版本。
+- 候选证据改为每个 reply trace 的 `evidence|null` 有界 Map（1000）；unknown/淘汰 trace 闭锁，明确 null 正常；训练/试问 trace 不占正式回复候选。根探针 `codex-candidate-expiry-probe.ts` 1/1 GREEN。
+- 本机视觉公共 assembly、五命令、六字段快照、LoginDialog 挂载、损坏文件只闭锁图片、managed 最早分支旁路已完成；买家含图回复原路径不变。
+- 移除“客服工单/工单登记”菜单与独立本机/团队登记页；保留后台工单数据/API、辅助中心历史/状态/跟进、平台工单和数据看板卡。旧 `?panel=workorder` 回落店铺列表。
+- 旧 Nov18 视觉 spec/plan 已复制到 `docs/superpowers/specs|plans/2026-11-18-configurable-vision-models*` 并标注实际状态。
+
+验证：尺码 67 项、视觉/登录/导航/辅助 126 项、候选/终态/试问 20 项通过；完整 `npm run typecheck`、`npm run lint`（含 boundaries）、changed Prettier、`npm run build` 退出 0。真实隔离 Electron `business:size-vision-common` 1/1：实际 renderer 编辑/绑定/保存、CSV preview 命令、knowledge trial 与兼容 start-training 拒绝 XL、vendor 禁词 M→L 被拒、店铺 5 字限制不扩字、视觉 get/save/probe/verify 双回环端点、文字/图片/Key 隔离、旧工单链接回落、损坏 vision 后普通启动/文字训练正常；报告 `artifacts/size-vision-20261118/native-size-vision-common-report.json`，截图 `native-size-rules-common.png`、`native-workorder-entry-removed.png` 已查看（v1.0.74）。复用 managed 验收与 53 项视觉领域/真实回环证据，未重跑。
+
+未执行：真实平台/买家/付费模型/生产、Release/推送/main 合并、辅助中心原生截图（该 harness 未注册 assist；辅助 19 项单元通过）、独立视觉知识图片原生学习（复用 53 项真实回环学习测试）；UI “预览表格”点击在自动化中未产生预览，CSV 解析经真实 `preview-size-table` 命令覆盖。下一项：root 合并/推送/正式 profile 重启与最终验收，验收条件为 main 合入后同版本 build 与原生入口无回归。
+
 ## 2026-11-19：进店欢迎自动保存与紧凑布局（1.0.72）
 
 ## 2026-11-19：配置中心嵌入工作台（1.0.73）
