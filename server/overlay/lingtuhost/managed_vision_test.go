@@ -753,14 +753,36 @@ func TestLingtuVisionImageVerificationIsIsolatedAndCASGuarded(t *testing.T) {
 	if err := db.AutoMigrate(&managedUsage{}); err != nil {
 		t.Fatal(err)
 	}
-	var usages int64
 	countUsage := func() int64 {
 		t.Helper()
-		if err := db.Model(&managedUsage{}).Count(&usages).Error; err != nil {
+		var count int64
+		if err := db.Model(&managedUsage{}).Count(&count).Error; err != nil {
 			t.Fatal(err)
 		}
-		return usages
+		return count
 	}
+	countTrialRequests := func() int64 {
+		t.Helper()
+		var count int64
+		if err := db.Model(&lingtu.TrialRequest{}).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	// This suite may share a MySQL/Postgres fixture across tests. Seed real
+	// pre-existing ledger rows so the isolation check uses a non-zero baseline
+	// and proves the test neither purges old rows nor accepts a new one.
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	baselineUsage := managedUsage{UserID: 918273, RequestID: "vision-isolation-usage-" + suffix, Model: "baseline", Diagnostic: "baseline", CreatedAt: time.Now().Unix()}
+	if err := db.Create(&baselineUsage).Error; err != nil {
+		t.Fatal(err)
+	}
+	baselineTrial := lingtu.TrialRequest{UserID: 918273, RequestID: "vision-isolation-trial-" + suffix, Digest: "baseline", State: "success", CreatedAt: time.Now().Unix()}
+	if err := db.Create(&baselineTrial).Error; err != nil {
+		t.Fatal(err)
+	}
+	usageBaseline := countUsage()
+	trialBaseline := countTrialRequests()
 	var chanStatus, testTime = channel.Status, channel.TestTime
 	host := &Host{imageProbe: func(context.Context, *model.Channel, int) error { return nil }}
 	request := configurationRequest{Section: "model_connection", Provider: "vllm", Action: "verify_vision", ConnectionID: channel.Id, Revision: row.Revision, ConfigHash: row.ConfigHash}
@@ -781,12 +803,25 @@ func TestLingtuVisionImageVerificationIsIsolatedAndCASGuarded(t *testing.T) {
 	if native.Status != chanStatus || native.TestTime != testTime {
 		t.Fatalf("image verification changed native channel: status=%d test=%d", native.Status, native.TestTime)
 	}
-	if countUsage() != 0 {
-		t.Fatal("image verification created managed usage")
+	if after := countUsage(); after != usageBaseline {
+		t.Fatalf("image verification changed managed usage count: before=%d after=%d", usageBaseline, after)
 	}
-	var trialRequests int64
-	if err := db.Model(&lingtu.TrialRequest{}).Count(&trialRequests).Error; err != nil || trialRequests != 0 {
-		t.Fatalf("image verification created trial requests=%d error=%v", trialRequests, err)
+	if after := countTrialRequests(); after != trialBaseline {
+		t.Fatalf("image verification changed trial request count: before=%d after=%d", trialBaseline, after)
+	}
+	var preservedUsage managedUsage
+	if err := db.First(&preservedUsage, "user_id = ? AND request_id = ?", baselineUsage.UserID, baselineUsage.RequestID).Error; err != nil {
+		t.Fatalf("image verification removed baseline usage: %v", err)
+	}
+	if preservedUsage.Model != baselineUsage.Model || preservedUsage.Diagnostic != baselineUsage.Diagnostic || preservedUsage.CreatedAt != baselineUsage.CreatedAt {
+		t.Fatalf("image verification modified baseline usage: %+v", preservedUsage)
+	}
+	var preservedTrial lingtu.TrialRequest
+	if err := db.First(&preservedTrial, "user_id = ? AND request_id = ?", baselineTrial.UserID, baselineTrial.RequestID).Error; err != nil {
+		t.Fatalf("image verification removed baseline trial request: %v", err)
+	}
+	if preservedTrial.Digest != baselineTrial.Digest || preservedTrial.State != baselineTrial.State || preservedTrial.CreatedAt != baselineTrial.CreatedAt {
+		t.Fatalf("image verification modified baseline trial request: %+v", preservedTrial)
 	}
 
 	// A changed native configuration during the probe must reject the stale result.
