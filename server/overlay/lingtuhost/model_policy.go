@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/QuantumNous/new-api/lingtu"
+	"github.com/QuantumNous/new-api/model"
 	"gorm.io/gorm"
 )
 
@@ -19,6 +20,17 @@ type modelSelection struct {
 	DefaultModel string
 	Models       []clientModel
 }
+type visionRouteSelection struct {
+	Model   string
+	Channel model.Channel
+	Binding lingtu.ModelConnection
+}
+
+var (
+	errVisionUnavailable        = errors.New("vision route unavailable")
+	errVisionVerificationStale  = errors.New("vision verification stale")
+	errVisionVerificationFailed = errors.New("vision verification failed")
+)
 
 func hasModel(models []string, id string) bool {
 	for _, model := range models {
@@ -49,6 +61,64 @@ func imageModel(selection modelSelection) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func textConnectionVerified(binding lingtu.ModelConnection, configHash string) bool {
+	return binding.TestStatus == "success" && binding.TestedHash != "" &&
+		binding.TestedHash == binding.ConfigHash && binding.ConfigHash == configHash
+}
+
+// visionRoute keeps the legacy Qwen route when no explicit visual model is
+// configured. An explicit route is stricter: it must already be inside the
+// administrator's model scope, pass both the text connection test and the
+// independent image probe, and both hashes must bind to the current channel
+// configuration. Verification never expands allowed_models.
+func visionRoute(policy lingtu.TrialPolicy, selection modelSelection) (visionRouteSelection, error) {
+	if policy.VisionModel == "" {
+		modelID, ok := imageModel(selection)
+		if !ok {
+			return visionRouteSelection{}, errVisionUnavailable
+		}
+		channel, binding, err := selectedChannelSnapshot(modelID)
+		if err != nil {
+			return visionRouteSelection{}, errVisionUnavailable
+		}
+		return visionRouteSelection{Model: modelID, Channel: channel, Binding: binding}, nil
+	}
+	if !selection.allows(policy.VisionModel) {
+		return visionRouteSelection{}, errVisionUnavailable
+	}
+	channel, binding, err := selectedChannelSnapshot(policy.VisionModel)
+	if err != nil {
+		return visionRouteSelection{}, errVisionUnavailable
+	}
+	if !textConnectionVerified(binding, channelHash(channel)) || binding.ImageTestStatus != "success" || binding.ImageTestedHash == "" || binding.ImageTestedHash != binding.ConfigHash || binding.ImageTestedAt <= 0 {
+		return visionRouteSelection{}, errVisionUnavailable
+	}
+	return visionRouteSelection{Model: policy.VisionModel, Channel: channel, Binding: binding}, nil
+}
+
+// visionRouteAvailable is the account projection check. It reads the persisted
+// readiness/verification view without resolving DNS or contacting a provider,
+// so GET /me and /config remain local-only.
+func visionRouteAvailable(policy lingtu.TrialPolicy, selection modelSelection) bool {
+	if policy.VisionModel == "" {
+		_, ok := imageModel(selection)
+		return ok
+	}
+	if !selection.allows(policy.VisionModel) {
+		return false
+	}
+	views, err := modelConnectionViews(model.DB, selection.DefaultModel)
+	if err != nil {
+		return false
+	}
+	for _, row := range views {
+		if row.ModelID == policy.VisionModel {
+			return row.VisionReady && row.VisionVerified
+		}
+	}
+	return false
 }
 
 // shippedTextPinned identifies the factory text+visual pair. General scoped
@@ -141,6 +211,9 @@ func validateModelPolicy(db *gorm.DB, policy lingtu.TrialPolicy) error {
 		return err
 	}
 	if policy.ModelScope == "" {
+		if policy.VisionModel != "" {
+			return lingtu.ErrInvalidTrialInput
+		}
 		return nil
 	}
 	previous, err := lingtu.LoadTrialPolicy(db)
@@ -171,7 +244,29 @@ func validateModelPolicy(db *gorm.DB, policy lingtu.TrialPolicy) error {
 			return lingtu.ErrInvalidTrialInput
 		}
 	}
-	return nil
+	return validateVisionPolicySelection(db, policy)
+}
+
+func validateVisionPolicySelection(db *gorm.DB, policy lingtu.TrialPolicy) error {
+	if policy.VisionModel == "" {
+		return nil
+	}
+	if policy.ModelScope == "" || !modelIdentifier(policy.VisionModel) || policy.ModelScope == "selected" && !hasModel(policy.AllowedModels, policy.VisionModel) {
+		return lingtu.ErrInvalidTrialInput
+	}
+	views, err := modelConnectionViews(db, policy.DefaultModel)
+	if err != nil {
+		return err
+	}
+	for _, row := range views {
+		if row.ModelID == policy.VisionModel {
+			if !row.VisionReady || !row.VisionVerified {
+				return lingtu.ErrInvalidTrialInput
+			}
+			return nil
+		}
+	}
+	return lingtu.ErrInvalidTrialInput
 }
 
 func chatDigest(in chatInput) string {

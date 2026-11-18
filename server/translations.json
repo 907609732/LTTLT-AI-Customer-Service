@@ -440,5 +440,21 @@
   "The configuration has changed. Latest revision {{revision}}.": "配置已在其他地方修改，最新版本为 {{revision}}。",
   "Your unsaved draft is preserved. Refresh to load the latest configuration.": "未保存的草稿已保留。请刷新以加载最新配置。",
   "Refresh latest configuration": "刷新最新配置",
-  "The hosted context policy changed elsewhere. Refresh to review the latest revision.": "托管上下文策略已在其他地方修改，请刷新并核对最新版本。"
+  "The hosted context policy changed elsewhere. Refresh to review the latest revision.": "托管上下文策略已在其他地方修改，请刷新并核对最新版本。",
+  "Image route model": "图片路由模型",
+  "Legacy Qwen3-VL route": "沿用旧版 Qwen3-VL 路由",
+  "Image verification": "图片验证",
+  "Image verified": "图片已验证",
+  "Image verification failed": "图片验证失败",
+  "Image verification expired": "图片验证已失效",
+  "Text connection test required": "需要先通过文字连接测试",
+  "Image not verified": "图片未验证",
+  "Verify image": "验证图片",
+  "unavailable": "不可用",
+  "Image requests use this API only after the fixed synthetic image probe succeeds. Text connection tests do not grant image capability.": "只有固定合成图片探针成功后，图片请求才会使用此 API。文字连接测试不会授予图片能力。",
+  "Image verification succeeded. This API can now be selected as the image route.": "图片验证成功，现在可以将此 API 选为图片路由。",
+  "Image verification failed. The saved text connection was not changed.": "图片验证失败，已保存的文字连接没有被修改。",
+  "The API changed during image verification. Reload it and verify again.": "图片验证期间 API 已变化。请重新加载后再验证。",
+  "The saved image route is no longer authorized or image-verified. Requests with images will be rejected until an authorized, ready, verified route is selected.": "已保存的图片路由不再获授权或图片验证已失效。在选择已授权、就绪且验证有效的路由前，含图片请求会被拒绝。",
+  "Only authorized, ready APIs with a successful fixed-image verification can be selected. Clients cannot choose another image upstream.": "只能选择已授权、就绪且通过固定图片验证的 API。客户端不能另选图片来源上游。"
 }

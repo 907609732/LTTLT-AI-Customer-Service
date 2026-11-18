@@ -2,6 +2,7 @@ import { webcrypto } from 'node:crypto'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -344,9 +345,7 @@ it('navigates to hosted model context and submits the exact policy with one secu
   fireEvent.change(screen.getByLabelText('Hidden system prompt'), {
     target: { value: 'Updated hidden rules' },
   })
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Save context policy' })
-  )
+  fireEvent.click(screen.getByRole('button', { name: 'Save context policy' }))
   await waitFor(() => expect(posts).toHaveLength(1))
   expect(posts[0]).toEqual({
     section: 'context_policy',
@@ -402,9 +401,7 @@ it('does not POST a hosted context policy when administrator verification is can
   renderAdmin()
   const prompt = await hostedContextView()
   fireEvent.change(prompt, { target: { value: 'Unconfirmed draft' } })
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Save context policy' })
-  )
+  fireEvent.click(screen.getByRole('button', { name: 'Save context policy' }))
   await waitFor(() => expect(verify).toHaveBeenCalledTimes(1))
   expect(posts).toBe(0)
   expect(
@@ -454,9 +451,7 @@ it('keeps a dirty hosted context policy through a 409 and reloads it only from t
   renderAdmin()
   const prompt = await hostedContextView()
   fireEvent.change(prompt, { target: { value: 'Unsaved draft prompt' } })
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Save context policy' })
-  )
+  fireEvent.click(screen.getByRole('button', { name: 'Save context policy' }))
   await waitFor(() => expect(posts).toHaveLength(1))
   expect(
     await screen.findByText(
@@ -646,8 +641,22 @@ it('warns when a ready visual model is outside the authorized scope', async () =
       allowed_models: ['deepseek-flash'],
     },
     model_connections: [
-      { connection_id: 1, model_id: 'deepseek-flash', name: 'DeepSeek', upstream_model: 'deepseek-flash', ready: true, enabled: true },
-      { connection_id: 2, model_id: 'qwen3-vl-plus', name: 'Qwen3-VL', upstream_model: 'qwen3-vl-plus', ready: true, enabled: true },
+      {
+        connection_id: 1,
+        model_id: 'deepseek-flash',
+        name: 'DeepSeek',
+        upstream_model: 'deepseek-flash',
+        ready: true,
+        enabled: true,
+      },
+      {
+        connection_id: 2,
+        model_id: 'qwen3-vl-plus',
+        name: 'Qwen3-VL',
+        upstream_model: 'qwen3-vl-plus',
+        ready: true,
+        enabled: true,
+      },
     ],
   })
   renderAdmin()
@@ -1045,6 +1054,479 @@ it('keeps separate API drafts through navigation and submits one exact-body proo
     'first-draft'
   )
 })
+it('offers only authorized ready image-verified routes and saves the optional route', async () => {
+  allowProtectedSave()
+  const posts: Record<string, unknown>[] = []
+  const configuration = {
+    ...config,
+    policy: {
+      ...config.policy,
+      model_scope: 'selected',
+      allowed_models: ['deepseek-flash', 'managed-vision'],
+    },
+    model_connections: [
+      {
+        connection_id: 1,
+        model_id: 'deepseek-flash',
+        name: 'DeepSeek',
+        upstream_model: 'deepseek-flash',
+        ready: true,
+        enabled: true,
+      },
+      {
+        connection_id: 2,
+        model_id: 'managed-unverified',
+        name: 'Unverified image',
+        upstream_model: 'vision-unverified',
+        ready: true,
+        enabled: true,
+        vision_verified: false,
+        vision_ready: false,
+        image_test_status: 'never',
+      },
+      {
+        connection_id: 3,
+        model_id: 'managed-vision',
+        name: 'Verified image',
+        upstream_model: 'vision-verified',
+        ready: true,
+        enabled: true,
+        vision_verified: true,
+        vision_ready: true,
+        image_test_status: 'success',
+      },
+      {
+        connection_id: 4,
+        model_id: 'managed-other',
+        name: 'Unauthorized image',
+        upstream_model: 'vision-other',
+        ready: true,
+        enabled: true,
+        vision_verified: true,
+        vision_ready: true,
+        image_test_status: 'success',
+      },
+      {
+        connection_id: 5,
+        model_id: 'managed-no-text',
+        name: 'Missing text test',
+        upstream_model: 'vision-no-text',
+        ready: true,
+        enabled: true,
+        vision_verified: true,
+        vision_ready: false,
+        image_test_status: 'success',
+      },
+    ],
+  }
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data as string))
+    }
+    return {
+      data:
+        request.method === 'post'
+          ? { saved: true }
+          : fixtureData(request.url || '', request.params, configuration),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('button', { name: 'English' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Trial settings' }))
+  const route = await screen.findByRole('combobox', {
+    name: 'Image route model',
+  })
+  const options = within(route)
+    .getAllByRole('option')
+    .map((option) => option.textContent || '')
+  expect(options.some((text) => text.includes('Legacy Qwen3-VL route'))).toBe(
+    true
+  )
+  expect(options.some((text) => text.includes('vision-verified'))).toBe(true)
+  expect(options.some((text) => text.includes('vision-unverified'))).toBe(false)
+  expect(options.some((text) => text.includes('vision-other'))).toBe(false)
+  expect(options.some((text) => text.includes('vision-no-text'))).toBe(false)
+  fireEvent.change(route, { target: { value: 'managed-vision' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() =>
+    expect(posts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          section: 'trial',
+          vision_model: 'managed-vision',
+          allowed_models: ['deepseek-flash', 'managed-vision'],
+        }),
+      ])
+    )
+  )
+})
+
+it('runs image verification separately and binds the saved revision hash', async () => {
+  allowProtectedSave()
+  let connections: Record<string, unknown>[] = [
+    {
+      ...connection,
+      config_hash: 'a'.repeat(64),
+      image_test_status: 'never',
+      image_tested_at: 0,
+      vision_verified: false,
+      vision_ready: false,
+    },
+  ]
+  const posts: Record<string, unknown>[] = []
+  api.defaults.adapter = async (request) => {
+    let data: unknown = fixtureData(request.url || '', request.params, {
+      ...config,
+      model_catalog: catalog,
+      model_connections: connections,
+    })
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data as string))
+      connections = [
+        {
+          ...connections[0],
+          revision: 3,
+          image_test_status: 'success',
+          image_tested_hash: connections[0].config_hash,
+          image_tested_at: 1900000000,
+          vision_verified: true,
+          vision_ready: true,
+        },
+      ]
+      data = {
+        saved: true,
+        image_verified: true,
+        connection_id: 7,
+        model_connections: connections,
+      }
+    }
+    return { data, status: 200, statusText: 'OK', headers: {}, config: request }
+  }
+  renderAdmin()
+  await modelView()
+  expect(screen.getByText(/Image not verified/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts[0]).toMatchObject({
+    section: 'model_connection',
+    action: 'verify_vision',
+    provider: 'deepseek',
+    connection_id: 7,
+    revision: 2,
+    config_hash: 'a'.repeat(64),
+  })
+  await waitFor(() =>
+    expect(screen.getAllByText(/Image verified/).length).toBeGreaterThan(0)
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(2))
+  expect(posts[1]).toMatchObject({
+    action: 'verify_vision',
+    connection_id: 7,
+    revision: 3,
+    config_hash: 'a'.repeat(64),
+  })
+})
+
+it('adopts the fresh failed image revision so the same draft can retry', async () => {
+  allowProtectedSave()
+  let connections: Record<string, unknown>[] = [
+    {
+      ...connection,
+      config_hash: 'b'.repeat(64),
+      image_test_status: 'never',
+      image_tested_at: 0,
+      vision_verified: false,
+      vision_ready: false,
+    },
+  ]
+  const posts: Record<string, unknown>[] = []
+  let attempts = 0
+  api.defaults.adapter = async (request) => {
+    let data: unknown = fixtureData(request.url || '', request.params, {
+      ...config,
+      model_catalog: catalog,
+      model_connections: connections,
+    })
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data as string))
+      attempts++
+      if (attempts === 1) {
+        const failed = {
+          ...connections[0],
+          revision: 3,
+          image_test_status: 'failed',
+          image_tested_hash: connections[0].config_hash,
+          image_tested_at: 1900000000,
+          vision_verified: false,
+          vision_ready: false,
+        }
+        connections = [failed]
+        throw new AxiosError(
+          'image failed',
+          'ERR_BAD_REQUEST',
+          request,
+          undefined,
+          {
+            data: {
+              saved: false,
+              image_verified: false,
+              connection_id: 7,
+              error: 'vision_verification_failed',
+              model_connections: connections,
+            },
+            status: 400,
+            statusText: 'Bad Request',
+            headers: {},
+            config: request,
+          }
+        )
+      }
+      const verified = {
+        ...connections[0],
+        revision: 4,
+        image_test_status: 'success',
+        image_tested_hash: connections[0].config_hash,
+        image_tested_at: 1900000001,
+        vision_verified: true,
+        vision_ready: true,
+      }
+      connections = [verified]
+      data = {
+        saved: true,
+        image_verified: true,
+        connection_id: 7,
+        model_connections: connections,
+      }
+    }
+    return { data, status: 200, statusText: 'OK', headers: {}, config: request }
+  }
+  renderAdmin()
+  await modelView()
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts[0]).toMatchObject({ action: 'verify_vision', revision: 2 })
+  expect(
+    (
+      await screen.findAllByText(
+        'Image verification failed. The saved text connection was not changed.'
+      )
+    ).length
+  ).toBeGreaterThan(0)
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole('button', { name: 'Verify image' })
+        .hasAttribute('disabled')
+    ).toBe(false)
+  )
+  expect((screen.getByLabelText('API name') as HTMLInputElement).value).toBe(
+    'Saved API'
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(2))
+  expect(posts[1]).toMatchObject({ action: 'verify_vision', revision: 3 })
+  await waitFor(() =>
+    expect(screen.getAllByText(/Image verified/).length).toBeGreaterThan(0)
+  )
+})
+
+it('retries after a delayed refresh with the failed persisted revision', async () => {
+  allowProtectedSave()
+  let connections: Record<string, unknown>[] = [
+    {
+      ...connection,
+      config_hash: 'd'.repeat(64),
+      image_test_status: 'never',
+      image_tested_at: 0,
+      vision_verified: false,
+      vision_ready: false,
+    },
+  ]
+  const posts: Record<string, unknown>[] = []
+  let attempts = 0
+  let holdRefresh = false
+  let releaseRefresh!: () => void
+  let markRefreshStarted!: () => void
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = resolve
+  })
+  const refreshStarted = new Promise<void>((resolve) => {
+    markRefreshStarted = resolve
+  })
+  api.defaults.adapter = async (request) => {
+    const data: unknown = fixtureData(request.url || '', request.params, {
+      ...config,
+      model_catalog: catalog,
+      model_connections: connections,
+    })
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data as string))
+      attempts++
+      if (attempts === 1) {
+        const failed = {
+          ...connections[0],
+          revision: 3,
+          image_test_status: 'failed',
+          image_tested_hash: connections[0].config_hash,
+          image_tested_at: 1900000000,
+          vision_verified: false,
+          vision_ready: false,
+        }
+        connections = [failed]
+        holdRefresh = true
+        throw new AxiosError(
+          'image failed',
+          'ERR_BAD_REQUEST',
+          request,
+          undefined,
+          {
+            data: {
+              saved: false,
+              image_verified: false,
+              connection_id: 7,
+              error: 'vision_verification_failed',
+              model_connections: connections,
+            },
+            status: 400,
+            statusText: 'Bad Request',
+            headers: {},
+            config: request,
+          }
+        )
+      }
+      connections = [
+        {
+          ...connections[0],
+          revision: 4,
+          image_test_status: 'success',
+          image_tested_hash: connections[0].config_hash,
+          image_tested_at: 1900000001,
+          vision_verified: true,
+          vision_ready: true,
+        },
+      ]
+      return {
+        data: {
+          saved: true,
+          image_verified: true,
+          connection_id: 7,
+          model_connections: connections,
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: request,
+      }
+    }
+    if (holdRefresh) {
+      holdRefresh = false
+      markRefreshStarted()
+      await refreshGate
+    }
+    return { data, status: 200, statusText: 'OK', headers: {}, config: request }
+  }
+  renderAdmin()
+  await modelView()
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(1))
+  await refreshStarted
+  await act(async () => {
+    await Promise.resolve()
+  })
+  releaseRefresh()
+  expect(
+    (
+      await screen.findAllByText(
+        'Image verification failed. The saved text connection was not changed.'
+      )
+    ).length
+  ).toBeGreaterThan(0)
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole('button', { name: 'Verify image' })
+        .hasAttribute('disabled')
+    ).toBe(false)
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(2))
+  expect(posts[1]).toMatchObject({ action: 'verify_vision', revision: 3 })
+})
+
+it('does not swallow a real stale verification conflict', async () => {
+  allowProtectedSave()
+  let connections: Record<string, unknown>[] = [
+    {
+      ...connection,
+      config_hash: 'c'.repeat(64),
+      image_test_status: 'never',
+      image_tested_at: 0,
+      vision_verified: false,
+      vision_ready: false,
+    },
+  ]
+  const posts: Record<string, unknown>[] = []
+  api.defaults.adapter = async (request) => {
+    const data: unknown = fixtureData(request.url || '', request.params, {
+      ...config,
+      model_catalog: catalog,
+      model_connections: connections,
+    })
+    if (request.method === 'post') {
+      posts.push(JSON.parse(request.data as string))
+      connections = [
+        {
+          ...connections[0],
+          revision: 5,
+          image_test_status: 'failed',
+          image_tested_at: 1900000002,
+          vision_verified: false,
+          vision_ready: false,
+        },
+      ]
+      throw new AxiosError(
+        'image stale',
+        'ERR_BAD_REQUEST',
+        request,
+        undefined,
+        {
+          data: {
+            saved: false,
+            image_verified: false,
+            connection_id: 7,
+            error: 'vision_verification_stale',
+            model_connections: connections,
+          },
+          status: 409,
+          statusText: 'Conflict',
+          headers: {},
+          config: request,
+        }
+      )
+    }
+    return { data, status: 200, statusText: 'OK', headers: {}, config: request }
+  }
+  renderAdmin()
+  await modelView()
+  fireEvent.click(screen.getByRole('button', { name: 'Verify image' }))
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(
+    (await screen.findAllByText(/The saved API changed/)).length
+  ).toBeGreaterThan(0)
+  expect(
+    screen
+      .getByRole('button', { name: 'Verify image' })
+      .hasAttribute('disabled')
+  ).toBe(true)
+  expect(posts).toHaveLength(1)
+})
+
 it('omits blank secrets and retains drafts when save is unconfirmed', async () => {
   allowProtectedSave()
   const posts: Record<string, unknown>[] = []

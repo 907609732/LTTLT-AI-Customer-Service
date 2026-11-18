@@ -42,6 +42,11 @@ export interface ModelConnection {
   is_default: boolean
   revision: number
   test_status: string
+  config_hash?: string
+  image_test_status?: string
+  image_tested_at?: number
+  vision_verified?: boolean
+  vision_ready?: boolean
   input_cny?: string
   output_cny?: string
   cache_read_cny?: string
@@ -52,12 +57,15 @@ export type Payload = Record<string, unknown> & { section: string }
 export interface SaveResult {
   saved: true
   tested?: boolean
+  image_verified?: boolean
   connection_id?: number
   model_connections?: ModelConnection[]
 }
 export interface SaveFailure {
   saved: false
   unconfirmed: boolean
+  reason?: string
+  model_connections?: ModelConnection[]
 }
 export type ModelSave = (
   payload: Payload
@@ -80,6 +88,11 @@ interface Draft {
   cache_read_cny: string
   dirty: boolean
   unconfirmedCreation?: boolean
+  config_hash?: string
+  image_test_status?: string
+  image_tested_at?: number
+  vision_verified?: boolean
+  vision_ready?: boolean
 }
 const commonProviders = new Set([
   'doubao',
@@ -125,6 +138,21 @@ function connectionStatus(rows: ModelConnection[], draft: boolean) {
   if (rows.some((row) => row.enabled)) return 'Awaiting connection test'
   if (rows.length) return 'Configured but disabled'
   return draft ? 'Unsaved draft' : 'Not configured'
+}
+function imageVerificationStatus(row: ModelConnection | undefined) {
+  if (
+    row?.vision_ready &&
+    row.vision_verified &&
+    row.image_test_status === 'success'
+  ) {
+    return 'Image verified'
+  }
+  if (row?.image_test_status === 'success') {
+    return 'Text connection test required'
+  }
+  if (row?.image_test_status === 'failed') return 'Image verification failed'
+  if (row?.image_test_status === 'stale') return 'Image verification expired'
+  return 'Image not verified'
 }
 export function AdminModels(props: {
   catalog: ModelProvider[]
@@ -247,7 +275,7 @@ export function AdminModels(props: {
     setVisible(false)
   }
   async function submit(
-    action: 'save' | 'test' | 'select' | 'delete',
+    action: 'save' | 'test' | 'select' | 'delete' | 'verify_vision',
     testAfterSave = false
   ) {
     if (!provider || !active || props.busy || submitting.current) return
@@ -274,6 +302,9 @@ export function AdminModels(props: {
       connection_id: captured.connection_id,
       ...(captured.revision ? { revision: captured.revision } : {}),
     }
+    if (action === 'verify_vision') {
+      Object.assign(payload, { config_hash: saved?.config_hash })
+    }
     if (action === 'save') {
       Object.assign(payload, {
         cost_rates: {
@@ -296,11 +327,87 @@ export function AdminModels(props: {
     try {
       const result = await props.save(payload)
       if (!result || !result.saved) {
+        const failure = result && !result.saved ? result : undefined
         if (action === 'save' && result && result.unconfirmed) {
           markUnconfirmed(captured, owner)
         }
+        if (action === 'verify_vision') {
+          const fresh = failure?.model_connections?.find(
+            (row) =>
+              row.connection_id === captured.connection_id &&
+              row.provider === owner
+          )
+          if (
+            failure?.reason === 'vision_verification_failed' &&
+            captured.connection_id > 0 &&
+            captured.revision &&
+            captured.config_hash &&
+            fresh &&
+            fresh.revision === captured.revision + 1 &&
+            fresh.config_hash === captured.config_hash &&
+            fresh.enabled === captured.enabled &&
+            fresh.image_test_status === 'failed'
+          ) {
+            // This failed row was committed by our own probe. Apply its fresh
+            // revision directly in the same failure response; do not wait for
+            // query invalidation/props timing to make the retry usable.
+            setDrafts((old) => {
+              const rows = old[owner]
+              if (!rows) return old
+              return {
+                ...old,
+                [owner]: rows.map((row) =>
+                  row.key === captured.key
+                    ? {
+                        ...row,
+                        revision: fresh.revision,
+                        config_hash: fresh.config_hash,
+                        image_test_status: fresh.image_test_status,
+                        image_tested_at: fresh.image_tested_at,
+                        vision_verified: fresh.vision_verified,
+                        vision_ready: fresh.vision_ready,
+                      }
+                    : row
+                ),
+              }
+            })
+            setResultMessage(
+              'Image verification failed. The saved text connection was not changed.'
+            )
+          } else {
+            setResultMessage(
+              failure?.reason === 'vision_verification_stale'
+                ? 'The API changed during image verification. Reload it and verify again.'
+                : 'Image verification failed. The saved text connection was not changed.'
+            )
+          }
+          return
+        }
         setResultMessage(
           'Save could not be confirmed. Refresh configuration and review before retrying.'
+        )
+        return
+      }
+      if (action === 'verify_vision') {
+        const persisted = result.model_connections?.find(
+          (row) =>
+            row.connection_id === captured.connection_id &&
+            row.provider === owner
+        )
+        if (persisted) {
+          // The image probe commits a fresh CAS revision. Adopt that exact
+          // saved row so the next verify/auth action uses the current revision.
+          setDrafts((old) => ({
+            ...old,
+            [owner]: old[owner].map((row) =>
+              row.key === captured.key ? fromSaved(persisted) : row
+            ),
+          }))
+        }
+        setResultMessage(
+          result.image_verified
+            ? 'Image verification succeeded. This API can now be selected as the image route.'
+            : 'Image verification failed. The saved text connection was not changed.'
         )
         return
       }
@@ -677,6 +784,36 @@ export function AdminModels(props: {
                   {t('Use this API')}
                 </Button>
               </div>
+              {saved && (
+                <div className='space-y-2 rounded-lg border border-blue-100 p-3'>
+                  <div className='flex items-center justify-between gap-3'>
+                    <div>
+                      <p className='text-sm font-medium'>
+                        {t('Image verification')}:{' '}
+                        {t(imageVerificationStatus(saved))}
+                      </p>
+                      <p className='admin-help'>
+                        {t(
+                          'Image requests use this API only after the fixed synthetic image probe succeeds. Text connection tests do not grant image capability.'
+                        )}
+                      </p>
+                    </div>
+                    <Button
+                      variant='outline'
+                      disabled={
+                        props.busy ||
+                        active.dirty ||
+                        revisionConflict ||
+                        !saved.ready ||
+                        !saved.config_hash
+                      }
+                      onClick={() => void submit('verify_vision')}
+                    >
+                      {t('Verify image')}
+                    </Button>
+                  </div>
+                </div>
+              )}
               {provider.required_fields
                 .filter(
                   (key) =>

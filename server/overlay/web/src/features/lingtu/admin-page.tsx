@@ -62,6 +62,7 @@ interface Policy {
   default_model: string
   model_scope?: '' | 'all' | 'selected'
   allowed_models?: string[]
+  vision_model?: string
   daily_calls: number
   max_tokens: number
   per_account_concurrent: number
@@ -403,14 +404,24 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
       ...selectedModels,
     ]),
   ]
-  // Image requests are routed server-side to a ready visual model, so the
-  // administrator needs to know when the scope currently has none.
-  const visionReady = availableModels.some(
+  // The empty field preserves the legacy Qwen3-VL image route. An explicit
+  // route is selectable only when it is authorized, ready, and separately
+  // image-verified; image verification never expands allowed_models.
+  const imageRouteAuthorized = (row: ModelConnection) =>
+    policy.model_scope === 'all' ||
+    (policy.model_scope === 'selected' && selectedModels.includes(row.model_id))
+  const visionCandidates = availableModels.filter(
     (row) =>
-      row.upstream_model === 'qwen3-vl-plus' &&
-      (policy.model_scope === 'all' ||
-        (policy.model_scope === 'selected' && selectedModels.includes(row.model_id)))
+      imageRouteAuthorized(row) && row.vision_ready && row.vision_verified
   )
+  const legacyVisionReady = availableModels.some(
+    (row) => row.upstream_model === 'qwen3-vl-plus' && imageRouteAuthorized(row)
+  )
+  const visionRoute = policy.vision_model || ''
+  const visionRouteInvalid =
+    Boolean(visionRoute) &&
+    !visionCandidates.some((row) => row.model_id === visionRoute)
+  const visionReady = visionRoute ? !visionRouteInvalid : legacyVisionReady
   function choiceName(id: string): string {
     if (id === 'deepseek-flash') return t('DeepSeek')
     if (id === 'qwen-plus') return t('Qwen')
@@ -447,8 +458,10 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
     }
   }
   const selectionInvalid =
-    Boolean(policy.model_scope) &&
-    (!policy.default_model || !defaultOptions?.includes(policy.default_model))
+    (Boolean(policy.model_scope) &&
+      (!policy.default_model ||
+        !defaultOptions?.includes(policy.default_model))) ||
+    visionRouteInvalid
   return (
     <Card className='max-w-2xl border border-blue-100 bg-white'>
       <CardHeader>
@@ -523,7 +536,7 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
               'This scope limits the models the service can call. The account model is a default preference.'
             )}
           </p>
-          {policy.model_scope && (
+          {(policy.model_scope || policy.vision_model) && (
             <>
               <p className='text-sm text-slate-500'>
                 {t(
@@ -533,10 +546,43 @@ function TrialRules(props: { policy: Policy; save: Save; busy: boolean }) {
               {!visionReady && (
                 <p role='status' className='text-sm text-amber-700'>
                   {t(
-                    'No visual model in this scope is ready. Requests with images will be rejected until an authorized Qwen3-VL connection is ready.'
+                    visionRoute
+                      ? 'The saved image route is no longer authorized or image-verified. Requests with images will be rejected until an authorized, ready, verified route is selected.'
+                      : 'No visual model in this scope is ready. Requests with images will be rejected until an authorized Qwen3-VL connection is ready.'
                   )}
                 </p>
               )}
+              <div className='space-y-2'>
+                <Label htmlFor='vision-route-model'>
+                  {t('Image route model')}
+                </Label>
+                <select
+                  id='vision-route-model'
+                  className='border-input bg-background h-10 w-full rounded-lg border px-3 text-sm'
+                  disabled={props.busy}
+                  value={visionRoute}
+                  onChange={(event) =>
+                    editPolicy('vision_model', event.target.value)
+                  }
+                >
+                  <option value=''>{t('Legacy Qwen3-VL route')}</option>
+                  {visionCandidates.map((row) => (
+                    <option key={row.model_id} value={row.model_id}>
+                      {choiceName(row.model_id)}
+                    </option>
+                  ))}
+                  {visionRouteInvalid && (
+                    <option value={visionRoute} disabled>
+                      {choiceName(visionRoute)} · {t('unavailable')}
+                    </option>
+                  )}
+                </select>
+                <p className='text-sm text-slate-500'>
+                  {t(
+                    'Only authorized, ready APIs with a successful fixed-image verification can be selected. Clients cannot choose another image upstream.'
+                  )}
+                </p>
+              </div>
             </>
           )}
         </div>
@@ -1361,9 +1407,7 @@ export function AdminPage() {
     setUsageUserId(userId)
     selectTab('usage')
   }
-  async function save(
-    payload: Payload
-  ): Promise<AdminSaveResult | false> {
+  async function save(payload: Payload): Promise<AdminSaveResult | false> {
     if (saving.current) return false
     saving.current = true
     setBusy(true)
@@ -1414,7 +1458,12 @@ export function AdminPage() {
       apply(result.data)
       await queryClient.invalidateQueries({ queryKey: ['lingtu'] })
       let message = 'Saved successfully.'
-      if (payload.section === 'model_connection') {
+      if (
+        payload.section === 'model_connection' &&
+        payload.action === 'verify_vision'
+      ) {
+        message = 'Image verification succeeded.'
+      } else if (payload.section === 'model_connection') {
         message = result.data.tested
           ? 'Configuration saved and connection tested. The default API is unchanged.'
           : 'Configuration saved. Review the connection status before using it.'
@@ -1441,6 +1490,27 @@ export function AdminPage() {
           unconfirmed: false,
           conflict: true,
           revision: data.revision,
+        }
+      }
+      if (
+        payload.section === 'model_connection' &&
+        (data?.error === 'vision_verification_failed' ||
+          data?.error === 'vision_verification_stale') &&
+        Array.isArray(data.model_connections)
+      ) {
+        const result = data as ContextPolicySuccess
+        apply(result)
+        await queryClient.invalidateQueries({ queryKey: ['lingtu'] })
+        setMessage(
+          data.error === 'vision_verification_stale'
+            ? 'The API changed during image verification. Reload it and verify again.'
+            : 'Image verification failed. The saved text connection was not changed.'
+        )
+        return {
+          saved: false,
+          unconfirmed: false,
+          reason: data.error as string,
+          model_connections: result.model_connections,
         }
       }
       if (

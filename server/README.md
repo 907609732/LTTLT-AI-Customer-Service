@@ -4,7 +4,7 @@
 
 目录：overlay 为服务端/管理网页覆盖层，patches.json 为固定上游锚点补丁，upstream.lock.json 为版本锁，deploy 为既有 Linux 部署参考，scripts 为准备与验证入口，tests 为生成结果检查。.upstream、bin、artifacts、runtime 均为本机生成或私有目录，不提交。
 
-计费服务版本/能力、管理员加密沙箱凭据和套餐管理、只读商户自检及候选服务回滚说明见 [BILLING_DEPLOYMENT.md](BILLING_DEPLOYMENT.md)。保存/连接检查不创建付款，真实商户和生产部署须分别验收。
+计费服务版本/能力、管理员加密沙箱凭据和套餐管理、只读商户自检及候选服务回滚说明见 [BILLING_DEPLOYMENT.md](BILLING_DEPLOYMENT.md)。保存/连接检查不创建付款，真实商户和生产部署须分别验收。托管文字/图片路由、显式 `vision_model`、管理员固定合成图验证及失效/CAS 边界见 [VISION_MODEL.md](VISION_MODEL.md)。
 
 ## 准备与验证
 

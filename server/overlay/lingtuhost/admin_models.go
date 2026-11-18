@@ -24,26 +24,31 @@ import (
 )
 
 type modelConnectionView struct {
-	InputCNY      string `json:"input_cny"`
-	CacheReadCNY  string `json:"cache_read_cny"`
-	OutputCNY     string `json:"output_cny"`
-	CostRateModel string `json:"cost_rate_model"`
-	ConnectionID  int    `json:"connection_id"`
-	Provider      string `json:"provider"`
-	Name          string `json:"name"`
-	ModelID       string `json:"model_id"`
-	BaseURL       string `json:"base_url"`
-	UpstreamModel string `json:"upstream_model"`
-	APIVersion    string `json:"api_version"`
-	Region        string `json:"region"`
-	AccountID     string `json:"account_id"`
-	Configured    bool   `json:"configured"`
-	Enabled       bool   `json:"enabled"`
-	Ready         bool   `json:"ready"`
-	IsDefault     bool   `json:"is_default"`
-	Revision      int    `json:"revision"`
-	TestStatus    string `json:"test_status"`
-	TestedAt      int64  `json:"tested_at"`
+	InputCNY        string `json:"input_cny"`
+	CacheReadCNY    string `json:"cache_read_cny"`
+	OutputCNY       string `json:"output_cny"`
+	CostRateModel   string `json:"cost_rate_model"`
+	ConnectionID    int    `json:"connection_id"`
+	Provider        string `json:"provider"`
+	Name            string `json:"name"`
+	ModelID         string `json:"model_id"`
+	BaseURL         string `json:"base_url"`
+	UpstreamModel   string `json:"upstream_model"`
+	APIVersion      string `json:"api_version"`
+	Region          string `json:"region"`
+	AccountID       string `json:"account_id"`
+	Configured      bool   `json:"configured"`
+	Enabled         bool   `json:"enabled"`
+	Ready           bool   `json:"ready"`
+	IsDefault       bool   `json:"is_default"`
+	Revision        int    `json:"revision"`
+	TestStatus      string `json:"test_status"`
+	TestedAt        int64  `json:"tested_at"`
+	ConfigHash      string `json:"config_hash"`
+	ImageTestStatus string `json:"image_test_status"`
+	ImageTestedAt   int64  `json:"image_tested_at"`
+	VisionVerified  bool   `json:"vision_verified"`
+	VisionReady     bool   `json:"vision_ready"`
 }
 
 func channelHash(ch model.Channel) string {
@@ -108,8 +113,15 @@ func syncLegacyModelBinding(tx *gorm.DB, ch *model.Channel) error {
 			next.CostRateModel, next.InputCNY, next.OutputCNY, next.CacheReadCNY = old.CostRateModel, old.InputCNY, old.OutputCNY, old.CacheReadCNY
 			next.Name = old.Name
 			next.Revision = old.Revision
-			if old.ConfigHash != next.ConfigHash || old.Enabled != next.Enabled {
+			sameConfig := old.ConfigHash == next.ConfigHash && old.Enabled == next.Enabled
+			if sameConfig {
+				// The legacy adapter rebuilds the row from the native channel. Keep
+				// only the independent image probe here; the current save's real
+				// text-test status and TestTime must win.
+				next.ImageTestStatus, next.ImageTestedHash, next.ImageTestedAt = old.ImageTestStatus, old.ImageTestedHash, old.ImageTestedAt
+			} else {
 				next.Revision++
+				next.ImageTestStatus, next.ImageTestedHash, next.ImageTestedAt = "never", "", 0
 			}
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -156,13 +168,26 @@ func modelConnectionViews(db *gorm.DB, selected string) ([]modelConnectionView, 
 		if !ok {
 			return nil, lingtu.ErrInvalidTrialInput
 		}
+		hash := channelHash(ch)
 		status := row.TestStatus
 		testedAt := row.TestedAt
-		if row.ConfigHash != channelHash(ch) || (row.TestedHash != "" && row.TestedHash != row.ConfigHash) {
+		if row.ConfigHash != hash || (row.TestedHash != "" && row.TestedHash != row.ConfigHash) {
 			status = "stale"
 			testedAt = 0
 		}
-		v := modelConnectionView{CacheReadCNY: row.CacheReadCNY, InputCNY: row.InputCNY, OutputCNY: row.OutputCNY, CostRateModel: row.CostRateModel, ConnectionID: ch.Id, Provider: row.Provider, Name: row.Name, ModelID: row.ModelID, BaseURL: ch.GetBaseURL(), UpstreamModel: ch.Models, Configured: credentialConfigured(p, ch), Enabled: row.Enabled, Ready: row.Enabled && ch.Status == common.ChannelStatusEnabled && row.ConfigHash == channelHash(ch) && credentialConfigured(p, ch), IsDefault: selected == row.ModelID, Revision: row.Revision, TestStatus: status, TestedAt: testedAt}
+		ready := row.Enabled && ch.Status == common.ChannelStatusEnabled && row.ConfigHash == hash && credentialConfigured(p, ch)
+		imageStatus := row.ImageTestStatus
+		if imageStatus == "" {
+			imageStatus = "never"
+		}
+		imageTestedAt := row.ImageTestedAt
+		if imageStatus != "never" && (row.ConfigHash != hash || row.ImageTestedHash != row.ConfigHash) {
+			imageStatus = "stale"
+			imageTestedAt = 0
+		}
+		visionVerified := ready && imageStatus == "success" && row.ImageTestedHash != "" && row.ImageTestedHash == hash && row.ImageTestedAt > 0
+		textVerified := textConnectionVerified(row, hash)
+		v := modelConnectionView{CacheReadCNY: row.CacheReadCNY, InputCNY: row.InputCNY, OutputCNY: row.OutputCNY, CostRateModel: row.CostRateModel, ConnectionID: ch.Id, Provider: row.Provider, Name: row.Name, ModelID: row.ModelID, BaseURL: ch.GetBaseURL(), UpstreamModel: ch.Models, Configured: credentialConfigured(p, ch), Enabled: row.Enabled, Ready: ready, IsDefault: selected == row.ModelID, Revision: row.Revision, TestStatus: status, TestedAt: testedAt, ConfigHash: hash, ImageTestStatus: imageStatus, ImageTestedAt: imageTestedAt, VisionVerified: visionVerified, VisionReady: ready && textVerified && visionVerified}
 		switch row.Provider {
 		case "azure":
 			v.APIVersion = ch.Other
@@ -420,6 +445,11 @@ func (h *Host) saveTrialConfiguration(r configurationRequest) error {
 		} else if r.AllowedModels != nil {
 			return lingtu.ErrInvalidTrialInput
 		}
+		// A missing vision_model keeps the previous route for older clients;
+		// an explicit empty string is the administrator clearing it.
+		if r.VisionModel != nil {
+			policy.VisionModel = strings.TrimSpace(*r.VisionModel)
+		}
 		if r.PerAccountConcurrent != nil {
 			policy.PerAccountConcurrent = *r.PerAccountConcurrent
 		}
@@ -439,6 +469,33 @@ func (h *Host) saveModelConnection(c *gin.Context, r configurationRequest) error
 	return h.executeModelConnection(c, r, controller.TestManagedChannel)
 }
 
+// commitVisionVerification is a database CAS, not a whole-row Save. Another
+// process may update the binding or native channel while the relay probe is in
+// flight; only the image-test fields and the CAS revision may be written. The
+// atomic revision bump makes a successful no-op-looking probe visible as one
+// changed row even when MySQL clientFoundRows is false.
+func commitVisionVerification(db *gorm.DB, expected lingtu.ModelConnection, testedHash, status string, testedAt int64) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var native model.Channel
+		if err := tx.First(&native, expected.ChannelID).Error; err != nil {
+			return err
+		}
+		if channelHash(native) != testedHash || native.Status != common.ChannelStatusEnabled || !expected.Enabled {
+			return errVisionVerificationStale
+		}
+		result := tx.Model(&lingtu.ModelConnection{}).
+			Where("channel_id = ? AND revision = ? AND config_hash = ? AND enabled = ?", expected.ChannelID, expected.Revision, testedHash, true).
+			Updates(map[string]any{"image_test_status": status, "image_tested_hash": testedHash, "image_tested_at": testedAt, "revision": gorm.Expr("revision + 1")})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errVisionVerificationStale
+		}
+		return nil
+	})
+}
+
 // A probe is an external boundary. Production always supplies the native adapter test.
 // Tests supply a non-network probe to prove persistence and failure semantics.
 func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, probe func(context.Context, *model.Channel, int) error) error {
@@ -446,11 +503,19 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 	if !ok || r.ConnectionID < 0 || r.Secret != "" && r.ClearSecret {
 		return lingtu.ErrInvalidTrialInput
 	}
-	if r.Action != "save" && r.Action != "test" && r.Action != "delete" && r.Action != "select" {
+	if r.Action != "save" && r.Action != "test" && r.Action != "delete" && r.Action != "select" && r.Action != "verify_vision" {
 		return lingtu.ErrInvalidTrialInput
 	}
 	if r.Action != "save" && (r.ConnectionID == 0 || r.Secret != "" || r.ClearSecret) {
 		return lingtu.ErrInvalidTrialInput
+	}
+	if r.Action == "verify_vision" {
+		if r.ConnectionID <= 0 || r.Revision <= 0 || len(r.ConfigHash) != 64 {
+			return lingtu.ErrInvalidTrialInput
+		}
+		if _, err := hex.DecodeString(r.ConfigHash); err != nil {
+			return lingtu.ErrInvalidTrialInput
+		}
 	}
 	if r.TestAfterSave && r.Action != "save" {
 		return lingtu.ErrInvalidTrialInput
@@ -469,8 +534,21 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 				return err
 			}
 			if r.Revision > 0 && row.Revision != r.Revision {
+				if r.Action == "verify_vision" {
+					return errVisionVerificationStale
+				}
 				return errors.New("connection changed")
 			}
+		}
+		if r.Action == "verify_vision" {
+			current := channelHash(ch)
+			if row.ConfigHash != r.ConfigHash || current != r.ConfigHash {
+				return errVisionVerificationStale
+			}
+			if !row.Enabled || ch.Status != common.ChannelStatusEnabled || !credentialConfigured(p, ch) {
+				return errVisionUnavailable
+			}
+			return nil
 		}
 		if r.Action == "test" {
 			return nil
@@ -480,7 +558,7 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 			if err != nil {
 				return err
 			}
-			if policy.DefaultModel == row.ModelID || policy.ModelScope == "selected" && hasModel(policy.AllowedModels, row.ModelID) {
+			if policy.DefaultModel == row.ModelID || policy.VisionModel == row.ModelID || policy.ModelScope == "selected" && hasModel(policy.AllowedModels, row.ModelID) {
 				return errors.New("selected connection cannot be deleted")
 			}
 			var count int64
@@ -584,6 +662,9 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 			row.TestStatus = "never"
 			row.TestedAt = 0
 			row.TestedHash = ""
+			row.ImageTestStatus = "never"
+			row.ImageTestedHash = ""
+			row.ImageTestedAt = 0
 			ch.TestTime = 0
 			ch.Status = common.ChannelStatusManuallyDisabled
 		}
@@ -679,6 +760,39 @@ func (h *Host) executeModelConnection(c *gin.Context, r configurationRequest, pr
 		model.InitChannelCache()
 		if probeErr != nil {
 			return errors.New("model connection test failed")
+		}
+		return nil
+	}
+	if r.Action == "verify_vision" {
+		if err := validateConnection(p, ch, true); err != nil {
+			return errVisionVerificationFailed
+		}
+		if err := validateModelURL(p, ch.GetBaseURL(), true); err != nil {
+			return errVisionVerificationFailed
+		}
+		ctx := context.Background()
+		uid := 0
+		if c != nil {
+			ctx = c.Request.Context()
+			uid = c.GetInt("id")
+		}
+		probe := h.imageProbe
+		if probe == nil {
+			probe = controller.TestManagedImageChannel
+		}
+		testedHash := channelHash(ch)
+		probeErr := probe(ctx, &ch, uid)
+		status := "failed"
+		if probeErr == nil {
+			status = "success"
+		}
+		// The image probe is independent from the text connection state and from
+		// all trial/account ledgers. This CAS writes only image verification fields.
+		if err := commitVisionVerification(model.DB, row, testedHash, status, time.Now().Unix()); err != nil {
+			return err
+		}
+		if probeErr != nil {
+			return errVisionVerificationFailed
 		}
 		return nil
 	}

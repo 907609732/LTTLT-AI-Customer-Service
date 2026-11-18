@@ -1,0 +1,872 @@
+package lingtuhost
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/lingtu"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+func managedVisionFixture(t *testing.T, db *gorm.DB, verified bool) (*model.Channel, lingtu.ModelConnection) {
+	t.Helper()
+	baseURL := "http://127.0.0.1:12345"
+	channel := &model.Channel{Name: "fixture-managed-vision", Type: 1, Group: "default", Models: visionModel, BaseURL: &baseURL, Status: common.ChannelStatusEnabled, Key: "fixture-managed-vision-key"}
+	if err := db.Create(channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := channel.UpdateAbilities(db); err != nil {
+		t.Fatal(err)
+	}
+	hash := channelHash(*channel)
+	row := lingtu.ModelConnection{ChannelID: channel.Id, Provider: "vllm", Name: "Verified image route", ModelID: fmt.Sprintf("managed-vision-%d", channel.Id), Enabled: true, Revision: 1, ConfigHash: hash, TestStatus: "success", TestedHash: hash}
+	if verified {
+		row.ImageTestStatus = "success"
+		row.ImageTestedHash = hash
+		row.ImageTestedAt = time.Now().Unix()
+	} else {
+		row.ImageTestStatus = "never"
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	model.InitChannelCache()
+	return channel, row
+}
+
+func saveManagedTrialPolicy(t *testing.T, db *gorm.DB, visionModel string, allowed []string) lingtu.TrialPolicy {
+	t.Helper()
+	policy := lingtu.DefaultTrialPolicy()
+	policy.ModelScope = "selected"
+	policy.DefaultModel = "deepseek-flash"
+	policy.AllowedModels = allowed
+	policy.VisionModel = visionModel
+	raw, err := common.Marshal(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Save(&lingtu.ManagedSetting{Name: "trial_policy", Value: string(raw)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	return policy
+}
+
+func visionPolicyRequest(policy lingtu.TrialPolicy) configurationRequest {
+	return configurationRequest{Section: "trial", Calls: policy.Calls, Days: policy.Days, DailyCalls: policy.DailyCalls, MaxTokens: policy.MaxTokens, Model: policy.DefaultModel, ModelScope: policy.ModelScope, AllowedModels: policy.AllowedModels}
+}
+
+func managedVisionRequest(id, model string) string {
+	modelField := ""
+	if model != "" {
+		modelField = `"model":"` + model + `",`
+	}
+	return `{"client_request_id":"` + id + `",` + modelField + `"messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"https://images.example.com/fixture.png"}}]}]}`
+}
+
+func TestLingtuVisionRouteLegacyAndExplicitCandidates(t *testing.T) {
+	db, _ := modelPolicyFixture(t)
+	if err := persistManagedModel(&model.Channel{Name: "lingtu-qwen-vision", Type: 1, Group: "default", Models: visionModel, Status: common.ChannelStatusEnabled, Key: "fixture-vision"}, false); err != nil {
+		t.Fatal(err)
+	}
+	legacyPolicy := lingtu.DefaultTrialPolicy()
+	legacySelection, err := resolveModelPolicy(db, legacyPolicy, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := visionRoute(legacyPolicy, legacySelection)
+	if err != nil || legacy.Model != visionModel || legacy.Channel.Models != visionModel {
+		t.Fatalf("legacy route = %+v error=%v", legacy, err)
+	}
+
+	_, row := managedVisionFixture(t, db, false)
+	policy := saveManagedTrialPolicy(t, db, row.ModelID, []string{"deepseek-flash", row.ModelID})
+	selection, err := resolveModelPolicy(db, policy, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := visionRoute(policy, selection); !errors.Is(err, errVisionUnavailable) {
+		t.Fatalf("unverified explicit route error = %v", err)
+	}
+	if visionRouteAvailable(policy, selection) {
+		t.Fatal("unverified explicit route advertised capability")
+	}
+
+	row.ImageTestStatus = "success"
+	row.ImageTestedHash = row.ConfigHash
+	row.ImageTestedAt = time.Now().Unix()
+	if err := db.Save(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	route, err := visionRoute(policy, selection)
+	if err != nil || route.Model != row.ModelID || route.Binding.ChannelID != row.ChannelID {
+		t.Fatalf("verified explicit route = %+v error=%v", route, err)
+	}
+	if !visionRouteAvailable(policy, selection) {
+		t.Fatal("verified explicit route was not advertised")
+	}
+
+	unauthorized := policy
+	unauthorized.AllowedModels = []string{"deepseek-flash"}
+	unauthorizedSelection, err := resolveModelPolicy(db, unauthorized, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := visionRoute(unauthorized, unauthorizedSelection); !errors.Is(err, errVisionUnavailable) {
+		t.Fatalf("unauthorized route error = %v", err)
+	}
+	if visionRouteAvailable(unauthorized, unauthorizedSelection) {
+		t.Fatal("unauthorized explicit route advertised capability")
+	}
+}
+
+func TestLingtuVisionExplicitRouteFailsBeforeReservation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(t *testing.T, db *gorm.DB, row *lingtu.ModelConnection, channel *model.Channel)
+	}{
+		{name: "unverified", mutate: func(t *testing.T, db *gorm.DB, row *lingtu.ModelConnection, _ *model.Channel) {
+			row.ImageTestStatus, row.ImageTestedHash, row.ImageTestedAt = "never", "", 0
+			if err := db.Save(row).Error; err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "stale-config", mutate: func(t *testing.T, db *gorm.DB, _ *lingtu.ModelConnection, channel *model.Channel) {
+			if err := db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("key", "rotated-secret").Error; err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "disabled", mutate: func(t *testing.T, db *gorm.DB, _ *lingtu.ModelConnection, channel *model.Channel) {
+			if err := db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("status", common.ChannelStatusManuallyDisabled).Error; err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := managedModelDB(t)
+			if err := persistManagedModel(&model.Channel{Name: "lingtu-deepseek", Type: 1, Group: "default", Models: "deepseek-flash", Status: common.ChannelStatusEnabled, Key: "fixture-deepseek"}, false); err != nil {
+				t.Fatal(err)
+			}
+			channel, row := managedVisionFixture(t, db, true)
+			saveManagedTrialPolicy(t, db, row.ModelID, []string{"deepseek-flash", row.ModelID})
+			test.mutate(t, db, &row, channel)
+			model.InitChannelCache()
+
+			h := &Host{trials: lingtu.NewTrialStore(db)}
+			if err := h.migrateChat(); err != nil {
+				t.Fatal(err)
+			}
+			seedManagedChatIdentity(t, db)
+			if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			dispatched := 0
+			router := gin.New()
+			router.POST("/chat", func(c *gin.Context) { c.Set("lingtu_identity", lingtu.ClientIdentity{UserID: 99}) }, h.prepareChat, func(c *gin.Context) {
+				dispatched++
+				c.AbortWithStatus(500)
+			})
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest("POST", "/chat", strings.NewReader(managedVisionRequest("vision-"+test.name, "deepseek-flash"))))
+			if recorder.Code != 400 || !strings.Contains(recorder.Body.String(), `"error":"vision_unavailable"`) {
+				t.Fatalf("invalid explicit route = %d: %s", recorder.Code, recorder.Body.String())
+			}
+			if dispatched != 0 {
+				t.Fatal("invalid visual route reached upstream")
+			}
+			var requests int64
+			if err := db.Model(&lingtu.TrialRequest{}).Count(&requests).Error; err != nil || requests != 0 {
+				t.Fatalf("invalid route created requests=%d error=%v", requests, err)
+			}
+			var grant lingtu.TrialGrant
+			if err := db.First(&grant, 99).Error; err != nil || grant.Used != 0 || grant.Reserved != 0 {
+				t.Fatalf("invalid route changed ledger: %+v error=%v", grant, err)
+			}
+		})
+	}
+}
+
+func TestLingtuVisionExplicitRouteRequiresMatchingClientModelAndRecordsActualUsage(t *testing.T) {
+	db := managedModelDB(t)
+	if err := persistManagedModel(&model.Channel{Name: "lingtu-deepseek", Type: 1, Group: "default", Models: "deepseek-flash", Status: common.ChannelStatusEnabled, Key: "fixture-deepseek"}, false); err != nil {
+		t.Fatal(err)
+	}
+	_, row := managedVisionFixture(t, db, true)
+	saveManagedTrialPolicy(t, db, row.ModelID, []string{"deepseek-flash", row.ModelID})
+	model.InitChannelCache()
+	loaded, err := lingtu.LoadTrialPolicy(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.VisionModel != row.ModelID {
+		t.Fatalf("saved visual route = %+v, want %q", loaded, row.ModelID)
+	}
+	selection, err := resolveModelPolicy(db, loaded, "")
+	if err != nil || !selection.allows(row.ModelID) {
+		t.Fatalf("visual route missing from selection: %+v error=%v", selection, err)
+	}
+
+	vault, err := lingtu.RuntimeVault()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := lingtu.NewSessionStore(db, vault, "https://api.test", func(int, string, int64) error { return nil })
+	if err := sessions.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	h := &Host{trials: lingtu.NewTrialStore(db), sessions: sessions}
+	if err := h.migrateChat(); err != nil {
+		t.Fatal(err)
+	}
+	seedManagedChatIdentity(t, db)
+	if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := sessions.Create(99, "managed-vision-route", 1, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatched := []string{}
+	router := gin.New()
+	router.POST("/chat", h.clientAuth, h.prepareChat, func(c *gin.Context) {
+		raw, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			t.Error(err)
+			c.AbortWithStatus(500)
+			return
+		}
+		var body struct {
+			Model    string        `json:"model"`
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.Unmarshal(raw, &body); err != nil || !containsImages(body.Messages) {
+			t.Errorf("admitted request lost image: %s error=%v", raw, err)
+		}
+		dispatched = append(dispatched, body.Model)
+		c.Set("lingtu_upstream_started", true)
+		c.Set("lingtu_upstream_status", 200)
+		c.Set("lingtu_provider_usage_seen", true)
+		c.Set("lingtu_provider_usage_known", true)
+		c.Set("lingtu_provider_input_tokens", 3)
+		c.Set("lingtu_provider_output_tokens", 5)
+		c.JSON(200, gin.H{"choices": []gin.H{{"message": gin.H{"content": "vision fixture answer"}}}, "usage": gin.H{"prompt_tokens": 3, "completion_tokens": 5}})
+	})
+	call := func(id, clientModel string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest("POST", "/chat", strings.NewReader(managedVisionRequest(id, clientModel)))
+		request.Header.Set("Authorization", "Bearer "+bundle.AccessToken)
+		router.ServeHTTP(recorder, request)
+		return recorder
+	}
+	for index, request := range []struct {
+		id, clientModel string
+	}{
+		{"route-auto", ""},
+		{"route-explicit-same", row.ModelID},
+	} {
+		recorder := call(request.id, request.clientModel)
+		if recorder.Code != 200 {
+			t.Fatalf("%s response = %d: %s", request.id, recorder.Code, recorder.Body.String())
+		}
+		if len(dispatched) != index+1 || dispatched[index] != visionModel {
+			t.Fatalf("%s routed to %v", request.id, dispatched)
+		}
+		var usage managedUsage
+		if err := db.First(&usage, "user_id = ? AND request_id = ?", 99, request.id).Error; err != nil {
+			t.Fatal(err)
+		}
+		if usage.Model != row.ModelID || usage.UpstreamModel != visionModel || usage.ChannelID != row.ChannelID || usage.Diagnostic != "success" {
+			t.Fatalf("%s usage did not pin actual visual route: %+v", request.id, usage)
+		}
+	}
+	var grant lingtu.TrialGrant
+	if err := db.First(&grant, 99).Error; err != nil || grant.Used != 2 || grant.Reserved != 0 {
+		t.Fatalf("successful visual request ledger = %+v error=%v", grant, err)
+	}
+
+	conflict := call("route-conflict", "deepseek-flash")
+	if conflict.Code != 400 || !strings.Contains(conflict.Body.String(), `"error":"vision_unavailable"`) {
+		t.Fatalf("conflicting client model = %d: %s", conflict.Code, conflict.Body.String())
+	}
+	if len(dispatched) != 2 {
+		t.Fatalf("conflicting client model reached upstream: %v", dispatched)
+	}
+	if err := db.First(&grant, 99).Error; err != nil || grant.Used != 2 || grant.Reserved != 0 {
+		t.Fatalf("conflicting client model changed ledger: %+v error=%v", grant, err)
+	}
+	var requests int64
+	if err := db.Model(&lingtu.TrialRequest{}).Where("user_id = ? AND request_id = ?", 99, "route-conflict").Count(&requests).Error; err != nil || requests != 0 {
+		t.Fatalf("conflicting client model reserved=%d error=%v", requests, err)
+	}
+}
+
+func TestLingtuLegacyVisionExplicitVisualAliasPreservesRequestedChannel(t *testing.T) {
+	db := managedModelDB(t)
+	if err := persistManagedModel(&model.Channel{Name: "lingtu-deepseek", Type: 1, Group: "default", Models: "deepseek-flash", Status: common.ChannelStatusEnabled, Key: "fixture-deepseek"}, false); err != nil {
+		t.Fatal(err)
+	}
+	_, first := managedVisionFixture(t, db, false)
+	_, second := managedVisionFixture(t, db, false)
+	saveManagedTrialPolicy(t, db, "", []string{"deepseek-flash", first.ModelID, second.ModelID})
+	model.InitChannelCache()
+
+	h := &Host{trials: lingtu.NewTrialStore(db)}
+	if err := h.migrateChat(); err != nil {
+		t.Fatal(err)
+	}
+	seedManagedChatIdentity(t, db)
+	if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	dispatched := 0
+	router := gin.New()
+	router.POST("/chat", func(c *gin.Context) { c.Set("lingtu_identity", lingtu.ClientIdentity{UserID: 99}) }, h.prepareChat, func(c *gin.Context) {
+		dispatched++
+		c.AbortWithStatus(500)
+	})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest("POST", "/chat", strings.NewReader(managedVisionRequest("legacy-explicit-visual", second.ModelID))))
+	if dispatched != 1 {
+		t.Fatalf("legacy explicit visual alias was not dispatched: %d", dispatched)
+	}
+	var usage managedUsage
+	if err := db.First(&usage, "user_id = ? AND request_id = ?", 99, "legacy-explicit-visual").Error; err != nil {
+		t.Fatal(err)
+	}
+	if usage.ChannelID != second.ChannelID || usage.Model != second.ModelID {
+		t.Fatalf("legacy explicit visual alias was replaced: %+v first=%d", usage, first.ChannelID)
+	}
+}
+
+func TestLingtuVisionExplicitRouteRequiresTextAndImageGates(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*lingtu.ModelConnection)
+	}{
+		{"text-never", func(row *lingtu.ModelConnection) {
+			row.TestStatus, row.TestedHash = "never", ""
+		}},
+		{"text-failed", func(row *lingtu.ModelConnection) {
+			row.TestStatus = "failed"
+		}},
+		{"text-stale", func(row *lingtu.ModelConnection) {
+			row.TestedHash = strings.Repeat("a", 64)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := managedModelDB(t)
+			if err := persistManagedModel(&model.Channel{Name: "lingtu-deepseek", Type: 1, Group: "default", Models: "deepseek-flash", Status: common.ChannelStatusEnabled, Key: "fixture-deepseek"}, false); err != nil {
+				t.Fatal(err)
+			}
+			_, row := managedVisionFixture(t, db, true)
+			test.mutate(&row)
+			if err := db.Save(&row).Error; err != nil {
+				t.Fatal(err)
+			}
+			policy := saveManagedTrialPolicy(t, db, row.ModelID, []string{"deepseek-flash", row.ModelID})
+			selection, err := resolveModelPolicy(db, policy, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := visionRoute(policy, selection); !errors.Is(err, errVisionUnavailable) {
+				t.Fatalf("text/image gate allowed route: %v", err)
+			}
+			if visionRouteAvailable(policy, selection) {
+				t.Fatal("text/image gate advertised capability")
+			}
+
+			h := &Host{trials: lingtu.NewTrialStore(db)}
+			if err := h.migrateChat(); err != nil {
+				t.Fatal(err)
+			}
+			seedManagedChatIdentity(t, db)
+			if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			dispatched := 0
+			router := gin.New()
+			router.POST("/chat", func(c *gin.Context) { c.Set("lingtu_identity", lingtu.ClientIdentity{UserID: 99}) }, h.prepareChat, func(c *gin.Context) {
+				dispatched++
+				c.AbortWithStatus(500)
+			})
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest("POST", "/chat", strings.NewReader(managedVisionRequest("gated-"+test.name, ""))))
+			if recorder.Code != 400 || dispatched != 0 {
+				t.Fatalf("gated route = %d dispatched=%d: %s", recorder.Code, dispatched, recorder.Body.String())
+			}
+			var grant lingtu.TrialGrant
+			if err := db.First(&grant, 99).Error; err != nil || grant.Used != 0 || grant.Reserved != 0 {
+				t.Fatalf("gated route changed ledger: %+v error=%v", grant, err)
+			}
+			var requests int64
+			if err := db.Model(&lingtu.TrialRequest{}).Count(&requests).Error; err != nil || requests != 0 {
+				t.Fatalf("gated route reserved=%d error=%v", requests, err)
+			}
+		})
+	}
+
+	db := managedModelDB(t)
+	_, row := managedVisionFixture(t, db, true)
+	policy := saveManagedTrialPolicy(t, db, row.ModelID, []string{"deepseek-flash", row.ModelID})
+	selection, err := resolveModelPolicy(db, policy, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route, err := visionRoute(policy, selection); err != nil || route.Binding.ChannelID != row.ChannelID {
+		t.Fatalf("both gates did not allow route: %+v error=%v", route, err)
+	}
+}
+
+func TestLingtuVisionCapabilityFailsClosedForStaleExplicitRoute(t *testing.T) {
+	db := managedModelDB(t)
+	if err := persistManagedModel(&model.Channel{Name: "lingtu-deepseek", Type: 1, Group: "default", Models: "deepseek-flash", Status: common.ChannelStatusEnabled, Key: "fixture-deepseek"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistManagedModel(&model.Channel{Name: "lingtu-qwen-vision", Type: 1, Group: "default", Models: visionModel, Status: common.ChannelStatusEnabled, Key: "fixture-qwen-vision"}, false); err != nil {
+		t.Fatal(err)
+	}
+	_, custom := managedVisionFixture(t, db, true)
+	if err := db.Model(&lingtu.ModelConnection{}).Where("channel_id = ?", custom.ChannelID).Updates(map[string]any{"enabled": false}).Error; err != nil {
+		t.Fatal(err)
+	}
+	policy := saveManagedTrialPolicy(t, db, custom.ModelID, []string{"deepseek-flash", visionModel, custom.ModelID})
+	model.InitChannelCache()
+	seedManagedChatIdentity(t, db)
+	if err := lingtu.EnsureManagedAccount(db, 99, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&lingtu.ManagedAccount{}).Where("user_id = ?", 99).Update("model", visionModel).Error; err != nil {
+		t.Fatal(err)
+	}
+	selection, err := resolveModelPolicy(db, policy, visionModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.DefaultModel != visionModel {
+		t.Fatalf("fixture default = %q", selection.DefaultModel)
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("lingtu_identity", lingtu.ClientIdentity{UserID: 99})
+	(&Host{}).me(c)
+	if recorder.Code != 200 {
+		t.Fatal(recorder.Code, recorder.Body.String())
+	}
+	var account struct {
+		Capabilities map[string]any `json:"capabilities"`
+	}
+	if json.Unmarshal(recorder.Body.Bytes(), &account) != nil {
+		t.Fatal(recorder.Body.String())
+	}
+	if account.Capabilities["vision"] != false || account.Capabilities["max_images"] != float64(0) || account.Capabilities["model"] != visionModel {
+		t.Fatalf("stale explicit route capability = %+v", account.Capabilities)
+	}
+	if strings.Contains(recorder.Body.String(), custom.ModelID) || strings.Contains(recorder.Body.String(), "fixture-managed-vision-key") || strings.Contains(recorder.Body.String(), "base_url") {
+		t.Fatal("account projection leaked route internals")
+	}
+}
+
+func TestLingtuLegacyVisionBindingNoOpPreservesImageVerification(t *testing.T) {
+	db := managedModelDB(t)
+	channel := &model.Channel{Name: "lingtu-qwen-vision", Type: 1, Group: "default", Models: visionModel, Status: common.ChannelStatusEnabled, Key: "legacy-vision-key"}
+	if err := persistManagedModel(channel, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("test_time", time.Now().Unix()).Error; err != nil {
+		t.Fatal(err)
+	}
+	var row lingtu.ModelConnection
+	if err := db.First(&row, "channel_id = ?", channel.Id).Error; err != nil {
+		t.Fatal(err)
+	}
+	row.TestStatus, row.TestedHash = "success", row.ConfigHash
+	row.ImageTestStatus, row.ImageTestedHash, row.ImageTestedAt = "success", row.ConfigHash, time.Now().Unix()
+	if err := db.Save(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	var saved model.Channel
+	if err := db.First(&saved, channel.Id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := persistManagedModel(&saved, false); err != nil {
+		t.Fatal(err)
+	}
+	var unchanged lingtu.ModelConnection
+	if err := db.First(&unchanged, row.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.ImageTestStatus != "success" || unchanged.ImageTestedHash != row.ImageTestedHash || unchanged.ImageTestedAt != row.ImageTestedAt || unchanged.Revision != row.Revision {
+		t.Fatalf("legacy no-op save invalidated image verification: before=%+v after=%+v", row, unchanged)
+	}
+
+	saved.Key = "legacy-vision-key-rotated"
+	if err := persistManagedModel(&saved, false); err != nil {
+		t.Fatal(err)
+	}
+	var changed lingtu.ModelConnection
+	if err := db.First(&changed, row.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if changed.ImageTestStatus == "success" || changed.ImageTestedHash != "" || changed.Revision != row.Revision+1 {
+		t.Fatalf("legacy key change kept image verification: %+v", changed)
+	}
+}
+
+func TestLingtuLegacyVisionRealTextProbeUpdatesTextKeepsImageVerification(t *testing.T) {
+	db := managedModelDB(t)
+	base := "https://dashscope.aliyuncs.com/compatible-mode"
+	override := "{}"
+	channel := &model.Channel{Name: "lingtu-qwen-vision", Type: 1, Group: "default", Models: visionModel, BaseURL: &base, ParamOverride: &override, Status: common.ChannelStatusEnabled, Key: "legacy-text-probe-key"}
+	if err := db.Create(channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := channel.UpdateAbilities(db); err != nil {
+		t.Fatal(err)
+	}
+	hash := channelHash(*channel)
+	imageAt := time.Now().Add(-time.Minute).Unix()
+	row := lingtu.ModelConnection{ChannelID: channel.Id, Provider: "qwen", Name: "qwen-vision", ModelID: visionModel, Enabled: true, Revision: 1, ConfigHash: hash, TestStatus: "never", ImageTestStatus: "success", ImageTestedHash: hash, ImageTestedAt: imageAt}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now().Unix()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/", nil)
+	host := &Host{textProbe: func(context.Context, *model.Channel, int) error { return nil }}
+	if err := host.saveModel(c, configurationRequest{Section: "qwen-vision", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	var after lingtu.ModelConnection
+	if err := db.First(&after, row.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	var native model.Channel
+	if err := db.First(&native, channel.Id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.TestStatus != "success" || after.TestedHash != after.ConfigHash || after.TestedAt < before || after.TestedAt != native.TestTime {
+		t.Fatalf("legacy text probe state not committed: row=%+v native_test_time=%d", after, native.TestTime)
+	}
+	if after.ImageTestStatus != "success" || after.ImageTestedHash != hash || after.ImageTestedAt != imageAt || after.Revision != row.Revision {
+		t.Fatalf("legacy text probe erased image verification: %+v", after)
+	}
+}
+
+func TestLingtuVisionVerificationCommitUsesDatabaseCAS(t *testing.T) {
+	db := managedModelDB(t)
+	_, row := managedVisionFixture(t, db, false)
+	snapshot := row
+	now := time.Now().Unix()
+	if err := db.Model(&lingtu.ModelConnection{}).Where("channel_id = ?", row.ChannelID).Updates(map[string]any{"revision": row.Revision + 1, "enabled": false}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := commitVisionVerification(db, snapshot, snapshot.ConfigHash, "success", now); !errors.Is(err, errVisionVerificationStale) {
+		t.Fatalf("conditional image CAS error = %v", err)
+	}
+	var after lingtu.ModelConnection
+	if err := db.First(&after, row.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.ImageTestStatus != "never" || after.ImageTestedHash != "" || after.ImageTestedAt != 0 || after.Revision != row.Revision+1 || after.Enabled {
+		t.Fatalf("stale CAS overwrote row: %+v", after)
+	}
+
+	dbChannel := managedModelDB(t)
+	changedChannel, channelSnapshot := managedVisionFixture(t, dbChannel, false)
+	if err := dbChannel.Model(&model.Channel{}).Where("id = ?", changedChannel.Id).Update("key", "native-key-changed").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := commitVisionVerification(dbChannel, channelSnapshot, channelSnapshot.ConfigHash, "success", now); !errors.Is(err, errVisionVerificationStale) {
+		t.Fatalf("native channel image CAS error = %v", err)
+	}
+	var channelAfter lingtu.ModelConnection
+	if err := dbChannel.First(&channelAfter, channelSnapshot.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if channelAfter.ImageTestStatus != "never" || channelAfter.ImageTestedAt != 0 {
+		t.Fatalf("native channel CAS overwrote image state: %+v", channelAfter)
+	}
+
+	// A current snapshot commits only image fields and CAS metadata. The
+	// revision bump makes same-second MySQL no-op-looking updates visible.
+	db2 := managedModelDB(t)
+	channel, current := managedVisionFixture(t, db2, false)
+	if err := commitVisionVerification(db2, current, current.ConfigHash, "success", now+1); err != nil {
+		t.Fatal(err)
+	}
+	var committed lingtu.ModelConnection
+	if err := db2.First(&committed, current.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	var native model.Channel
+	if err := db2.First(&native, channel.Id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if committed.ImageTestStatus != "success" || committed.ImageTestedHash != current.ConfigHash || committed.ImageTestedAt != now+1 || committed.TestStatus != "success" || committed.Revision != current.Revision+1 || !committed.Enabled || native.Key != channel.Key || native.Models != channel.Models {
+		t.Fatalf("conditional image CAS changed unrelated fields: %+v native=%+v", committed, native)
+	}
+
+	// Two identical results in the same second must both commit when the second
+	// call uses the revision returned by the first. RowsAffected cannot be
+	// confused with a MySQL zero-row "no change" response.
+	if err := commitVisionVerification(db2, committed, committed.ConfigHash, "success", now+1); err != nil {
+		t.Fatalf("same-second repeat with fresh revision: %v", err)
+	}
+	var repeated lingtu.ModelConnection
+	if err := db2.First(&repeated, current.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if repeated.Revision != current.Revision+2 || repeated.ImageTestStatus != "success" || repeated.ImageTestedAt != now+1 {
+		t.Fatalf("same-second repeat did not commit: %+v", repeated)
+	}
+	if err := commitVisionVerification(db2, current, current.ConfigHash, "success", now+1); !errors.Is(err, errVisionVerificationStale) {
+		t.Fatalf("old revision after repeat error = %v", err)
+	}
+	var afterOld lingtu.ModelConnection
+	if err := db2.First(&afterOld, current.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if afterOld.Revision != repeated.Revision || afterOld.ImageTestedAt != repeated.ImageTestedAt {
+		t.Fatalf("old revision overwrote fresh CAS result: %+v", afterOld)
+	}
+
+	// A concurrent disable with a newer revision must win over the first ticket.
+	if err := db2.Model(&lingtu.ModelConnection{}).Where("channel_id = ?", current.ChannelID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "enabled": false}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := commitVisionVerification(db2, repeated, repeated.ConfigHash, "success", now+2); !errors.Is(err, errVisionVerificationStale) {
+		t.Fatalf("disabled newer-row CAS error = %v", err)
+	}
+	var disabled lingtu.ModelConnection
+	if err := db2.First(&disabled, current.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if disabled.Enabled || disabled.Revision != repeated.Revision+1 || disabled.ImageTestedAt != repeated.ImageTestedAt {
+		t.Fatalf("stale CAS overwrote disabled row: %+v", disabled)
+	}
+}
+
+func TestLingtuVisionVerifyStaleRevisionRejectedBeforeProbe(t *testing.T) {
+	db := managedModelDB(t)
+	channel, row := managedVisionFixture(t, db, false)
+	probes := 0
+	host := &Host{imageProbe: func(context.Context, *model.Channel, int) error {
+		probes++
+		return nil
+	}}
+	err := host.executeModelConnection(nil, configurationRequest{Section: "model_connection", Provider: "vllm", Action: "verify_vision", ConnectionID: channel.Id, Revision: row.Revision + 1, ConfigHash: row.ConfigHash}, nil)
+	if !errors.Is(err, errVisionVerificationStale) {
+		t.Fatalf("stale verify revision error = %v", err)
+	}
+	if probes != 0 {
+		t.Fatal("stale verify revision called the provider probe")
+	}
+	var after lingtu.ModelConnection
+	if err := db.First(&after, row.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.ImageTestStatus != "never" || after.ImageTestedAt != 0 {
+		t.Fatalf("stale verify revision changed image state: %+v", after)
+	}
+}
+
+func TestLingtuVisionPolicySaveRequiresVerifiedAuthorizedCandidate(t *testing.T) {
+	db := managedModelDB(t)
+	if err := persistManagedModel(&model.Channel{Name: "lingtu-deepseek", Type: 1, Group: "default", Models: "deepseek-flash", Status: common.ChannelStatusEnabled, Key: "fixture-deepseek"}, false); err != nil {
+		t.Fatal(err)
+	}
+	_, row := managedVisionFixture(t, db, false)
+	base := saveManagedTrialPolicy(t, db, "", []string{"deepseek-flash", row.ModelID})
+	h := &Host{}
+
+	unverified := base.VisionModel
+	unverified = row.ModelID
+	request := visionPolicyRequest(base)
+	request.VisionModel = &unverified
+	if err := h.saveTrialConfiguration(request); err == nil {
+		t.Fatal("unverified image candidate was saved")
+	}
+	after, err := lingtu.LoadTrialPolicy(db)
+	if err != nil || after.VisionModel != "" {
+		t.Fatalf("failed save changed policy: %+v error=%v", after, err)
+	}
+
+	row.ImageTestStatus = "success"
+	row.ImageTestedHash = row.ConfigHash
+	row.ImageTestedAt = time.Now().Unix()
+	if err := db.Save(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	request = visionPolicyRequest(base)
+	request.VisionModel = &unverified
+	if err := h.saveTrialConfiguration(request); err != nil {
+		t.Fatal(err)
+	}
+	after, _ = lingtu.LoadTrialPolicy(db)
+	if after.VisionModel != row.ModelID {
+		t.Fatalf("verified candidate not saved: %+v", after)
+	}
+
+	request = visionPolicyRequest(after)
+	request.VisionModel = nil
+	request.DailyCalls++
+	if err := h.saveTrialConfiguration(request); err != nil {
+		t.Fatal(err)
+	}
+	after, _ = lingtu.LoadTrialPolicy(db)
+	if after.VisionModel != row.ModelID {
+		t.Fatal("omitted vision_model did not preserve")
+	}
+
+	empty := ""
+	request = visionPolicyRequest(after)
+	request.VisionModel = &empty
+	if err := h.saveTrialConfiguration(request); err != nil {
+		t.Fatal(err)
+	}
+	after, _ = lingtu.LoadTrialPolicy(db)
+	if after.VisionModel != "" {
+		t.Fatal("explicit clear did not clear vision_model")
+	}
+
+	unauthorized := row.ModelID
+	request = visionPolicyRequest(base)
+	request.AllowedModels = []string{"deepseek-flash"}
+	request.VisionModel = &unauthorized
+	if err := h.saveTrialConfiguration(request); err == nil {
+		t.Fatal("unauthorized image candidate was saved")
+	}
+}
+
+func TestLingtuVisionImageVerificationIsIsolatedAndCASGuarded(t *testing.T) {
+	db := managedModelDB(t)
+	channel, row := managedVisionFixture(t, db, false)
+	if err := db.AutoMigrate(&managedUsage{}); err != nil {
+		t.Fatal(err)
+	}
+	var usages int64
+	countUsage := func() int64 {
+		t.Helper()
+		if err := db.Model(&managedUsage{}).Count(&usages).Error; err != nil {
+			t.Fatal(err)
+		}
+		return usages
+	}
+	var chanStatus, testTime = channel.Status, channel.TestTime
+	host := &Host{imageProbe: func(context.Context, *model.Channel, int) error { return nil }}
+	request := configurationRequest{Section: "model_connection", Provider: "vllm", Action: "verify_vision", ConnectionID: channel.Id, Revision: row.Revision, ConfigHash: row.ConfigHash}
+	if err := host.executeModelConnection(nil, request, nil); err != nil {
+		t.Fatal(err)
+	}
+	var verified lingtu.ModelConnection
+	if err := db.First(&verified, row.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if verified.ImageTestStatus != "success" || verified.ImageTestedHash != verified.ConfigHash || verified.ImageTestedAt <= 0 || verified.TestStatus != "success" {
+		t.Fatalf("image verification record = %+v", verified)
+	}
+	var native model.Channel
+	if err := db.First(&native, channel.Id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if native.Status != chanStatus || native.TestTime != testTime {
+		t.Fatalf("image verification changed native channel: status=%d test=%d", native.Status, native.TestTime)
+	}
+	if countUsage() != 0 {
+		t.Fatal("image verification created managed usage")
+	}
+	var trialRequests int64
+	if err := db.Model(&lingtu.TrialRequest{}).Count(&trialRequests).Error; err != nil || trialRequests != 0 {
+		t.Fatalf("image verification created trial requests=%d error=%v", trialRequests, err)
+	}
+
+	// A changed native configuration during the probe must reject the stale result.
+	host = &Host{imageProbe: func(context.Context, *model.Channel, int) error {
+		return db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("key", "rotated-during-probe").Error
+	}}
+	stale := request
+	stale.Revision = verified.Revision
+	stale.ConfigHash = verified.ConfigHash
+	if err := host.executeModelConnection(nil, stale, nil); !errors.Is(err, errVisionVerificationStale) {
+		t.Fatalf("stale image probe error = %v", err)
+	}
+	var afterStale lingtu.ModelConnection
+	if err := db.First(&afterStale, row.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if afterStale.ImageTestedHash != verified.ImageTestedHash || afterStale.ImageTestedAt != verified.ImageTestedAt {
+		t.Fatal("stale image result overwrote current verification")
+	}
+
+	// A failed probe records the failure but never disables the text connection.
+	goodChannel, goodRow := managedVisionFixture(t, db, false)
+	host = &Host{imageProbe: func(context.Context, *model.Channel, int) error { return errors.New("fixture image rejected") }}
+	failed := configurationRequest{Section: "model_connection", Provider: "vllm", Action: "verify_vision", ConnectionID: goodChannel.Id, Revision: goodRow.Revision, ConfigHash: goodRow.ConfigHash}
+	if err := host.executeModelConnection(nil, failed, nil); !errors.Is(err, errVisionVerificationFailed) {
+		t.Fatalf("failed probe error = %v", err)
+	}
+	var failedRow lingtu.ModelConnection
+	if err := db.First(&failedRow, goodRow.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if failedRow.ImageTestStatus != "failed" || failedRow.TestStatus != "success" {
+		t.Fatalf("failed image probe changed text status: %+v", failedRow)
+	}
+
+	// A successful text probe cannot grant image capability.
+	textChannel, textRow := managedVisionFixture(t, db, false)
+	host = &Host{}
+	textRequest := configurationRequest{Section: "model_connection", Provider: "vllm", Action: "test", ConnectionID: textChannel.Id, Revision: textRow.Revision}
+	if err := host.executeModelConnection(nil, textRequest, func(context.Context, *model.Channel, int) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	var textVerified lingtu.ModelConnection
+	if err := db.First(&textVerified, textRow.ChannelID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if textVerified.TestStatus != "success" || textVerified.ImageTestStatus != "never" || textVerified.ImageTestedHash != "" {
+		t.Fatalf("text probe granted image verification: %+v", textVerified)
+	}
+}
+
+func TestLingtuVisionConfigurationChangesInvalidateImageVerification(t *testing.T) {
+	db := managedModelDB(t)
+	channel, row := managedVisionFixture(t, db, true)
+	views, err := modelConnectionViews(db, "deepseek-flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *modelConnectionView
+	for i := range views {
+		if views[i].ConnectionID == row.ChannelID {
+			found = &views[i]
+		}
+	}
+	if found == nil || !found.VisionVerified || !found.VisionReady || found.ImageTestStatus != "success" {
+		t.Fatalf("verified view = %+v", found)
+	}
+	if err := db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("key", "rotated-key").Error; err != nil {
+		t.Fatal(err)
+	}
+	views, err = modelConnectionViews(db, "deepseek-flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if views[0].VisionVerified || views[0].VisionReady || views[0].ImageTestStatus != "stale" {
+		t.Fatalf("key change did not stale image verification: %+v", views[0])
+	}
+	channel.Key = "rotated-key"
+	if err := db.Save(channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	model.InitChannelCache()
+}
