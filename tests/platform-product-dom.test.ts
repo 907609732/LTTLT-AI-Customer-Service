@@ -43,6 +43,35 @@ it('includes actual carousel pictures with detail pictures and excludes tutorial
   expect(() => readPddProductDetail('12345678')).toThrow('主图')
 })
 
+it('accepts duplicate DOM nodes for one uploaded main image', () => {
+  const carousel = document.getElementById('basic.carousel_gallery')!
+  carousel.insertAdjacentHTML(
+    'beforeend',
+    '<img src="https://img.example.com/main.png" data-testid="preload-copy">',
+  )
+  expect(readPddProductDetail('12345678').images).toContain('https://img.example.com/main.png')
+})
+
+it('accepts a lazy-loaded source attribute for one uploaded main image', () => {
+  const image = document.getElementById('basic.carousel_gallery')!.querySelector('img')!
+  image.removeAttribute('src')
+  image.setAttribute('data-src', 'https://img.example.com/lazy-main.png')
+  expect(readPddProductDetail('12345678').images).toContain('https://img.example.com/lazy-main.png')
+})
+
+it('reads four native material slots without counting their repeated AI badge', () => {
+  const carousel = document.getElementById('basic.carousel_gallery')!
+  const main = [1, 2, 3, 4].map((i) => `https://img.example.com/main-${i}.png`)
+  carousel.innerHTML = `已上传4/10张${main.map((url) => `<div class="MaterialModalButton_v2_imageWrapper__abc"><span class="MaterialModalButton_v2_imgContainer__abc"><div class="MaterialModalButton_v2_imageBox__abc" style="background-image:url('${url}')"></div><img class="MaterialModalButton_v2_aiFlag__abc" src="https://img.example.com/ai.png"></span></div>`).join('')}`
+  expect(readPddProductDetail('12345678').images).toEqual([
+    ...main,
+    'https://img.example.com/detail.png',
+    'https://img.example.com/background.png',
+  ])
+  carousel.querySelector('[class*="_imageBox__"]')!.removeAttribute('style')
+  expect(() => readPddProductDetail('12345678')).toThrow('商品主图数量尚未读取完整')
+})
+
 it('reads only product fields, preserves SKU dimensions and distinct barcode, and never edits fields', () => {
   const clicked = vi.fn()
   document.querySelector('#submit_button')?.addEventListener('click', clicked)
