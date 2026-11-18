@@ -11,11 +11,12 @@
 - 渲染层快照只含 `mode/baseUrl/model/apiKeyConfigured/status/reason`；不含 Key、密文、配置摘要、Key 代次或内部代次。设置页另用非秘密 `revision` 做并发写入；capabilities 不投影该字段。
 - 缺文件默认 `inherit`：保留旧文字模型图片能力，但明确标为“未独立验证”，不强迫旧用户重新验证。
 - `custom` 必须通过固定内置红/蓝上下顺序 PNG 的显式图片验证；普通 `/models` 连接测试不写入图片验证状态，提示本身不泄露颜色答案。
-- 跨 origin（协议 + 主机 + 端口）换 Endpoint 时必须显式重新输入 Key；后端拒绝且旧配置不变。同 origin 的路径或模型名变化可保留 Key。
+- Key 保存非秘密 origin（协议 + 主机 + 端口），跨 origin 换 Endpoint 时必须显式重新输入 Key；切换 inherit、清空地址也不会丢 Key 归属。后端拒绝且旧配置不变。同 origin 的路径或模型名变化可保留 Key。
+- 图片验证套件版本由 `electron/vision-model-verification.ts` 唯一定义；旧/缺失/未知 suite 一律 stale，需重新验证，不能靠摘要恢复。
 - 任何有效配置变化都会撤销旧图片验证，A→B→A 也必须重新验证，不能靠摘要复活。
 - 已验证图片请求只在 **local + custom + 含真实 `image_url`** 时进入独立 OpenAI 兼容 `/chat/completions`；文字请求、`inherit` 和 managed 模式始终委托原端口，不静默回退。
 - 独立组件 `VisionModelSettings.vue`，通过注入的 `VisionModelService` 工作；无服务时明确不可用，保存/连接/图片验证都需手动点击。
-- 43 项专项测试，覆盖注入式 mock、真实 `node:http` 127.0.0.1 回环 HTTP、图片分流、文字端点隔离、跨 origin Key、Key 不泄漏、继承兼容、过期响应、取消/超时、A→B→A 闭锁、原子写失败、普通文本不冒充图片验证、UI 草稿与清除确认。
+- 49 项专项测试，覆盖注入式 mock、真实 `node:http` 127.0.0.1 回环 HTTP、图片分流、文字端点隔离、跨 origin Key、inherit 空地址绕过、旧 Key origin 迁移、旧 suite 兼容、Key 不泄漏、继承兼容、过期响应、取消/超时、A→B→A 闭锁、原子写失败、普通文本不冒充图片验证、UI 草稿与清除确认。
 - 设置页 CAS 使用安全 revision；Key 轮换即使可见字段不变也会递增 revision，旧设置页保存/清 Key 明确冲突。
 
 ## 文件与职责
@@ -46,13 +47,17 @@
   "mode": "custom",
   "baseUrl": "https://api.deepseek.com",
   "model": "deepseek-flash",
-  "key": { "ciphertext": "<safeStorage密文base64>", "version": 1 },
+  "key": {
+    "ciphertext": "<safeStorage密文base64>",
+    "version": 1,
+    "origin": "https://api.deepseek.com"
+  },
   "verify": {
     "status": "verified",
     "digest": "<配置+Key代次摘要，不是Key指纹>",
     "owner": "<业务目录摘要>",
     "at": 1760000000000,
-    "suite": 1
+    "suite": 2
   }
 }
 ```
@@ -64,6 +69,8 @@
 - 原子写先 fsync 临时文件，再 rename；rename 后尽力 fsync 目录（Windows 不支持时忽略）。失败清理临时文件不会覆盖主错误。
 - 任何有效配置变化（Endpoint、模型、Key 版本、模式）都会移除旧验证；即使之后回到完全相同的旧值，也必须重新显式验证。
 - 更换 origin 时如未输入新 Key，保存直接拒绝，不把旧 Key 发给新主机。
+- Key origin 独立保存；`custom/A` → `inherit/空地址` → `custom/B` 不会把 A 的 Key 发给 B。旧文件缺少 origin 且已无地址证据时，要求重新输入 Key。
+- 旧/未知 verification suite 读取为 stale；文件不改写，重新显式验证成功后才写当前 suite。
 - 文件复制到另一业务目录时 owner 不匹配，旧验证显示 `stale`。
 - Key 密文只由主进程解密；IPC/快照/日志不得返回。
 
@@ -186,7 +193,7 @@ knowledge.setModel(visionRuntime.knowledgePort())
 
 ```text
 npx vitest run tests/vision-model-settings.test.ts tests/knowledge-vision-routing.test.ts tests/vision-model-ui.test.ts --no-file-parallelism --maxWorkers=2 --minWorkers=1
-# 3 files / 43 tests passed
+# 3 files / 49 tests passed
 
 npx vue-tsc --noEmit
 npx tsc -p config/tsconfig.electron.json --noEmit

@@ -1,7 +1,12 @@
-import { deflateSync } from 'node:zlib'
 import type { KnowledgeModelPort } from './knowledge-runtime'
 import type { ModelMessages } from './context-compression'
 import { listCustomModels } from './list-custom-models'
+import {
+  VISION_VERIFICATION_PROMPT,
+  VISION_VERIFICATION_SUITE_VERSION,
+  visionVerificationAnswerMatches,
+  visionVerificationImageDataUrl,
+} from './vision-model-verification'
 import type { VisionCustomRoute, VisionVerificationTicket } from './vision-model-settings'
 import type { VisionModelSettingsStore } from './vision-model-settings'
 import type {
@@ -46,7 +51,6 @@ class VisionRequestError extends Error {
   }
 }
 
-const SUITE_VERSION = 2
 const DEFAULT_TIMEOUT_MS = 60_000
 const MAX_TIMEOUT_MS = 120_000
 
@@ -127,81 +131,6 @@ function hasImage(messages: ModelMessages): boolean {
 
 function failureMessage(error: unknown): string {
   return error instanceof Error ? error.message : '图片模型操作失败'
-}
-
-/**
- * 固定 64×64 合成 PNG：上红下蓝，仅用于用户显式点击的图片能力探针。
- * 提示只问从上到下的颜色，不把答案写进请求；正常图片来源也未因此放宽。
- */
-function verifyPng(): Buffer {
-  const width = 64
-  const height = 64
-  const stride = width * 4 + 1
-  const pixels = Buffer.alloc(stride * height)
-  for (let y = 0; y < height; y++) {
-    pixels[y * stride] = 0
-    for (let x = 0; x < width; x++) {
-      const offset = y * stride + 1 + x * 4
-      if (y < height / 2) {
-        // 上半区轻微变化的红色，避免压缩成可轻易猜到的单像素常量。
-        pixels[offset] = 235 + ((x * 7 + y * 11) % 21)
-        pixels[offset + 1] = (x * 3 + y * 5) % 18
-        pixels[offset + 2] = (x * 5 + y * 2) % 15
-      } else {
-        // 下半区轻微变化的蓝色，要求模型按上下顺序识别两种颜色。
-        pixels[offset] = (x * 5 + y * 3) % 15
-        pixels[offset + 1] = (x * 7 + y * 2) % 20
-        pixels[offset + 2] = 235 + ((x * 3 + y * 11) % 21)
-      }
-      pixels[offset + 3] = 255
-    }
-  }
-  const header = Buffer.alloc(13)
-  header.writeUInt32BE(width, 0)
-  header.writeUInt32BE(height, 4)
-  header[8] = 8
-  header[9] = 6
-  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
-  return Buffer.concat([
-    signature,
-    pngChunk('IHDR', header),
-    pngChunk('IDAT', deflateSync(pixels, { level: 9 })),
-    pngChunk('IEND', Buffer.alloc(0)),
-  ])
-}
-
-function pngChunk(type: string, data: Buffer): Buffer {
-  const name = Buffer.from(type, 'ascii')
-  const length = Buffer.alloc(4)
-  length.writeUInt32BE(data.length, 0)
-  const checksum = Buffer.alloc(4)
-  checksum.writeUInt32BE(crc32(Buffer.concat([name, data])), 0)
-  return Buffer.concat([length, name, data, checksum])
-}
-
-let crcTable: Uint32Array | undefined
-function crc32(value: Buffer): number {
-  if (!crcTable) {
-    crcTable = new Uint32Array(256)
-    for (let index = 0; index < 256; index++) {
-      let current = index
-      for (let bit = 0; bit < 8; bit++)
-        current = current & 1 ? 0xedb88320 ^ (current >>> 1) : current >>> 1
-      crcTable[index] = current >>> 0
-    }
-  }
-  let crc = 0xffffffff
-  for (const byte of value) crc = crcTable[(crc ^ byte) & 0xff]! ^ (crc >>> 8)
-  return (crc ^ 0xffffffff) >>> 0
-}
-
-function answerMatches(value: string): boolean {
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[\s，,。.!！、:：;；"'“”‘’-]/g, '')
-  // 只接受固定 fixture 的“上红下蓝”顺序，不接受任意非空文本或单一颜色。
-  return normalized === '红色蓝色' || normalized === '红蓝' || normalized === 'redblue'
 }
 
 /**
@@ -442,16 +371,14 @@ export class VisionModelRuntime {
     const generation = this.store.generation()
     if (options.signal?.aborted) throw new Error('图片验证已取消')
     if (options.isCurrent?.() === false) throw new Error('图片验证已取消')
-    const prompt =
-      '图中从上到下排列着两个纯色区域。请只按从上到下的顺序回答这两个区域的颜色，使用中文颜色词，两个词之间用顿号分隔；不要解释，不要补充其他内容。'
     const messages: ModelMessages = [
       {
         role: 'user',
         content: [
-          { type: 'text', text: prompt },
+          { type: 'text', text: VISION_VERIFICATION_PROMPT },
           {
             type: 'image_url',
-            image_url: { url: `data:image/png;base64,${verifyPng().toString('base64')}` },
+            image_url: { url: visionVerificationImageDataUrl() },
           },
         ],
       },
@@ -492,7 +419,7 @@ export class VisionModelRuntime {
     this.assertActive()
     if (this.store.generation() !== generation)
       throw new Error('图片模型配置已变化，请重新执行固定合成图验证')
-    if (!answerMatches(response.text)) {
+    if (!visionVerificationAnswerMatches(response.text)) {
       const recorded = this.store.recordVerification(ticket, {
         ok: false,
         reason: '固定合成图验证失败：模型没有按从上到下的顺序返回两个可核对颜色。',
@@ -509,7 +436,7 @@ export class VisionModelRuntime {
       ok: true,
       status: recorded.snapshot.status,
       revision: recorded.revision,
-      message: `图片识别验证通过（验证套件 v${SUITE_VERSION}）。`,
+      message: `图片识别验证通过（验证套件 v${VISION_VERIFICATION_SUITE_VERSION}）。`,
     }
   }
 }

@@ -12,6 +12,7 @@ import {
   type VisionModelSettingsView,
   type VisionModelSnapshot,
 } from '../src/shared/contracts/vision'
+import { VISION_VERIFICATION_SUITE_VERSION } from './vision-model-verification'
 
 /**
  * 与 Electron safeStorage 相同的最小端口。production 组合根必须传真实主进程
@@ -50,6 +51,8 @@ export type VisionVerificationOutcome =
 interface StoredKey {
   ciphertext: string
   version: number
+  /** 非秘密绑定信息：Key 最初输入的协议+主机+端口。 */
+  origin?: string
 }
 
 interface StoredVerification {
@@ -57,7 +60,7 @@ interface StoredVerification {
   digest: string
   owner: string
   at: number
-  suite: number
+  suite?: number
   reason?: string
 }
 
@@ -99,6 +102,7 @@ const fileKeySchema = z
   .object({
     ciphertext: z.string().min(1).max(1_000_000),
     version: z.number().int().positive(),
+    origin: z.string().max(512).optional(),
   })
   .strict()
 
@@ -108,7 +112,7 @@ const verificationSchema = z
     digest: z.string().min(1).max(256),
     owner: z.string().min(1).max(256),
     at: z.number().int().nonnegative(),
-    suite: z.number().int().positive(),
+    suite: z.number().int().positive().optional(),
     reason: z.string().max(1000).optional(),
   })
   .strict()
@@ -132,6 +136,7 @@ const VERIFIED_REASON = '独立图片模型已完成固定合成图验证。'
 const UNVERIFIED_REASON = '已保存独立配置，尚未执行固定合成图验证。普通连接测试不能代替图片验证。'
 const STALE_CONFIG_REASON = '图片模型端点、模型或 Key 已改变，请重新执行固定合成图验证。'
 const STALE_OWNER_REASON = '视觉配置来自另一业务目录，图片验证已失效，请重新验证。'
+const STALE_SUITE_REASON = '图片验证套件已更新，旧验证不能继续用于图片学习，请重新验证。'
 const KEY_CLEARED_REASON = '独立图片模型 Key 已清除，图片学习不可用。'
 
 /**
@@ -183,7 +188,16 @@ export class VisionModelSettingsStore {
     }
     const parsed = fileSchema.safeParse(raw)
     if (!parsed.success) throw new Error('图片模型配置无效，原文件未改动，请恢复备份后重试')
-    return parsed.data
+    const loaded = parsed.data
+    if (loaded.key && !loaded.key.origin && loaded.baseUrl) {
+      // 旧文件没有 Key origin：仅从当前已保存的地址推断并保留在内存；不改写文件。
+      try {
+        loaded.key.origin = visionBaseUrlOrigin(loaded.baseUrl)
+      } catch {
+        // 地址不可解析时保持“归属未知”，后续向任何新地址发送都必须重输 Key。
+      }
+    }
+    return loaded
   }
 
   private write(value: SettingsFile): void {
@@ -232,6 +246,24 @@ export class VisionModelSettingsStore {
       throw new Error(failure)
     }
     this.state = next
+  }
+
+  private keyOrigin(): string | undefined {
+    const stored = this.state.key?.origin
+    if (stored) {
+      try {
+        return new URL(stored).origin
+      } catch {
+        return undefined
+      }
+    }
+    // 兼容旧文件：当前保存的地址可作为同一次密钥输入的归属证据。
+    if (!this.state.baseUrl) return undefined
+    try {
+      return visionBaseUrlOrigin(this.state.baseUrl)
+    } catch {
+      return undefined
+    }
   }
 
   private digest(value: SettingsFile): string {
@@ -289,6 +321,9 @@ export class VisionModelSettingsStore {
     const verify = this.state.verify
     if (!verify) return { status: 'unverified', reason: UNVERIFIED_REASON }
     if (verify.owner !== this.owner) return { status: 'stale', reason: STALE_OWNER_REASON }
+    // 旧套件（包括没有 suite 的旧记录）可能包含泄露答案的探针，必须重新验证。
+    if (verify.suite !== VISION_VERIFICATION_SUITE_VERSION)
+      return { status: 'stale', reason: STALE_SUITE_REASON }
     if (verify.digest !== this.digest(this.state))
       return { status: 'stale', reason: STALE_CONFIG_REASON }
     if (verify.status === 'failed')
@@ -343,9 +378,12 @@ export class VisionModelSettingsStore {
     if (input.mode === 'custom' && !providedKey && !this.state.key)
       throw new Error('请填写图片模型 API Key')
     if (providedKey.length > 20_000) throw new Error('图片模型 API Key 过长')
-    if (this.state.key && this.state.baseUrl && nextBaseUrl && !providedKey) {
-      // Key 绑定 origin；换协议/主机/端口必须显式重输，不能把 A 的旧 Key 静默发给 B。
-      if (visionBaseUrlOrigin(this.state.baseUrl) !== visionBaseUrlOrigin(nextBaseUrl))
+    if (this.state.key && nextBaseUrl && !providedKey) {
+      // Key 绑定最初输入它的 origin；即使中间切过 inherit 空地址也不能绕过。
+      const boundOrigin = this.keyOrigin()
+      if (!boundOrigin)
+        throw new Error('无法确认已保存图片模型 Key 的服务归属，请重新输入 API Key；原配置未改动')
+      if (boundOrigin !== visionBaseUrlOrigin(nextBaseUrl))
         throw new Error('更换图片模型服务地址后必须重新输入 API Key；原配置未改动')
     }
 
@@ -355,6 +393,7 @@ export class VisionModelSettingsStore {
         key = {
           ciphertext: this.safeStorage.encryptString(providedKey).toString('base64'),
           version: (this.state.key?.version ?? 0) + 1,
+          ...(nextBaseUrl ? { origin: visionBaseUrlOrigin(nextBaseUrl) } : {}),
         }
       } catch {
         throw new Error('图片模型 Key 加密失败，未保存任何配置')
@@ -448,7 +487,7 @@ export class VisionModelSettingsStore {
         digest: ticket.digest,
         owner: this.owner,
         at: this.now(),
-        suite: 1,
+        suite: VISION_VERIFICATION_SUITE_VERSION,
         ...(outcome.ok ? {} : { reason: outcome.reason.slice(0, 1000) }),
       },
     }
@@ -465,6 +504,9 @@ export class VisionModelSettingsStore {
     if (this.state.mode !== 'custom') throw new Error('图片识别当前沿用文字模型')
     if (!this.state.baseUrl || !this.state.model || !this.state.key)
       throw new Error('图片模型配置不完整，请先保存地址、模型和 Key')
+    const boundOrigin = this.keyOrigin()
+    if (!boundOrigin || boundOrigin !== visionBaseUrlOrigin(this.state.baseUrl))
+      throw new Error('图片模型 Key 与当前服务地址归属不一致，请重新输入 API Key')
     if (requireVerified) {
       const verification = this.verificationState()
       if (verification.status !== 'verified') throw new Error(verification.reason)

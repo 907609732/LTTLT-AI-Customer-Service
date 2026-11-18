@@ -276,6 +276,24 @@ describe('图片模型设置组件', () => {
     wrapper.unmount()
   })
 
+  it('旧套件 stale 状态显示明确原因，不把旧验证显示为已验证', async () => {
+    const fixture = mockedService(
+      snapshot({
+        ...configured,
+        status: 'stale',
+        reason: '图片验证套件已更新，旧验证不能继续用于图片学习，请重新验证。',
+      }),
+    )
+    const wrapper = mountComponent(fixture.service)
+    await flushPromises()
+    expect(wrapper.text()).toContain('配置已变更，需重新验证')
+    expect(wrapper.text()).toContain('图片验证套件已更新')
+    expect(wrapper.text()).not.toContain('已验证')
+    expect(fixture.probe).not.toHaveBeenCalled()
+    expect(fixture.verify).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('跨 origin 换地址但未重输 Key 时阻止保存，错误保留草稿', async () => {
     const fixture = mockedService(configured)
     const wrapper = mountComponent(fixture.service)

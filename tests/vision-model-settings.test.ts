@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { VisionModelExpected, VisionModelSettingsView } from '../src/shared/contracts/vision'
 import { VisionModelSettingsStore, type VisionSafeStorage } from '../electron/vision-model-settings'
+import { VISION_VERIFICATION_SUITE_VERSION } from '../electron/vision-model-verification'
 
 const cleanup: (() => void)[] = []
 afterEach(() => {
@@ -365,6 +366,123 @@ describe('独立图片模型配置', () => {
     })
     expect(sameOrigin.snapshot.apiKeyConfigured).toBe(true)
     expect(current.resolveCustomRoute(false).apiKey).toBe('vision-secret-a')
+  })
+
+  it('custom A/KeyA → inherit 空地址 → custom B/空 Key 仍拒绝，显式 KeyB 才成功', () => {
+    const root = directory()
+    const current = store(root)
+    const first = current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision-a.example.com/v1',
+      model: 'model-a',
+      apiKey: 'vision-secret-a',
+      expected: expected(current.view()),
+    })
+    const inherited = current.save({
+      mode: 'inherit',
+      baseUrl: '',
+      model: '',
+      expected: expected(first),
+    })
+    expect(inherited.snapshot).toMatchObject({
+      mode: 'inherit',
+      baseUrl: '',
+      apiKeyConfigured: true,
+    })
+    const fileBefore = readFileSync(join(root, 'vision-model.json'), 'utf8')
+    expect(() =>
+      current.save({
+        mode: 'custom',
+        baseUrl: 'https://vision-b.example.com/v1',
+        model: 'model-b',
+        expected: expected(inherited),
+      }),
+    ).toThrow(/重新输入|归属/)
+    expect(readFileSync(join(root, 'vision-model.json'), 'utf8')).toBe(fileBefore)
+    const explicit = current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision-b.example.com/v1',
+      model: 'model-b',
+      apiKey: 'vision-secret-b',
+      expected: expected(inherited),
+    })
+    expect(explicit.snapshot.apiKeyConfigured).toBe(true)
+    expect(current.resolveCustomRoute(false).apiKey).toBe('vision-secret-b')
+  })
+
+  it('旧文件 Key 缺少 origin 且地址已清空时，迁移后新 origin 不能复用旧 Key', () => {
+    const root = directory()
+    const safeStorage = encryption()
+    const current = store(root, safeStorage)
+    const first = current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision-a.example.com/v1',
+      model: 'model-a',
+      apiKey: 'vision-secret-a',
+      expected: expected(current.view()),
+    })
+    current.save({
+      mode: 'inherit',
+      baseUrl: '',
+      model: '',
+      expected: expected(first),
+    })
+    const file = join(root, 'vision-model.json')
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as {
+      key?: { origin?: string }
+    }
+    if (raw.key) delete raw.key.origin
+    writeFileSync(file, JSON.stringify(raw))
+    const migrated = store(root, safeStorage)
+    expect(migrated.snapshot()).toMatchObject({ mode: 'inherit', apiKeyConfigured: true })
+    expect(() =>
+      migrated.save({
+        mode: 'custom',
+        baseUrl: 'https://vision-b.example.com/v1',
+        model: 'model-b',
+        expected: expected(migrated.view()),
+      }),
+    ).toThrow(/重新输入|归属/)
+    const explicit = migrated.save({
+      mode: 'custom',
+      baseUrl: 'https://vision-b.example.com/v1',
+      model: 'model-b',
+      apiKey: 'vision-secret-b',
+      expected: expected(migrated.view()),
+    })
+    expect(explicit.snapshot.apiKeyConfigured).toBe(true)
+    expect(migrated.resolveCustomRoute(false).apiKey).toBe('vision-secret-b')
+  })
+
+  it('旧 suite1 验证记录仍保留 Key 和配置，但读取为 stale 且不能放行图片', () => {
+    const root = directory()
+    const safeStorage = encryption()
+    const current = store(root, safeStorage)
+    let view = current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision.example.com/v1',
+      model: 'model-a',
+      apiKey: 'vision-secret-value',
+      expected: expected(current.view()),
+    })
+    view = current.recordVerification(current.captureVerificationTicket(), { ok: true })
+    expect(view.snapshot.status).toBe('verified')
+    const file = join(root, 'vision-model.json')
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as {
+      verify?: { suite?: number }
+    }
+    expect(raw.verify?.suite).toBe(VISION_VERIFICATION_SUITE_VERSION)
+    if (raw.verify) raw.verify.suite = 1
+    writeFileSync(file, JSON.stringify(raw))
+    const restarted = store(root, safeStorage)
+    expect(restarted.snapshot()).toMatchObject({
+      mode: 'custom',
+      apiKeyConfigured: true,
+      status: 'stale',
+    })
+    expect(restarted.snapshot().reason).toContain('套件')
+    expect(readFileSync(file, 'utf8')).toBe(JSON.stringify(raw))
+    expect(() => restarted.resolveCustomRoute(true)).toThrow(/套件/)
   })
 
   it('清除 Key 需要显式调用，成功后移除密文并关闭独立图片路由', () => {

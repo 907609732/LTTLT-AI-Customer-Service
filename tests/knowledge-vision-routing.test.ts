@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -11,6 +11,7 @@ import { VisionModelSettingsStore, type VisionSafeStorage } from '../electron/vi
 import { VisionModelRuntime, type VisionTraceEvent } from '../electron/vision-model-runtime'
 import { createKnowledgeRepository } from '../electron/knowledge'
 import { createKnowledgeLearner } from '../electron/knowledge/learning'
+import { VISION_VERIFICATION_SUITE_VERSION } from '../electron/vision-model-verification'
 import type { VisionModelSettingsView } from '../src/shared/contracts/vision'
 
 const cleanup: (() => void)[] = []
@@ -645,6 +646,66 @@ describe('独立图片模型连接与路由', () => {
     }
   })
 
+  it('真实双端口 A→inherit 空→B/空 Key 拒绝，显式 Key 才可 B', async () => {
+    const serverA = await startLoopbackServer()
+    const serverB = await startLoopbackServer()
+    const root = directory()
+    try {
+      const store = new VisionModelSettingsStore({ dataDir: root, safeStorage })
+      const runtime = new VisionModelRuntime({
+        store,
+        base: {
+          complete: async () => 'base-text-response',
+          vision: () => ({ supported: true, maxImages: 4, reason: '旧文字模型图片能力' }),
+        },
+      })
+      store.save({
+        mode: 'custom',
+        baseUrl: `${serverA.baseUrl}/v1`,
+        model: 'deepseek-flash',
+        apiKey: 'inherit-key-a',
+        expected: expected(store.view()),
+      })
+      await runtime.verify()
+      expect(serverA.requests).toHaveLength(1)
+      const inherited = store.save({
+        mode: 'inherit',
+        baseUrl: '',
+        model: '',
+        expected: expected(store.view()),
+      })
+      expect(inherited.snapshot).toMatchObject({ mode: 'inherit', apiKeyConfigured: true })
+      expect(() =>
+        store.save({
+          mode: 'custom',
+          baseUrl: `${serverB.baseUrl}/v1`,
+          model: 'deepseek-flash',
+          expected: expected(inherited),
+        }),
+      ).toThrow(/重新输入|归属/)
+      expect(serverB.requests).toHaveLength(0)
+      expect(serverA.requests.map((request) => request.authorization)).not.toContain(
+        'Bearer inherit-key-b',
+      )
+
+      store.save({
+        mode: 'custom',
+        baseUrl: `${serverB.baseUrl}/v1`,
+        model: 'deepseek-flash',
+        apiKey: 'inherit-key-b',
+        expected: expected(inherited),
+      })
+      await runtime.verify()
+      expect(serverB.requests).toHaveLength(1)
+      expect(serverB.requests[0]!.authorization).toBe('Bearer inherit-key-b')
+      expect(serverA.requests.map((request) => request.authorization)).not.toContain(
+        'Bearer inherit-key-b',
+      )
+    } finally {
+      await Promise.all([closeServer(serverA.server), closeServer(serverB.server)])
+    }
+  })
+
   it('同源 A→B→A 回到旧端点也不自动复活验证，图片请求零上游', async () => {
     const loopback = await startLoopbackServer()
     const root = directory()
@@ -685,6 +746,79 @@ describe('独立图片模型连接与路由', () => {
     } finally {
       await closeServer(loopback.server)
     }
+  })
+
+  it('旧 suite1 记录同 owner/digest 仍 stale，重新验证写 suite2 前 0 上游', async () => {
+    const root = directory()
+    const firstStore = new VisionModelSettingsStore({ dataDir: root, safeStorage })
+    const firstRuntime = new VisionModelRuntime({
+      store: firstStore,
+      base: {
+        complete: async () => 'base',
+        vision: () => ({ supported: true, maxImages: 4, reason: 'base' }),
+      },
+      request: async () => responseJson({ choices: [{ message: { content: '红色、蓝色' } }] }),
+    })
+    firstStore.save({
+      mode: 'custom',
+      baseUrl: 'http://127.0.0.1:41801/v1',
+      model: 'deepseek-flash',
+      apiKey: 'suite-key',
+      expected: expected(firstStore.view()),
+    })
+    await firstRuntime.verify()
+    const file = join(root, 'vision-model.json')
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as {
+      verify?: { suite?: number }
+    }
+    expect(raw.verify?.suite).toBe(VISION_VERIFICATION_SUITE_VERSION)
+    if (raw.verify) raw.verify.suite = 1
+    writeFileSync(file, JSON.stringify(raw))
+
+    const reloaded = new VisionModelSettingsStore({ dataDir: root, safeStorage })
+    expect(reloaded.snapshot()).toMatchObject({
+      mode: 'custom',
+      apiKeyConfigured: true,
+      status: 'stale',
+    })
+    expect(reloaded.snapshot().reason).toContain('套件')
+    const calls: string[] = []
+    const baseComplete = vi.fn<KnowledgeModelPort['complete']>(async () => 'base')
+    const runtime = new VisionModelRuntime({
+      store: reloaded,
+      base: {
+        complete: baseComplete,
+        vision: () => ({ supported: true, maxImages: 4, reason: 'base' }),
+      },
+      request: async (input, init) => {
+        calls.push(String(input))
+        const body = String(init?.body ?? '')
+        return responseJson({
+          choices: [
+            {
+              message: {
+                content: body.includes('从上到下') ? '红色、蓝色' : '{"candidates":[]}',
+              },
+            },
+          ],
+        })
+      },
+    })
+    await expect(runtime.knowledgePort().complete({ messages: imageMessages() })).rejects.toThrow(
+      /套件|验证/,
+    )
+    expect(calls).toHaveLength(0)
+    expect(baseComplete).not.toHaveBeenCalled()
+    await expect(runtime.verify()).resolves.toMatchObject({ ok: true, status: 'verified' })
+    expect(
+      (JSON.parse(readFileSync(file, 'utf8')) as { verify?: { suite?: number } }).verify?.suite,
+    ).toBe(VISION_VERIFICATION_SUITE_VERSION)
+    expect(runtime.vision().supported).toBe(true)
+    calls.length = 0
+    await expect(runtime.knowledgePort().complete({ messages: imageMessages() })).resolves.toBe(
+      '{"candidates":[]}',
+    )
+    expect(calls).toHaveLength(1)
   })
 
   it('probe 在响应头已到、body 挂起时取消仍能在有限时间结束', async () => {
