@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  agentConfigApplySchema,
+  agentConfigGetSchema,
+  agentConfigPreviewSchema,
+} from './agent-settings'
 
 const id = z.string().trim().min(1).max(200)
 const workspace = { workspaceId: id }
@@ -52,6 +57,10 @@ export const agentToolSchemas = {
       expiresAt: z.number().int().positive().optional(),
     })
     .strict(),
+  lingtu_config_schema: z.object({}).strict(),
+  lingtu_get_config: agentConfigGetSchema,
+  lingtu_preview_config: agentConfigPreviewSchema,
+  lingtu_apply_config: agentConfigApplySchema,
 } as const
 export const agentCallSchema = z.discriminatedUnion('tool', [
   z.object({ tool: z.literal('lingtu_status'), args: agentToolSchemas.lingtu_status }).strict(),
@@ -89,6 +98,27 @@ export const agentCallSchema = z.discriminatedUnion('tool', [
   z
     .object({ tool: z.literal('lingtu_save_draft'), args: agentToolSchemas.lingtu_save_draft })
     .strict(),
+  z
+    .object({
+      tool: z.literal('lingtu_config_schema'),
+      args: agentToolSchemas.lingtu_config_schema,
+    })
+    .strict(),
+  z
+    .object({ tool: z.literal('lingtu_get_config'), args: agentToolSchemas.lingtu_get_config })
+    .strict(),
+  z
+    .object({
+      tool: z.literal('lingtu_preview_config'),
+      args: agentToolSchemas.lingtu_preview_config,
+    })
+    .strict(),
+  z
+    .object({
+      tool: z.literal('lingtu_apply_config'),
+      args: agentToolSchemas.lingtu_apply_config,
+    })
+    .strict(),
 ])
 export const agentConnectionSchema = z
   .object({
@@ -114,4 +144,12 @@ export const agentToolDescriptions: Record<AgentToolName, string> = {
     '按read_catalog给出的同一目录范围，采集明确选择的商品ID。立即返回jobId；不会学习或发布。requestId必须唯一，网络结果未知时先查任务，不自动重试。',
   lingtu_save_draft:
     '保存本店知识草稿，来源标记为模型生成，保持待人工审核；不允许修改共享或其他店条目。编辑需id和expectedRevision。requestId防重复，不自动发布。',
+  lingtu_config_schema:
+    '列出可修改的配置分组、作用域、字段类型和范围；不含凭据、模型参数或任意命令，先调用此工具了解字段。',
+  lingtu_get_config:
+    '读取一个配置分组及version。回复间隔为全局；欢迎语和识图开关必须指定当前店铺storeId。不返回密钥。',
+  lingtu_preview_config:
+    '预览一个严格的部分配置补丁，返回当前值、修改后值和差异；不写盘、不改变任何设置。',
+  lingtu_apply_config:
+    '提交一个配置分组的部分修改，将get/preview返回的version原样填入expectedVersion，并提供唯一requestId。复用现有保存与版本CAS；不修改AI开关、发送审批、凭据或模型参数。结果未知时先重新读取，不自动重试。',
 }

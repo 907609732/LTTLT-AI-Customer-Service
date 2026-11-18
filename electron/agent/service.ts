@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto'
 import type { LocalRuntime } from '../local-runtime'
 import { agentCallSchema } from '../../src/shared/contracts/agent'
 import type { KnowledgeScope } from '../../src/shared/contracts/knowledge'
+import {
+  agentConfigSchemaDescription,
+  applyAgentConfig,
+  getAgentConfig,
+  previewAgentConfig,
+} from './settings'
 
 export function createAgentService(options: {
   version: string
@@ -47,10 +53,11 @@ export function createAgentService(options: {
         mode: before.managed.active.mode,
         sessionStatus: before.managed.session.status,
         stores: before.stores.length,
-        tools: ['query', 'catalog', 'collect', 'draft'],
+        tools: ['query', 'catalog', 'collect', 'draft', 'config'],
         requiresHuman: ['clear', 'publish', 'send'],
       }
     }
+    if (input.tool === 'lingtu_config_schema') return agentConfigSchemaDescription
     if (input.args.workspaceId !== w) throw Error('账号工作区已改变，请重新获取状态')
     if (
       before.managed.restartRequired ||
@@ -63,6 +70,20 @@ export function createAgentService(options: {
     if (storeId && !before.stores.some((s) => s.id === storeId)) throw Error('店铺不存在或已移除')
     const run = async (): Promise<unknown> => {
       current()
+      if (input.tool === 'lingtu_get_config') return getAgentConfig(runtime.snapshot(), input.args)
+      if (input.tool === 'lingtu_preview_config')
+        return previewAgentConfig(runtime.snapshot(), input.args, input.args.patch)
+      if (input.tool === 'lingtu_apply_config') {
+        const result = await applyAgentConfig(
+          runtime,
+          input.args,
+          input.args.expectedVersion,
+          input.args.patch,
+          input.args.requestId,
+        )
+        current()
+        return result
+      }
       if (input.tool === 'lingtu_list_stores')
         return {
           workspaceId: w,

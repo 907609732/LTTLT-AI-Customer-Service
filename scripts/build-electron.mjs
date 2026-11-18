@@ -9,6 +9,7 @@ await build({
     preload: 'electron/preload.ts',
     smoke: 'electron/smoke.ts',
     'lingtu-mcp': 'electron/agent/mcp-server.ts',
+    'lingtu-cli': 'electron/agent/cli.ts',
   },
   outdir: 'dist-electron',
   outExtension: { '.js': '.cjs' },

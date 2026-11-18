@@ -1,3 +1,20 @@
+## 2026-11-19：AI配置接口 MCP+CLI（源码 1.0.69，定向验证）
+
+范围：`src/shared/contracts/agent.ts`、新增 `agent-settings.ts`、`electron/agent/settings.ts`、`service.ts`、`mcp-server.ts`、新增 `cli.ts`/`connection-file.ts`、`scripts/build-electron.mjs`、`config/electron-builder.json`、`package.json`/`package-lock.json`（1.0.68→1.0.69，无依赖变化）及相关契约/服务/适配器/测试文档。未改 vendor、node_modules、真实 userData、真实配置、AI启停/发送/调试能力。
+
+RED：`artifacts/ai-configuration/logs/red-task1.log`，新配置测试 **13 failed / 1 passed**，失败均为 `lingtu_*_config` 未在 `agentCallSchema` 注册；`red-task2.log` 中 CLI suite 因 `electron/agent/cli.ts` 不存在无法构建，标准 MCP Client 断言 apply 注解失败（实际仍 `readOnlyHint:true`、`destructiveHint:false`）。连接文件泄露防护用例在修复前记录 **1 failed / 8 passed**（`green-task2-cli-debug.log`），失败原因为JSON解析错误回显了损坏文件内容。
+
+GREEN：`green-final-agent-suite.log`，5文件 **35项通过**，exit 0。覆盖：
+
+- `agent-settings`：三组schema/读取/预览/保存；未知/空字段；全局与店铺作用域；缺失欢迎记录默认1～3秒；未修改字段保留；旧workspace/store/version；并发界面保存不丢失；重复requestId不重复写、同ID改参数拒绝；识图能力拒绝；输出不含凭据/提示词。
+- `agent-config-persistence`：真实 `vendor/lingtu-runtime/electron/backend.cjs` + 真实 `ReplyPacingStore` 临时目录，三组保存后重建 backend/repository 再读一致，AI开关保持关闭，三类CAS冲突均拒绝并保留界面值。
+- `agent-config-cli`：真实子进程覆盖 help/status/stores/schema/get（参数与stdin）/preview/apply、失败stale版本、非法JSON/缺少JSON/未知命令/未知选项、缺失连接文件；apply同requestId重复返回同结果且仅写一次；损坏连接文件内容与token不回显。
+- `agent-interface`：原8项基线保留并扩展，标准MCP Client列出14工具，apply注解为 `readOnlyHint:false`/`destructiveHint:true`，config schema/get/preview/apply端到端；preview不触发execute，apply仅执行一次。
+
+静态/构建：`tsc -p config/tsconfig.electron.json` exit 0（首次2个 `Record` 索引签名错误见 `typecheck-electron-task2.log`，修复后通过）；`vue-tsc --noEmit` exit 0；改动文件 ESLint exit 0；Prettier check exit 0；`node scripts/check-boundaries.mjs` exit 0；`npm run build:desktop` exit 0，生成 `dist-electron/lingtu-mcp.cjs`/`lingtu-cli.cjs`。未运行全量 `npm run check`、`test:desktop`、安装包或真实应用重启。
+
+限制：验证只用临时目录与本地夹具；未做真实账号/店铺配置写入、真实模型调用、买家发送、MCP宿主实际配置界面、安装器资源落盘或云端CI。安装版 `resources/ai-interface` 仅更新打包白名单，需打包验收。最终提交、重启与集成由 Codex 负责。
+
 # 客户端与独立服务端验证
 
 ## 2026-11-19：AI训练场迁入知识库（1.0.69，隔离 worktree）
@@ -7,6 +24,20 @@
 RED：先执行 `npx vitest run tests/knowledge-training.test.ts tests/configuration-navigation.test.ts tests/training-legacy-route.test.ts tests/shop-setup.test.ts tests/knowledge-window.test.ts`，exit 1，5 文件 13 失败/12 通过，失败断言均落在迁移行为。
 
 GREEN：新增 `tests/knowledge-training.test.ts` 7/7；相关既有 11 文件 131/131；`npm run typecheck` exit 0；改动 ESLint 与 Prettier check 通过；`npm run build` exit 0（仅既有依赖注释/chunk 警告）。一次 12 文件合并运行遇到 Vitest 临时目录 `EBUSY` unhandled error，拆分后两条命令均 exit 0，未将该次异常计为通过。未跑全量 check/desktop、打包、真实店铺/模型/买家，也未提交/推送/部署。版本冲突：开工时主树 1.0.68，任务中先由 `be1755c` 到 1.0.69、后由 `accbcc3` 到 1.0.70；本分支按指定保留 1.0.69，现低于主树，整合前须处理。详细设计、HANDOFF 与验收范围见 `docs/superpowers/plans/2026-11-19-training-knowledge.md`。
+
+## 2026-11-19：关键词双栏/开关/失焦自动保存（1.0.69，局部验证）
+
+范围：仅验证本次隔离工作树中的接待关键词设置、自动保存竞态、关键词开关持久化/运行时过滤，以及受影响的店铺向导与复用向导。未改店铺/账号/Key/AI 开关/发送审批，未连接真实平台或发送消息。
+
+- `npx vitest run tests/reception-keyword-autosave-races.test.ts tests/reception-keyword-settings.test.ts tests/shop-setup-wizard.test.ts tests/shop-setup-reuse-wizard.test.ts tests/shop-ops-panel.test.ts --maxWorkers=1 --no-file-parallelism`：5 文件 **59 项通过**，exit 0。覆盖双栏/3 行等高、无三个保存按钮、失焦保存与未修改不保存、`ElMessage('保存成功')` 仅在成功且租约有效后出现、失败保留草稿、开关即时保存且原文保留、保存中再次失焦的最新草稿排队、快速关/开与自定义/继承的最终状态、切店/卸载迟到结果、全局与客服接管 CAS 基线重挂保留、复用模式仍延后保存。
+- `tests/reception-keyword-settings.test.ts` 另用真实 `createBackend` + `ReplyEngine` 验证 `resolveKeywordSafety` 注入点：关闭后继承全局/卖家接管匹配为空，但 ConfigStore 原始关键词仍保留；本店自定义 handoff 关键词在全局开关关闭时仍优先生效。
+- `npx vue-tsc --noEmit`、`npx tsc -p config/tsconfig.electron.json --noEmit`：exit 0。
+- 改动文件 `npx eslint --config config/eslint.config.mjs ...`：exit 0；Prettier check 全部通过。
+- `node scripts/check-boundaries.mjs`：模块依赖方向与组件环境 API 检查通过。
+- `npm run check:vendor`：vendor 80 文件、server 97 文件完整性通过，exit 0。
+- `npm run build`：renderer + Electron 构建 exit 0；保留既有 Zod 滚动注释和主包 >500kB 警告。
+
+未运行全量 `npm run check`、全量桌面套件、受真实 Electron 启动/重启验收、截图对比、安装包/发布/部署；未启动或结束任何现有应用进程，未访问真实业务数据/凭据。开关跨进程恢复由原子 JSON 存储单测和初始化组合覆盖，仍需主管在主目录正常重启后目视确认。
 
 ## 2026-11-18：主干整合验收（源码 1.0.68，设备授权注册回跳；已合入 main 并实际启动）
 
