@@ -1,3 +1,9 @@
+## 2026-11-19：训练场知识库迁移整合（1.0.71）
+
+已保留主线 accbcc3 的关键词配置和 AI 配置接口，训练入口迁入知识库“商品”右侧，并在商品行加入自动预选入口。Codex 独立审查补充修正：普通快照刷新保持训练组件挂载；隐藏/新窗口上下文更新训练会话代次，拒绝迟到回复；失效商品保留明确预选并禁止提交，不静默退为通用问答，用户可显式选择“不指定商品”。仅复用现有训练与知识库服务，无新增依赖。
+
+独立验证：将 backend.snapshot 模拟为每次返回新对象后，新增回归先 RED（4失败/7通过），修复后 11/11 通过；与最新主线整合后 9 文件 98 项通过（含关键词自动保存与 AI 配置读取），完整 typecheck 与改动范围 ESLint 退出0。首轮 DeepSeek 退出0且 final.reason.kind=completed，其相关既有131项及build通过记录保留。未将合成回答当作真实模型验收，未调用付费模型或发送买家消息。最终主目录构建与桌面窗口验收结果随后追加。
+
 ## 2026-11-19：AI配置接口 MCP+CLI（源码 1.0.69，定向验证）
 
 范围：`src/shared/contracts/agent.ts`、新增 `agent-settings.ts`、`electron/agent/settings.ts`、`service.ts`、`mcp-server.ts`、新增 `cli.ts`/`connection-file.ts`、`scripts/build-electron.mjs`、`config/electron-builder.json`、`package.json`/`package-lock.json`（1.0.68→1.0.69，无依赖变化）及相关契约/服务/适配器/测试文档。未改 vendor、node_modules、真实 userData、真实配置、AI启停/发送/调试能力。
