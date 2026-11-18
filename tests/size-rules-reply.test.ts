@@ -12,6 +12,7 @@ import {
 } from '../electron/size-rules/inject'
 import { captureSizeEvidence } from '../electron/size-rules/request-state'
 import { applySizeTrainingOutput } from '../electron/size-rules/training-output'
+import { sizeFinalTextReason } from '../electron/size-rules/final-text'
 import type { CompressionInput } from '../electron/context-compression'
 import type { SizeRuleContext } from '../src/shared/contracts/size-rules'
 
@@ -154,6 +155,35 @@ describe('final size recommendation guard', () => {
     expect(applySizeTrainingOutput(evidence, { reply: safeTruncated.slice(0, 5) }, '')).toEqual({
       reply: '按本商品尺',
     })
+  })
+
+  it('compares every vendor label rewrite against the protected canonical text', () => {
+    const canonical = enforceSizeReply(evidence, { reply: 'XL 最合适' }).reply
+    for (const replacement of ['2XL', '3XL', '加大码', '大号', 'L', 'XXXL', '自定义码']) {
+      const rules = [{ word: 'M', replacement }]
+      const filtered = filterBannedWords(canonical, rules)
+      expect(sizeFinalTextReason(evidence, filtered, { canonical, bannedWords: rules })).toMatch(
+        /不一致/,
+      )
+      expect(() =>
+        applySizeTrainingOutput(evidence, { reply: filtered }, '', {
+          canonical,
+          bannedWords: rules,
+        }),
+      ).toThrow(/不一致/)
+    }
+    const deletion = [{ word: '优先', replacement: '' }]
+    const deleted = filterBannedWords(canonical, deletion)
+    expect(sizeFinalTextReason(evidence, deleted, { canonical, bannedWords: deletion })).toBe('')
+    expect(
+      sizeFinalTextReason(evidence, canonical.slice(0, 5), { canonical, bannedWords: [] }),
+    ).toBe('')
+    expect(
+      sizeFinalTextReason(evidence, canonical.slice(0, 5) + 'X', {
+        canonical,
+        bannedWords: [],
+      }),
+    ).toMatch(/不一致/)
   })
 
   it('fails closed when the rule version changes while the model response is late', async () => {

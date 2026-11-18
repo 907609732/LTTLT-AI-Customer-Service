@@ -115,7 +115,11 @@ import { createSizeContextPreparation } from './size-rules/inject'
 import { installSizeReplyGuard } from './size-rules/guard'
 import { createSizeCandidateGuard } from './size-rules/candidate-guard'
 import { applySizeTrainingOutput } from './size-rules/training-output'
-import { capturedSizeEvidence, withSizeRequest } from './size-rules/request-state'
+import {
+  capturedSizeCanonicalReply,
+  capturedSizeEvidence,
+  withSizeRequest,
+} from './size-rules/request-state'
 import { sizeRuleActions, type SizeRuleAction } from '../src/shared/contracts/size-rules'
 import {
   defaultVisionModelSnapshot,
@@ -505,11 +509,16 @@ export function createLocalRuntime(options: {
   })
   const traceWithKnowledge = (event: unknown) => {
     const id = review.trace(event)
-    if (id && event && typeof event === 'object' && Reflect.get(event, 'type') === 'request') {
-      knowledge.captureTrace(id, Reflect.get(event, 'knowledge'))
-      const context = Reflect.get(event, 'reviewContext')
-      if (context && typeof context === 'object' && Reflect.get(context, 'purpose') === 'reply')
-        sizeCandidates.capture(id, Reflect.get(event, 'messages'))
+    if (id && event && typeof event === 'object') {
+      const type = Reflect.get(event, 'type')
+      if (type === 'request') {
+        knowledge.captureTrace(id, Reflect.get(event, 'knowledge'))
+        const context = Reflect.get(event, 'reviewContext')
+        if (context && typeof context === 'object' && Reflect.get(context, 'purpose') === 'reply')
+          sizeCandidates.capture(id, Reflect.get(event, 'messages'))
+      }
+      const reply = Reflect.get(event, 'reply')
+      if (type === 'result' && typeof reply === 'string') sizeCandidates.captureReply(id, reply)
     }
     return id
   }
@@ -770,7 +779,7 @@ export function createLocalRuntime(options: {
     beforeSend: (proposal: SendProposal) => {
       knowledge.guardProposal(proposal)
       sizeCandidates.attach(proposal)
-      const sizeTextReason = sizeCandidates.finalTextReason(proposal)
+      const sizeTextReason = sizeCandidates.finalTextReason(proposal, read().bannedWords)
       if (sizeTextReason) {
         review.rejectFinalText(proposal.storeId, proposal.uid, sizeTextReason)
         return false
@@ -1404,7 +1413,10 @@ export function createLocalRuntime(options: {
             (sizeRulesRef.current ? '' : '尺码规则服务不可用，旧结论已失效。')
           result = {
             ...result,
-            data: applySizeTrainingOutput(evidence, result.data, reason),
+            data: applySizeTrainingOutput(evidence, result.data, reason, {
+              canonical: capturedSizeCanonicalReply(),
+              bannedWords: read().bannedWords,
+            }),
           }
         }
       } else result = resultSchema.parse(await aiRestore.userExecute(raw))

@@ -3,6 +3,7 @@ import type { SizeRuleContext } from '../../src/shared/contracts/size-rules'
 
 interface SizeRequestState {
   evidence?: SizeRuleContext
+  canonicalReply?: string
 }
 
 /**
@@ -24,4 +25,13 @@ export function captureSizeEvidence(evidence: SizeRuleContext | null): void {
 
 export function capturedSizeEvidence(): SizeRuleContext | undefined {
   return storage.getStore()?.evidence
+}
+
+export function captureSizeCanonicalReply(reply: string): void {
+  const state = storage.getStore()
+  if (state) state.canonicalReply = reply
+}
+
+export function capturedSizeCanonicalReply(): string | undefined {
+  return storage.getStore()?.canonicalReply
 }

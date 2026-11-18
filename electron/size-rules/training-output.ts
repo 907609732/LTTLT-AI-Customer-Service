@@ -1,5 +1,5 @@
 import type { SizeRuleContext } from '../../src/shared/contracts/size-rules'
-import { sizeFinalTextReason } from './final-text'
+import { sizeFinalTextReason, type FinalOptions } from './final-text'
 
 /**
  * The vendor has already applied store/model-profile banned words and max length.
@@ -11,10 +11,11 @@ export function applySizeTrainingOutput(
   evidence: SizeRuleContext,
   data: Record<string, unknown>,
   currentReason: string,
+  options: FinalOptions = {},
 ): Record<string, unknown> {
   if (currentReason) throw new Error(currentReason)
   const reply = typeof data.reply === 'string' ? data.reply : ''
-  const reason = sizeFinalTextReason(evidence, reply)
+  const reason = sizeFinalTextReason(evidence, reply, options)
   if (reason) throw new Error(reason)
   return data
 }

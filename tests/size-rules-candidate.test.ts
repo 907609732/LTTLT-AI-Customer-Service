@@ -1,9 +1,16 @@
+import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 import { createSizeCandidateGuard } from '../electron/size-rules/candidate-guard'
 import { SIZE_RULES_DATA_MARKER } from '../electron/size-rules/inject'
 import { SendModeAuthorizations } from '../electron/send-mode-authorizations'
 import type { SendProposal } from '../electron/review-console'
 import type { SizeRuleContext } from '../src/shared/contracts/size-rules'
+
+const { filterBannedWords } = createRequire(import.meta.url)(
+  '../vendor/lingtu-runtime/desk-v1/src/main/reply-engine.js',
+) as {
+  filterBannedWords(text: string, rules: { word: string; replacement: string }[]): string
+}
 
 function evidence(ruleId: string, productId: string): SizeRuleContext {
   return {
@@ -145,8 +152,20 @@ describe('size candidate generation binding', () => {
     const value = evidence('77777777-7777-4777-8777-777777777777', 'product-g')
     const guard = createSizeCandidateGuard({ currentReason: () => '' })
     guard.capture('trace-final', messages(value))
+    const canonical = '按本商品尺码表和你提供的测量值，建议优先核对 M；请以实际测量和商品说明为准。'
+    guard.captureReply('trace-final', canonical)
+    const rules = [{ word: 'M', replacement: '2XL' }]
+    expect(
+      guard.finalTextReason(
+        { traceId: 'trace-final', text: filterBannedWords(canonical, rules) },
+        rules,
+      ),
+    ).toMatch(/不一致/)
+    expect(guard.finalTextReason({ traceId: 'trace-final', text: canonical.slice(0, 5) }, [])).toBe(
+      '',
+    )
     expect(guard.finalTextReason({ traceId: 'trace-final', text: '推荐L码' })).toMatch(
-      /范围外尺码|未知尺码/,
+      /不一致|范围外尺码|未知尺码/,
     )
     expect(guard.finalTextReason({ traceId: 'trace-final', text: '按本商品' })).toBe('')
     expect(guard.finalTextReason({ traceId: 'other', text: '推荐M码' })).toContain('证据已过期')

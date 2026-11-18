@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { SizeRuleContext } from '../../src/shared/contracts/size-rules'
 import type { SizeEvidenceResolver } from './context'
-import { capturedSizeEvidence, withSizeRequest } from './request-state'
+import { captureSizeCanonicalReply, capturedSizeEvidence, withSizeRequest } from './request-state'
 
 export type SizeReplyResolver = Pick<SizeEvidenceResolver, 'resolve'>
 
@@ -126,7 +126,9 @@ export function installSizeReplyGuard<T extends GuardableReplyClient>(
       )
         return staleResult(result as Record<string, unknown>)
       if (!current) return result
-      return enforceSizeReply(current, result as Record<string, unknown>)
+      const guarded = enforceSizeReply(current, result as Record<string, unknown>)
+      captureSizeCanonicalReply(guarded.reply)
+      return guarded
     })
   }
   return client
