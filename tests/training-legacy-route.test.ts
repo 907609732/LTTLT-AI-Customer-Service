@@ -58,6 +58,21 @@ async function openLegacy(panel: string) {
 }
 
 describe('legacy training route compatibility', () => {
+  it('waits for the desktop store snapshot when opened from a cold bookmark', async () => {
+    const runtime = useRuntimeStore()
+    const stores = runtime.snapshot.stores
+    runtime.snapshot.stores = []
+    const refresh = vi.spyOn(runtime, 'refresh').mockImplementation(async () => {
+      runtime.snapshot.stores = stores
+    })
+    try {
+      await openLegacy('training')
+      expect(refresh).toHaveBeenCalled()
+      expect(knowledge.open).toHaveBeenCalledWith('shop-a', { tab: 'training' })
+    } finally {
+      refresh.mockRestore()
+    }
+  })
   it.each(['training', 'sim'])(
     'opens the knowledge training tab for ?panel=%s without keeping the old panel',
     async (panel) => {

@@ -1,3 +1,7 @@
+## 2026-11-19：迁移原生验收接线与冷启动修正（同批1.0.71）
+
+首轮CI 44353252685全量源码检查通过，原生92/94；两失败为旧sidebar训练断言及未装配knowledge IPC的旧训练路由验收。验收harness现复用生产createKnowledgeWindow/registerKnowledgeIpc/loadRenderer，验证真实知识库训练标签、问答表单和临时店铺选择。定向原生首次1/2另复现旧链接冷启动快照竞态，配置页现等待runtime.refresh后取店铺，并拒绝已离开路由的晚到打开。最终原生2/2、相关单元14/14、Electron TypeScript检查通过，界面构建退出0；未改正式知识库数据或发送消息。新版源码此前本机已显示1.0.71并验过商品行预选与切店；最终云端结果随后补充。
+
 ## 2026-11-19：训练场知识库迁移整合（1.0.71）
 
 已保留主线 accbcc3 的关键词配置和 AI 配置接口，训练入口迁入知识库“商品”右侧，并在商品行加入自动预选入口。Codex 独立审查补充修正：普通快照刷新保持训练组件挂载；隐藏/新窗口上下文更新训练会话代次，拒绝迟到回复；失效商品保留明确预选并禁止提交，不静默退为通用问答，用户可显式选择“不指定商品”。仅复用现有训练与知识库服务，无新增依赖。
@@ -8,7 +12,7 @@
 
 训练场从配置中心侧栏迁入知识库商品 tab 右侧；固定使用知识库当前店铺，商品下拉按现有 products 查询分页读全并显示名称/编号。商品卡“AI训练场”只切 tab 和预选本行 storeId/productId，发送测试才调用 `start-training`。切店/切商品清空历史并丢弃迟到回复、错误和旧商品列表；图像测试、错误状态和清空历史保留。旧 `?panel=training/sim`、ShopOpsPanel 图片入口和店铺设置助手均打开知识库训练 tab，旧独立训练面板已移除。
 
-验证仅为本次直接范围：新增训练/兼容测试 9 项及既有相关知识库、店铺设置、ShopOpsPanel 11 文件 131 项通过；typecheck、改动 ESLint/Prettier、`npm run build` exit 0。未跑全量 check/desktop、未打开真实店铺、未调用真实模型/买家、未打包/提交/推送/部署。版本 1.0.69 与 lock 已同步：开工时主树为 1.0.68，但任务中主树先由其他任务提交 `be1755c` 到 1.0.69，后由合并 `accbcc3` 推进到 1.0.70；本分支按用户指定保留 1.0.69，现已低于主树，整合前须处理版本回退/重升。设计与实际回执见 `docs/superpowers/plans/2026-11-19-training-knowledge.md` 和 ignored `artifacts/training-migration/worker-report.md`。
+验证仅为本次直接范围：新增训练/兼容测试 9 项及既有相关知识库、店铺设置、ShopOpsPanel 11 文件 131 项通过；typecheck、改动 ESLint/Prettier、`npm run build` exit 0。未跑全量 check/desktop、未打开真实店铺、未调用真实模型/买家、未打包/提交/推送/部署。版本 1.0.69 与 lock 已同步：开工时主树为 1.0.68，但任务中主树先由其他任务提交 `be1755c` 到 1.0.69，后由合并 `accbcc3` 推进到 1.0.70；本分支按开工时派单保留 1.0.69，现已低于主树，整合前须处理版本回退/重升。设计与实际回执见 `docs/superpowers/plans/2026-11-19-training-knowledge.md` 和 ignored `artifacts/training-migration/worker-report.md`。
 
 ## 2026-11-19：AI 配置接口集成候选（1.0.70）
 

@@ -38,6 +38,10 @@ watch(
   { immediate: true },
 )
 async function openLegacyTraining() {
+  const requestedPanel = route.query.panel
+  // A bookmarked route can mount before the first desktop snapshot arrives.
+  await runtime.refresh()
+  if (route.query.panel !== requestedPanel) return
   const storeId = runtime.selectedStoreId,
     { source: _source, ...rest } = route.query
   void _source
