@@ -14,7 +14,11 @@
 
 验证仅为本次直接范围：新增训练/兼容测试 9 项及既有相关知识库、店铺设置、ShopOpsPanel 11 文件 131 项通过；typecheck、改动 ESLint/Prettier、`npm run build` exit 0。未跑全量 check/desktop、未打开真实店铺、未调用真实模型/买家、未打包/提交/推送/部署。版本 1.0.69 与 lock 已同步：开工时主树为 1.0.68，但任务中主树先由其他任务提交 `be1755c` 到 1.0.69，后由合并 `accbcc3` 推进到 1.0.70；本分支按开工时派单保留 1.0.69，现已低于主树，整合前须处理版本回退/重升。设计与实际回执见 `docs/superpowers/plans/2026-11-19-training-knowledge.md` 和 ignored `artifacts/training-migration/worker-report.md`。
 
-## 2026-11-19：AI 配置接口集成候选（1.0.70）
+## 2026-11-19：AI 配置接口集成验收（接口交付版 1.0.70）
+
+最终回执：`accbcc32526ff8405b92eff972d7d71447dd8a89` 已合入并推送 main；[完整桌面 CI 44350540091](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44350540091) 成功（181 文件/1408 单元、242 上游，Electron、知识库/资料学习及打包检查全部通过）。同次 installer/ZIP/manifest 的 SHA256 全匹配，manifest 精确绑定 1.0.70、该提交和该 run。下载的 ZIP 在本机复用 package-smoke 通过全部 10 项，MCP 与 CLI 连接器逐字节匹配主目录本机构建；打包 CLI 显示 1.0.70 并成功只读连接运行实例。
+
+主目录源码已正常重启，PID 142636，无诊断参数，窗口可访问树明确显示 v1.0.70。标准 MCP 实例只读验收为 14 工具/三配置组，两店欢迎语和识图配置均可读；CLI status/stores/get 实测通过。原 profile、两家店及 AI 全部关闭保留，未修改真实配置或发送消息。证据位于 `artifacts/ai-configuration/`，云包位于 `release/ci-accbcc3-ai-interface/`；没有创建公开 Release 或部署服务端。后续主线的 1.0.71 训练迁移已保留本接口；本段云包和运行回执仅对应已验收的 1.0.70，不替代其他任务的新版验收。
 
 接口初始候选 ad104c0 已由 Codex 独立检查：定向 8 文件 50 项、完整 typecheck、完整 build、改动 ESLint/Prettier 均通过，标准 MCP 与 CLI 子进程均有端到端验证。独立审查发现的连接文件错误内容泄露、版本字段说明、晚到账号回执和识图预览问题均已修复并回归。
 

@@ -38,9 +38,11 @@ Files: docs/AI_INTERFACE.md, docs/ARCHITECTURE.md, docs/DECISIONS.md, docs/HANDO
 
 - [x] Document exact CLI/MCP invocation, field discovery, version/requestId semantics, defaults, failures and running-app prerequisite. Remove old statement claiming no config changes allowed and replace with precise allowlist.
 - [x] Run targeted tests, affected ESLint/Prettier and build. Record actual coverage and limits. Commit only task files after tests pass, no push/deploy/restart by worker.
-- [ ] Codex independently review output and run targeted verification, resolve material findings, integrate branch and reopen latest project source. Preserve real profile and do no live config writes for testing.
+- [x] Codex independently review output and run targeted verification, resolve material findings, integrate branch and reopen latest project source. Preserve real profile and do no live config writes for testing.
 
 ## Progress
+
+- Completed: main integration accbcc3/1.0.70; 50 focused tests and full typecheck/build passed before and after integration. Full cloud run 44350540091 succeeded; exact manifest/checksums, downloaded package smoke (10 checks), bundled connector equality and live source MCP/CLI readonly acceptance passed. Two stores and AI-off state preserved, zero real config writes. Later main 1.0.71 retains this feature; its separate delivery remains with its owner.
 
 - Integration ruling: main advanced to be1755c with the separately accepted keyword autosave feature at 1.0.69. Merge that committed baseline into this isolated branch, preserve both handoff records, and deliver these AI interfaces at 1.0.70 to avoid a version collision. No uncommitted work from another task is moved or changed.
 

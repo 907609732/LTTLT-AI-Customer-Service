@@ -8,7 +8,13 @@
 
 独立验证：将 backend.snapshot 模拟为每次返回新对象后，新增回归先 RED（4失败/7通过），修复后 11/11 通过；与最新主线整合后 9 文件 98 项通过（含关键词自动保存与 AI 配置读取），完整 typecheck 与改动范围 ESLint 退出0。首轮 DeepSeek 退出0且 final.reason.kind=completed，其相关既有131项及build通过记录保留。未将合成回答当作真实模型验收，未调用付费模型或发送买家消息。最终主目录构建与桌面窗口验收结果随后追加。
 
-## 2026-11-19：AI配置接口 MCP+CLI（源码 1.0.69，定向验证）
+## 2026-11-19：AI 配置接口最终验收（1.0.70 / accbcc3）
+
+定向 8 文件 50 项、完整 typecheck/build、改动 ESLint/Prettier、边界检查通过；合并关键词主线 be1755c 后再次通过相同 50 项及 typecheck/build。CI [44350540091](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44350540091) 对 accbcc32526ff8405b92eff972d7d71447dd8a89 成功：181 文件/1408 单元与 242 上游，全部实际 Electron、知识/学习和打包步骤成功。
+
+installer、ZIP、manifest 三个 SHA256 核对通过，manifest version/sourceCommit/workflow 精确。下载包 package-smoke exit 0（10 项），resources/ai-interface 下 MCP、CLI 均存在并与本机 main 构建逐字节一致；打包 CLI help/status 通过。真实源码实例 PID 142636、界面 v1.0.70；MCP 14 工具、三配置组读取及 CLI status/stores/get 只读验收通过，两家原店铺保留且 AI 全关闭，真实配置写入 0。日志和元数据在 `artifacts/ai-configuration/`，下载产物在 `release/ci-accbcc3-ai-interface/`。没有公开 Release、部署或真实买家发送。本回执不声称后续 1.0.71 训练迁移包已由本任务验收。
+
+## 2026-11-19：AI配置接口 MCP+CLI（初始源码 1.0.69，定向验证）
 
 范围：`src/shared/contracts/agent.ts`、新增 `agent-settings.ts`、`electron/agent/settings.ts`、`service.ts`、`mcp-server.ts`、新增 `cli.ts`/`connection-file.ts`、`scripts/build-electron.mjs`、`config/electron-builder.json`、`package.json`/`package-lock.json`（1.0.68→1.0.69，无依赖变化）及相关契约/服务/适配器/测试文档。未改 vendor、node_modules、真实 userData、真实配置、AI启停/发送/调试能力。
 
