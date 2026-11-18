@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -65,6 +65,7 @@ export interface SaveFailure {
   saved: false
   unconfirmed: boolean
   reason?: string
+  model_connections?: ModelConnection[]
 }
 export type ModelSave = (
   payload: Payload
@@ -171,14 +172,6 @@ export function AdminModels(props: {
   const [resultMessage, setResultMessage] = useState('')
   const serial = useRef(0)
   const submitting = useRef(false)
-  const verificationFailure = useRef<{
-    owner: string
-    key: string
-    connectionID: number
-    revision: number
-    configHash: string
-    enabled: boolean
-  } | null>(null)
   function newDraft(p: ModelProvider, count: number): Draft {
     return {
       key: `draft-${++serial.current}`,
@@ -240,49 +233,6 @@ export function AdminModels(props: {
   )
   const revisionConflict = !!saved && saved.revision !== active?.revision
   const requiresRecovery = revisionConflict || !!active?.unconfirmedCreation
-  useEffect(() => {
-    const pending = verificationFailure.current
-    if (!pending) return
-    const fresh = props.connections.find(
-      (row) =>
-        row.connection_id === pending.connectionID &&
-        row.provider === pending.owner
-    )
-    if (!fresh) return
-    // Only adopt the exact next revision produced by our own failed probe.
-    // A stale/external edit must keep the conflict visible instead of being
-    // swallowed by a newer revision from someone else.
-    if (
-      fresh.revision !== pending.revision + 1 ||
-      fresh.config_hash !== pending.configHash ||
-      fresh.enabled !== pending.enabled ||
-      fresh.image_test_status !== 'failed'
-    ) {
-      verificationFailure.current = null
-      return
-    }
-    verificationFailure.current = null
-    setDrafts((old) => {
-      const rows = old[pending.owner]
-      if (!rows) return old
-      return {
-        ...old,
-        [pending.owner]: rows.map((row) =>
-          row.key === pending.key
-            ? {
-                ...row,
-                revision: fresh.revision,
-                config_hash: fresh.config_hash,
-                image_test_status: fresh.image_test_status,
-                image_tested_at: fresh.image_tested_at,
-                vision_verified: fresh.vision_verified,
-                vision_ready: fresh.vision_ready,
-              }
-            : row
-        ),
-      }
-    })
-  }, [props.connections])
   function markUnconfirmed(captured: Draft, owner: string) {
     if (captured.connection_id !== 0) return
     setDrafts((old) => ({
@@ -343,7 +293,6 @@ export function AdminModels(props: {
     }
     submitting.current = true
     setResultMessage('')
-    if (action === 'verify_vision') verificationFailure.current = null
     const owner = provider.provider
     const captured = active
     const payload: Payload = {
@@ -378,33 +327,56 @@ export function AdminModels(props: {
     try {
       const result = await props.save(payload)
       if (!result || !result.saved) {
-        const failureReason =
-          result && !result.saved ? result.reason : undefined
+        const failure = result && !result.saved ? result : undefined
         if (action === 'save' && result && result.unconfirmed) {
           markUnconfirmed(captured, owner)
         }
         if (action === 'verify_vision') {
+          const fresh = failure?.model_connections?.find(
+            (row) =>
+              row.connection_id === captured.connection_id &&
+              row.provider === owner
+          )
           if (
-            failureReason === 'vision_verification_failed' &&
+            failure?.reason === 'vision_verification_failed' &&
             captured.connection_id > 0 &&
             captured.revision &&
-            captured.config_hash
+            captured.config_hash &&
+            fresh &&
+            fresh.revision === captured.revision + 1 &&
+            fresh.config_hash === captured.config_hash &&
+            fresh.enabled === captured.enabled &&
+            fresh.image_test_status === 'failed'
           ) {
-            verificationFailure.current = {
-              owner,
-              key: captured.key,
-              connectionID: captured.connection_id,
-              revision: captured.revision,
-              configHash: captured.config_hash,
-              enabled: captured.enabled,
-            }
+            // This failed row was committed by our own probe. Apply its fresh
+            // revision directly in the same failure response; do not wait for
+            // query invalidation/props timing to make the retry usable.
+            setDrafts((old) => {
+              const rows = old[owner]
+              if (!rows) return old
+              return {
+                ...old,
+                [owner]: rows.map((row) =>
+                  row.key === captured.key
+                    ? {
+                        ...row,
+                        revision: fresh.revision,
+                        config_hash: fresh.config_hash,
+                        image_test_status: fresh.image_test_status,
+                        image_tested_at: fresh.image_tested_at,
+                        vision_verified: fresh.vision_verified,
+                        vision_ready: fresh.vision_ready,
+                      }
+                    : row
+                ),
+              }
+            })
             setResultMessage(
               'Image verification failed. The saved text connection was not changed.'
             )
           } else {
-            verificationFailure.current = null
             setResultMessage(
-              failureReason === 'vision_verification_stale'
+              failure?.reason === 'vision_verification_stale'
                 ? 'The API changed during image verification. Reload it and verify again.'
                 : 'Image verification failed. The saved text connection was not changed.'
             )

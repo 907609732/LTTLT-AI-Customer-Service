@@ -1510,6 +1510,7 @@ export function AdminPage() {
           saved: false,
           unconfirmed: false,
           reason: data.error as string,
+          model_connections: result.model_connections,
         }
       }
       if (
