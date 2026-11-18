@@ -119,6 +119,8 @@ npm.cmd start
 
 开发模式使用 `npm.cmd run electron:dev`；浏览器预览使用 `npm.cmd run dev`。日常修改只验证直接影响的流程，Release 打包时执行全量检查和成品验收。
 
+Windows 也可双击根目录的 **一键启动源码.bat**：首次运行自动安装缺失依赖，每次构建当前源码并打开桌面程序。控制台显示启动状态和运行日志，关闭控制台或按 Ctrl+C 会停止本次启动的程序。需要先退出已运行的源码版；此入口只启动桌面端，不启动独立托管服务端。
+
 更多说明见 [当前状态](docs/HANDOFF.md)、[目录说明](docs/PROJECT_LAYOUT.md)、[版本说明](docs/VERSIONING.md)、[架构](docs/ARCHITECTURE.md)、[AI 状态恢复](docs/AI_STATE_RESTORE.md)、[本地接入](docs/LOCAL_INTEGRATION.md)、[托管服务](docs/MANAGED_SERVICE.md)和[云端构建](.github/BUILDING.md)。
 
 ## 许可与第三方来源
