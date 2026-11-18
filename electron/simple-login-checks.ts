@@ -47,7 +47,9 @@ export async function simpleLoginChecks(options: {
     await wait(
       `location.hash==='#/shop/recharge'&&Boolean(document.querySelector('.billing-dashboard'))`,
     )
-    assert.ok((await evaluate<string>('document.body.innerText')).includes('套餐与充值'))
+    const body = await evaluate<string>('document.body.innerText')
+    assert.ok(body.includes('支持我们'))
+    assert.ok(body.includes('支持套餐'))
   })
   await check('login:closing-clears-unsaved-key', '/', async () => {
     await load('/')

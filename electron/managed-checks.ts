@@ -251,11 +251,22 @@ export async function managedChecks(options: {
             `Boolean(document.querySelector('.billing-dashboard.compact'))`,
           ),
         )
+        if (section === 'usage') {
+          assert.equal(
+            await win.webContents.executeJavaScript(
+              `Boolean(document.querySelector('.billing-dashboard.compact [aria-controls="billing-quota-details"]'))`,
+            ),
+            true,
+          )
+          await win.webContents.executeJavaScript(
+            `(() => {const button=document.querySelector('.billing-dashboard.compact [aria-controls="billing-quota-details"]'); if(button.getAttribute('aria-expanded')!=='true') button.click();})()`,
+          )
+        }
         for (let i = 0; i < 80; i++) {
           const ready = await win.webContents.executeJavaScript(
             section === 'orders'
               ? `document.querySelector('.billing-dashboard.compact')?.innerText.includes('暂无可核实的充值订单记录')`
-              : `document.querySelector('.billing-dashboard.compact')?.innerText.includes('已结算')`,
+              : `document.querySelector('.billing-dashboard.compact [aria-controls="billing-quota-details"]')?.getAttribute('aria-expanded')==='true'&&document.querySelector('.billing-dashboard.compact')?.innerText.includes('已结算')`,
           )
           if (ready) break
           await new Promise((resolve) => setTimeout(resolve, 50))
@@ -266,7 +277,20 @@ export async function managedChecks(options: {
         assert.ok(
           detailText?.includes(section === 'orders' ? '暂无可核实的充值订单记录' : '已结算'),
         )
-        assert.ok(!detailText.includes('可选套餐'))
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Boolean(document.querySelector('.billing-dashboard.compact .plans-section'))`,
+          ),
+          false,
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `Array.from(document.querySelectorAll('.billing-dashboard.compact button')).some(button=>button.textContent.includes('支持我们'))`,
+          ),
+          false,
+        )
+        if (section === 'usage') assert.ok(detailText.includes('已结算'))
+        if (section === 'orders') assert.ok(detailText.includes('暂无可核实的充值订单记录'))
         await win.webContents.executeJavaScript(
           `Array.from(document.querySelectorAll('.el-dialog__headerbtn')).at(-1).click()`,
         )
