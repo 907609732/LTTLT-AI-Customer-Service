@@ -57,12 +57,6 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: '模拟客服台' },
   },
   {
-    path: '/shop/manage',
-    name: 'shop-manage',
-    component: () => import('@/app/layouts/ShopManageView.vue'),
-    meta: { public: true, title: '配置中心', shop: true },
-  },
-  {
     path: '/shop/recharge',
     name: 'shop-recharge',
     component: /* lazy module entry */ () =>
@@ -112,6 +106,13 @@ export const routes: RouteRecordRaw[] = [
     path: '/',
     component: () => import('@/app/layouts/MainLayout.vue'),
     children: [
+      {
+        path: 'shop/manage',
+        name: 'shop-manage',
+        component: () => import('@/app/layouts/ShopManageView.vue'),
+        meta: { public: true, title: '配置中心', shop: true },
+      },
+
       {
         path: '',
         name: 'dashboard',

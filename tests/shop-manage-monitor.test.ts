@@ -28,6 +28,8 @@ it('配置中心左下回复监控入口只打开监控，不修改店铺或发�
     global: { plugins: [pinia, router], stubs: { BrandMark: true, AppVersion: true } },
   })
   wrappers.push(wrapper)
+  expect(wrapper.find('header').exists()).toBe(false)
+  expect(wrapper.text()).not.toMatch(/返回工作台|商品自动学习|官网/)
   expect(wrapper.find('.sider__monitor [aria-label="回复监控"]').exists()).toBe(true)
   await wrapper.get('.sider__monitor [aria-label="回复监控"]').trigger('click')
   await flushPromises()

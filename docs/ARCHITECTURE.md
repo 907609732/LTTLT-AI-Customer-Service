@@ -200,3 +200,5 @@ knowledge runtime 的既有 backup/restore-preview 请求新增可选 storeId，
 接待界面把全局人工关键词与客服接管关键词并列展示，各自带开关；没有独立保存按钮。文本失焦与开关变更分别通过既有 `save-config` 业务命令的 `RECEPTION_KEYWORDS` 屏幕保存，主进程 `electron/reception-keyword-settings.ts` 负责严格解析、预期旧值检查和开关原子文件；`electron/local-runtime.ts` 串行化读改写并在快照中叠加开关字段。ConfigStore 的关键词原文保持不变。
 
 厂商 `backend.cjs` 只新增可选 `resolveKeywordSafety` 注入点，ReplyEngine 每次读取配置时仅替换生效的 handoff/manual 数组；本店自定义人工词仍优先于全局开关，客服接管开关只停止卖家侧匹配。复用向导的 handoff 仍由向导最后统一保存，关键词设置自身独立自动保存；来源和哈希记录在 vendor PROVENANCE/source-files。
+
+配置中心（2026-11-19）：/shop/manage 是 MainLayout 的子路由，复用工作台顶栏；ShopManageView 只负责下方功能导航和面板。配置时隐藏店铺侧栏，原生平台视图沿 route.path watcher 隐藏，回首页恢复。旧路由与 query 契约保持。

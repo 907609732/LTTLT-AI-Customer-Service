@@ -405,6 +405,52 @@ app
         '导航不应触发业务占位提示',
       )
     })
+    await check('config:embedded-workbench', '/', async () => {
+      await load('/')
+      await win.webContents.executeJavaScript(
+        `globalThis.__configHeader = document.querySelector('.workbench-titlebar'); document.querySelectorAll('.top-navigation button')[1].click()`,
+      )
+      await ready()
+      assert.equal(
+        await win.webContents.executeJavaScript(`(() => {
+        const header = document.querySelector('.workbench-titlebar');
+        const configuration = document.querySelector('.shop-manage');
+        const sidebar = document.querySelector('.store-sidebar');
+        return header === globalThis.__configHeader && document.querySelectorAll('.workbench-titlebar').length === 1
+          && configuration && !configuration.querySelector('.topbar')
+          && !/返回工作台|商品自动学习|官网/.test(configuration.textContent)
+          && getComputedStyle(sidebar).display === 'none'
+          && document.querySelector('.top-navigation button.active').textContent.includes('配置中心')
+          && configuration.getBoundingClientRect().top >= header.getBoundingClientRect().bottom - 1
+          && configuration.getBoundingClientRect().bottom <= innerHeight + 1
+          && configuration.querySelector('.shell').getBoundingClientRect().height > 300;
+      })()`),
+        true,
+        '配置中心应共用原顶栏并适配剩余高度',
+      )
+      fs.writeFileSync(
+        path.join(output, 'embedded-configuration.png'),
+        (await win.capturePage()).toPNG(),
+      )
+      await win.webContents.executeJavaScript(
+        `document.querySelectorAll('.top-navigation button')[0].click()`,
+      )
+      await ready()
+      assert.equal(
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.workbench-titlebar') === globalThis.__configHeader && !document.querySelector('.shop-manage') && getComputedStyle(document.querySelector('.store-sidebar')).display !== 'none'`,
+        ),
+        true,
+      )
+      await load('/shop/manage?panel=shops')
+      assert.equal(
+        await win.webContents.executeJavaScript(
+          `document.querySelectorAll('.workbench-titlebar').length === 1 && Boolean(document.querySelector('.shop-manage .sider'))`,
+        ),
+        true,
+        '直接配置链接也应使用工作台外壳',
+      )
+    })
     await check('add-store-direct-login', '/', async () => {
       await load('/')
       const sessions = new Set<Session>()
