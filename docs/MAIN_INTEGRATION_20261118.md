@@ -39,7 +39,7 @@
 
 - auth merge `b3a5f69`：父 `07a2ac6` + `a28750d`，tree `5f46ae2c…`，主题 `merge: integrate device registration redirect in 1.0.68`。
 - 历史登记 `121fffb`：`-s ours` 记录 5 个已证明覆盖的 ref（`runtime-refactor`、`taskbar-icon`、`progress-site`、`origin/docs/lingtu-ecosystem-20261117`、`origin/docs/lingtu-ecosystem-current-20261117`），tree 与 auth merge 完全相同，`git diff --exit-code` 为 0。
-- `main` 与 `origin/main` 均为 `121fffb`（正常 push，无 force）；`codex/main-consolidation-20261118` 同步推送。
+- 功能代码与 CI/build 的固定基线为 `121fffb`（正常 push，无 force）；最终 `main`/`origin/main` 另含同批文档回执，相对该基线仅四份文档变化；`codex/main-consolidation-20261118` 同步推送。
 - 全部 named 本地/远端 ref 已是 `121fffb` 祖先；87 个原 dirty 文件 hash 完全不变，3 份 stash、30 个工作树保留。
 - CI 两条均对 exact `121fffb` 成功：desktop `44335250367`（175 文件/1366 单元、上游 242、native 94、知识 18+7、packaged 10）、server `44335249564`（13 文件 72 网页测试、11 个 verify 步骤全 0、隔离 SQLite/MySQL/PostgreSQL）。未发布 Release、未部署。
 - 主目录源码 build exit 0，实际打开 1.0.68（PID 18076，原 profile、2 店、AI 关闭、店铺页未开、无 debug flags/安全弹窗）。旧 1.0.67 的 Alt+F4 只关闭窗口、后台未退，按路径仅结束已知旧进程，不记为正常退出（`codex-old-runtime-exit.json`），只作观察/后续诊断。

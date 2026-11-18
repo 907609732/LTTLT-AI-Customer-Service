@@ -8,7 +8,7 @@
 
 CI（均 exact `121fffbfd4e2062cf80b71fcfabc670496618f21`，success）：desktop `44335250367`——175 文件/1366 单元、上游 242、native 94、知识 18+7、packaged 10 项通过；server `44335249564`——13 文件 72 网页测试、11 个 verify 步骤全 0、隔离 SQLite/MySQL/PostgreSQL 通过。证据由同 run 下载核对，未发布 Release、未部署。
 
-提交与历史：auth merge `b3a5f69`（父 `07a2ac6` + `a28750d`）；5 个已证明覆盖的 ref 以 `-s ours` 登记为 `121fffb`，tree 与 auth merge 相同（`5f46ae2c…`）；全部 named 本地/远端分支均为祖先；5 个未吸收 `codex/snapshots` 为已审计备份（无独有完成代码）；87 个原 dirty 文件 hash 不变、3 份 stash、30 个工作树保留；`main`/`origin/main` 均为 `121fffb`。
+提交与历史：auth merge `b3a5f69`（父 `07a2ac6` + `a28750d`）；5 个已证明覆盖的 ref 以 `-s ours` 登记为 `121fffb`，tree 与 auth merge 相同（`5f46ae2c…`）；全部 named 本地/远端分支均为祖先；5 个未吸收 `codex/snapshots` 为已审计备份（无独有完成代码）；87 个原 dirty 文件 hash 不变、3 份 stash、30 个工作树保留；功能整合时 `main`/`origin/main` 指向 `121fffb`；最终主干另含同批文档回执，相对该 CI/build 源码基线仅四份文档变化。
 
 启动与边界：主目录源码 build 0 并实际打开 1.0.68（PID 18076，原 profile、2 店、AI 关闭、店铺页未开、无 debug flags/安全弹窗）。旧 1.0.67 Alt+F4 后窗口消失但后台未退，按路径只结束已知旧进程，不记为正常退出。未新增实店消息、未做真实账号注册/设备确认 E2E、未部署、未发布 Release；尺码结构化模块（2 项 RED 未完成）与视觉独立配置（仅设计）未作为功能交付。
 
