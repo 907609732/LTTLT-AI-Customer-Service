@@ -1,17 +1,29 @@
 # 客户端与独立服务端验证
 
-## 2026-11-18：1.0.62 回复监控会话整合（本机组合完成，标准 CI/同次产物及正常重启待回执）
+## 2026-11-18：1.0.62 最终组合、云端/同次产物与正常主目录验收
 
-在已验收 cbd1d89 / 1.0.61 上合并 bc6a863（父 aaef4df）的回复监控会话视图。使用 artifacts/integration-pdd-20261118/monitor-input 的 21 文件原始快照；未读取或修改主目录、真实 userData、业务、密钥或运行进程。版本 1.0.62。
+在已验收 cbd1d89 / 1.0.61 上合并 bc6a863（父 aaef4df）的回复监控会话视图。DeepSeek 使用 artifacts/integration-pdd-20261118/monitor-input 的 21 文件原始快照在隔离树执行；实现阶段未操作正式 userData、业务、密钥或运行进程。Codex 后续正常更新/重启主目录的实际结果如下。版本 1.0.62。
 
 - 定向 Vitest（`--maxWorkers=1 --minWorkers=1`）15 文件/129 项通过，退出 0：review-engine 11（原 10 项发送门 + 新增 goodsTitle 1）、review-console 22、dom-text-adapter 17、reply-monitor 12、reply-monitor-conversation 7、reply-monitor-window 3、reply-monitor-developer 2、两个 PDD hook 15、welcome 系列 23、send-mode-authorizations 12、platform-write-coordinator 5。日志 `artifacts/integration-pdd-20261118/logs/monitor-merge-vitest.log`。
 - 合并冲突仅 HANDOFF/package/package-lock：HANDOFF 保留 1.0.61、1.0.60 与主目录监控历史，新增 1.0.62 状态；package/lock 取 1.0.61 后统一递增 1.0.62，依赖不变。VERSIONING 人工区分主目录 1.0.60 监控副本与已验收 1.0.60 维护整理。
 - 三份发送 TS（dom-text-adapter、send-mode-authorizations、welcome-delay）与 cbd1d89 blob 逐字节一致；主目录 11 个监控单方文件与 bc6a863 快照 SHA256 一致；source-files 同时保留 hook v12 的 `98d5b9c5...` 与 reply-engine 监控的 `1337b47c...`，PROVENANCE 两边记录并存。
 - typecheck、变更 TS/Vue ESLint/Prettier、`node scripts/check-boundaries.mjs`、`node scripts/check-vendor.mjs`（runtime 80 / server 94）、上游 242/242、`npm run build` 均退出 0。日志在 `logs/monitor-merge-*.log`。
 - 原生仅 `reply-monitor:compact-window,business:developer-console`：2/2 通过，报告 `artifacts/desktop-selected-1794981028351/report.json`；临时 userData，未真实店铺。未发现独立监控会话原生脚本，会话投影由 reply-monitor-conversation 及组件测试覆盖。
-- 未运行本机全量 check/test:desktop、标准 CI、同次安装包或正常重启；真实店铺商品/监控显示未验收。1.0.61 已验收产物不覆盖新增监控。
+- 本机只运行受影响检查，完整 check/test:desktop 由标准 CI 执行；1.0.61 产物不覆盖新增监控，最终证据使用 1.0.62 的同次提交/产物。
 
-## 2026-11-18：1.0.60 与 PDD 修复组合（待 1.0.61 定版）
+Codex 最终回执：源码 28b0103 同时保留 cbd1d89 与 bc6a863 父历史、原始 PDD aaef4df。独立定向 15 文件/129 项退出 0，日志 codex-final-1062-targeted.log；独立保留核对见 codex-final-retention.json，63 个已删除项未复活，知识库目录与整理版相同。只读复核无确证 P1/P2。
+
+[CI 44247222353](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44247222353) 对精确提交 28b0103 首次成功：完整源码 172 文件/1311 项、上游 242 项、类型/静态/格式/边界/来源、构建，真实 Electron 桌面 91/91，知识库与来源学习，以及 NSIS/ZIP 和真实打包程序 10 项全部通过。日志 ci-1062-final.log，报告 cloud-1062-evidence/。安装器、ZIP、RELEASE-MANIFEST 的三份 SHA256 均匹配；清单 version=1.0.62、sourceCommit=28b0103cd1bfa83e3ae0b4990f442c11d97bd847。
+
+同一下载 ZIP 位于 release/ci-28b0103，首次本机打包程序 10 项退出 0：ASAR 9124 成员、解析 8 部分。日志 local-packaged-1062.log 与 local-packaged-1062-report.json。未修改测试、超时或图形参数促成通过。
+
+主目录正常关闭旧实例、快进并构建后打开；2026-11-18 14:07:09 实测 PID 117784，appPath 为原 client 目录、版本 1.0.62、可见 UI v1.0.62，userData 仍为 C:\Users\90760\AppData\Roaming\yunduo-ui-restored。临时回环 inspector 16326 已关闭；source-runtime-1062.json、inspector-1062-closed.json 和 main-build-1062.log 为回执。两份无关视觉模型文档原 SHA256 不变且保持未跟踪。文档回执提交仅更新三份非打包文档，不改已验收产品源码。
+
+先前 1.0.61 CI 44243394560 首次因既有 knowledge-model-learning 的单项 5000ms 超时失败（170/171 文件、1295/1296 项通过），无错误断言；该测试与相关实现相对已通过 1.0.60 未变。原样定向三次通过后，未改代码/测试/时限，同提交仅重跑失败 job 并全绿，下载哈希及本机同 ZIP 10 项也通过。负载原因仅为推断，保留 ci-first-failed.log 与 ci-timeout-diagnosis/ 原始证据，不把首轮记作通过。最终 1.0.62 使用新增监控后的独立 CI，首次通过。
+
+本次未主动执行真实店铺、付费模型或真实买家发送作为验收，未公开发布 Release 或部署生产；真实 PDD 双买家送达与商品显示仍待实店确认。自动化范围内未发现整合引入的回归。
+
+## 2026-11-18：1.0.60 与 PDD 修复组合阶段（1.0.61 已验收，后续 1.0.62 交付）
 
 隔离树基线 b3ed1b6 / 1.0.60；只使用 artifacts/integration-pdd-20261118/ 的主目录授权快照，未读取或操作主目录运行资料、真实账号/店铺、浏览器或平台。详细证据索引见 artifacts/integration-pdd-20261118/worker-summary.md，完整日志与退出码同目录 logs/。
 

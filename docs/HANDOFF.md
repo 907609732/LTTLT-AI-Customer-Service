@@ -1,10 +1,14 @@
-## 2026-11-18：1.0.62 回复监控会话整合（本机组合完成，标准 CI/同次产物及正常重启待回执）
+## 2026-11-18：1.0.62 最终组合验收与主目录正常打开
 
-按用户授权将主目录已交付的回复监控会话视图（bc6a863，父 aaef4df）合入已验收 1.0.61（cbd1d89）。保留 1.0.61 的 PDD 会话/发送门、欢迎缓存、页面批准指纹、取消与生产失败回调修正，同时保留主目录新增的监控会话气泡、商品/trace 同店同买家筛选、ReviewConsole 商品投影、ReplyMonitorView、契约与测试。版本统一为 1.0.62；原 1.0.61 已验收产物仍只对应原基线，不覆盖新增监控。当前尚未 push、发布或重启主目录，标准 CI/同次产物及正常重启待 Codex 回执。
+按用户授权将主目录已交付的回复监控会话视图（bc6a863，父 aaef4df）合入已验收 1.0.61（cbd1d89）。保留 1.0.61 的 PDD 会话/发送门、欢迎缓存、页面批准指纹、取消与生产失败回调修正，同时保留主目录新增的监控会话气泡、商品/trace 同店同买家筛选、ReviewConsole 商品投影、ReplyMonitorView、契约与测试。版本统一为 1.0.62；原 1.0.61 已验收产物仍只对应原基线，不覆盖新增监控。最终源码提交为 28b0103，原始 PDD 输入 aaef4df、监控输入 bc6a863 与整理历史均保留；已通过验收并合入主目录，正常打开 1.0.62。公开 Release 与生产部署未执行。
 
-本机组合验证：定向 15 文件/129 项通过（review-engine 11 项同时覆盖原 10 项发送门与新增 goodsTitle 投影；另含两个 PDD hook、原发送/欢迎/授权/协调器组合、reply-monitor 会话/组件/窗口/开发者及 review-console），退出 0；typecheck、变更 TS/Vue ESLint/Prettier、边界、check-vendor（runtime 80 / server 94）、上游 242/242 和构建通过。原生仅运行 compact-window 与 developer-console，2/2 通过（artifacts/desktop-selected-1794981028351/report.json）；未发现独立监控会话原生脚本。三份发送 TS（dom-text-adapter、send-mode-authorizations、welcome-delay）与 cbd1d89 逐字节一致；主目录 11 个监控单方文件与 bc6a863 快照逐字节一致；source-files 同时保留 hook v12 与 reply-engine 监控实际 sha，PROVENANCE 两边记录并存。真实店铺、标准 CI、同次包及正常重启未执行。
+本机组合验证：定向 15 文件/129 项通过（review-engine 11 项同时覆盖原 10 项发送门与新增 goodsTitle 投影；另含两个 PDD hook、原发送/欢迎/授权/协调器组合、reply-monitor 会话/组件/窗口/开发者及 review-console），退出 0；typecheck、变更 TS/Vue ESLint/Prettier、边界、check-vendor（runtime 80 / server 94）、上游 242/242 和构建通过。原生仅运行 compact-window 与 developer-console，2/2 通过（artifacts/desktop-selected-1794981028351/report.json）；未发现独立监控会话原生脚本。三份发送 TS（dom-text-adapter、send-mode-authorizations、welcome-delay）与 cbd1d89 逐字节一致；主目录 11 个监控单方文件与 bc6a863 快照逐字节一致；source-files 同时保留 hook v12 与 reply-engine 监控实际 sha，PROVENANCE 两边记录并存。Codex 独立复跑同一 15 文件/129 项通过，独立只读复核无确证 P1/P2；计数存在重叠，不相加。
 
-## 2026-11-18：1.0.61 组合整合（本机验收完成，云端与正常重启待回执）
+[CI 44247222353](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44247222353) 首次全绿：172 文件/1311 项、原生桌面 91/91、知识库与来源学习、NSIS/ZIP 及真实打包程序 10 项通过。下载 release/ci-28b0103 的版本、精确提交和三份 SHA256 匹配，同一 ZIP 本机首次 10 项通过。原始证据在 artifacts/integration-pdd-20261118/，完整结果见 VALIDATION。
+
+主目录快进至同一源码并构建，正常关闭旧实例后已打开；实际进程和可见界面均为 1.0.62/v1.0.62，原 userData 为 yunduo-ui-restored，临时 inspector 已关闭。两份无关视觉模型文档 SHA256 不变且未提交。未发现本次整合范围内的功能回归；真实 PDD 双买家送达及新监控商品实店显示仍未验证。
+
+## 2026-11-18：1.0.61 组合阶段（云端及产物已验收，最终主目录随 1.0.62 交付）
 
 按用户最新授权整合 1.0.60 整理版与主目录 PDD 修复。原始 PDD 输入已原样保存在 aaef4df，主目录其他两份视觉模型文档保留；当前组合工作基线 b3ed1b6。63 项废弃文件删除、知识库两个专职控制器与 126 项公开接口全部保留。PDD 原始修复、测试和来源/哈希先按快照迁入，再由本机 DeepSeek 按复核反馈补齐测试和最小修正，Codex 独立复核。
 
@@ -12,7 +16,7 @@
 
 本机验证：DeepSeek 对相关缺口均保留 red/green 原文；组合 15 文件/156 项、后续直接影响 8 文件/67 项通过，Codex 独立发送组合 8 文件/67 项及归属/面板 15 项通过；原生发送/导航/监控 12/12、知识 18+2+5 项、类型/静态/构建、vendor 80/94 文件及上游 242 项通过。计数分阶段且存在重叠，不相加。独立只读复审无剩余确证阻断。详细范围、原始失败与限制集中见 VALIDATION 本轮记录及 artifacts/integration-pdd-20261118/worker-summary.md，避免此处重复全量测试清单。
 
-当前统一版本 1.0.61，尚待合并原始 PDD Git 父历史、标准 CI/产物与正常主目录重启回执；此前 1.0.60 的等待整合状态已被用户本轮授权替代。只使用隔离/离线夹具和模拟模型；真实 PDD 双买家新消息/实际送达仍未验证，未真实发送、未付费调用、未发布或部署。
+本阶段版本 1.0.61 已合并原始 PDD Git 父历史并完成标准 CI/产物验收；其后保留并发监控改动，最终主目录由 1.0.62 统一交付；此前 1.0.60 的等待整合状态已被用户本轮授权替代。只使用隔离/离线夹具和模拟模型；真实 PDD 双买家新消息/实际送达仍未验证，未真实发送、未付费调用、未发布或部署。
 
 后续：原始 PDD 父历史已由 bc6a863/1.0.62 merge 纳入；本条 1.0.61 的 CI/产物回执仍只对应原基线，不覆盖新增监控。
 
