@@ -1,5 +1,31 @@
 # 客户端与独立服务端验证
 
+## 2026-11-18：1.0.62 实店基线失败与 PDD 真实消息行投影（1.0.64 / hook v13）
+
+**结论先行：1.0.62 实店基线未通过，1.0.64 仍待 Codex 独立复核与实店新消息/商品/发送验收。本节不把离线红绿或只读采样表述为实店已修复。**
+
+实店只读复核（冻结 1.0.62 树，原 userData，PID 97928 保留；临时 node inspector 49431/49432 由 Codex 启动，本轮只读复用）：绑定目标店 wcId=2，A（buyerHash `3FCC038EE043`）、B（buyerHash `7D12F84224DF`）均 `known:false`，首个 false 为 `dom_text_not_in_known_texts`（pdd-web-hook.js:952）。`BUBBLE_SEL` 的 56 个命中全部在左侧 `.chat-item-box[data-random]`，可见 5 个是联系人预览，0 个在中间 `middlePanel_list_*` 行；真实消息行内部没有 `p.chat-message-content`。旧的“右侧残留旧气泡/面板未切完”归因撤销。
+
+同店最后只读结构采样（同 wcId=2，当前 UID B，不切会话、不发送、不调用模型）：19 条 `LI#middlePanel_list_<msgId>.clearfix.onemsg` 与 `currentUserInfo.messageList` 19 条按 msgId 一一对应；`DIV.merchantMessage` 在 19 行全部存在，是包裹层而非卖家标记；方向为 `DIV.cs-item`（`from.role=mall_cs`）与 `DIV.buyer-item`（`from.role=user`）；正文/卡片叶子含 `DIV.floor_item.text`、`P.msg-content-box`、`.good-name`、`.good-price`、`.title`、`.content`、`img`，装饰含 `P.message-time`、昵称、`robot-text`、`menu_item`、`.btn`。原始长度/hash 证据：ignored `artifacts/pdd-live-fix-20261118/raw/middle-roles.json`、`middle-tree.json`、`middle-roles.mjs`、`middle-tree.mjs`。
+
+RED（先失败）：新增 `tests/pdd-middle-panel-projection.test.ts`，用真实结构合成夹具（左侧多买家预览+隐藏缓存；中间 ID 行 + cs-item/buyer-item + msg-content-box），不含客户原文。对未修改的 hook 运行：
+
+```text
+node node_modules/vitest/vitest.mjs run tests/pdd-middle-panel-projection.test.ts --reporter=basic
+→ 1 failed | 2 passed (3)，exit 1
+→ “中间消息行按 ID/正文归属当前买家时 known=true…” expected false to be true
+```
+
+失败原因与实店一致：`panelMatchesUid` 把左侧预览文本当成气泡，`known=false`；旧 `merchantMessage` 判定会把买卖双方都当卖家。
+
+GREEN（最小修正后）：hook 升至 v13，`messageRows()/rowMessageId()/rowDomRole()/rowRole()/rowText()/rowContent()` 统一真实行投影，`BUBBLE_SEL` 删除；`panelMatchesUid`/`scanBubbles`/`reviewHistory`/`sellerEchoCount+waitForEcho`/`prepareNativeTextSend`/`confirmNativeTextSend` 同口径。有 ID 行按 `middlePanel_list_<msgId>` 归属，角色只认同一 msgId 的 Vuex `from.role`（`merchantMessage` 是所有行的公共包裹层，不作卖家证据）；正文优先用同一 ID 的 Vuex 普通文本，图片/视频 URL 与 JSON 卡片载荷不写进正文，退回已核实正文节点；无 ID 历史 `.chatMessage` 行保留严格文本兜底；未知方向的行令 `reviewHistory` 整体 `known:false`（reason `role_unconfirmed`），不静默忽略；真实行 ID 区分同文新消息。首轮 GREEN 后按独立复核意见做了收敛：`reviewHistory` 对任一可见但角色无法证明的行整体 `known:false`（不再静默忽略），正文优先同一 ID 的权威普通文本并排除隐藏/菜单/价格/按钮，`sellerEchoCount` 同时要求三路身份与 `panelMatchesUid` 归属（其他买家的 cs-item 同文行不能提前确认），DOM 行复用原生 msgId 与 store/WS 去重同身份，`knownMessageIndex` 时间口径与 `normalizeNode` 的 ts/time/create_time 一致。新增回归 10 项：真实结构归属、混合 ID、未知角色、已知+新未知、装饰文本指纹、预览/买家/旧卖家同文、B 会话同文回显拒绝、Vuex 角色晚到等待、隐藏菜单、原生 ID 去重。定向单 worker（`--poolOptions.threads.singleThread`）12 文件/162 项通过，exit 0：pdd-middle-panel-projection 10、pdd-panel-ownership 6、pdd-conversation-attribution 9、pdd-conversation-focus 3、dom-text-adapter 17、platform-write-coordinator 5、review-engine 11、review-console 22、reply-monitor 12、send-mode-authorizations 12、operation-pdd-native 19、operation-pdd-provider 36（含原 15 项 PDD 断言与发送/取消/单次点击/人工草稿/未知方向负例，未删断言、未加特殊 case）。格式化后复跑通过。
+
+独立复核提出的 P1 已用同一合成夹具做旧路径/新路径对照（ignored `artifacts/pdd-live-fix-20261118/logs/red-before-review-fixes.log`，退出 0）：旧路径“已有已知+新未知”返回 `known:true` 且只含已知行，新路径 `known:false/role_unconfirmed`；旧路径其他买家 cs-item 同文可确认回显 `ok:true`，新路径 `send_unconfirmed`；旧路径隐藏 `floor_item` 文本进入正文 `question copy`，新路径仅 `question`。该对照通过回退当前修复生成旧路径，不冒充 f998d9a7 原始 SHA 的实店/事件证据；原始 v12 首轮 RED 记录仍以 `logs/deepseek-red-captured.log` 为准。
+
+静态与完整性：`npm run typecheck` exit 0；变更 TS `tests/pdd-middle-panel-projection.test.ts` ESLint exit 0；Prettier `--check` exit 0（先 `--write` 仅格式化该新测试）；`node scripts/check-boundaries.mjs` 通过；`node scripts/check-vendor.mjs` runtime 80/server 94 通过（hook 实际 sha256 `e098b4e1…` 已写入 source-files.json，upstreamGitBlob/upstreamSha256 保留）。上游 `node --test vendor/lingtu-runtime/tests/*.test.mjs vendor/lingtu-runtime/desk-v1/test/*.test.js` 242/242 通过、exit 0；`npm run build`（vite + build:desktop）exit 0。
+
+未验证：真实网页新消息、真实商品上下文、真实发送/回显；未重启实店、未注入新 hook、未调用模型、未改 AI 模式、未转接、未发送。1.0.62 的既有 CI/产物回执只对应旧基线，不覆盖 v13/1.0.64；标准 CI 由 Codex 决定。本地提交已完成（分支 `codex/pdd-live-fix-20261118`，父 `c11bd6b`），未推送/发布/部署；确切提交号见 ignored worker-report。
+
 ## 2026-11-18：1.0.62 最终组合、云端/同次产物与正常主目录验收
 
 在已验收 cbd1d89 / 1.0.61 上合并 bc6a863（父 aaef4df）的回复监控会话视图。DeepSeek 使用 artifacts/integration-pdd-20261118/monitor-input 的 21 文件原始快照在隔离树执行；实现阶段未操作正式 userData、业务、密钥或运行进程。Codex 后续正常更新/重启主目录的实际结果如下。版本 1.0.62。

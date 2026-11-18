@@ -1,5 +1,13 @@
 # 上游来源与维护边界
 
+## 2026-11-18：PDD 真实消息行投影（hook v13，1.0.62 实店基线失败的后续修正）
+
+1.0.62 实店基线在绑定店 wcId=2 的 A/B 两买家上均 `known:false`，首个 false 为 `dom_text_not_in_known_texts`。只读容器诊断证明 `BUBBLE_SEL`（`.chat-item p.chat-message-content, p.chat-message-content`）的可见命中全部是左侧联系人预览 `.chat-item-box[data-random]`，真实消息区是 `LI#middlePanel_list_<msgId>.clearfix.onemsg` 且不含 `p.chat-message-content`；原“右侧残留旧气泡/面板未切完”归因撤销。后续同店只读采样进一步证明 `DIV.merchantMessage` 在每条消息行都存在（买卖双方都有），不能作为卖家标记；方向由行内 `DIV.cs-item`（`from.role=mall_cs`）与 `DIV.buyer-item`（`from.role=user`）明确给出，正文/卡片/图片叶子为 `DIV.floor_item.text`、`P.msg-content-box`、`.good-name/.good-price/.good-part`、`.title/.content`、`img` 等，装饰含 `P.message-time`、昵称、`robot-text`、`menu_item`、`.btn`。
+
+v13 只改 `desk-v1/src/injections/pdd-web-hook.js`：删除 `BUBBLE_SEL`，新增 `messageRows()/rowMessageId()/rowDomRole()/rowRole()/rowText()/rowContent()` 统一真实消息行投影；`panelMatchesUid`、`scanBubbles`、`reviewHistory`、`sellerEchoCount/waitForEcho` 与准备/确认发送共用该投影。有 `middlePanel_list_<msgId>` 的行由 ID 唯一证明归属，角色只认同一 msgId 的 Vuex `from.role`（DOM 方向标记仅用于归属冲突核对；`merchantMessage` 是公共包裹层，不能作为卖家证据）；正文优先用同一 ID 的权威普通文本，图片/视频 URL 与 JSON 卡片载荷不写进正文/指纹，退回已核实正文节点；只有历史无 ID 的 `.chatMessage` 行保留原严格文本归属兜底，不扩大到联系人预览。任一可见行角色无法证明时 `reviewHistory` 整体 `known:false`，不静默忽略后仍声称完整；新 seller 行先于 Vuex 时等待可信角色，超时按 `send_unconfirmed` 处理、不补发。真实行 ID 取代文本哈希用于 DOM 消息 ID，同文新消息因此改变序列；时间/昵称/机器人/菜单/按钮不进入正文。v11 的三路 UID 校验、v12 的未知方向不占水位与无 ID 文本证据规则均保留。
+
+source-files.json 保留 upstreamGitBlob/upstreamSha256，更新该文件实际 sha256 与 localPatch。针对性 RED/GREEN 与命令、退出码、未验项见本工程 `docs/VALIDATION.md` 与 ignored `artifacts/pdd-live-fix-20261118/worker-report.md`。**1.0.62 实店基线未通过；1.0.64 仍待 Codex 独立复核与实店新消息/商品/发送验收，离线夹具不代表实店通过。**
+
 ## 2026-11-18：回复监控当前咨询商品标题（1.0.59 源码）
 
 只读回复监控需要显示当前咨询商品的可靠标题，同时禁止从模型输出、推荐商品或其他买家/店铺猜测。reply-engine 在原有真实 reviewContext 中把平台待处理行已有的 goodsTitle 与 productId 一并交给 trace；标题来自平台页面/队列，不进入买家正文或发送决策。商品资料解析仍在本工程 TypeScript：ReviewConsole 只按同店精确 productId 查询现有知识绑定/平台详情，缺失时保留平台标题或仅显示编号，推荐商品、跨店同名标题和模型正文不会补位。未改变生成、人工确认、自动模式、发送复核、取消或重试语义。

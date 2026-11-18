@@ -1,3 +1,13 @@
+## 2026-11-18：1.0.62 实店基线未通过与 PDD 真实消息行投影修正（1.0.64，hook v13，待独立复核）
+
+**1.0.62 实店基线未通过**：绑定目标店（idHash 5499ABA4B691，wcId=2）两买家 A/B 手工 focus 成功、selected/currentUserInfo/列表选中三路一致，但 `reviewHistory` 均为 `known:false`，首个 false 是 `dom_text_not_in_known_texts`（pdd-web-hook.js:952）。实店只读复核已撤销“右侧残留旧气泡/消息面板未切完”的旧归因：`BUBBLE_SEL`（`.chat-item p.chat-message-content, p.chat-message-content`）可见的 5 个命中全部位于左侧联系人预览 `.chat-item-box[data-random]`（x=60/108），不是中间消息行；中间真实消息是 `LI#middlePanel_list_<msgId>.clearfix.onemsg`（x=321，内部 `p.chat-message-content` 后代数为 0）。因此守卫拒绝的是被伪装成气泡的联系人预览文本，不是登录或 UID 误判。
+
+同店后续只读采样（wcId=2，当前 UID B）确认真实结构：19 条 `middlePanel_list_*` 行与 `currentUserInfo.messageList` 19 条一一对应；方向标记是行内 `DIV.cs-item`（商家/客服，`from.role=mall_cs`）与 `DIV.buyer-item`（买家，`from.role=user`）；`DIV.merchantMessage` 是 19 行全部存在的包裹层，**不能**再当卖家痕迹；正文/卡片/图片叶子分别为 `DIV.floor_item.text`、`P.msg-content-box`、`.good-name/.good-price/.good-part`、`.msg-title/.content`、`img` 等，另有 `P.message-time`、昵称、`robot-text`、`menu_item`、`.btn` 等装饰。证据在 ignored `artifacts/pdd-live-fix-20261118/`（`raw/middle-roles.json`、`raw/middle-tree.json`）。
+
+修正（仅 `vendor/lingtu-runtime/desk-v1/src/injections/pdd-web-hook.js` 升至 v13）：删除 `BUBBLE_SEL`，新增统一真实消息行投影 `messageRows()/rowMessageId()/rowDomRole()/rowRole()/rowText()/rowContent()`；`panelMatchesUid`、`scanBubbles`、`reviewHistory`、`sellerEchoCount/waitForEcho` 及 `prepareNativeTextSend/confirmNativeTextSend` 共用同一投影。有 ID 的行由 `middlePanel_list_<msgId>` 唯一证明归属，角色只认同一 msgId 的 Vuex `from.role`（`merchantMessage` 是整块消息区公共包裹层，不作卖家证据）；正文优先用同一 ID 的权威普通文本，图片/视频 URL 与 JSON 卡片载荷不写进正文，退回已核实正文节点；无 ID 的历史 `.chatMessage` 行保留原严格文本归属兜底；任一可见行角色无法证明时 `reviewHistory` 整体 `known:false`，不静默忽略；真实行 ID 取代文本哈希作为 DOM 消息 ID。左侧联系人预览不再进入 pending/review/echo；时间/昵称/机器人/菜单/按钮不进入正文。
+
+版本统一 1.0.64（package.json 与 package-lock.json 本批只递增一次），`source-files.json` 保留 upstreamGitBlob/upstreamSha256 并更新实际 sha256 与 localPatch，PROVENANCE 记录本轮根因与验证边界。1.0.62 已交付产物与本轮证据只对应旧基线；**1.0.64 仍待 Codex 独立复核与实店新消息/商品/发送验收**，本轮未重启、未发送、未调用模型、未改 AI 模式。原冻结 1.0.62 树的 userData 实店进程（97928 提供 49431/49432）保持运行，未关闭/重启/注入 hook。
+
 ## 2026-11-18：1.0.62 最终组合验收与主目录正常打开
 
 按用户授权将主目录已交付的回复监控会话视图（bc6a863，父 aaef4df）合入已验收 1.0.61（cbd1d89）。保留 1.0.61 的 PDD 会话/发送门、欢迎缓存、页面批准指纹、取消与生产失败回调修正，同时保留主目录新增的监控会话气泡、商品/trace 同店同买家筛选、ReviewConsole 商品投影、ReplyMonitorView、契约与测试。版本统一为 1.0.62；原 1.0.61 已验收产物仍只对应原基线，不覆盖新增监控。最终源码提交为 28b0103，原始 PDD 输入 aaef4df、监控输入 bc6a863 与整理历史均保留；已通过验收并合入主目录，正常打开 1.0.62。公开 Release 与生产部署未执行。

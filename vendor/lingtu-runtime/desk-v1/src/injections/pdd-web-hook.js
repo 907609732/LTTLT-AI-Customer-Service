@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VER = 12;
+  var VER = 13;
   var reviewPageId=Date.now().toString(36)+Math.random().toString(36).slice(2);
   window.__PDD_WEB_VER = VER;
 
@@ -886,30 +886,162 @@
       return '';
     }
   }
-  function bubbleTexts() {
+  /**
+   * 真实消息区投影（1.0.62 实店结构）：每条消息是
+   * LI#middlePanel_list_<msgId>.clearfix.onemsg，方向由行内 DIV.cs-item（商家/客服）
+   * 与 DIV.buyer-item（买家）标记。DIV.merchantMessage 是所有消息行共用的包裹层，
+   * 不是卖家痕迹；左侧 .chat-item-box[data-random] 里的 p.chat-message-content 只是
+   * 联系人预览/隐藏缓存，绝不能当消息归属证据。
+   * 历史 DOM（无 middlePanel_list_ 行）才回退到 .chatMessage 内的无 ID 气泡。
+   */
+  function messageRows() {
+    var rows = document.querySelectorAll('[id^="middlePanel_list_"]');
+    if (rows.length) return Array.prototype.slice.call(rows);
+    var legacy = document.querySelectorAll('.chatMessage .chat-item');
+    if (!legacy.length) legacy = document.querySelectorAll('.chatMessage .chat-message-content');
     var out = [];
-    var nodes = document.querySelectorAll(BUBBLE_SEL);
-    for (var i = 0; i < nodes.length; i++) {
-      var t = trimStr(nodes[i].textContent || '', 500);
-      if (t) out.push(t);
+    for (var i = 0; i < legacy.length; i++) {
+      if (legacy[i].closest && legacy[i].closest('.chat-item-box[data-random]')) continue;
+      out.push(legacy[i]);
     }
     return out;
   }
-  // PDD 消息项带 middlePanel_list_<msgId>；这是网页气泡与已知消息归属的直接证据。
-  function panelMessageIds() {
-    var out = [];
-    var nodes = document.querySelectorAll('[id^="middlePanel_list_"]');
-    for (var i = 0; i < nodes.length; i++) {
-      var id = trimStr(nodes[i].getAttribute('id') || '');
-      if (id.indexOf('middlePanel_list_') === 0)
-        out.push(trimStr(id.slice('middlePanel_list_'.length)));
+  function rowMessageId(row) {
+    var id = trimStr((row && row.getAttribute && row.getAttribute('id')) || '');
+    return id.indexOf('middlePanel_list_') === 0 ? trimStr(id.slice('middlePanel_list_'.length)) : '';
+  }
+  // 新 DOM 的显式方向标记；merchantMessage 不能作为卖家证据（见上）。
+  function rowDomRole(row) {
+    try {
+      if (!row || !row.querySelector) return '';
+      if (row.querySelector('.cs-item')) return 'seller';
+      if (row.querySelector('.buyer-item')) return 'buyer';
+    } catch (e) {}
+    return '';
+  }
+  function legacyRowRole(row) {
+    if (rowMessageId(row)) return '';
+    try {
+      if (row.classList && row.classList.contains('merchantMessage')) return 'seller';
+      if (row.querySelector && row.querySelector('.merchantMessage')) return 'seller';
+    } catch (e) {}
+    // 历史 DOM 无明确标记时的原有口径：非卖家气泡按买家处理。
+    return 'buyer';
+  }
+  // 只取已核实的正文节点；时间、昵称、机器人标签、菜单动作、卡片价格和按钮都不进入正文。
+  // floor_item.text 在实店样本里与菜单项同级，未证明是正文，故不列入。
+  var ROW_CONTENT_SEL = '.msg-content-box, .good-name, .msg-content .text, .msg-content .title, .msg-content .content';
+  var ROW_CHROME_SEL = '.message-time,.nickname,.robot-text,.menu_item,.good-copy-btn,.btn,.avatar,button';
+  function rowText(row, max) {
+    var parts = [];
+    try {
+      var nodes = row.querySelectorAll(ROW_CONTENT_SEL);
+      for (var i = 0; i < nodes.length; i++) {
+        // 菜单/隐藏控件不是正文：跳过 menu/floor 项以及 display:none/hidden 的节点。
+        if (nodes[i].closest && nodes[i].closest('.menu_item,.floor_item,.good-copy-btn')) continue;
+        if (hiddenByStyle(nodes[i])) continue;
+        if (nodes[i].querySelector(ROW_CONTENT_SEL)) continue;
+        var t = trimStr(nodes[i].textContent || '');
+        if (t && parts.indexOf(t) < 0) parts.push(t);
+      }
+      // 新 DOM 没有可核实正文节点时保持空文本（图片/卡片由 media 或权威正文处理），
+      // 只有历史无 ID 面板才回退整行去装饰文本。
+      if (!parts.length && !rowMessageId(row)) {
+        var clone = row.cloneNode(true);
+        var drop = clone.querySelectorAll(ROW_CHROME_SEL);
+        for (var d = 0; d < drop.length; d++)
+          if (drop[d].parentNode) drop[d].parentNode.removeChild(drop[d]);
+        var all = trimStr(clone.textContent || '');
+        if (all) parts.push(all);
+      }
+    } catch (e) {}
+    return trimStr(parts.join(' '), max || 500);
+  }
+  function hiddenByStyle(el) {
+    try {
+      var n = el;
+      for (var i = 0; i < 6 && n && n.nodeType === 1; i++, n = n.parentElement) {
+        if (n.hidden) return true;
+        var s = n.style || {};
+        if (String(s.display).toLowerCase() === 'none' || String(s.visibility).toLowerCase() === 'hidden') return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  function rowMedia(row) {
+    var media = [];
+    try {
+      var parts = row.querySelectorAll('img:not([class*="avatar"]),video,audio');
+      for (var i = 0; i < parts.length; i++) {
+        var src = parts[i].getAttribute('src') || parts[i].getAttribute('data-src') || '';
+        if (src) media.push(parts[i].tagName + ':' + src);
+      }
+    } catch (e) {}
+    return media;
+  }
+  function storeMessageText(m) {
+    try {
+      var body = extractContent(m);
+      return body && body.content ? trimStr(body.content, 2000) : '';
+    } catch (e) {
+      return '';
     }
-    return out;
+  }
+  // 当前已确认买家的已知消息：msgId → 明确角色/类型/正文/时间，只用于同一 UID 的归属核对。
+  function knownMessageIndex(uid) {
+    var byId = Object.create(null);
+    var listed = conversationFor(uid);
+    var store = storeOf();
+    var current = store && store.state && store.state.currentUserInfo;
+    var loaded = current && normUid(current.userInfo && current.userInfo.uid) === uid ? current : null;
+    var list = messageListOf(loaded || listed);
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i];
+      var id = trimStr(m && (m.msg_id || m.msgId || m.message_id || ''));
+      if (!id) continue;
+      var role = roleToFrom((m.from && (m.from.role || m.from.type)) || '');
+      // 与 normalizeNode 同口径：ts/time/create_time，秒级时间戳转毫秒。
+      var ts = Number(m.ts !== undefined ? m.ts : m.time !== undefined ? m.time : m.create_time);
+      if (isFinite(ts) && ts > 0 && ts < 1e12) ts = ts * 1000;
+      var body = { type: 'unknown', content: '' };
+      try {
+        body = extractContent(m);
+      } catch (e) {}
+      byId[id] = {
+        role: role,
+        ts: isFinite(ts) && ts > 0 ? ts : 0,
+        type: body && body.type ? body.type : 'unknown',
+        content: storeMessageText(m),
+      };
+    }
+    return byId;
   }
   /**
-   * 已知会话数据下，网页气泡必须能对应当前买家的已知消息；否则说明消息区仍是
-   * 旧会话（currentUserInfo 已换 uid 但 messageList 未换），本轮 fail closed。
-   * 完全没有 Vuex 数据时才保留纯 DOM 兜底，且调用方仍要求身份一致。
+   * 行正文：同一 msgId 的 Vuex 普通文本是权威来源（补全 ID/时间或页面装饰变化不改指纹）；
+   * 图片/视频 URL、JSON 卡片载荷不写进正文，退回已核实的正文节点。
+   */
+  function rowContent(row, known, max) {
+    var id = rowMessageId(row);
+    var stored = id && known ? known[id] : null;
+    if (stored && stored.type === 'text' && stored.content && !/^[{[]/.test(stored.content))
+      return trimStr(stored.content, max || 500);
+    return rowText(row, max || 500);
+  }
+  // 有 middlePanel ID 的行只认同一 msgId 的 Vuex 角色（权威）；新行先于 Vuex 时等待，
+  // 不按 DOM 类名猜角色。历史无 ID 面板才用原有局部标记兜底。
+  function rowRole(row, known) {
+    var id = rowMessageId(row);
+    if (id) {
+      var stored = known && known[id];
+      return stored && stored.role ? stored.role : '';
+    }
+    return legacyRowRole(row);
+  }
+  /**
+   * 已知会话数据下，真实消息行必须属于当前买家；否则说明消息区仍是旧会话
+   * （currentUserInfo 已换 uid 但 messageList 未换），本轮 fail closed。
+   * 有 ID 的行由 ID 唯一证明归属（卡片/图片/菜单可见文本与 store 正文不同构，
+   * 不能再用文本比对）；只有历史无 ID 行才用文本归属兜底。
    */
   function panelMatchesUid(uid) {
     var store = storeOf();
@@ -938,18 +1070,27 @@
       var msgId = trimStr(list[i] && (list[i].msg_id || list[i].msgId || list[i].message_id || ''));
       if (msgId) knownIds.push(msgId);
     }
-    var domIds = panelMessageIds();
-    if (domIds.length) {
-      // 任一条可见气泡的消息 ID 不属于当前买家，说明消息区仍混有旧会话内容。
-      for (var d = 0; d < domIds.length; d++) if (knownIds.indexOf(domIds[d]) < 0) return false;
-    }
     if (!contents.length) return false;
-    var texts = bubbleTexts();
-    if (!texts.length) return false;
-    // 没有消息项 ID 时，单条相同文本可能只是两位买家的公共问候，不能据此把整个旧面板
-    // 认成当前买家。每个将被 DOM 采集的气泡都必须能对应到目标买家的已知消息；只要
-    // 有一条无法证明归属就 fail closed，避免把 A 的私有问题写进 B 的待回复/复核基线。
-    for (var n = 0; n < texts.length; n++) if (!knownTexts[texts[n]]) return false;
+    var rows = messageRows();
+    if (!rows.length) return false;
+    var known = knownMessageIndex(uid);
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r];
+      var id = rowMessageId(row);
+      if (id) {
+        // 任一行 ID 不属于当前买家，说明消息区混有旧会话/其他买家内容。
+        if (knownIds.indexOf(id) < 0) return false;
+        var dom = rowDomRole(row);
+        var stored = known[id] && known[id].role;
+        // 同一消息的 DOM 方向与 Vuex 角色冲突时，页面数据不可信。
+        if (dom && stored && dom !== stored) return false;
+        continue;
+      }
+      // 历史无 ID 行：单条相同文本可能只是两位买家的公共问候，不能据此把整个旧面板
+      // 认成当前买家；只要有一条无法证明归属就 fail closed。
+      var text = rowText(row, 500);
+      if (!text || !knownTexts[text]) return false;
+    }
     return true;
   }
 
@@ -1074,8 +1215,6 @@
   /* ------------------------------------------------------------------ *
    * 原生采集：真实 MMS 气泡 DOM
    * ------------------------------------------------------------------ */
-  var BUBBLE_SEL = '.chat-item p.chat-message-content, p.chat-message-content';
-  var CONV_SEL = '.chat-item-box[data-random]';
   var TIME_SEL = '.chat-time, .message-time, .msg-time, .chat-item-time, .time, time';
   function parseClock(text) {
     var s = trimStr(text || '', 60);
@@ -1102,7 +1241,8 @@
   }
   function timeNear(el) {
     try {
-      var item = el.closest ? el.closest('.chat-item') : null;
+      var item =
+        (el.closest && (el.closest('[id^="middlePanel_list_"]') || el.closest('.chat-item'))) || el;
       var scope = [item, item && item.previousElementSibling, item && item.nextElementSibling];
       for (var i = 0; i < scope.length; i++) {
         var s = scope[i];
@@ -1121,36 +1261,38 @@
     return 0;
   }
   function scanBubbles(scanUid) {
-    if (!document.querySelector(CONV_SEL) && !document.querySelector('.chat-item')) return false;
+    // 只读真实消息行；联系人预览和模板/弹窗不在投影内。
+    var rows = messageRows();
+    if (!rows.length) return false;
     var uid = scanUid || resolveActiveUid();
-    var nodes = document.querySelectorAll(BUBBLE_SEL);
-    state.stats.bubbleNodes += nodes.length;
+    state.stats.bubbleNodes += rows.length;
     if (!uid) {
-      if (nodes.length) state.stats.domNoUid++;
+      state.stats.domNoUid++;
       return true;
     }
-    for (var i = 0; i < nodes.length; i++) {
-      var el = nodes[i];
-      var text = trimStr(el.textContent || '', 500);
-      if (!text) continue;
-      var ts = timeNear(el);
-      if (!ts && i >= nodes.length - 3) ts = Date.now();
-      var item = el.closest ? el.closest('.chat-item') : null;
-      var mine = false;
-      try {
-        mine = !!(
-          (item && (item.querySelector('.merchantMessage') || (item.classList && item.classList.contains('merchantMessage')))) ||
-          (el.closest && el.closest('.merchantMessage'))
-        );
-      } catch (e) {}
+    var known = knownMessageIndex(uid);
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      // 只读权威正文（同一 msgId 的 Vuex 文本）或已核实的正文节点，装饰文本不进入消息。
+      var text = rowContent(row, known);
+      if (!text) continue; // 纯图片/语音行没有可归属文本，由 reviewHistory/media 处理
+      var id = rowMessageId(row);
+      var stored = id && known[id] ? known[id] : null;
+      // 未知方向绝不落成买家：既不能冒充待回复，也不能被当成已发送。
+      var from = rowRole(row, known);
+      if (from !== 'seller' && from !== 'buyer') continue;
+      var ts = (stored && stored.ts) || timeNear(row);
+      if (!ts && i >= rows.length - 3) ts = Date.now();
       var type = MEDIA_RE.test(text) ? (typeFromContent(text) === 'text' ? 'card' : typeFromContent(text)) : typeFromContent(text);
       try {
         ingestMessage({
           uid: uid,
           username: '',
           message: {
-            msgId: 'dom:' + uid + ':' + hash32(text),
-            from: mine ? 'seller' : 'buyer',
+            // 有原生消息 ID 时与 store/WS 使用同一身份，避免延迟 DOM 在文本去重窗口后重复入队；
+            // 只有历史无 ID DOM 才用带前缀的文本哈希。
+            msgId: id ? id : 'dom:' + uid + ':' + hash32(text),
+            from: from,
             type: type,
             content: text,
             ts: ts,
@@ -1393,12 +1535,16 @@
 
   /** 契约要求：成功前确认消息真的进入会话（DOM/消息流回显），不能只看输入框清空 */
   function sellerEchoCount(uid,text){
-    if(resolveActiveUid()!==normUid(uid))return 0;
-    var nodes=document.querySelectorAll(BUBBLE_SEL),count=0,target=trimStr(text,2000);
-    for(var i=0;i<nodes.length;i++){
-      var node=nodes[i],item=node.closest&&node.closest('.chat-item');
-      var seller=!!((node.closest&&node.closest('.merchantMessage'))||(item&&item.querySelector('.merchantMessage')));
-      if(seller&&trimStr(node.textContent||'',2000)===target)count++;
+    var key=normUid(uid);
+    // 回显必须同时满足三路身份与当前面板归属：B/旧会话、隐藏模板或其他买家的
+    // cs-item 行不能提前确认本次发送；新 seller 行先于 Vuex 角色时等待补全。
+    if(!key||identityUid()!==key||!panelMatchesUid(key))return 0;
+    var rows=messageRows(),count=0,target=trimStr(text,2000),known=knownMessageIndex(key);
+    // 与 reviewHistory/scanBubbles 同一投影：只有明确 seller 的当前会话行才算回显。
+    for(var i=0;i<rows.length;i++){
+      var row=rows[i];
+      if(rowRole(row,known)!=='seller')continue;
+      if(rowContent(row,known,2000)===target)count++;
     }
     return count;
   }
@@ -1831,18 +1977,19 @@
       var key=normUid(uid),out=[];
       if(!key||identityUid()!==key)return {known:false,uid:key,page:reviewPageId,messages:[],reason:'different_conversation'};
       if(!panelMatchesUid(key))return {known:false,uid:key,page:reviewPageId,messages:[],reason:'conversation_identity_unconfirmed'};
-      var nodes=document.querySelectorAll(BUBBLE_SEL);
-      for(var i=0;i<nodes.length;i++){
-        var node=nodes[i],item=node.closest&&node.closest('.chat-item');
-        if(!visible(node))continue;
-        var content=String(node.textContent||'').trim(),media=[];
-        var scope=item||node;
-        var parts=scope.querySelectorAll('img:not([class*="avatar"]),video,audio');
-        for(var j=0;j<parts.length;j++){var src=parts[j].getAttribute('src')||parts[j].getAttribute('data-src')||'';if(src)media.push(parts[j].tagName+':'+src);}
+      var rows=messageRows(),known=knownMessageIndex(key),complete=true;
+      for(var i=0;i<rows.length;i++){
+        var row=rows[i];
+        if(!visible(row))continue;
+        // 未知方向的行不猜测：既不当买家写入待回复，也不当卖家确认回显；
+        // 页面仍有无法归属的可见行时不能声称基线完整，否则批准后新未知消息会被指纹忽略。
+        var from=rowRole(row,known);
+        if(from!=='seller'&&from!=='buyer'){complete=false;continue;}
+        var content=rowContent(row,known,2000),media=rowMedia(row);
         if(!content&&!media.length)continue;
-        var seller=!!((node.closest&&node.closest('.merchantMessage'))||(item&&item.querySelector('.merchantMessage'))||(item&&item.classList.contains('merchantMessage')));
-        out.push({from:seller?'seller':'buyer',content:content,media:media});
+        out.push({from:from,content:content,media:media});
       }
+      if(!complete)return {known:false,uid:key,page:reviewPageId,messages:[],reason:'role_unconfirmed'};
       return {known:out.length>0,uid:key,page:reviewPageId,messages:out.slice(-100),reason:out.length?'':'messages_not_loaded'};
     },
     conversationHistory: async function (uid, limit) {

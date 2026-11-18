@@ -54,6 +54,10 @@ AI 调试记录真实构造的 messages（系统规则、协议、检索知识�
 
 不记录 HTTP 头、API Key 或服务商完整错误响应。调试正文可能含买家隐私和私有商品知识，查看、截图及分享应自行核对；不能把完整上下文放入公共 issue、仓库或生产监控。
 
+## 2026-11-18 PDD 消息行投影（1.0.64 / hook v13）
+
+1.0.62 实店诊断显示 DOM 采集把左侧联系人预览（`.chat-item-box[data-random]` 内的 `p.chat-message-content`）当成了消息气泡，真实消息行 `LI#middlePanel_list_<msgId>.onemsg` 反而没被读取，导致 `document_uid_conflict=0` 但 `reviewHistory` 持续 `known:false`。hook v13 起，DOM 采集、网页基线（`reviewHistory`）、卖家回显（`sellerEchoCount/waitForEcho`）和准备/确认发送统一读取真实消息行：消息 ID 取自 `middlePanel_list_`，方向取自行内 `cs-item`/`buyer-item` 或同一 UID 的 Vuex `from.role`，`merchantMessage` 不再作为卖家证据（它是所有行的包裹层）。日志中的 `bubbleNodes` 统计因此表示真实消息行数，不再包含联系人预览或隐藏缓存。方向无法证明的行直接跳过，不会显示为买家待回复或卖家已发送；同文新消息以真实消息 ID 区分。联系人预览、时间/昵称/菜单/按钮文本不进入消息内容。
+
 ## 维护入口
 
 - electron/review-console.ts：有界日志、模型请求记录、候选状态、过期与一次性批准；按真实 `reviewContext` 投影同店当前商品编号/标题，候选只复制同店同买家 trace。
