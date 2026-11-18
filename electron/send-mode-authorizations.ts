@@ -1,8 +1,19 @@
 import { createHash } from 'node:crypto'
 import type { SendProposal } from './review-console'
 import type { StoreSendModeState } from '../src/shared/contracts/review'
+import { pageReviewFingerprint, pageReviewSchema } from './conversation-review'
 
-type Permit = { storeId: string; uid: string; guard: () => boolean }
+/** 批准时受控的网页基线；发送锁内只能与它比较，不能把此刻网页当新基线。 */
+export interface ApprovedPageReview {
+  uid: string
+  page: string
+  fingerprint: string
+}
+/** 兼容既有 consume 调用者：仍是可调用 guard，附带受控批准网页基线。 */
+export type SendAuthorizationGuard = (() => boolean) & {
+  approvalPage?: ApprovedPageReview
+}
+type Permit = { storeId: string; uid: string; guard: SendAuthorizationGuard }
 const lifetimeMs = 10 * 60 * 1000
 const keyFor = (storeId: string, uid: string, text: string) =>
   createHash('sha256')
@@ -22,12 +33,26 @@ export class SendModeAuthorizations {
     // 不逐出旧许可：旧 AI 若已排队，丢掉其许可会被误认为不经此门的人工发送。
     if (!this.permits.has(key) && this.permits.size + this.attempts.size >= 100) return false
     const entry = { ...this.readMode(proposal.storeId) }
+    const parsedPage = pageReviewSchema.safeParse(proposal.pageReview)
+    const pageFingerprint = pageReviewFingerprint(proposal.pageReview)
+    const approvalPage: ApprovedPageReview | undefined =
+      parsedPage.success &&
+      parsedPage.data.known &&
+      parsedPage.data.uid &&
+      parsedPage.data.page &&
+      pageFingerprint
+        ? {
+            uid: parsedPage.data.uid,
+            page: parsedPage.data.page,
+            fingerprint: pageFingerprint,
+          }
+        : undefined
     this.permits.delete(key)
     const attempt = Symbol()
     this.attempts.set(key, attempt)
     const started = Date.now()
     const originalCurrent = proposal.isCurrent.bind(proposal)
-    const guard = () => {
+    const guard: SendAuthorizationGuard = () => {
       if (this.closed || Date.now() - started > lifetimeMs) return false
       try {
         if (!originalCurrent()) return false
@@ -42,6 +67,7 @@ export class SendModeAuthorizations {
     proposal.isCurrent = guard
     try {
       if (!(await decision()) || !guard() || this.attempts.get(key) !== attempt) return false
+      if (approvalPage) guard.approvalPage = approvalPage
       this.permits.set(key, { storeId: proposal.storeId, uid: proposal.uid, guard })
       return true
     } finally {
@@ -49,7 +75,7 @@ export class SendModeAuthorizations {
     }
   }
 
-  consume(storeId: string, uid: string, text: string): (() => boolean) | undefined {
+  consume(storeId: string, uid: string, text: string): SendAuthorizationGuard | undefined {
     if (this.closed) return () => false
     const key = keyFor(storeId, uid, text),
       permit = this.permits.get(key)

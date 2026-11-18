@@ -110,6 +110,22 @@ backend.cjs 的既有 save-config 仅新增 MANUAL_REPLY_KEYWORDS 分支：按 k
 
 保留当前知识端口、用途/策略版本透传和取消链路，在拼多多消息、待处理队列及回复上下文透传 goodsId；精确商品ID优先，标题与问题检索去重后补充。hook版本从9递增到10，保留已有会话定位修复。backend仅新增可选 resolveManagedRequestId 注入，在记录失败诊断前确定摘要父回复ID，保证实际HTTP正文和诊断一致。保留原始来源哈希，更新实际文件哈希与对应回归测试。
 
+## 2026-11-18：拼多多消息区身份与发送定位（hook v11）
+
+实店日志显示两位买家交替消息时旧气泡被归到新选中的 uid，且卖家回显可能以 buyer 身份进入待回复；同时 reply-engine 的先定位与 adapter 发送是两次独立排队，中间可被另一位买家切走。`desk-v1/src/injections/pdd-web-hook.js` 升至 v11：DOM 采集和 `reviewHistory` 只接受 selectingChatUid、currentUserInfo.userInfo.uid 与列表实际选中项一致的会话；已知 Vuex 会话数据时，网页气泡必须对应当前买家 messageList 的已知内容，并校验 `middlePanel_list_<msgId>` 消息项 ID 全部属于该买家，currentUserInfo 与列表同一 uid 的最新消息 ID 不一致或列表缺少该买家时 fail closed，不再靠等待一帧假定新消息区已加载。结构化帧缺少发送方向时不再默认 buyer，而是作为系统消息吸收，避免卖家回显/其他通道消息进入买家队列。卖家 `merchantMessage` 判定保持原实现，未新增类名或几何猜测。
+
+本工程 `electron/dom-text-adapter.ts` 在 PlatformWriteCoordinator 的同一次店铺 sendText 锁内，用配置时捕获的原始 focusConversation 重新定位本次 uid，再读取网页基线、填写、点击和回显；不重入协调队列，保留 isCurrent、候选授权、人工草稿与单次点击保护。定位失败或身份不确定时不发送、不重试。
+
+针对性验证：新增 tests/pdd-conversation-attribution.test.ts（6 项）与 platform-write-coordinator 交错调度测试；在原始 v10 hook / 原发送实现上分别观察到 3 项错归属与 1 项发送失败，修复后通过。pdd-conversation-focus、dom-text-adapter、review-engine 等 58 项定向测试通过；未运行全量桌面套件。真实页面卖家气泡标记与 currentUserInfo 更新时序仍需现场观察，不能用离线夹具宣称实店已修复。
+
+## 2026-11-18：组合复核补正（hook v12，在捕获的 v11 基础上）
+
+整合 1.0.60 整理分支前，独立复核用权威 hook 和内存 JSDOM 复现了 v11 的两条遗漏，均在 PDD 会话归属链路内，按最小补丁修正后升为 v12；v11 的来源记录与上游双哈希保留在上节。
+
+- 未知方向帧不再当作 system 吸收。v11 对无角色 WS 帧先写 seen 与 uid 水位，之后同一 msg_id 由 Vuex 补全 from.role=buyer/seller 时会被去重吞掉，后台买家可能漏回复。v12 将「无角色且无法由 selfUid/manual_reply 判定」标为 unknown，ingestMessage 直接返回：不进入 buyer/seller 队列，也不写 seen、文本去重或水位，因此后续权威渠道仍可归属；显式 role=system 的真实系统提示仍按原规则吸收。持续未知帧不会抬高未来水位，也不会恢复默认 buyer。
+- 无消息项 ID 的旧面板不能再靠一条公共文本放行。v11 只要求最近已知消息中任一条文本出现在 DOM；当 A 的旧面板为 [hello, A 私有问题]、B 的已知消息只有 [hello] 时，单条 hello 会把整个旧面板错认成 B，私有问题进入 B 的 pending 和 reviewHistory 基线。v12 在缺少 `middlePanel_list_<msgId>` 时要求每个将被 DOM 采集的气泡文本都能对应目标买家的已知消息，任一无法证明即 fail closed；存在消息项 ID 时仍逐条校验全部 ID 属于该买家。稳定的三路 uid、currentUserInfo/列表最新消息 ID、卖家 merchantMessage 与正常采集路径保留。
+- v12 只改 `desk-v1/src/injections/pdd-web-hook.js` 及本轮 PDD 测试，不扩大其他 vendor/server 逻辑。先补负向用例并在 v11 上实际得到 4 项失败（晚到 buyer、晚到 seller、持续未知水位、无 ID 公共文本），修正后 2 文件 12 项通过；原 6 项正例、取消/批准/逐字/单次点击断言未改。后续复核指出普通对象字典会把继承的 `constructor`/`toString`/`__proto__` 当成已知文本，v12 改用无原型字典并补 3 项负向用例（先红后绿）；真实店铺仍需实店验收，离线夹具不代表实店已通过。
+
 ## 2026-11-17：同一买家随机回复节奏
 
 reply-engine 与 backend.cjs 新增可选 resolveUidIntervalMs：ReplyEngine 保存并转发给每个 StoreWorker，Worker 把 storeId、uid、lastSentAt 与自身随机源交给该函数。抽样、缓存、随保存失效和范围校验全部在本工程 TypeScript，vendor 不保存节奏业务规则；未注入时每次动态读取上游 perUidMinIntervalMs（旧 save-config 改值立即生效）。注入时不再叠加旧 0.5~2s 发送抖动，只保留所选的一套间隔；解析异常时退到 1 秒下限，不回退旧 60 秒。决策文案显示本次实际间隔，pacingIntervalMs(uid) 供本工程消息诊断读取同一值。发送审批、取消、发送前复核、重试与单店分钟上限均未改动；REPLY_PACING 旧保存分支保留但桌面端不再使用。随机模式、范围校验与旧值迁移在 electron/reply-pacing.ts（reply-pacing.json），config.json 的旧固定值原样保留用于审计/回退。source-files.json 保留 upstreamGitBlob/upstreamSha256，仅更新这两个文件的实际 sha256 与 localPatch。

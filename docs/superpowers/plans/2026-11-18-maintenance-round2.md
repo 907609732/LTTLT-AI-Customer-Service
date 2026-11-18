@@ -73,3 +73,27 @@
 - 当前只在独立分支交付，尚未合入主目录/远端main和重启日常应用。主目录在整合检查时存在另一任务的未提交PDD会话修复并运行1.0.59等待实店验收；为保留现场，本轮改用1.0.60独立验收并提供选择，未收到选择时不结束测试或覆盖改动。
 
 完整清单、行数、退出码、失败原因和未验证项见 `artifacts/maintenance-round2/worker-summary.md`；证据统一存放 `artifacts/maintenance-round2/`。
+
+## Task 5：用户授权整合 1.0.60 与主目录拼多多修复
+
+用户现已明确要求保留双方改动并整合、复核验收后打开最新版，替代此前保留现场的等待状态。最终版本由 Codex 统一为 1.0.61。
+
+- [x] 主目录 HEAD 1e041f1，PDD 工作副本 1.0.59；独立整理分支 b3ed1b6 / 1.0.60。已将主目录修复的补丁、原始文件和 SHA256 快照保存到 artifacts/integration-pdd-20261118/，不读取用户资料。
+- [x] DeepSeek 在当前隔离工作树迁入快照中的 dom-text-adapter、两个 PDD 测试、platform-write-coordinator 测试、PDD hook 和对应来源/哈希记录；迁入时业务文件与快照逐字节一致，随后 dom-text-adapter 按页面基线修正更新。文档保留双方内容，忽略旧 package 版本差异，不引入视觉模型任务文档或其他源码。
+- [x] 在组合源码运行 PDD 会话归属/面板身份/发送定位与逐字输入/确认、知识库控制器/待学反馈、同步与入口的直接相关测试，类型/变更静态、vendor 哈希与必要上游验证、构建和隔离原生检查。保留首次失败，不扩大语义修改或绕过审批。
+- [ ] Codex 独立核对迁入文件、清理删除项和公开契约，复跑核心组合测试；独立 reviewer 复核 PDD 变更及发送门。需要修正时回到原 DeepSeek 会话。
+- [ ] 主目录迁入前再次对照快照，保留本轮之外的未跟踪文档和并发改动；组合代码提交、推送 main 并核对精确 CI/产物。通过后只正常重启本项目，保留原 userData，实测进程与界面版本。
+
+执行复用 Git 补丁/原文件快照、既有 Vue/TypeScript/Electron 工具与测试，不新增依赖、IPC、持久化或平台操作；真实买家发送与付费模型仍不属于自动验收范围。
+
+### DeepSeek 实际结果（隔离树，未提交）
+
+- 7 个授权文件按 artifacts/integration-pdd-20261118/files 原字节迁入，SHA256 全部匹配；platform-write-coordinator.test 保持快照逐字节一致；dom-text-adapter 初始一致，后续仅按页面基线修正更新。未改 package.json/package-lock，未引入视觉模型文档。
+- 组合前复核新增两条 PDD 归属缺陷：未知角色 WS 帧提前占用 seen/水位导致晚到 buyer/seller 角色被吞；无 middlePanel ID 时单条公共文本放行整个旧面板。先补负向用例并在未修正 v11 上运行得到 2 文件 12 项中 4 项失败（退出 1，日志 vitest-pdd-red-v11.log）；hook 最小修正为 v12 后同 2 文件 12 项通过（退出 0，日志 vitest-pdd-green-v12.log）。随后补 `constructor`/`toString`/`__proto__` 继承属性用例，先在 v12 得 3 项失败，改用无原型字典后 6 项通过。
+- 第三条“批准后新买家到达仍发送旧无欢迎正文”由实际 worker/审批/授权/协调器/adapter 组合离线复现：原 HEAD 发送门 1 项失败（旧正文 prepare=1，退出 1），在 electron/welcome-delay.ts 统一发送门绑定批准时会话指纹并保留到定位/输入/点击后，review-engine 9/9 通过；稳定无欢迎回复仍单次点击，不引入欢迎延迟。
+- 缓存回归：真实 gate + 与 local-runtime 等价的 beginRead/welcomeCheckSnapshot 端口，连续两次无欢迎回复；未修正时第二条稳定回复误取消，1 failed / 4 passed（退出 1，vitest-welcome-cache-red.log）。每次批准前无条件新同步读取后 5/5 通过（exit 0）。
+- 网页先到、归档未同步：真实组合 harness 只改 pageMessages；未修正 review-engine 1 failed / 9 passed（旧正文 prepare=1），adapter 4 failed / 11 passed（页面/指纹变化实际发出）。许可携带批准 `pageReview` 指纹，send 锁内 focus 后用原始 `_callHook('reviewHistory')` 核对；未知/uid/page/指纹变化均零 prepare/零点击。
+- 异步取消与生产回调：typingInterval=50 的网页复核 await 期间停 AI 仍 prepare=1（red），改为整段/逐字共用 prepare 前 current/cancelRequested 后 adapter 17/17；页面安全拒绝从 `conversation_not_found` 改为合法 `hook_not_ready`+`throttled:true`，加入真实 `onDeliveryFailure` 的组合 red 显示 send_unconfirmed，修正后 review-engine 10/10、不触发 delivery failure/quality，同条入档可生成新候选。最终受影响 8 文件 67 项通过；未重跑 15 文件 156 项、242 上游或全部 knowledge 25 项。
+- 组合定向 15 文件 156 项通过（maxWorkers/minWorkers=1，退出 0）。此前机械迁入后的长验证被 Codex 中止，日志 vitest-targeted-1.log 保留，不计为完成。
+- typecheck、7 个自有 TS 文件 ESLint/Prettier、build、check-vendor（runtime 80 / server 94）退出 0；上游 242/242 通过。原生隔离 12/12（9 项 PDD DOM 填写/确认/发送、旧首页、紧凑监控、开发者控制台）；知识库主专项 18、待学问题 2、内嵌进度 5 项通过。
+- 未运行全量 npm run check/test:desktop、真实平台/付费模型/真实买家发送；未 commit/push/重启。1.0.59 实店双买家验收仍未完成，不改成通过。package/lock 仍 1.0.60，1.0.61 由 Codex 定版。

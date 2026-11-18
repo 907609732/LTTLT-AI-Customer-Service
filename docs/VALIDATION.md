@@ -1,5 +1,24 @@
 # 客户端与独立服务端验证
 
+## 2026-11-18：1.0.60 与 PDD 修复组合（待 1.0.61 定版）
+
+隔离树基线 b3ed1b6 / 1.0.60；只使用 artifacts/integration-pdd-20261118/ 的主目录授权快照，未读取或操作主目录运行资料、真实账号/店铺、浏览器或平台。详细证据索引见 artifacts/integration-pdd-20261118/worker-summary.md，完整日志与退出码同目录 logs/。
+
+- 7 个授权文件先按快照原字节迁入，逐一 SHA256 匹配；之后为复核反馈修改 PDD hook、两个 PDD 测试、PROVENANCE、source-files 实际哈希，并按页面基线修正更新 dom-text-adapter.ts；platform-write-coordinator.test.ts 仍与快照逐字节一致。
+- 组合前复核两条 PDD 归属遗漏，均以权威 hook + 内存 JSDOM 离线复现。先补负向用例在未修正 v11 上运行：2 文件 12 项中 4 项失败、8 项通过，退出 1，日志 vitest-pdd-red-v11.log；修正为 v12 后同 2 文件 12 项通过，退出 0。无原型字典补 `constructor`/`toString`/`__proto__` 3 项继承属性用例，先在 v12 得 3 项失败（exit 1），改用无原型字典后面板 6 项通过。覆盖晚到 buyer/seller 角色、持续未知不抬高水位、无 ID 混合旧气泡与相同文本的 pending/reviewHistory；原有正例和发送保护断言未改。
+- 第三条批准后当前性用真实 StoreWorker/ReviewConsole/SendModeAuthorizations/PlatformWriteCoordinator/configureDomTextAdapter/欢迎门离线复现：无欢迎普通回复批准后等待重新定位时新买家到达，旧 HEAD 发送门仍 prepare=1 并点击，review-engine 1 项失败/8 项通过（exit 1，日志 vitest-approval-red-head-gate.log）。`electron/welcome-delay.ts` 统一发送门为所有批准候选绑定批准时会话指纹并保留到定位/输入/点击，新消息使旧候选失效并结束“正在发送”；修正后 review-engine 9/9，无欢迎稳定回复仍单次点击。
+- 缓存回归：真实 gate + 与 local-runtime 等价的 `beginRead`/`welcomeCheckSnapshot` 端口，连续两次无欢迎普通回复；未修正实现第二条 `isCurrent=false` 并误取消，1 failed / 4 passed（exit 1，日志 vitest-welcome-cache-red.log）。每次批准前无条件开启新同步读取后 5/5 通过（exit 0，日志 vitest-welcome-cache-green.log）；补两条普通回复对照，稳定第二条不误取消，已批准后新消息仍取消旧候选。
+- 网页先到、归档未同步：真实组合 harness 只向 pageMessages 加新 buyer、不改 snap，未修正 review-engine 1 failed / 9 passed（旧正文 prepare=1，exit 1，page-approval-red-review-engine.log）；adapter 4 failed / 11 passed（页面/指纹变化实际发出，page-approval-red-dom-adapter.log）。发送许可现携带批准 `pageReview` 指纹，sendText 锁内 focus 后用原始 `_callHook('reviewHistory')` 比较；网页未知、uid/page 不符或指纹变化均零 prepare/零点击。
+- 异步取消边界：typingInterval=0/50 时，网页复核 await 期间把授权置 false；旧检查只在 interval=0 内，50ms 用例 1 failed / 16 passed（prepare=1，page-approval-cancel-during-read-red.log）。任何 prepare 前共用 current/cancelRequested 后 17/17（green log）。
+- 生产失败回调：组合 harness 加入真实 `onDeliveryFailure`；`conversation_not_found` 版本被 worker 转 send_unconfirmed，1 failed / 9 passed（deliveryFailures=[send_unconfirmed]）。页面安全拒绝改为合法 `hook_not_ready` + `throttled:true`，走 release/归还队列，不触发 delivery failure/quality；review-engine 10/10（production-callback-red/green.log），同条消息随后入档可生成新的待批准候选。
+- 修正后 dom adapter 17/17、授权 12/12；最终受影响 8 文件 67 项通过（page-approval-callback-combo-final.log）。
+- 最终页面/回调修正后原生 12 项发送/导航/监控组再次 12/12 通过，报告 artifacts/desktop-selected-1794978725889/report.json；缓存修正后的 3 项发送检查（1794977726604）和更早全量 12/12、知识 18+2+5 证据保留，本轮未重跑 knowledge 25/15 文件/242 上游。
+- 组合定向 Vitest（--maxWorkers=1 --minWorkers=1）15 文件 156 项通过，退出 0：PDD 归属/面板/定位、platform-write-coordinator、dom-text-adapter、review-engine/review-console/send-mode-authorizations/store-send-modes、knowledge-manager/miss-feedback/durable-learning-ui/store-backup、boundaries/configuration-navigation。此前长验证被中止的日志 vitest-targeted-1.log 保留，不计为完成。缓存修正后未重跑这 156 项，只跑直接受影响 8 文件 58 项（welcome/review-engine/send-mode/dom adapter/协调器），退出 0。
+- npm run typecheck、7 个自有 TS 文件 ESLint/Prettier、npm run build、node scripts/check-vendor.mjs（runtime 80 / server 94）均退出 0；上游 node --test 242/242 通过，退出 0。
+- 原生隔离检查 12/12（artifacts/desktop-selected-1794977290000/report.json）：9 项 PDD DOM 整段/逐字填写、确认、单次点击、取消、错误买家与无回显不重试，旧首页兼容、紧凑回复监控、开发者控制台。知识库主专项 18 项、待学问题 2 项、内嵌学习进度 5 项通过；模型请求为本机模拟/零真实模型，使用临时 userData 与离线夹具。缓存修正后仅补选 3 项发送原生检查（确认基线、单次点击、错误买家不发送），3/3 通过，报告 artifacts/desktop-selected-1794977726604/report.json。
+- package.json/package-lock.json 未改（仍 1.0.60），未 commit/push/重启；1.0.61 由 Codex 定版并独立复核。未运行本机全量 check/test:desktop，未做真实平台、真实买家或付费调用；1.0.59 实店双买家验收仍未完成，不声明实店通过。
+- 1.0.60 的 63 项删除、product-family/miss 两个知识控制器和 126 项公开返回契约未回退（src 相对 b3ed1b6 无改动，公开契约计数复用 artifacts/maintenance-round2/manager-public-after.json）。
+
 ## 2026-11-18：第二轮维护整理（1.0.60）
 
 范围及证据索引见 [维护计划](superpowers/plans/2026-11-18-maintenance-round2.md)、HANDOFF 本轮条目和 artifacts/maintenance-round2/worker-summary.md。本机 DeepSeek 执行与修正文档两轮均退出 0、final.reason.kind=completed，Codex 核对实际文件与原生报告。63 项删除与审查清单精确匹配；现有 TypeScript/Vue 引用分析排除构建和动态入口误报。公开 126 属性及顺序、10 个迁出方法体与保留的生命周期方法均已独立对照；没有新增依赖、IPC 或持久化格式。

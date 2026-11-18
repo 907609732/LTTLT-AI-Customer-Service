@@ -41,6 +41,22 @@ describe('回复发送模式授权租约', () => {
     expect(guard?.()).toBe(true)
     expect(authorizations.consume('shop', 'buyer', proposal.text)).toBeUndefined()
   })
+  it('许可携带受控批准网页基线，consume 仍返回原 guard 且保持一次性', async () => {
+    const { authorizations, proposal } = setup({ mode: 'review', revision: 0 })
+    const pageReview = {
+      known: true,
+      uid: 'buyer',
+      page: 'page-a',
+      messages: [{ from: 'buyer', content: '问题', media: [] }],
+    }
+    proposal.pageReview = pageReview
+    expect(await authorizations.authorize(proposal, async () => true)).toBe(true)
+    const guard = authorizations.consume('shop', 'buyer', proposal.text)
+    expect(guard?.()).toBe(true)
+    expect(guard?.approvalPage).toMatchObject({ uid: 'buyer', page: 'page-a' })
+    expect(guard?.approvalPage?.fingerprint).toContain('page-a')
+    expect(authorizations.consume('shop', 'buyer', proposal.text)).toBeUndefined()
+  })
   it('自动批准后进入队列或逐字输入时切回审核立即撤销，切回自动也不恢复', async () => {
     const { authorizations, proposal, setMode } = setup()
     expect(await authorizations.authorize(proposal, async () => true)).toBe(true)

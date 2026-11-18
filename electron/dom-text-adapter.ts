@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import { pageReviewFingerprint, pageReviewSchema } from './conversation-review'
+import type { SendAuthorizationGuard } from './send-mode-authorizations'
 
 const resultSchema = z.object({
   ok: z.boolean(),
@@ -40,7 +41,7 @@ export function configureDomTextAdapter(
   platform: string,
   value: unknown,
   typingIntervalMs = TYPING_INTERVAL_MS,
-  sendAuthorization?: (uid: string, text: string) => (() => boolean) | undefined,
+  sendAuthorization?: (uid: string, text: string) => SendAuthorizationGuard | undefined,
 ): unknown {
   if (platform !== 'pdd-web') return value
   if (
@@ -119,19 +120,60 @@ export function configureDomTextAdapter(
       : undefined
     try {
       if (options.isCurrent && !options.isCurrent()) return { ok: false, reason: 'cancelled' }
+      // 引擎的定位与发送是两次独立排队；进入本次店铺写锁后另一位买家可能已切到前台。
+      // 因此必须在同一锁内用捕获的原始定位先回到本次 uid，再读取基线/填写/点击。
+      const focused = await focusConversation(String(uid))
+      if (!focused?.ok)
+        return { ok: false, reason: 'conversation_not_found', detail: 'focus_failed' }
+      if (options.isCurrent && !options.isCurrent()) return { ok: false, reason: 'cancelled' }
+      // 网页新消息可能先于归档轮询到达；必须在同一店铺 sendText 锁内、focus 后、任何
+      // prepare/填写前与批准时的受控网页基线比较。此处的 raw _callHook 不会重入协调锁，
+      // 且不能把此刻网页重新当成批准基线。
+      let pageBefore: unknown
+      const approvedPage = authorization?.approvalPage
+      if (approvedPage) {
+        pageBefore = await adapter._callHook('reviewHistory', [String(uid)], {
+          label: '批准网页基线核对',
+          timeoutMs: 5000,
+        })
+        const parsed = pageReviewSchema.safeParse(pageBefore)
+        const current = pageReviewFingerprint(pageBefore)
+        if (
+          !parsed.success ||
+          !parsed.data.known ||
+          parsed.data.uid !== String(uid) ||
+          parsed.data.uid !== approvedPage.uid ||
+          parsed.data.page !== approvedPage.page ||
+          current !== approvedPage.fingerprint
+        )
+          // 尚未 prepare/点击，属于可安全归还队列的已知拒绝；用合法 hook_not_ready
+          // 加 throttled 让 worker 走 release 分支，而不是当成 send_unconfirmed 触发
+          // 生产 onDeliveryFailure/quality 永久暂停，也不能伪装成功。
+          return {
+            ok: false,
+            throttled: true,
+            reason: 'hook_not_ready',
+            detail: 'approved_page_changed',
+          }
+      }
       // 复用页面已有的一次性 setEditor 分支；整段填写前后仍核对消息，不能因提速放过新消息。
       let baseline: string | undefined
       if (interval === 0) {
-        const before = await adapter._callHook('reviewHistory', [String(uid)], {
-          label: '填写前网页消息核对',
-          timeoutMs: 5000,
-        })
+        const before =
+          pageBefore ??
+          (await adapter._callHook('reviewHistory', [String(uid)], {
+            label: '填写前网页消息核对',
+            timeoutMs: 5000,
+          }))
         const parsed = pageReviewSchema.safeParse(before)
         baseline = pageReviewFingerprint(before)
         if (!baseline || !parsed.success || parsed.data.uid !== String(uid))
           return { ok: false, reason: 'hook_not_ready', detail: 'page_review_unavailable' }
-        if (options.isCurrent && !options.isCurrent()) return { ok: false, reason: 'cancelled' }
       }
+      // 整段和逐字模式共用：网页复核 await 期间停 AI/授权失效/取消时，任何 prepare
+      // 之前都必须停止，不能在明知失效后仍进入会填写草稿的页面准备。
+      if (cancelRequested || (options.isCurrent && !options.isCurrent()))
+        return { ok: false, reason: 'cancelled' }
       const prepared = await adapter._callHook(
         'prepareNativeTextSend',
         [String(uid), content, operationId, { mode: 'button', typeDelayMs: interval }],

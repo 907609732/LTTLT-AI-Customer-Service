@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { configureDomTextAdapter } from '../electron/dom-text-adapter'
+import { pageReviewFingerprint } from '../electron/conversation-review'
 
 const snapshot = (known = true, page = 'page-a', uid = 'buyer') => ({
   known,
@@ -220,5 +221,159 @@ describe('拼多多输入期间发送授权失效', () => {
     await expect(result).resolves.toEqual({ ok: true, msgId: 'sent', method: 'dom-click' })
     expect(h.clicks).toHaveLength(2)
     expect(h.calls).toContain('confirmNativeTextSend')
+  })
+})
+
+describe('批准网页基线', () => {
+  function pageHarness(current: unknown, approved = snapshot()) {
+    const calls: string[] = [],
+      clicks: unknown[] = []
+    let prepares = 0,
+      confirms = 0
+    const raw = {
+      async focusConversation() {
+        return { ok: true }
+      },
+      async sendText() {},
+      _wc() {
+        return { focus() {}, sendInputEvent: (event: unknown) => clicks.push(event) }
+      },
+      async _callHook(method: string) {
+        calls.push(method)
+        if (method === 'reviewHistory') return structuredClone(current)
+        if (method === 'prepareNativeTextSend') {
+          prepares += 1
+          return { ok: true, token: 'page-token', point: { x: 10, y: 20 } }
+        }
+        if (method === 'confirmNativeTextSend') {
+          confirms += 1
+          return { ok: true, msgId: 'page-sent' }
+        }
+        return true
+      },
+      _sendFailOrThrow(_method: string, error: unknown) {
+        throw error
+      },
+    }
+    const fingerprint = pageReviewFingerprint(approved)
+    if (!fingerprint) throw new Error('fixture baseline missing')
+    const guard = (() => true) as (() => boolean) & {
+      approvalPage?: { uid: string; page: string; fingerprint: string }
+    }
+    guard.approvalPage = { uid: 'buyer', page: 'page-a', fingerprint }
+    const adapter = configureDomTextAdapter('pdd-web', raw, 0, () => guard) as {
+      sendText(uid: string, text: string): Promise<unknown>
+    }
+    return {
+      adapter,
+      calls,
+      clicks,
+      get prepares() {
+        return prepares
+      },
+      get confirms() {
+        return confirms
+      },
+    }
+  }
+
+  it.each([
+    ['网页未知', snapshot(false)],
+    ['买家不属于目标 uid', snapshot(true, 'page-a', 'other-buyer')],
+    ['页面实例改变', snapshot(true, 'page-b')],
+    [
+      '网页指纹增加新消息',
+      {
+        ...snapshot(),
+        messages: [...snapshot().messages, { from: 'buyer', content: '新问题', media: [] }],
+      },
+    ],
+  ])('%s 时在填写前失败，不准备不点击', async (_name, current) => {
+    const h = pageHarness(current)
+    await expect(h.adapter.sendText('buyer', '旧正文')).resolves.toMatchObject({
+      ok: false,
+      throttled: true,
+      reason: 'hook_not_ready',
+      detail: 'approved_page_changed',
+    })
+    expect(h.prepares).toBe(0)
+    expect(h.clicks).toEqual([])
+    expect(h.confirms).toBe(0)
+    expect(h.calls).not.toContain('prepareNativeTextSend')
+    expect(h.calls).not.toContain('confirmNativeTextSend')
+  })
+
+  function cancelDuringReadHarness(interval: number) {
+    let allowed = true,
+      prepares = 0,
+      clicks = 0
+    const approved = snapshot()
+    const fingerprint = pageReviewFingerprint(approved)
+    if (!fingerprint) throw new Error('fixture baseline missing')
+    const guard = (() => allowed) as (() => boolean) & {
+      approvalPage?: { uid: string; page: string; fingerprint: string }
+    }
+    guard.approvalPage = { uid: 'buyer', page: 'page-a', fingerprint }
+    const raw = {
+      async focusConversation() {
+        return { ok: true }
+      },
+      async sendText() {},
+      _wc() {
+        return { focus() {}, sendInputEvent: () => clicks++ }
+      },
+      async _callHook(method: string) {
+        if (method === 'reviewHistory') {
+          // 模拟网页复核 await 期间停 AI/授权失效；页面本身仍与批准基线一致。
+          allowed = false
+          return structuredClone(approved)
+        }
+        if (method === 'prepareNativeTextSend') {
+          prepares += 1
+          return { ok: true, token: 'cancel-token', point: { x: 10, y: 20 } }
+        }
+        return { ok: true }
+      },
+      _sendFailOrThrow(_method: string, error: unknown) {
+        throw error
+      },
+    }
+    const adapter = configureDomTextAdapter('pdd-web', raw, interval, () => guard) as {
+      sendText(uid: string, text: string): Promise<unknown>
+    }
+    return {
+      adapter,
+      get prepares() {
+        return prepares
+      },
+      get clicks() {
+        return clicks
+      },
+    }
+  }
+
+  it.each([0, 50])(
+    '网页复核 await 期间停 AI/授权失效，interval=%i 在任何 prepare 前取消',
+    async (interval) => {
+      const h = cancelDuringReadHarness(interval)
+      await expect(h.adapter.sendText('buyer', '不应填写')).resolves.toEqual({
+        ok: false,
+        reason: 'cancelled',
+      })
+      expect(h.prepares).toBe(0)
+      expect(h.clicks).toBe(0)
+    },
+  )
+
+  it('批准网页指纹未变时保持一次正常发送', async () => {
+    const h = pageHarness(snapshot())
+    await expect(h.adapter.sendText('buyer', '稳定正文')).resolves.toEqual({
+      ok: true,
+      msgId: 'page-sent',
+      method: 'dom-click',
+    })
+    expect(h.prepares).toBe(1)
+    expect(h.clicks).toHaveLength(2)
+    expect(h.confirms).toBe(1)
   })
 })

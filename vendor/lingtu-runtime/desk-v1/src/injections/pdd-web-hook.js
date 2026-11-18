@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VER = 10;
+  var VER = 12;
   var reviewPageId=Date.now().toString(36)+Math.random().toString(36).slice(2);
   window.__PDD_WEB_VER = VER;
 
@@ -95,6 +95,8 @@
       domLeaf: 0,
       domSeen: 0,
       domNoUid: 0,
+      domUidConflict: 0,
+      domIdentityBlocked: 0,
       storeHits: 0,
       storeMiss: 0,
       storeConvs: 0,
@@ -376,7 +378,9 @@
     if (!dir) {
       if (state.selfUid && fromUid && fromUid === state.selfUid) dir = 'seller';
       else if (node.manual_reply === 1 || node.is_aut === 0) dir = 'seller';
-      else dir = 'buyer';
+      // 未知方向既不能默认成买家，也不能当成真正的 system：system 会正常吸收并写入
+      // seen/水位，导致同一消息稍后由 Vuex 补全角色时被去重吞掉。
+      else dir = 'unknown';
     }
     var uid = dir === 'seller' ? toUid : fromUid;
     if (!uid) uid = toUid || fromUid || state.activeUid || '';
@@ -392,7 +396,7 @@
       from: dir,
       message: {
         msgId: msgId,
-        from: dir === 'system' ? 'system' : dir,
+        from: dir,
         type: body.type,
         content: body.content,
         ts: ts,
@@ -495,6 +499,9 @@
     var m = norm.message;
     if (!m || !m.content) return;
 
+    // 方向未知的帧不进入任何队列，也不写 seen/水位：稍后 store/DOM 提供明确角色时
+    // 必须仍能按真实买家/卖家归属；真正的 system 提示才按历史规则吸收。
+    if (m.from === 'unknown') return;
     // 系统提示不进入待回复队列
     if (m.from === 'system') {
       absorb(uid, m);
@@ -783,6 +790,33 @@
     }
     return null;
   }
+  function storeSelectingUid() {
+    try {
+      var store = storeOf();
+      return normUid(store && store.state && store.state.selectingChatUid);
+    } catch (e) {}
+    return '';
+  }
+  function storeCurrentUid() {
+    try {
+      var store = storeOf();
+      var cur = store && store.state && store.state.currentUserInfo;
+      return normUid(cur && cur.userInfo && cur.userInfo.uid);
+    } catch (e) {}
+    return '';
+  }
+  function domSelectedUid() {
+    try {
+      var box = document.querySelector(
+        '.chat-item-box[data-random].active,.chat-item-box[data-random].selected,.chat-item-box[data-random][class*="active"]',
+      );
+      if (box) {
+        var dr = box.getAttribute('data-random');
+        if (dr) return trimStr(String(dr).split('-')[0]);
+      }
+    } catch (e) {}
+    return '';
+  }
   function resolveActiveUid() {
     try {
       var store = storeOf();
@@ -796,15 +830,127 @@
       }
       var cur = store && store.state && store.state.currentUserInfo;
       if (cur && cur.userInfo && cur.userInfo.uid) return normUid(cur.userInfo.uid);
-      var box = document.querySelector(
-        '.chat-item-box[data-random].active,.chat-item-box[data-random].selected,.chat-item-box[data-random][class*="active"]',
-      );
-      if (box) {
-        var dr = box.getAttribute('data-random');
-        if (dr) return trimStr(String(dr).split('-')[0]);
-      }
+      var dom = domSelectedUid();
+      if (dom) return dom;
     } catch (e) {}
     return state.activeUid || '';
+  }
+  /**
+   * 消息区身份必须由选择状态、currentUserInfo 和列表实际选中项共同确认。
+   * 任一已知来源不一致就返回空串（fail closed），不能把 selectingChatUid 当成
+   * 「页面已经显示该买家」的证据；切换期间旧的 DOM 气泡仍可能留在页面上。
+   */
+  function identityUid() {
+    var ids = [storeSelectingUid(), storeCurrentUid(), domSelectedUid()].filter(function (v) {
+      return !!v;
+    });
+    if (!ids.length) return '';
+    for (var i = 1; i < ids.length; i++) {
+      if (ids[i] !== ids[0]) {
+        state.stats.domUidConflict++;
+        return '';
+      }
+    }
+    return ids[0];
+  }
+  function messageListOf(conv) {
+    var list = conv && Array.isArray(conv.messageList) ? conv.messageList : [];
+    if (!list.length && conv && conv.lastMessage) list = [conv.lastMessage];
+    return list;
+  }
+  function latestMessageId(list) {
+    for (var i = list.length - 1; i >= 0; i--) {
+      var m = list[i];
+      var id = trimStr(m && (m.msg_id || m.msgId || m.message_id || ''));
+      if (id) return id;
+    }
+    return '';
+  }
+  function conversationFor(uid) {
+    try {
+      var store = storeOf();
+      if (!store) return null;
+      var convs = conversationsOf(store);
+      for (var i = convs.length - 1; i >= 0; i--) {
+        var conv = convs[i];
+        if (conv && conv.userInfo && normUid(conv.userInfo.uid) === uid) return conv;
+      }
+    } catch (e) {}
+    return null;
+  }
+  function storeMessageContent(m) {
+    try {
+      var body = extractContent(m);
+      return body && body.content ? trimStr(body.content, 500) : '';
+    } catch (e) {
+      return '';
+    }
+  }
+  function bubbleTexts() {
+    var out = [];
+    var nodes = document.querySelectorAll(BUBBLE_SEL);
+    for (var i = 0; i < nodes.length; i++) {
+      var t = trimStr(nodes[i].textContent || '', 500);
+      if (t) out.push(t);
+    }
+    return out;
+  }
+  // PDD 消息项带 middlePanel_list_<msgId>；这是网页气泡与已知消息归属的直接证据。
+  function panelMessageIds() {
+    var out = [];
+    var nodes = document.querySelectorAll('[id^="middlePanel_list_"]');
+    for (var i = 0; i < nodes.length; i++) {
+      var id = trimStr(nodes[i].getAttribute('id') || '');
+      if (id.indexOf('middlePanel_list_') === 0)
+        out.push(trimStr(id.slice('middlePanel_list_'.length)));
+    }
+    return out;
+  }
+  /**
+   * 已知会话数据下，网页气泡必须能对应当前买家的已知消息；否则说明消息区仍是
+   * 旧会话（currentUserInfo 已换 uid 但 messageList 未换），本轮 fail closed。
+   * 完全没有 Vuex 数据时才保留纯 DOM 兜底，且调用方仍要求身份一致。
+   */
+  function panelMatchesUid(uid) {
+    var store = storeOf();
+    if (!store) return true;
+    var current = store.state && store.state.currentUserInfo;
+    var loaded = current && normUid(current.userInfo && current.userInfo.uid) === uid ? current : null;
+    var listed = conversationFor(uid);
+    // 列表里没有该买家时无法核对已知消息归属，不能只凭 currentUserInfo 或 DOM 猜测。
+    if (!listed) return false;
+    if (loaded && loaded !== listed) {
+      var loadedId = latestMessageId(messageListOf(loaded));
+      var listedId = latestMessageId(messageListOf(listed));
+      if (!loadedId || !listedId || loadedId !== listedId) return false;
+    }
+    var list = messageListOf(loaded || listed);
+    var contents = [];
+    var knownIds = [];
+    // 无原型字典：constructor/toString/__proto__ 等继承属性不能被当成已知消息文本。
+    var knownTexts = Object.create(null);
+    for (var i = 0; i < list.length; i++) {
+      var content = storeMessageContent(list[i]);
+      if (content) {
+        contents.push(content);
+        knownTexts[content] = true;
+      }
+      var msgId = trimStr(list[i] && (list[i].msg_id || list[i].msgId || list[i].message_id || ''));
+      if (msgId) knownIds.push(msgId);
+    }
+    var domIds = panelMessageIds();
+    if (domIds.length) {
+      // 任一条可见气泡的消息 ID 不属于当前买家，说明消息区仍混有旧会话内容。
+      for (var d = 0; d < domIds.length; d++) if (knownIds.indexOf(domIds[d]) < 0) return false;
+    }
+    if (!contents.length) return false;
+    var texts = bubbleTexts();
+    if (!texts.length) return false;
+    // 没有消息项 ID 时，单条相同文本可能只是两位买家的公共问候，不能据此把整个旧面板
+    // 认成当前买家。每个将被 DOM 采集的气泡都必须能对应到目标买家的已知消息；只要
+    // 有一条无法证明归属就 fail closed，避免把 A 的私有问题写进 B 的待回复/复核基线。
+    for (var n = 0; n < texts.length; n++) if (!knownTexts[texts[n]]) return false;
+    return true;
   }
 
   /* ------------------------------------------------------------------ *
@@ -974,9 +1120,9 @@
     } catch (e) {}
     return 0;
   }
-  function scanBubbles() {
+  function scanBubbles(scanUid) {
     if (!document.querySelector(CONV_SEL) && !document.querySelector('.chat-item')) return false;
-    var uid = resolveActiveUid();
+    var uid = scanUid || resolveActiveUid();
     var nodes = document.querySelectorAll(BUBBLE_SEL);
     state.stats.bubbleNodes += nodes.length;
     if (!uid) {
@@ -1038,7 +1184,7 @@
     return set;
   }
 
-  function scanGenericDom() {
+  function scanGenericDom(scanUid) {
     var panel = findPanel();
     if (!panel) return;
     state.stats.domScans++;
@@ -1052,7 +1198,7 @@
     var mid = pr.left + pr.width / 2;
     var nodes = panel.querySelectorAll(NODE_SELECTORS);
     state.stats.domNodes += nodes.length;
-    var uid = resolveActiveUid();
+    var uid = scanUid || resolveActiveUid();
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
       if (el.querySelector(NODE_SELECTORS)) continue; // 只取叶子节点，避免父容器重复文本
@@ -1098,13 +1244,27 @@
     } catch (e) {
       fail('scanStore.timer', e);
     }
+    var uid = '';
+    try {
+      uid = identityUid();
+      // 选择状态、currentUserInfo 与列表面板一致还不够：已知会话数据时，
+      // 气泡必须对应该买家自己的消息，避免 currentUserInfo 换了 uid 而消息区未换。
+      if (uid && !panelMatchesUid(uid)) {
+        state.stats.domIdentityBlocked++;
+        uid = '';
+      }
+    } catch (e) {
+      fail('scanDom.identity', e);
+      uid = '';
+    }
+    if (!uid) return;
     var nativeHit = false;
     try {
-      nativeHit = scanBubbles();
+      nativeHit = scanBubbles(uid);
     } catch (e) {
       fail('scanBubbles.timer', e);
     }
-    if (!nativeHit) scanGenericDom();
+    if (!nativeHit) scanGenericDom(uid);
   }
 
   /* ------------------------------------------------------------------ *
@@ -1442,6 +1602,8 @@
         domLeaf: state.stats.domLeaf,
         domSeen: state.stats.domSeen,
         domNoUid: state.stats.domNoUid,
+        domUidConflict: state.stats.domUidConflict,
+        domIdentityBlocked: state.stats.domIdentityBlocked,
         storeHits: state.stats.storeHits,
         storeMiss: state.stats.storeMiss,
         storeConvs: state.stats.storeConvs,
@@ -1664,9 +1826,11 @@
       return true;
     },
     // 云朵：发送确认只读取当前网页，不依赖历史 HTTP 接口；不把动态时间戳当新消息。
+    // 身份不一致或已知会话数据无法对应网页气泡时返回 known:false，绝不生成可能属于其他买家的基线。
     reviewHistory: function(uid){
       var key=normUid(uid),out=[];
-      if(!key||resolveActiveUid()!==key)return {known:false,uid:key,page:reviewPageId,messages:[],reason:'different_conversation'};
+      if(!key||identityUid()!==key)return {known:false,uid:key,page:reviewPageId,messages:[],reason:'different_conversation'};
+      if(!panelMatchesUid(key))return {known:false,uid:key,page:reviewPageId,messages:[],reason:'conversation_identity_unconfirmed'};
       var nodes=document.querySelectorAll(BUBBLE_SEL);
       for(var i=0;i<nodes.length;i++){
         var node=nodes[i],item=node.closest&&node.closest('.chat-item');

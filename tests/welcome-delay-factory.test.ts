@@ -237,6 +237,41 @@ describe('真实厂商欢迎装饰与 TypeScript 延迟门', () => {
     expect(f.sleeps).toEqual([])
     expect(f.sent).toEqual([])
   })
+  it('两次连续无欢迎回复各自开启基线同步读取，不复用上一条缓存', async () => {
+    // 等价于 local-runtime 的 welcomeCheckSnapshot：beginRead 写入缓存，readStore/conversation 读同一缓存。
+    let live = 'first'
+    let cached: string | undefined
+    const readWelcome = vi.fn(() => undefined)
+    const cancelled: string[] = []
+    const gate = createWelcomeDelayGate({
+      beginRead: () => {
+        cached = live
+      },
+      readWelcome,
+      readStore: () => ({ online: true, aiEnabled: true }),
+      conversation: () => ({ fingerprint: cached ?? live, lastFrom: 'buyer' }),
+      cancel: (_proposal, reason) => cancelled.push(reason),
+    })
+    const proposal = (): SendProposal => ({
+      storeId: 'shop',
+      uid: 'buyer',
+      text: '普通回复',
+      thread: [{ from: 'buyer', content: '在吗', ts: 1 }],
+      isCurrent: () => true,
+      getHistory: async () => ({ known: true, messages: [] }),
+    })
+    const first = proposal()
+    expect(await gate(first, true)).toBe(true)
+    expect(first.isCurrent()).toBe(true)
+
+    live = 'second'
+    const second = proposal()
+    expect(await gate(second, true)).toBe(true)
+    expect(second.isCurrent()).toBe(true)
+    expect(cancelled).toEqual([])
+    expect(readWelcome).not.toHaveBeenCalled()
+  })
+
   it('延迟期间停店或人工接管会取消，不发送已批准的欢迎候选', async () => {
     for (const reason of ['stop', 'takeover'] as const) {
       let triggered = false

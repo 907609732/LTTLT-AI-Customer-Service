@@ -128,25 +128,72 @@ export function createWelcomeDelayGate(
   return async (proposal, approved) => {
     if (!approved) return false
     const attached = proposal.welcome
-    // 绝不按正文前缀猜测欢迎语：只有厂商明确标记实际附加了欢迎才延迟。
-    if (!attached) return true
     const reject = (reason: string) => {
       options.cancel(proposal, reason)
       options.releaseSendAuthorization?.(proposal.storeId, proposal.uid)
       options.log?.(reason)
       return false
     }
+    let setting: WelcomeSetting | undefined
+    // 每次批准都必须先开启一次新的同步读取，再捕获 baseline；local-runtime 的
+    // beginRead 会缓存 welcomeCheckSnapshot，若复用上一条回复的快照会把稳定回复误判为新消息。
     options.beginRead?.()
-    const setting = options.readWelcome(proposal.storeId)
-    const issue = attachmentIssue(setting, attached.version)
-    if (issue || !setting) return reject(issue || '欢迎配置缺失，欢迎延迟已取消，未发送。')
+    // 绝不按正文前缀猜测欢迎语：只有厂商明确标记实际附加了欢迎才延迟。
+    if (attached) {
+      setting = options.readWelcome(proposal.storeId)
+      const issue = attachmentIssue(setting, attached.version)
+      if (issue || !setting) return reject(issue || '欢迎配置缺失，欢迎延迟已取消，未发送。')
+    }
+    // 所有批准候选都绑定批准时的目标会话；无欢迎的普通回复也必须在 worker 的
+    // 排队/重新定位和适配器输入/点击阶段拒绝批准后到达的新买家消息。
+    const baseline = options.conversation(proposal.storeId, proposal.uid)
+    const originalCurrent = proposal.isCurrent.bind(proposal)
+    const checkCurrent = () => {
+      if (!originalCurrent()) return '会话或店铺状态已变化，未发送。'
+      options.beginRead?.()
+      const store = options.readStore(proposal.storeId)
+      if (!store?.online || !store.aiEnabled) return '店铺已停止或 AI 已关闭，未发送。'
+      const latest = options.conversation(proposal.storeId, proposal.uid)
+      if (latest.fingerprint !== baseline.fingerprint) {
+        if (latest.lastFrom === 'buyer') proposal.retryNewMessage = true
+        return '检测到该买家会话已有新消息，未发送。'
+      }
+      if (!attached) return ''
+      const currentSetting = options.readWelcome(proposal.storeId)
+      if (!currentSetting?.enabled) return '欢迎已停用，欢迎延迟已取消，未发送。'
+      if (currentSetting.version !== attached.version)
+        return '欢迎配置已更新，欢迎延迟已取消，未发送。'
+      return ''
+    }
+    // Keep these checks attached through the worker's focus/read and adapter's input/click phases.
+    // Capture the original predicate above so the wrapper never recursively calls itself.
+    let invalidated = false
+    const invalidate = (reason: string) => {
+      // 已在发送中的旧候选一旦因新消息/停店失效，必须结束“正在发送”显示；只处理一次。
+      if (!invalidated) {
+        invalidated = true
+        options.cancel(proposal, reason)
+        options.releaseSendAuthorization?.(proposal.storeId, proposal.uid)
+      }
+      return false
+    }
+    proposal.isCurrent = () => {
+      if (options.signal?.aborted) return invalidate('本地服务已关闭，未发送。')
+      try {
+        const reason = checkCurrent()
+        return reason ? invalidate(reason) : true
+      } catch {
+        return invalidate('会话状态无法核对，未发送。')
+      }
+    }
+    if (!attached) return true
+    if (!setting) return reject('欢迎配置缺失，欢迎延迟已取消，未发送。')
     let durationMs: number
     try {
       durationMs = sampleWelcomeDelayMs(parseWelcomeDelay(setting), options.random)
     } catch {
       return reject('欢迎延迟配置无效，欢迎延迟已取消，未发送。')
     }
-    const baseline = options.conversation(proposal.storeId, proposal.uid)
     const pageBaseline = pageReviewFingerprint(proposal.pageReview)
     const verifyFresh =
       proposal.getPageReview && pageBaseline
@@ -166,33 +213,6 @@ export function createWelcomeDelayGate(
             return '检测到该买家网页消息已变化，欢迎延迟已取消，未发送。'
           }
         : undefined
-    const originalCurrent = proposal.isCurrent.bind(proposal)
-    const checkCurrent = () => {
-      if (!originalCurrent()) return '会话或店铺状态已变化，欢迎延迟已取消，未发送。'
-      options.beginRead?.()
-      const store = options.readStore(proposal.storeId)
-      if (!store?.online || !store.aiEnabled)
-        return '店铺已停止或 AI 已关闭，欢迎延迟已取消，未发送。'
-      const currentSetting = options.readWelcome(proposal.storeId)
-      if (!currentSetting?.enabled) return '欢迎已停用，欢迎延迟已取消，未发送。'
-      if (currentSetting.version !== attached.version)
-        return '欢迎配置已更新，欢迎延迟已取消，未发送。'
-      const latest = options.conversation(proposal.storeId, proposal.uid)
-      if (latest.fingerprint !== baseline.fingerprint) {
-        if (latest.lastFrom === 'buyer') proposal.retryNewMessage = true
-        return '检测到该买家会话已有新消息，欢迎延迟已取消，未发送。'
-      }
-      return ''
-    }
-    // Keep these checks attached through the worker's focus/read and adapter's input/click phases.
-    // Capture the original predicate above so the wrapper never recursively calls itself.
-    proposal.isCurrent = () => {
-      try {
-        return !options.signal?.aborted && !checkCurrent()
-      } catch {
-        return false
-      }
-    }
     const result = await waitWelcomeDelay({
       durationMs,
       signal: options.signal,
