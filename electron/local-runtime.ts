@@ -101,9 +101,16 @@ import {
   type KnowledgeImageRecognizer,
 } from './runtime/knowledge-pipeline-assembly'
 import { createKnowledgeLearningAssembly } from './runtime/knowledge-learning-assembly'
+import { createSizeRulesService } from './size-rules/service'
+import { createSizeContextPreparation } from './size-rules/inject'
+import { installSizeReplyGuard } from './size-rules/guard'
+import { sizeRuleActions, type SizeRuleAction } from '../src/shared/contracts/size-rules'
 
 interface UpstreamBackend {
-  engine?: { worker(storeId: string): WorkerObservation | null }
+  engine?: {
+    worker(storeId: string): WorkerObservation | null
+    aiClient?: { reply(input: unknown): Promise<unknown> }
+  }
   snapshot(): unknown
   execute(command: unknown): Promise<unknown>
   stopAi(): void
@@ -173,6 +180,8 @@ export function createLocalRuntime(options: {
   let suspendKnowledge = () => {}
   // 上游工厂可能在装配期间产生回调，引用就绪前不读取其快照。
   const backendRef: { current?: UpstreamBackend } = {}
+  // 尺码服务需要真实商品目录，而目录又依赖后端；请求到达时再读取当前组合根实例。
+  const sizeRulesRef: { current?: ReturnType<typeof createSizeRulesService> } = {}
   // 免费摘要绑定只属于当前托管身份；身份变化时由 changed 回调清空。
   const managedContextRef: { current?: ReturnType<typeof createManagedContextBridge> } = {}
   let managedContextIdentity = ''
@@ -466,6 +475,18 @@ export function createLocalRuntime(options: {
   }
   // 压缩/改写器只构造一次，摘要与通用话术注入都经同一条 trace 记录。
   const assistedContext = createAssistedContext(traceModel)
+  const sizeContext = createSizeContextPreparation(
+    {
+      assertActive: () => {
+        if (closed) throw Error('本地服务已关闭，请重启软件')
+        if (!sizeRulesRef.current) throw Error('尺码规则服务尚未就绪，请稍后重试')
+      },
+      resolve: (storeId, productId, question, thread) =>
+        sizeRulesRef.current?.resolve(storeId, productId, question, thread) ??
+        Promise.resolve(null),
+    },
+    assistedContext,
+  )
   async function openLogs() {
     if (logWindow && !logWindow.isDestroyed()) {
       logWindow.show()
@@ -674,8 +695,8 @@ export function createLocalRuntime(options: {
     prepareModelContext: (input: Parameters<typeof assistedContext>[0]) => {
       // 托管模式把摘要交给服务端免费内部接口；本机 Key 模式仍走当前模型完成器。
       return managed.active.mode === 'managed'
-        ? managedContext.prepare(assistedContext, input)
-        : assistedContext(input)
+        ? managedContext.prepare(sizeContext, input)
+        : sizeContext(input)
     },
     resolveConversationThread: createConversationThread(() => read().conversations),
     beforeSend: (proposal: SendProposal) => {
@@ -787,6 +808,36 @@ export function createLocalRuntime(options: {
       if (!snapshot.stores.some((store) => store.id === storeId)) throw Error('店铺不存在')
     },
   })
+  const sizeRules = createSizeRulesService({
+    directory: dataDir,
+    assertActive: () => {
+      if (closed || !managed.canAccessWorkspace()) throw Error('尺码规则工作区已关闭或不可访问')
+    },
+    // Uses the current real product directory; tests inject a synthetic port instead.
+    isBindingValid: async (binding) => {
+      try {
+        for (let offset = 0; offset <= 10000; offset += 200) {
+          const page = await productCatalog.list(binding.storeId, {
+            offset,
+            limit: 200,
+            query: binding.productId,
+          })
+          if (page.items.some((row) => row.productId === binding.productId)) return true
+          if (!page.items.length || offset + 200 >= page.total) return false
+        }
+        return false
+      } catch {
+        return false
+      }
+    },
+  })
+  sizeRulesRef.current = sizeRules
+  const sizeReplyClient = backend.engine?.aiClient
+  if (sizeReplyClient)
+    installSizeReplyGuard(sizeReplyClient, {
+      resolve: (storeId, productId, question, thread) =>
+        sizeRules.resolve(storeId, productId, question, thread),
+    })
   let reportingQueued = false
   scheduleReporting = () => {
     if (reportingQueued || closed || !managed.canAccessWorkspace()) return
@@ -1143,6 +1194,13 @@ export function createLocalRuntime(options: {
       if (command.action === 'review-reply') {
         await review.decide(command.values)
         return { status: 'ok' as const, message: '确认操作已处理；以平台发送结果为准。', data: {} }
+      }
+      if (sizeRuleActions.includes(command.action as SizeRuleAction)) {
+        const sizeAction = command.action as SizeRuleAction
+        const service = sizeRulesRef.current
+        if (!service) throw new Error('尺码规则服务尚未就绪，请稍后重试')
+        const result = await service.execute(sizeAction, command.values)
+        return { status: 'ok' as const, message: result.message, data: result.data }
       }
       // 不允许厂商底层 SecretStore 的历史明文降级进入本工程业务入口。
       if (

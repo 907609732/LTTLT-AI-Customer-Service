@@ -5,6 +5,7 @@ import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import { candidatePack, type LearningCandidate } from '../learning'
 import LearningReview from './LearningReview.vue'
+import SizeRulesPanel from './SizeRulesPanel.vue'
 defineProps<{ viewKey?: string }>()
 const runtime = useRuntimeStore(),
   task = useTask()
@@ -50,8 +51,8 @@ function preview() {
   <RuntimePanel
     id="viewKb"
     data-v-5f3c24c3=""
-    title="尺码规格表"
-    description="按当前店铺和商品编号保存为知识包，先审核再启用。跨店共用与商品互斥绑定尚未接入。"
+    title="尺码规格"
+    description="保留自由文本尺码候选；结构化规则使用当前本机商品目录绑定准确店铺与商品，先审核再启用。"
     :error="task.error.value"
   >
     <form class="runtime-form" @submit.prevent="preview">
@@ -80,8 +81,10 @@ function preview() {
       >
     </form>
     <p>
-      保存后在“意图问法与知识包”维护及启用。现有已启用规则不会自动覆盖或合并，请核对重叠绑定；本页不承诺跨店同步。
+      自由文本候选保存后在“意图问法与知识包”维护及启用；现有已启用规则不会自动覆盖或合并。
+      下方结构化规则单独保存为接待/训练证据，二者不会互相迁移或自动发布。
     </p>
     <LearningReview :candidates="rows" />
+    <SizeRulesPanel />
   </RuntimePanel>
 </template>

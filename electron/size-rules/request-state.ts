@@ -1,0 +1,26 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { SizeRuleContext } from '../../src/shared/contracts/size-rules'
+
+interface SizeRequestState {
+  evidence?: SizeRuleContext
+}
+
+/**
+ * The prompt preparation and the final reply guard run in the same request chain.
+ * Keeping the exact evidence in async-local state prevents a concurrent rule edit
+ * from changing the labels used to constrain the already-submitted model request.
+ */
+const storage = new AsyncLocalStorage<SizeRequestState>()
+
+export function withSizeRequest<T>(job: () => Promise<T>): Promise<T> {
+  return storage.run({}, job)
+}
+
+export function captureSizeEvidence(evidence: SizeRuleContext | null): void {
+  const state = storage.getStore()
+  if (state && evidence) state.evidence = evidence
+}
+
+export function capturedSizeEvidence(): SizeRuleContext | undefined {
+  return storage.getStore()?.evidence
+}

@@ -87,11 +87,24 @@ describe('knowledge learning review UI', () => {
     expect(wrapper.text()).toContain('已保存为停用知识包')
     wrapper.unmount()
   })
-  it('renders size and learning entry points without background commands', () => {
+  it('renders size and learning entry points; only the structured size page reads its own catalog', async () => {
     for (const component of [ShopKbPanel, ShopIntentLearnPanel]) {
+      bridge.execute.mockClear()
       const wrapper = mount(component, options)
+      await flushPromises()
       expect(wrapper.text()).toContain('预览')
-      expect(bridge.execute).not.toHaveBeenCalled()
+      if (component === ShopKbPanel) {
+        expect(
+          bridge.execute.mock.calls.every(([command]) =>
+            ['list-size-rules', 'list-products'].includes(command.action),
+          ),
+        ).toBe(true)
+        expect(
+          bridge.execute.mock.calls.some(([command]) => command.action === 'list-size-rules'),
+        ).toBe(true)
+      } else {
+        expect(bridge.execute).not.toHaveBeenCalled()
+      }
       wrapper.unmount()
     }
   })
