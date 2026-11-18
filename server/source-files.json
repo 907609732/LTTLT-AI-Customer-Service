@@ -547,6 +547,56 @@
     {
       "path": "LICENSE-LTTLT",
       "sha256": "79735a75d0274d2a5dcc240d11a0f81e34cfc3533939b7fce8e84e35a150a238"
+    },
+    {
+      "path": "overlay/lingtu/billing.go",
+      "sha256": "01ea111544964bca6cfeeec2fdb30e4c7b679cd996b35debb203dc90247d9f45",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+    },
+    {
+      "path": "overlay/lingtu/quota.go",
+      "sha256": "d8998b61142c3ebdd486f364c72c712b21faa690d30bc31cea5d8876a661a1d6",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+    },
+    {
+      "path": "overlay/lingtu/quota_test.go",
+      "sha256": "303c78383d915b203037972de108dd4cf09162af1782895cf915eac9f91b8a75",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+    },
+    {
+      "path": "overlay/lingtuhost/billing_native.go",
+      "sha256": "b67b2b1ade7f08913578aa685fc59accd041d5645a6afcbaf6cb9e219307f639",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+    },
+    {
+      "path": "overlay/lingtuhost/billing_native_test.go",
+      "sha256": "9472d7237f35884cf3e8c1e1f01d559e9e5e85f1262dfcf465c53c0b750c33d1",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+    },
+    {
+      "path": "overlay/lingtuhost/billing_test.go",
+      "sha256": "fd4f920e93e74a1c2537f193e85685b4e220f8de8bc2844859fbfcdeda2c09d7",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+    },
+    {
+      "path": "overlay/lingtuhost/billing_config_test.go",
+      "sha256": "74df2e6e589548ee84ffc3998a302a9a0a5305bc5bcfcc65454cf11d6595a100",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+    },
+    {
+      "path": "overlay/lingtuhost/billing_native_configuration_test.go",
+      "sha256": "6fc8cd7f63289db9900881a38e885d3f013784d41eddc3b187662d525558adbf",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+    },
+    {
+      "path": "overlay/lingtuhost/billing_native_fixture_test.go",
+      "sha256": "c022f71f521caedb590224b96cad66c103afe551b79f611fb4604481764de26e",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+    },
+    {
+      "path": "overlay/lingtuhost/billing_config.go",
+      "sha256": "4b4a6fe1b20f74bf2c81ee401ce441d2ffbcebe74cfa34aa1ca78df46fca6390",
+      "localPatch": "2026-11-19: preserve service capabilities and identify support-tier/trial-expiry release."
     }
   ]
 }

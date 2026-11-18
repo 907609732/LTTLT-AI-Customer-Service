@@ -125,6 +125,10 @@ async function openAssist() {
             </button></template
           >
         </div>
+        <button type="button" class="home-support-card" @click="router.push('/shop/recharge')">
+          <strong>支持我们</strong>
+          <span>您的支持是我们的动力，帮助我们加快开发与完善</span>
+        </button>
         <div class="home-product-panel" data-v-8cdf7e6d="">
           <div class="home-product-links" data-v-8cdf7e6d="">
             <template
@@ -211,3 +215,39 @@ async function openAssist() {
   </section>
   <AddShopDialog v-model="addingShop" />
 </template>
+
+<style scoped>
+.home-support-card {
+  position: absolute;
+  top: calc(50% + 63px);
+  left: 50%;
+  display: grid;
+  gap: 6px;
+  width: min(372px, calc(100% - 24px));
+  padding: 16px 20px;
+  transform: translateX(-50%);
+  border: 1px solid #e7d5ad;
+  border-radius: 14px;
+  background: linear-gradient(120deg, #fffaf0, #fffdf8);
+  color: #795721;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.home-support-card strong {
+  font-size: 16px;
+}
+.home-support-card span {
+  color: #8b795b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.home-support-card:hover {
+  border-color: #d7ad58;
+  background: #fff6df;
+}
+.home-support-card:focus-visible {
+  outline: 2px solid #b57c1c;
+  outline-offset: 4px;
+}
+</style>

@@ -247,7 +247,7 @@ func TestBillingHTTPAuthenticatedCatalogAndOrdersUseSameRestrictedSession(t *tes
 		if response.StatusCode != 200 || err != nil {
 			t.Fatalf("authenticated %s returned %d: %v", path, response.StatusCode, err)
 		}
-		if path == "/api/client/billing" && (data["ready"] != false || len(data["plans"].([]interface{})) != 2 || data["service"] == nil) {
+		if path == "/api/client/billing" && (data["ready"] != false || len(data["plans"].([]interface{})) != 3 || data["service"] == nil) {
 			t.Fatal("unconfigured catalog impersonated a deployed merchant")
 		}
 	}

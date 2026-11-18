@@ -128,7 +128,7 @@ describe('扫码渠道收银台', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('¥9.90')
     expect(wrapper.text()).toContain('¥10.00')
-    const choose = wrapper.findAll('button').find((button) => button.text() === '选择套餐')
+    const choose = wrapper.findAll('button').find((button) => button.text() === '支持我们')
     expect(choose, 'native channel needs a plan entry').toBeDefined()
     await choose?.trigger('click')
     await flushPromises()

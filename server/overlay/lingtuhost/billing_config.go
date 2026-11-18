@@ -32,7 +32,7 @@ type billingServiceInfo struct {
 func billingServiceVersion() billingServiceInfo {
 	// Preserve every capability already serving production, then expose the
 	// persisted per-request token cost estimate added on top of the cost base.
-	return billingServiceInfo{Version: "2026.11.17-cost.3", BillingProtocol: 2, Capabilities: []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates"}}
+	return billingServiceInfo{Version: "2026.11.19-support.1", BillingProtocol: 2, Capabilities: []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates", "trial-expiry-extends-on-recharge"}}
 }
 
 // Stored only inside ManagedSetting's authenticated encryption serializer.

@@ -242,7 +242,7 @@ func TestNativeMerchantPEMConfigurationInitializesOnlyConfiguredChannel(t *testi
 	t.Setenv("LINGTU_BILLING_ALIPAY_PRIVATE_KEY", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})))
 	t.Setenv("LINGTU_BILLING_WECHAT_APP_ID", "")
 	c := loadBillingConfig()
-	if !c.Channels[0].Ready || c.Channels[1].Ready || !c.Ready || len(c.Plans) != 2 {
+	if !c.Channels[0].Ready || c.Channels[1].Ready || !c.Ready || len(c.Plans) != 3 {
 		t.Fatalf("independent initialization failed %+v", c.Channels)
 	}
 }

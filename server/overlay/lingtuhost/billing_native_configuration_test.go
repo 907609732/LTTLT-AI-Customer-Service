@@ -12,7 +12,7 @@ func TestNativeConfigurationPreservesEncryptedStripeSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	current, err := h.currentConfig()
-	if err != nil || !current.Ready || current.key != input.SecretKey || len(current.Plans) != 2 || len(current.providers) != 1 {
+	if err != nil || !current.Ready || current.key != input.SecretKey || len(current.Plans) != 3 || len(current.providers) != 1 {
 		t.Fatal("native and Stripe configuration did not coexist", err)
 	}
 	input.Revision = 1

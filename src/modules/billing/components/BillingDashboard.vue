@@ -17,12 +17,9 @@ const {
   checkoutError,
   paymentError,
   catalogPending,
-  ordersPending,
-  ledgerPending,
   checkoutPending,
   paymentPending,
   ordersLoaded,
-  ledgerSyncedAt,
   activePayment,
   pollingExpired,
 } = billing
@@ -45,6 +42,12 @@ const channels = computed(() =>
 )
 /** 只有服务端明确 ready 的官方扫码渠道才能进入收银台。 */
 const nativeReady = computed(() => channels.value.some((channel) => channel.ready))
+const quotaExpanded = ref(false)
+const ordersExpanded = ref(false)
+watch(orders, (rows) => {
+  if (rows.some((order) => ['pending', 'reconciling'].includes(order.state)))
+    ordersExpanded.value = true
+})
 const cashierOpen = ref(false)
 const selectedPlan = ref<BillingPlan | null>(null)
 const selectedChannel = ref<BillingChannel>('alipay')
@@ -82,6 +85,8 @@ watch(
   billing.identity,
   () => {
     cashierOpen.value = false
+    quotaExpanded.value = false
+    ordersExpanded.value = false
     selectedPlan.value = null
     qrImage.value = ''
     qrError.value = ''
@@ -107,6 +112,8 @@ watch(
   },
 )
 const money = (amount: number) => `¥${(amount / 100).toFixed(2)}`
+// Benefits belong to this published support tier, not arbitrary similarly priced plans.
+const isPremium = (plan: BillingPlan) => plan.id === 'support_100000' && plan.amount === 100000
 const date = (unix: number) => (unix ? new Date(unix * 1000).toLocaleString('zh-CN') : '—')
 const channelName = (id?: string) =>
   id === 'wechat' ? '微信支付' : id === 'alipay' ? '支付宝' : '网页支付'
@@ -123,13 +130,10 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
     <div class="page-head">
       <div v-if="!compact">
         <h1>
-          {{
-            section === 'orders' ? '充值订单' : section === 'usage' ? '额度与计费' : '套餐与充值'
-          }}
+          {{ section === 'orders' ? '充值订单' : section === 'usage' ? '额度与计费' : '支持我们' }}
         </h1>
-        <p>托管额度以服务端账本为准，支付返回页面不代表已入账。</p>
       </div>
-      <el-button :loading="pending" :disabled="!signedIn" @click="refresh">刷新账本</el-button>
+      <el-button :loading="pending" :disabled="!signedIn" @click="refresh">刷新</el-button>
     </div>
     <el-alert v-if="!signedIn" type="info" :closable="false" :title="signedOutReason" />
     <el-alert
@@ -140,79 +144,75 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
     />
     <el-alert v-if="checkoutError" type="error" :closable="false" :title="checkoutError" />
     <el-alert
-      v-if="compact && ledgerError"
+      v-if="ledgerError"
       type="error"
       :closable="false"
-      :title="ledgerError + '；额度为上次同步结果，请重试刷新。'"
+      :title="ledgerError + '；额度可能未更新，请稍后刷新。'"
     />
-    <section v-if="signedIn && !compact" class="card ledger-sync" aria-label="账本同步状态">
-      <el-alert v-if="ledgerError" type="error" :closable="false" :title="ledgerError" />
-      <p>
-        {{
-          ledgerError
-            ? '下方额度来自上次同步，尚未核实本次入账。'
-            : ledgerSyncedAt
-              ? `账本最近同步：${new Date(ledgerSyncedAt).toLocaleString('zh-CN')}`
-              : '额度来自最近一次账号同步，尚未完成本页账本核对。'
-        }}
-      </p>
-      <el-button :loading="ledgerPending" @click="billing.refreshLedger">重新核对账本</el-button>
-    </section>
     <section
       v-if="account && (!compact || section === 'usage')"
       class="card billing-quota"
       aria-label="服务端调用额度"
     >
       <div class="quota-remaining">
-        <span>剩余调用额度</span
+        <span>可用额度</span
         ><strong
           >{{ catalog?.quota ? catalog.quota.remaining : account.trial.remaining }}
           <small>次</small></strong
         >
       </div>
-      <template v-if="catalog?.quota">
-        <div class="quota-stat">
-          <span>付费剩余</span><strong>{{ catalog.quota.paid.remaining }} 次</strong>
-          <span>到期 {{ date(catalog.quota.paid.expires_at) }}</span>
-        </div>
-        <div class="quota-stat">
-          <span>试用剩余</span><strong>{{ catalog.quota.trial.remaining }} 次</strong>
-          <span>到期 {{ date(catalog.quota.trial.expires_at) }}</span>
-        </div>
-        <div class="quota-stat">
-          <span>处理中或待对账</span
-          ><strong>{{ catalog.quota.paid.reserved + catalog.quota.trial.reserved }} 次</strong>
-        </div>
-      </template>
-      <template v-else>
-        <div class="quota-stat">
-          <span>总额度</span><strong>{{ account.trial.limit }} 次</strong>
-        </div>
-        <div class="quota-stat">
-          <span>已结算</span><strong>{{ account.trial.used }} 次</strong>
-        </div>
-        <div class="quota-stat">
-          <span>处理中或待对账</span><strong>{{ account.trial.reserved }} 次</strong>
-        </div>
-        <div class="quota-stat">
-          <span>到期时间</span><strong>{{ date(account.trial.expiresAt) }}</strong>
-        </div>
-      </template>
-      <p>摘要与正式回复可能各消耗一次调用。失败释放占用，结果不确定时保留占用等待对账。</p>
-      <p v-if="catalog?.quota?.trial.provenance === 'legacy_mixed'">
-        历史额度保留原有效期，新充值单独计入付费额度。
-      </p>
+      <button
+        class="details-toggle"
+        type="button"
+        :aria-expanded="quotaExpanded"
+        aria-controls="billing-quota-details"
+        @click="quotaExpanded = !quotaExpanded"
+      >
+        额度明细 {{ quotaExpanded ? '收起' : '展开' }}
+      </button>
+      <div id="billing-quota-details" class="quota-details" v-show="quotaExpanded">
+        <template v-if="catalog?.quota">
+          <div class="quota-stat">
+            <span>付费剩余</span><strong>{{ catalog.quota.paid.remaining }} 次</strong>
+            <span>到期 {{ date(catalog.quota.paid.expires_at) }}</span>
+          </div>
+          <div class="quota-stat">
+            <span>试用剩余</span><strong>{{ catalog.quota.trial.remaining }} 次</strong>
+            <span>到期 {{ date(catalog.quota.trial.expires_at) }}</span>
+          </div>
+          <div class="quota-stat">
+            <span>处理中或待对账</span
+            ><strong>{{ catalog.quota.paid.reserved + catalog.quota.trial.reserved }} 次</strong>
+          </div>
+        </template>
+        <template v-else>
+          <div class="quota-stat">
+            <span>总额度</span><strong>{{ account.trial.limit }} 次</strong>
+          </div>
+          <div class="quota-stat">
+            <span>已结算</span><strong>{{ account.trial.used }} 次</strong>
+          </div>
+          <div class="quota-stat">
+            <span>处理中或待对账</span><strong>{{ account.trial.reserved }} 次</strong>
+          </div>
+          <div class="quota-stat">
+            <span>到期时间</span><strong>{{ date(account.trial.expiresAt) }}</strong>
+          </div>
+        </template>
+        <p>AI 回复按次计费，处理中额度将在结果确认后更新。</p>
+        <p v-if="catalog?.quota?.trial.provenance === 'legacy_mixed'">
+          历史额度包含早期充值记录，无法单独拆分试用和付费次数。
+        </p>
+      </div>
     </section>
     <section v-if="section !== 'orders' && section !== 'usage'" class="plans-section">
       <div class="section-head">
-        <h2>可选套餐</h2>
-        <el-button
-          v-if="signedIn && billing.transport"
-          :loading="catalogPending"
-          @click="billing.refreshCatalog"
-          >刷新套餐</el-button
-        >
+        <h2>支持套餐</h2>
       </div>
+      <p class="support-note">
+        您的支持是我们的动力，帮助灵兔开源项目加快开发与完善。支持项目即可获赠套餐所列调用额度，可在有效期内使用托管
+        AI 服务。
+      </p>
       <el-alert v-if="catalogError" type="error" :closable="false" :title="catalogError" />
       <el-alert
         v-if="catalog && !catalog.ready"
@@ -234,8 +234,10 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
           v-for="plan in catalog?.ready && !catalogError ? catalog.plans : []"
           :key="plan.id"
           class="billing-plan"
+          :class="{ 'billing-plan--premium': isPremium(plan) }"
         >
           <div>
+            <span v-if="isPremium(plan)" class="premium-badge">共创支持</span>
             <h3>{{ plan.name }}</h3>
             <div class="plan-price">
               {{ money(plan.amount)
@@ -253,6 +255,10 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
                 <dd>{{ plan.valid_days }} 天</dd>
               </div>
             </dl>
+            <div v-if="isPremium(plan)" class="premium-benefits">
+              <strong>专属一对一客服</strong>
+              <span>程序开发者一对一对接</span>
+            </div>
           </div>
           <el-button
             v-if="nativeReady"
@@ -260,7 +266,7 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
             :disabled="!catalog?.ready || !signedIn || Boolean(catalogError)"
             :loading="checkoutPending || paymentPending"
             @click="choose(plan)"
-            >选择套餐</el-button
+            >支持我们</el-button
           >
           <el-button
             v-else
@@ -268,17 +274,14 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
             :disabled="!catalog?.ready || !signedIn || Boolean(catalogError)"
             :loading="checkoutPending"
             @click="billing.checkout(plan)"
-            >创建订单并前往支付</el-button
+            >支持我们</el-button
           >
         </div>
       </div>
       <p v-if="!nativeReady && catalog?.ready && catalogError === ''" class="section-note">
         微信/支付宝扫码渠道尚未配置；如管理员启用了网页支付，可使用上方按钮按网页收银台付款。
       </p>
-      <p class="section-note">
-        充值增加调用额度，不自动启用
-        AI。有效期采用当前到期时间与本次充值有效期的较晚值，已过期未使用额度不会恢复。
-      </p>
+      <p class="section-note">充值额度叠加，未到期的试用余额同步延长有效期。</p>
     </section>
     <section
       v-if="cashierOpen && !compact && signedIn && billing.transport"
@@ -293,6 +296,9 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
       <p v-if="selectedPlan">
         {{ selectedPlan.name }} · {{ money(selectedPlan.amount) }} · {{ selectedPlan.calls }} 次 ·
         有效期 {{ selectedPlan.valid_days }} 天
+      </p>
+      <p v-if="selectedPlan && isPremium(selectedPlan)" class="premium-benefits">
+        专属一对一客服 · 程序开发者一对一对接
       </p>
       <fieldset v-if="selectedPlan" class="billing-channels">
         <legend>选择支付方式</legend>
@@ -352,78 +358,81 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
       >
       <p>切换渠道须先确认原订单已关闭。收起收银台后仍可继续查单，离开本页则停止。</p>
     </section>
-    <section v-if="section !== 'usage'" class="card">
+    <section v-if="section !== 'usage'" class="card orders-card">
       <div class="section-head orders-head">
-        <div>
-          <h2>最近充值订单</h2>
-          <p>只显示当前账号最近 100 笔软件充值订单；支付后点击刷新账本核对服务端入账。</p>
-        </div>
-        <el-button
-          v-if="signedIn && billing.transport"
-          :loading="ordersPending"
-          @click="billing.refreshOrders"
-          >刷新充值订单</el-button
+        <h2>最近充值订单</h2>
+        <button
+          v-if="!compact && section !== 'orders'"
+          type="button"
+          class="details-toggle"
+          :aria-expanded="ordersExpanded"
+          aria-controls="billing-orders-content"
+          @click="ordersExpanded = !ordersExpanded"
         >
+          {{ ordersExpanded ? '收起记录' : '查看记录' }}
+        </button>
       </div>
       <el-alert v-if="ordersError" type="error" :closable="false" :title="ordersError" />
       <p v-if="ordersError && ordersLoaded">下方为上次成功读取的充值订单，本次状态尚未核实。</p>
-      <div class="orders-table">
-        <el-table v-if="ordersLoaded" :data="orders" empty-text="暂无可核实的充值订单记录">
-          <el-table-column prop="id" label="订单号" min-width="200" />
-          <el-table-column prop="plan.name" label="套餐" min-width="120" />
-          <el-table-column label="金额" width="100" align="right"
-            ><template #default="scope">{{
-              money(scope.row.plan.amount)
-            }}</template></el-table-column
-          >
-          <el-table-column label="支付方式" width="110"
-            ><template #default="scope">{{
-              channelName(scope.row.channel)
-            }}</template></el-table-column
-          >
-          <el-table-column label="状态" width="140"
-            ><template #default="scope"
-              ><span class="order-state" :class="{ 'is-paid': scope.row.state === 'paid' }">{{
-                stateName(scope.row.state)
-              }}</span></template
-            ></el-table-column
-          >
-          <el-table-column label="创建时间" min-width="180"
-            ><template #default="scope">{{ date(scope.row.created_at) }}</template></el-table-column
-          >
-          <el-table-column v-if="!compact" label="操作" width="150"
-            ><template #default="scope"
-              ><el-button
-                v-if="scope.row.state !== 'closed'"
-                :disabled="!signedIn || pending"
-                @click="resume(scope.row)"
-                >查询 / 继续支付</el-button
-              ></template
-            ></el-table-column
-          >
-        </el-table>
+      <div
+        id="billing-orders-content"
+        class="orders-content"
+        v-show="compact || section === 'orders' || ordersExpanded"
+      >
+        <div class="orders-table">
+          <el-table v-if="ordersLoaded" :data="orders" empty-text="暂无可核实的充值订单记录">
+            <el-table-column prop="id" label="订单号" min-width="200" />
+            <el-table-column prop="plan.name" label="套餐" min-width="120" />
+            <el-table-column label="金额" width="100" align="right"
+              ><template #default="scope">{{
+                money(scope.row.plan.amount)
+              }}</template></el-table-column
+            >
+            <el-table-column label="支付方式" width="110"
+              ><template #default="scope">{{
+                channelName(scope.row.channel)
+              }}</template></el-table-column
+            >
+            <el-table-column label="状态" width="140"
+              ><template #default="scope"
+                ><span class="order-state" :class="{ 'is-paid': scope.row.state === 'paid' }">{{
+                  stateName(scope.row.state)
+                }}</span></template
+              ></el-table-column
+            >
+            <el-table-column label="创建时间" min-width="180"
+              ><template #default="scope">{{
+                date(scope.row.created_at)
+              }}</template></el-table-column
+            >
+            <el-table-column v-if="!compact" label="操作" width="150"
+              ><template #default="scope"
+                ><el-button
+                  v-if="scope.row.state !== 'closed'"
+                  :disabled="!signedIn || pending"
+                  @click="resume(scope.row)"
+                  >查询 / 继续支付</el-button
+                ></template
+              ></el-table-column
+            >
+          </el-table>
+        </div>
       </div>
     </section>
     <section v-if="section === 'usage'" class="card">
       <p>这里展示账号累计调用账本，尚未接入按店铺、平台或小时拆分的扣费明细。</p>
     </section>
-    <p
-      v-if="section !== 'orders' && section !== 'usage' && catalog?.service"
-      class="billing-service"
-    >
-      计费服务 {{ catalog.service.version }} · 协议 {{ catalog.service.billing_protocol }}
-    </p>
   </div>
 </template>
 <style scoped>
 .billing-dashboard {
   box-sizing: border-box;
   display: grid;
-  gap: 24px;
+  gap: 20px;
   width: 100%;
   max-width: 1224px;
   margin: 0 auto;
-  padding: 32px;
+  padding: 24px 32px;
   color: #243449;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   font-size: 14px;
@@ -477,28 +486,39 @@ p {
   border-radius: 14px;
   box-shadow: 0 3px 14px #203b6310;
 }
-.ledger-sync {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 20px;
-  box-shadow: none;
-}
-.ledger-sync > .el-alert {
-  flex-basis: 100%;
-}
 .billing-quota {
   display: grid;
-  grid-template-columns: 1.25fr repeat(3, 1fr) 1.6fr;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
 }
-.billing-quota > div {
+.billing-quota .quota-remaining,
+.quota-stat {
   display: grid;
-  gap: 7px;
-  min-width: 0;
+  gap: 6px;
+}
+.quota-details {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #edf1f6;
+}
+.quota-details > p {
+  grid-column: 1 / -1;
+}
+.details-toggle {
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: #286be4;
+  font: inherit;
+  cursor: pointer;
+}
+.details-toggle:focus-visible {
+  outline: 2px solid #3779ed;
+  outline-offset: 4px;
 }
 .billing-quota span {
   color: #738196;
@@ -512,7 +532,6 @@ p {
 }
 .billing-quota .quota-remaining {
   padding-right: 22px;
-  border-right: 1px solid #e8edf5;
 }
 .quota-remaining strong {
   color: #286be4;
@@ -544,16 +563,55 @@ p {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 26px;
-  padding: 24px;
+  gap: 18px;
+  padding: 20px;
   min-width: 0;
   border: 1px solid #dce5f1;
   border-radius: 14px;
   background: #fff;
   box-shadow: 0 3px 14px #203b6308;
 }
+.billing-plan--premium {
+  border-color: #d7a847;
+  background: linear-gradient(145deg, #fff5cf 0%, #f6d778 58%, #edc058 100%);
+  box-shadow: 0 8px 24px #b67f2524;
+}
+.billing-plan--premium h3,
+.billing-plan--premium .plan-price {
+  color: #68420d;
+}
+.billing-plan--premium .plan-details dt,
+.billing-plan--premium .plan-details dd {
+  color: #765320;
+}
+.premium-badge {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: #7d5416;
+  color: #fff4ce;
+  font-size: 11px;
+  font-weight: 600;
+}
+.premium-benefits {
+  display: grid;
+  gap: 4px;
+  margin-top: 16px;
+  color: #68420d;
+  font-size: 13px;
+}
+.billing-plan--premium > .el-button {
+  color: #fff8df;
+  border-color: #80551b;
+  background: #80551b;
+}
+.billing-plan--premium > .el-button:hover {
+  background: #674211;
+  border-color: #674211;
+}
 .plan-price {
-  margin: 16px 0 22px;
+  margin: 12px 0 16px;
   color: #243449;
   font-size: 34px;
   line-height: 1.2;
@@ -571,7 +629,7 @@ p {
 }
 .plan-details {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 .plan-details > div {
   display: flex;
@@ -634,13 +692,19 @@ p {
   margin: 0 auto;
 }
 .orders-head {
-  margin-bottom: 20px;
+  margin-bottom: 0;
   align-items: flex-start;
 }
 .orders-head .el-button,
 .page-head .el-button,
 .section-head > .el-button {
   flex-shrink: 0;
+}
+.orders-content {
+  margin-top: 16px;
+}
+.support-note {
+  color: #526782;
 }
 .orders-table {
   width: 100%;
@@ -690,9 +754,8 @@ p {
   box-shadow: none;
 }
 .compact .billing-quota {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
+  display: grid;
+  gap: 16px;
 }
 .compact .billing-quota .quota-remaining {
   border: 0;

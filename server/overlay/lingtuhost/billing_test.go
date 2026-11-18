@@ -18,11 +18,11 @@ func TestBillingConfigurationFailsClosed(t *testing.T) {
 	t.Setenv("LINGTU_BILLING_STRIPE_WEBHOOK_SECRET", "")
 	t.Setenv("LINGTU_BILLING_PLANS", `[{"id":"starter","name":"Starter","currency":"cny","amount":1000,"calls":100,"valid_days":30}]`)
 	config := loadBillingConfig()
-	if config.Ready || len(config.Plans) != 2 {
+	if config.Ready || len(config.Plans) != 3 {
 		t.Fatalf("unexpected config %+v", config)
 	}
 	t.Setenv("LINGTU_BILLING_PLANS", `[{"id":"bad","name":"Bad","currency":"cny","amount":1.5,"calls":100,"valid_days":30}]`)
-	if len(loadBillingConfig().Plans) != 2 {
+	if len(loadBillingConfig().Plans) != 3 {
 		t.Fatal("fractional minor currency accepted")
 	}
 }
@@ -56,7 +56,7 @@ func TestBillingRegisteredRoutesExposeVersionAndDenyAnonymousCustomersAndAdmins(
 		BillingProtocol int      `json:"billing_protocol"`
 		Capabilities    []string `json:"capabilities"`
 	}
-	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version != "2026.11.17-cost.3" || info.BillingProtocol != 2 {
+	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version != "2026.11.19-support.1" || info.BillingProtocol != 2 {
 		t.Fatalf("missing deployed capability/version: %+v status %d", info, response.StatusCode)
 	}
 	// Production native payment, reconciliation, quota and free summary must stay

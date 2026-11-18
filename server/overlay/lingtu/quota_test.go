@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestRechargeLeavesTrialIndependent(t *testing.T) {
+func TestRechargeExtendsUnexpiredTrial(t *testing.T) {
 	db := trialDB(t)
 	trials := NewTrialStore(db)
 	if err := trials.Migrate(); err != nil {
@@ -30,8 +30,130 @@ func TestRechargeLeavesTrialIndependent(t *testing.T) {
 	}
 	var trial TrialGrant
 	db.First(&trial, "user_id = ?", 1)
-	if trial.Limit != 2 || trial.ExpiresAt != now.Add(time.Hour).Unix() {
-		t.Fatalf("recharge changed trial: %+v", trial)
+	if trial.Limit != 2 || trial.ExpiresAt != now.Add(365*24*time.Hour).Unix() {
+		t.Fatalf("recharge did not preserve and extend trial: %+v", trial)
+	}
+	q, err := store.Quota(1, now.Add(2*time.Hour))
+	if err != nil || q.Remaining != 7 || q.Trial.Remaining != 2 {
+		t.Fatalf("trial expired after recharge: %+v %v", q, err)
+	}
+}
+
+func TestRechargeTrialExpiryBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		expiresIn time.Duration
+	}{
+		{"active", time.Hour}, {"expired", -time.Hour},
+		{"at_expiry", 0}, {"longer_trial", 400 * 24 * time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := trialDB(t)
+			trials := NewTrialStore(db)
+			if err := trials.Migrate(); err != nil {
+				t.Fatal(err)
+			}
+			store := NewBillingStore(db)
+			if err := store.Migrate(); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Unix(1800000000, 0)
+			originalExpiry := now.Add(tc.expiresIn).Unix()
+			grant := TrialGrant{UserID: 1, Limit: 10, Used: 2, Reserved: 1, CreatedAt: now.Add(-time.Hour).Unix(), ExpiresAt: originalExpiry}
+			if err := db.Create(&grant).Error; err != nil {
+				t.Fatal(err)
+			}
+			credit := func(id string, at time.Time, event string) (BillingOrder, BillingPayment) {
+				t.Helper()
+				o, err := store.CreateChannelOrder(1, id, BillingPlan{ID: "p", Name: "p", Currency: "cny", Amount: 100, Calls: 5, ValidDays: 365}, "alipay", at)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := BillingPayment{OrderID: o.ID, Channel: "alipay", MerchantID: "m", TransactionID: id, EventID: event, Currency: "cny", Amount: 100, PaidAt: at.Unix()}
+				if err := store.Credit(p, at); err != nil {
+					t.Fatal(err)
+				}
+				return o, p
+			}
+			_, payment := credit("first", now, "first")
+			// A delayed duplicate must not renew either pool a second time.
+			if err := store.Credit(payment, now.Add(24*time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			var actual TrialGrant
+			if err := db.First(&actual, "user_id = ?", 1).Error; err != nil {
+				t.Fatal(err)
+			}
+			expectedExpiry := originalExpiry
+			if tc.expiresIn > 0 {
+				expectedExpiry = max(originalExpiry, now.Add(365*24*time.Hour).Unix())
+			}
+			if actual.ExpiresAt != expectedExpiry || actual.Limit != 10 || actual.Used != 2 || actual.Reserved != 1 {
+				t.Fatalf("trial changed incorrectly: %+v", actual)
+			}
+			credit("second", now.Add(24*time.Hour), "second")
+			q, err := store.Quota(1, now.Add(24*time.Hour))
+			if err != nil || q.Paid.Remaining != 10 {
+				t.Fatalf("renewal: %+v %v", q, err)
+			}
+			if tc.expiresIn > 0 {
+				if q.Trial.Remaining != 7 || q.Trial.ExpiresAt != max(originalExpiry, now.Add(366*24*time.Hour).Unix()) {
+					t.Fatalf("active trial not renewed: %+v", q)
+				}
+			} else if q.Trial.Remaining != 0 || q.Trial.ExpiresAt != originalExpiry {
+				t.Fatalf("expired trial revived: %+v", q)
+			}
+		})
+	}
+}
+
+func TestRechargeTrialExtensionRollsBackWithCredit(t *testing.T) {
+	db := trialDB(t)
+	trials := NewTrialStore(db)
+	if err := trials.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	store := NewBillingStore(db)
+	if err := store.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1800000000, 0)
+	if err := trials.Grant(1, now, 3, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := trials.Reserve(1, "inflight", "d", now); err != nil {
+		t.Fatal(err)
+	}
+	order, err := store.CreateChannelOrder(1, "rollback", BillingPlan{ID: "p", Name: "p", Currency: "cny", Amount: 100, Calls: 5, ValidDays: 365}, "wechat", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A receipt conflict happens after both entitlement writes and must roll them back.
+	if err := db.Create(&BillingCredit{OrderID: "other", EventID: "duplicate", UserID: 2, Calls: 5}).Error; err != nil {
+		t.Fatal(err)
+	}
+	payment := BillingPayment{OrderID: order.ID, Channel: "wechat", MerchantID: "m", TransactionID: "t", EventID: "duplicate", Currency: "cny", Amount: 100, PaidAt: now.Unix()}
+	if err := store.Credit(payment, now); err == nil {
+		t.Fatal("expected receipt conflict")
+	}
+	q, err := store.Quota(1, now)
+	if err != nil || q.Trial.ExpiresAt != now.Add(time.Hour).Unix() || q.Trial.Reserved != 1 || q.Paid.Limit != 0 {
+		t.Fatalf("partial credit: %+v %v", q, err)
+	}
+	stored, err := store.Order(1, order.ID)
+	if err != nil || stored.State != "pending" {
+		t.Fatalf("order not rolled back: %+v %v", stored, err)
+	}
+	payment.EventID = "valid"
+	if err := store.Credit(payment, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := trials.Settle(1, "inflight", "success"); err != nil {
+		t.Fatal(err)
+	}
+	q, err = store.Quota(1, now.Add(2*time.Hour))
+	if err != nil || q.Trial.Used != 1 || q.Trial.Reserved != 0 || q.Remaining != 7 {
+		t.Fatalf("inflight settlement: %+v %v", q, err)
 	}
 }
 

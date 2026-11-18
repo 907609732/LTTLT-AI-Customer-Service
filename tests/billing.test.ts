@@ -57,7 +57,7 @@ describe('billing transport boundary', () => {
       expect(paths.every((path) => path.endsWith('/orders'))).toBe(true)
       expect(paths.length).toBe(section === 'orders' ? 1 : 0)
       expect(openCheckout).not.toHaveBeenCalled()
-      expect(wrapper.text()).not.toContain('可选套餐')
+      expect(wrapper.text()).not.toContain('支持套餐')
       wrapper.unmount()
     },
   )
