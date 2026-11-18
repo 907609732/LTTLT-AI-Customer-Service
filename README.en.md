@@ -10,7 +10,7 @@ Manage stores, product knowledge, AI reply drafts and conversation records. Help
 
 [简体中文](README.md) · **English**
 
-**[Windows installer v1.0.48](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/LingtuAI-Setup-1.0.48-win-x64.exe)** · [Portable ZIP](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/LingtuAI-1.0.48-win-x64.zip) · [Release notes](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.48)
+**[Latest Windows installer / portable ZIP](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/latest)** · [Checksums](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/latest/download/SHA256SUMS.txt)
 
 </div>
 
@@ -42,7 +42,7 @@ The apps are installed separately and keep their own data; orders, recordings an
 
 ## AI integration and versions
 
-The public **v1.0.48** Windows release includes the basic MCP connector. Current source additionally provides CLI and tools to read, preview and change reply intervals, welcome messages/delays and image-recognition settings. These configuration tools neither return model secrets nor enable AI or send messages to buyers.
+CLI and tools to read, preview and change reply intervals, welcome messages/delays and image-recognition settings are available from **v1.0.70**. Older **v1.0.48** installers include only the basic MCP connector. These configuration tools neither return model secrets nor enable AI or send messages to buyers.
 
 Start the app and use the configuration in `%APPDATA%/yunduo-ui-restored/ai-interface/mcp-config.json` with your AI client. See the [AI interface guide](docs/AI_INTERFACE.md) for supported tools and setup. New source capabilities are not automatically present in the older installer.
 
@@ -52,13 +52,13 @@ Start the app and use the configuration in `%APPDATA%/yunduo-ui-restored/ai-inte
 - **Xianyu web:** included in v1.0.48. It samples opened/pending conversations, does not collect products or send videos, and text/image sending still needs live-buyer acceptance.
 - **Local simulations:** exercise model requests and approval flows without sending to real buyers.
 
-1. Install v1.0.48 or follow the [Chinese source-running instructions](README.md#从源码运行) for current source.
+1. Install the [latest published version](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/latest), or follow the [Chinese source-running instructions](README.md#从源码运行) for current source.
 2. Configure a model/provider or managed account and test the connection.
 3. Add a store and complete the login and setup guide.
 4. Import or collect product knowledge, then review and enable it explicitly.
 5. Verify the platform identity before enabling store AI; review replies according to the selected store mode.
 
-The desktop interface is currently Chinese. The installer is not code-signed; verify its [SHA256 checksums](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/SHA256SUMS.txt). Store AI choices can be restored only after platform identity is reverified; old approvals and pending replies are not restored.
+The desktop interface is currently Chinese. The installer is not code-signed; verify the [SHA256 checksums](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/latest/download/SHA256SUMS.txt) from the same release. Store AI choices can be restored only after platform identity is reverified; old approvals and pending replies are not restored.
 
 ## Data and privacy
 

@@ -12,16 +12,16 @@
 
 **简体中文** · [English](README.en.md)
 
-**支持 MCP 功能调用**，可让外部 AI 查询店铺与知识；源码版还提供 CLI 和配置读写能力。
+**支持 MCP 功能调用**，可让外部 AI 查询店铺与知识；CLI 和受限配置读写从 v1.0.70 起提供。
 
-[![Release v1.0.48](https://img.shields.io/badge/Release-v1.0.48-0071e3)](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.48)
+[![最新公开版本](https://img.shields.io/github/v/release/907609732/LTTLT-AI-Customer-Service?label=Release)](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/latest)
 [![Windows build](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml/badge.svg?branch=main)](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/workflows/lingtu-ai-desktop.yml)
 ![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)
 ![Electron](https://img.shields.io/badge/Electron-43-47848f)
 [![License: Apache-2.0 (owner code)](<https://img.shields.io/badge/License-Apache--2.0%20(owner%20code)-blue>)](LICENSE)
 ![License: mixed](https://img.shields.io/badge/License-Mixed-lightgrey)
 
-**[下载 Windows 安装包](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/LingtuAI-Setup-1.0.48-win-x64.exe)** · [下载 ZIP 便携版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/LingtuAI-1.0.48-win-x64.zip) · [v1.0.48 发布页](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.48) · [问题反馈](https://github.com/907609732/LTTLT-AI-Customer-Service/issues)
+**[下载 Windows 安装包 / ZIP 便携版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/latest)** · [校验文件](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/latest/download/SHA256SUMS.txt) · [问题反馈](https://github.com/907609732/LTTLT-AI-Customer-Service/issues)
 
 </div>
 
@@ -49,15 +49,15 @@
 
 ## 下载安装
 
-当前公开版本：**v1.0.48**。Windows x64 可直接下载[安装程序](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/LingtuAI-Setup-1.0.48-win-x64.exe)或 [ZIP 便携版](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/LingtuAI-1.0.48-win-x64.zip)，并使用同一发布页的 [SHA256SUMS.txt](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/download/v1.0.48/SHA256SUMS.txt) 校验。
+Windows x64 安装程序和 ZIP 便携版均在[最新正式发布页](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/latest)。请核对页面所列版本，并使用同一次发布的 [SHA256SUMS.txt](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/latest/download/SHA256SUMS.txt) 校验。
 
-安装包未做代码签名，需要手动下载安装。v1.0.48 对应确切源码 `12b31cae66e6d9d1b4e0db3cfa7b3ac0448b546f`，已包含闲鱼接入、共用本机工作区及知识库工具栏分组。托管双模型路由属于独立服务端功能，需单独部署并保存管理员策略；本次 Windows 发布不部署生产服务端。GitHub 的 Source code ZIP 是源码，不是安装包。
+安装包未做代码签名，需要手动下载安装；对应源码和验证范围以该发布页为准。托管模型、授权与计费由独立服务端决定，Windows 安装包不包含或自动部署服务端。GitHub 的 Source code ZIP 是源码，不是 Windows 便携包。
 
-发布范围、确切源码和验证边界见 [v1.0.48 发布验收](docs/RELEASE_V1.0.48.md)。
+历史发布范围、确切源码和验证边界可查阅 [v1.0.48 发布验收](docs/RELEASE_V1.0.48.md)；新版本请查看各自发布说明。
 
 ## 主要功能
 
-下表包含公开版 v1.0.48 的功能，以及已注明版本的源码新增能力；独立托管服务端不包含在 Windows 安装包内。
+下表概述当前 `main` 的能力；安装包请按实际版本和发布说明核对，独立托管服务端不包含在 Windows 安装包内。
 
 | 能力              | 你可以做什么                                                                                |
 | ----------------- | ------------------------------------------------------------------------------------------- |
@@ -82,7 +82,7 @@
 
 启动软件后，将 `%APPDATA%/yunduo-ui-restored/ai-interface/mcp-config.json` 中的配置加入 AI 客户端。在源码项目根目录，也可执行 `npm run ai -- config schema` 查询可调用的配置字段。接入步骤与完整工具清单见 [AI 调用接口说明](docs/AI_INTERFACE.md)。
 
-当前公开下载的 **v1.0.48** 已包含基础 MCP 连接器，但不包含上述新增的 CLI 和配置读写能力；使用新增能力需先[从源码构建运行](#从源码运行)，后续安装包以发布页为准。
+CLI 和上述受限配置读写从 **v1.0.70** 起支持。旧 **v1.0.48** 仅包含基础 MCP 连接器；请核对安装版本，或[从源码构建运行](#从源码运行)。
 
 ## 平台与接入方式
 
@@ -96,7 +96,7 @@
 
 ## 快速使用
 
-1. 按[下载安装](#下载安装)取得 v1.0.48，或按[从源码运行](#从源码运行)启动当前 `main`。
+1. 按[下载安装](#下载安装)取得最新正式版，或按[从源码运行](#从源码运行)启动当前 `main`。
 2. 通过顶部“登录”入口选择本机 Key 或托管账号，并在配置中心完成模型接口、凭证与回复规则配置；保存前先测试连接。
 3. 添加店铺，按自动弹出的基础设置引导完成平台登录、资料配置和接待试答；也可右键店铺重新打开引导。
 4. 在知识库导入或维护商品与问答资料，完成学习后显式审核、启用；需要演练时使用训练场或本机模拟店铺。
