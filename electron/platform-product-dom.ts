@@ -167,34 +167,70 @@ export function readPddProductDetail(productId: string): PlatformProductDetail {
   )
     throw Error('商品详情内容区域尚未加载')
   const images = new Set<string>()
-  const addImage = (input: string) => {
+  const resolveImage = (input: string) => {
     try {
       const image = new URL(input, location.href)
-      if (image.protocol === 'https:' && !image.username && !image.password) {
-        images.add(image.href)
-        return true
-      }
+      if (image.protocol === 'https:' && !image.username && !image.password) return image.href
     } catch {
       /* Invalid source images are omitted, never converted into textual facts. */
     }
-    return false
+    return undefined
   }
-  for (const region of [carousel, detail]) {
-    let observed = 0
-    for (const node of Array.from(
-      region?.querySelectorAll<HTMLElement>('img[src],[style]') || [],
-    )) {
-      let found = node instanceof HTMLImageElement && addImage(node.src)
-      for (const match of node.style.backgroundImage.matchAll(/url\(["']?([^"')]+)["']?\)/g))
-        if (match[1]) found = addImage(match[1]) || found
-      if (found) observed++
+  // 拼多多会为同一张主图渲染预加载副本，也可能先放在 data-* 懒加载属性；先取一个有效来源并在区域级去重。
+  const imageSource = (node: HTMLImageElement) => {
+    for (const value of [
+      node.getAttribute('src'),
+      node.currentSrc,
+      node.getAttribute('data-src'),
+      node.getAttribute('data-original'),
+      node.getAttribute('data-lazy-src'),
+    ]) {
+      if (!value?.trim()) continue
+      const source = resolveImage(value)
+      if (source) return source
     }
-    if (region?.id === 'basic.carousel_gallery') {
-      const declared = text(region).match(/已上传\s*(\d+)\s*\/\s*\d+\s*张/)
-      if (!declared || Number(declared[1]) < 1 || Number(declared[1]) !== observed)
-        throw Error('商品主图数量尚未读取完整')
-    }
+    return undefined
   }
+  const backgroundImages = (node: HTMLElement) =>
+    Array.from(node.style.backgroundImage.matchAll(/url\(["']?([^"')]+)["']?\)/g)).flatMap(
+      (match) => {
+        const image = match[1] && resolveImage(match[1])
+        return image ? [image] : []
+      },
+    )
+  const regionImages = (region: HTMLElement) => {
+    const observed = new Set<string>()
+    for (const node of Array.from(region.querySelectorAll<HTMLElement>('img,[style]'))) {
+      const source = node instanceof HTMLImageElement ? imageSource(node) : undefined
+      if (source) observed.add(source)
+      for (const image of backgroundImages(node)) observed.add(image)
+    }
+    return [...observed]
+  }
+  const declared = text(carousel).match(/已上传\s*(\d+)\s*\/\s*\d+\s*张/)
+  const count = Number(declared?.[1])
+  const slots = Array.from(
+    carousel.querySelectorAll<HTMLElement>('[class*="MaterialModalButton_v2_imageWrapper__"]'),
+  )
+  // 素材轮播用槽位内 imageBox 的背景存放主图，同槽位的 img 可能是 AI 角标。
+  const slotImages = slots.map((slot) => {
+    const boxes = slot.querySelectorAll<HTMLElement>(
+      ':scope > [class*="MaterialModalButton_v2_imgContainer__"] > [class*="MaterialModalButton_v2_imageBox__"]',
+    )
+    const sources = boxes.length === 1 ? backgroundImages(boxes[0]) : []
+    return sources.length === 1 ? sources[0] : undefined
+  })
+  const mainImages = slots.length
+    ? slotImages.filter((image): image is string => image !== undefined)
+    : regionImages(carousel)
+  if (
+    !declared ||
+    count < 1 ||
+    count !== mainImages.length ||
+    (slots.length && slots.length !== count)
+  )
+    throw Error('商品主图数量尚未读取完整')
+  for (const image of [...mainImages, ...regionImages(detail)]) images.add(image)
   // Only actual text-editor values count as description; upload tutorials and platform hints do not.
   const description = Array.from(
     detail?.querySelectorAll('textarea,[contenteditable="true"]') || [],
