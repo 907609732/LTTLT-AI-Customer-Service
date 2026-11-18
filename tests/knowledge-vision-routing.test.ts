@@ -1,5 +1,7 @@
 // @vitest-environment node
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -84,7 +86,7 @@ function harness(options: { managed?: boolean; assertActive?: () => void } = {})
   }
   const calls: CapturedCall[] = []
   let responder: (call: CapturedCall) => Response | Promise<Response> = () =>
-    responseJson({ choices: [{ message: { content: '红色' } }] })
+    responseJson({ choices: [{ message: { content: '红色、蓝色' } }] })
   const request: typeof fetch = async (input, init) => {
     const headers = new Headers(init?.headers)
     const call: CapturedCall = {
@@ -139,7 +141,7 @@ function imageMessages(): ModelMessages {
         { type: 'text', text: '不可信图片资料' },
         {
           type: 'image_url',
-          image_url: { url: 'data:image/png;base64,AAAA' },
+          image_url: { url: `data:image/png;base64,${'A'.repeat(600)}` },
         },
       ],
     },
@@ -152,6 +154,103 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
   throw new Error('condition not reached')
+}
+
+interface LoopbackRequest {
+  path: string
+  method: string
+  authorization: string
+  body: unknown
+}
+
+async function closeServer(server: Server): Promise<void> {
+  server.closeAllConnections()
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+}
+
+async function startLoopbackServer(): Promise<{
+  baseUrl: string
+  requests: LoopbackRequest[]
+  server: Server
+}> {
+  const requests: LoopbackRequest[] = []
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = []
+    request.on('data', (chunk: Buffer) => chunks.push(chunk))
+    request.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8')
+      const parsed = body ? (JSON.parse(body) as unknown) : null
+      const captured: LoopbackRequest = {
+        path: request.url ?? '',
+        method: request.method ?? '',
+        authorization: request.headers.authorization ?? '',
+        body: parsed,
+      }
+      requests.push(captured)
+      if (captured.path.endsWith('/models')) {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ data: [{ id: 'deepseek-flash' }] }))
+        return
+      }
+      if (captured.path.endsWith('/chat/completions')) {
+        const payload = record(parsed)
+        const messages = array(payload.messages)
+        const content = messages.flatMap((message) => {
+          const value = record(message).content
+          return typeof value === 'string' ? [{ type: 'text', text: value }] : array(value)
+        })
+        const prompt =
+          content
+            .filter((part) => record(part).type === 'text')
+            .map((part) => String(record(part).text ?? ''))
+            .find((text) => text.includes('从上到下')) ?? ''
+        const image = content.find((part) => record(part).type === 'image_url')
+        const imageUrl =
+          image && typeof record(record(image).image_url).url === 'string'
+            ? String(record(record(image).image_url).url)
+            : ''
+        const hasImage = imageUrl.startsWith('data:image/png;base64,') && imageUrl.length > 500
+        response.writeHead(200, { 'content-type': 'application/json' })
+        if (!hasImage) {
+          response.end(
+            JSON.stringify({ choices: [{ message: { content: '这里没有可核对的图片' } }] }),
+          )
+        } else if (String(prompt).includes('从上到下')) {
+          // mock 依据固定 fixture 的上下红蓝顺序回答，不在 prompt 中读取答案。
+          response.end(JSON.stringify({ choices: [{ message: { content: '红色、蓝色' } }] }))
+        } else {
+          response.end(JSON.stringify({ choices: [{ message: { content: '{"candidates":[]}' } }] }))
+        }
+        return
+      }
+      response.writeHead(404)
+      response.end()
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address() as AddressInfo
+  return { baseUrl: `http://127.0.0.1:${address.port}`, requests, server }
+}
+
+async function startHangingModelsServer(): Promise<{
+  baseUrl: string
+  server: Server
+  requestSeen: Promise<void>
+}> {
+  let seen: (() => void) | undefined
+  const requestSeen = new Promise<void>((resolve) => {
+    seen = resolve
+  })
+  const server = createServer((request, response) => {
+    request.resume()
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.write('{"data":[')
+    response.flushHeaders()
+    seen?.()
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address() as AddressInfo
+  return { baseUrl: `http://127.0.0.1:${address.port}`, server, requestSeen }
 }
 
 describe('独立图片模型连接与路由', () => {
@@ -175,6 +274,25 @@ describe('独立图片模型连接与路由', () => {
     expect(typeof url).toBe('string')
     expect(String(url)).toMatch(/^data:image\/png;base64,/)
     expect(String(url).length).toBeGreaterThan(500)
+  })
+
+  it('验证提示不泄露颜色答案，只返回单一颜色或普通文字都不算验证', async () => {
+    const fixture = harness()
+    fixture.saveCustom()
+    const verified = await fixture.runtime.verify()
+    expect(verified.ok).toBe(true)
+    const body = record(fixture.calls[0]!.body)
+    const content = array(record(array(body.messages)[0]).content)
+    const prompt = String(record(content.find((part) => record(part).type === 'text')).text)
+    expect(prompt).toContain('从上到下')
+    expect(prompt).not.toMatch(/红色|蓝色|red|blue/i)
+
+    const ignored = harness()
+    ignored.saveCustom()
+    ignored.setResponder(() => responseJson({ choices: [{ message: { content: '红色' } }] }))
+    const failed = await ignored.runtime.verify()
+    expect(failed).toMatchObject({ ok: false, status: 'failed' })
+    expect(() => ignored.store.resolveCustomRoute(true)).toThrow(/验证/)
   })
 
   it('普通连接成功不授予图片验证，图片学习仍被明确拒绝', async () => {
@@ -269,9 +387,13 @@ describe('独立图片模型连接与路由', () => {
     fixture.setResponder(() => {
       throw new Error('visual endpoint offline')
     })
-    await expect(
-      fixture.runtime.knowledgePort().complete({ messages: imageMessages() }),
-    ).rejects.toThrow(/视觉模型/)
+    const error = await fixture.runtime
+      .knowledgePort()
+      .complete({ messages: imageMessages() })
+      .catch((reason: unknown) => reason)
+    expect(error).toBeInstanceOf(Error)
+    expect(String(error)).toMatch(/视觉模型/)
+    expect(String(error)).not.toContain('vision-secret-value')
     expect(fixture.baseComplete).not.toHaveBeenCalled()
   })
 
@@ -289,11 +411,11 @@ describe('独立图片模型连接与路由', () => {
     await waitFor(() => fixture.calls.length === 1)
     fixture.store.save({
       mode: 'custom',
-      baseUrl: 'http://127.0.0.1:41802/v1',
+      baseUrl: 'http://127.0.0.1:41801/v2',
       model: 'deepseek-flash',
       expected: expected(initial),
     })
-    release?.(responseJson({ choices: [{ message: { content: '红色' } }] }))
+    release?.(responseJson({ choices: [{ message: { content: '红色、蓝色' } }] }))
     await expect(verification).rejects.toThrow(/配置已变化|重新/)
     expect(fixture.store.snapshot().status).not.toBe('verified')
   })
@@ -316,7 +438,7 @@ describe('独立图片模型连接与路由', () => {
     await waitFor(() => fixture.calls.length === 1)
     fixture.store.save({
       mode: 'custom',
-      baseUrl: 'http://127.0.0.1:41803/v1',
+      baseUrl: 'http://127.0.0.1:41801/v2',
       model: 'deepseek-flash',
       expected: expected(before),
     })
@@ -406,6 +528,207 @@ describe('独立图片模型连接与路由', () => {
         timeoutMs: 25,
       }),
     ).rejects.toThrow(/超时/)
+  })
+
+  it('真实 127.0.0.1 HTTP 服务验证固定图并接收含图学习请求，文字仍走原端口', async () => {
+    const loopback = await startLoopbackServer()
+    const root = directory()
+    try {
+      const store = new VisionModelSettingsStore({ dataDir: root, safeStorage })
+      const baseComplete = vi.fn<KnowledgeModelPort['complete']>(async () => 'base-text-response')
+      const base: KnowledgeModelPort = {
+        complete: baseComplete,
+        vision: () => ({ supported: true, maxImages: 4, reason: '旧文字模型图片能力' }),
+        identity: () => 'text-model',
+        minimumIntervalMs: () => 0,
+      }
+      const traces: VisionTraceEvent[] = []
+      const runtime = new VisionModelRuntime({
+        store,
+        base,
+        onTrace: (event) => traces.push(event),
+      })
+      store.save({
+        mode: 'custom',
+        baseUrl: `${loopback.baseUrl}/v1`,
+        model: 'deepseek-flash',
+        apiKey: 'real-loop-key',
+        expected: expected(store.view()),
+      })
+      await expect(runtime.verify()).resolves.toMatchObject({ ok: true, status: 'verified' })
+      expect(loopback.requests).toHaveLength(1)
+      const verification = loopback.requests[0]!
+      expect(verification.path).toBe('/v1/chat/completions')
+      expect(verification.authorization).toBe('Bearer real-loop-key')
+      const verifyBody = record(verification.body)
+      const verifyContent = array(record(array(verifyBody.messages)[0]).content)
+      const verifyPrompt = String(
+        record(verifyContent.find((part) => record(part).type === 'text')).text,
+      )
+      expect(verifyPrompt).toContain('从上到下')
+      expect(verifyPrompt).not.toMatch(/红色|蓝色|red|blue/i)
+      expect(JSON.stringify(verifyBody)).toContain('"image_url"')
+
+      loopback.requests.length = 0
+      traces.length = 0
+      const port = runtime.knowledgePort()
+      await expect(port.complete({ messages: imageMessages() })).resolves.toBe('{"candidates":[]}')
+      expect(loopback.requests).toHaveLength(1)
+      const learning = loopback.requests[0]!
+      expect(learning.path).toBe('/v1/chat/completions')
+      expect(learning.authorization).toBe('Bearer real-loop-key')
+      expect(JSON.stringify(learning.body)).toContain('"image_url"')
+      expect(JSON.stringify(learning.body)).toContain('data:image/png;base64,')
+
+      await expect(
+        port.complete({ messages: [{ role: 'user', content: '纯文字学习资料' }] }),
+      ).resolves.toBe('base-text-response')
+      expect(baseComplete).toHaveBeenCalledTimes(1)
+      expect(loopback.requests).toHaveLength(1)
+      const visible = JSON.stringify({ snapshot: store.snapshot(), traces })
+      expect(visible).not.toContain('real-loop-key')
+      expect(visible).not.toContain('ciphertext')
+      expect(visible).not.toContain('revision')
+    } finally {
+      await closeServer(loopback.server)
+    }
+  })
+
+  it('真实双端口跨 origin 换 Key：未重输 Key 不发往 B，新 Key 只进入 B', async () => {
+    const serverA = await startLoopbackServer()
+    const serverB = await startLoopbackServer()
+    const root = directory()
+    try {
+      const store = new VisionModelSettingsStore({ dataDir: root, safeStorage })
+      const base: KnowledgeModelPort = {
+        complete: async () => 'base-text-response',
+        vision: () => ({ supported: true, maxImages: 4, reason: '旧文字模型图片能力' }),
+      }
+      const runtime = new VisionModelRuntime({ store, base })
+      store.save({
+        mode: 'custom',
+        baseUrl: `${serverA.baseUrl}/v1`,
+        model: 'deepseek-flash',
+        apiKey: 'key-a-only',
+        expected: expected(store.view()),
+      })
+      await runtime.verify()
+      expect(serverA.requests).toHaveLength(1)
+      const loaded = store.view()
+      expect(() =>
+        store.save({
+          mode: 'custom',
+          baseUrl: `${serverB.baseUrl}/v1`,
+          model: 'deepseek-flash',
+          expected: expected(loaded),
+        }),
+      ).toThrow(/重新输入/)
+      expect(serverB.requests).toHaveLength(0)
+      expect(store.snapshot().baseUrl).toBe(`${serverA.baseUrl}/v1`)
+      expect(store.resolveCustomRoute(false).apiKey).toBe('key-a-only')
+
+      store.save({
+        mode: 'custom',
+        baseUrl: `${serverB.baseUrl}/v1`,
+        model: 'deepseek-flash',
+        apiKey: 'key-b-only',
+        expected: expected(store.view()),
+      })
+      await runtime.verify()
+      expect(serverB.requests).toHaveLength(1)
+      expect(serverB.requests[0]!.authorization).toBe('Bearer key-b-only')
+      expect(serverA.requests.map((request) => request.authorization)).not.toContain(
+        'Bearer key-b-only',
+      )
+    } finally {
+      await Promise.all([closeServer(serverA.server), closeServer(serverB.server)])
+    }
+  })
+
+  it('同源 A→B→A 回到旧端点也不自动复活验证，图片请求零上游', async () => {
+    const loopback = await startLoopbackServer()
+    const root = directory()
+    try {
+      const store = new VisionModelSettingsStore({ dataDir: root, safeStorage })
+      const base: KnowledgeModelPort = {
+        complete: async () => 'base-text-response',
+        vision: () => ({ supported: true, maxImages: 4, reason: '旧文字模型图片能力' }),
+      }
+      const runtime = new VisionModelRuntime({ store, base })
+      store.save({
+        mode: 'custom',
+        baseUrl: `${loopback.baseUrl}/v1`,
+        model: 'deepseek-flash',
+        apiKey: 'loop-key',
+        expected: expected(store.view()),
+      })
+      await runtime.verify()
+      let view = store.save({
+        mode: 'custom',
+        baseUrl: `${loopback.baseUrl}/v2`,
+        model: 'deepseek-flash',
+        expected: expected(store.view()),
+      })
+      expect(view.snapshot.status).toBe('unverified')
+      view = store.save({
+        mode: 'custom',
+        baseUrl: `${loopback.baseUrl}/v1`,
+        model: 'deepseek-flash',
+        expected: expected(store.view()),
+      })
+      expect(view.snapshot.status).toBe('unverified')
+      loopback.requests.length = 0
+      await expect(runtime.knowledgePort().complete({ messages: imageMessages() })).rejects.toThrow(
+        /验证/,
+      )
+      expect(loopback.requests).toHaveLength(0)
+    } finally {
+      await closeServer(loopback.server)
+    }
+  })
+
+  it('probe 在响应头已到、body 挂起时取消仍能在有限时间结束', async () => {
+    const hanging = await startHangingModelsServer()
+    const root = directory()
+    try {
+      const store = new VisionModelSettingsStore({ dataDir: root, safeStorage })
+      store.save({
+        mode: 'custom',
+        baseUrl: hanging.baseUrl,
+        model: 'deepseek-flash',
+        apiKey: 'hang-key',
+        expected: expected(store.view()),
+      })
+      const runtime = new VisionModelRuntime({
+        store,
+        base: {
+          complete: async () => 'base',
+          vision: () => ({ supported: true, maxImages: 4, reason: 'base' }),
+        },
+      })
+      const controller = new AbortController()
+      const probing = runtime.probe({ signal: controller.signal })
+      await Promise.race([
+        hanging.requestSeen,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('server request not observed')), 1000),
+        ),
+      ])
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      controller.abort()
+      const outcome = await Promise.race([
+        probing.then(
+          () => ({ kind: 'resolved' as const }),
+          () => ({ kind: 'rejected' as const }),
+        ),
+        new Promise<{ kind: 'timeout' }>((resolve) =>
+          setTimeout(() => resolve({ kind: 'timeout' }), 1000),
+        ),
+      ])
+      expect(outcome.kind).toBe('rejected')
+    } finally {
+      await closeServer(hanging.server)
+    }
   })
 
   it('identity 包含内部配置代次且不含 Key，用量 trace 只记录安全字段', async () => {

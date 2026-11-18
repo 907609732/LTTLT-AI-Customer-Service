@@ -54,10 +54,12 @@ export function draftFromSnapshot(snapshot: VisionModelSnapshot): VisionModelDra
 export function validateVisionModelDraft(
   draft: VisionModelDraft,
   apiKeyConfigured: boolean,
+  savedBaseUrl = '',
 ): string {
   return validateVisionModelText({
     mode: draft.mode,
     baseUrl: draft.baseUrl,
+    savedBaseUrl,
     model: draft.model,
     apiKey: draft.apiKey,
     apiKeyConfigured,

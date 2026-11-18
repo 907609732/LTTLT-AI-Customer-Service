@@ -135,16 +135,22 @@ export function normalizeVisionBaseUrl(raw: string): string {
   return endpoint.toString().replace(/\/+$/, '')
 }
 
+export function visionBaseUrlOrigin(raw: string): string {
+  return new URL(normalizeVisionBaseUrl(raw)).origin
+}
+
 export function validateVisionModelText(input: {
   mode: VisionMode
   baseUrl: string
+  savedBaseUrl?: string
   model: string
   apiKey: string
   apiKeyConfigured: boolean
 }): string {
   if (input.mode === 'inherit') return ''
+  let baseUrl: string
   try {
-    normalizeVisionBaseUrl(input.baseUrl)
+    baseUrl = normalizeVisionBaseUrl(input.baseUrl)
   } catch (error) {
     return error instanceof Error ? error.message : 'API 地址格式无效'
   }
@@ -154,5 +160,13 @@ export function validateVisionModelText(input: {
   const apiKey = input.apiKey.trim()
   if (!apiKey && !input.apiKeyConfigured) return '请填写图片模型 API Key'
   if (apiKey.length > 20_000) return '图片模型 API Key 过长'
+  if (!apiKey && input.apiKeyConfigured && input.savedBaseUrl) {
+    try {
+      if (visionBaseUrlOrigin(baseUrl) !== visionBaseUrlOrigin(input.savedBaseUrl))
+        return '更换图片模型服务地址后必须重新输入 API Key'
+    } catch {
+      return '已保存的图片模型服务地址无效，请重新输入 Endpoint 和 Key'
+    }
+  }
   return ''
 }

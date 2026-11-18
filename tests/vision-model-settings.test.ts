@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import {
+import fs, {
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -12,7 +12,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { VisionModelExpected, VisionModelSettingsView } from '../src/shared/contracts/vision'
 import { VisionModelSettingsStore, type VisionSafeStorage } from '../electron/vision-model-settings'
 
@@ -141,7 +141,7 @@ describe('独立图片模型配置', () => {
     })
     const second = current.save({
       mode: 'custom',
-      baseUrl: 'https://vision-b.example.com/v1',
+      baseUrl: 'https://vision-a.example.com/v2',
       model: 'model-b',
       expected: expected(first),
     })
@@ -149,7 +149,7 @@ describe('独立图片模型配置', () => {
     expect(() =>
       current.save({
         mode: 'custom',
-        baseUrl: 'https://vision-c.example.com/v1',
+        baseUrl: 'https://vision-a.example.com/v3',
         model: 'model-c',
         expected: expected(first),
       }),
@@ -212,7 +212,7 @@ describe('独立图片模型配置', () => {
       model: 'model-a',
       expected: expected(view),
     })
-    expect(view.snapshot.status).toBe('stale')
+    expect(view.snapshot.status).toBe('unverified')
 
     const secondTicket = current.captureVerificationTicket()
     view = current.recordVerification(secondTicket, { ok: true })
@@ -224,7 +224,7 @@ describe('独立图片模型配置', () => {
       apiKey: 'rotated-secret-value',
       expected: expected(view),
     })
-    expect(view.snapshot.status).toBe('stale')
+    expect(view.snapshot.status).toBe('unverified')
 
     const thirdTicket = current.captureVerificationTicket()
     view = current.recordVerification(thirdTicket, { ok: true })
@@ -244,6 +244,127 @@ describe('独立图片模型配置', () => {
     })
     expect(view.snapshot.status).toBe('unverified')
     expect(() => current.resolveCustomRoute(true)).toThrow(/验证/)
+  })
+
+  it('有效配置 A→B→A 仍要求重新验证，不能靠摘要回到 A 自动复活', () => {
+    const root = directory()
+    const current = store(root)
+    let view = current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision.example.com/v1',
+      model: 'model-a',
+      apiKey: 'vision-secret-value',
+      expected: expected(current.view()),
+    })
+    view = current.recordVerification(current.captureVerificationTicket(), { ok: true })
+    expect(view.snapshot.status).toBe('verified')
+    view = current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision.example.com/v2',
+      model: 'model-a',
+      expected: expected(view),
+    })
+    expect(view.snapshot.status).toBe('unverified')
+    view = current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision.example.com/v1',
+      model: 'model-a',
+      expected: expected(view),
+    })
+    expect(view.snapshot.status).toBe('unverified')
+    expect(() => current.resolveCustomRoute(true)).toThrow(/验证/)
+  })
+
+  it('两个窗口同 revision 时，换 Key 后旧 expected 的保存和清 Key 都拒绝', () => {
+    const root = directory()
+    const current = store(root)
+    const first = current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision.example.com/v1',
+      model: 'model-a',
+      apiKey: 'vision-secret-one',
+      expected: expected(current.view()),
+    })
+    const windowOne = current.view()
+    const windowTwo = current.view()
+    expect(windowOne.revision).toBe(first.revision)
+    expect(windowTwo.revision).toBe(first.revision)
+    const rotated = current.save({
+      mode: 'custom',
+      baseUrl: windowOne.snapshot.baseUrl,
+      model: windowOne.snapshot.model,
+      apiKey: 'vision-secret-two',
+      expected: expected(windowOne),
+    })
+    expect(rotated.revision).toBe(first.revision + 1)
+    expect(() =>
+      current.save({
+        mode: 'custom',
+        baseUrl: windowTwo.snapshot.baseUrl,
+        model: windowTwo.snapshot.model,
+        apiKey: 'vision-secret-three',
+        expected: expected(windowTwo),
+      }),
+    ).toThrow(/已更新/)
+    expect(() => current.clearKey(expected(windowTwo))).toThrow(/已更新/)
+    expect(current.resolveCustomRoute(false).apiKey).toBe('vision-secret-two')
+
+    const fresh = current.view()
+    expect(current.clearKey(expected(fresh)).snapshot.apiKeyConfigured).toBe(false)
+  })
+
+  it('并发验证旧 ticket 在配置变化后不能记录到新配置', () => {
+    const root = directory()
+    const current = store(root)
+    current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision.example.com/v1',
+      model: 'model-a',
+      apiKey: 'vision-secret-one',
+      expected: expected(current.view()),
+    })
+    const ticket = current.captureVerificationTicket()
+    current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision.example.com/v1',
+      model: 'model-a',
+      apiKey: 'vision-secret-two',
+      expected: expected(current.view()),
+    })
+    expect(() => current.recordVerification(ticket, { ok: true })).toThrow(/变化/)
+    expect(current.snapshot().status).toBe('unverified')
+  })
+
+  it('跨 origin 换地址但未重新输入 Key 时拒绝保存，同源路径和模型名变更保留 Key', () => {
+    const root = directory()
+    const current = store(root)
+    const first = current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision-a.example.com/v1',
+      model: 'model-a',
+      apiKey: 'vision-secret-a',
+      expected: expected(current.view()),
+    })
+    const fileBefore = readFileSync(join(root, 'vision-model.json'), 'utf8')
+    expect(() =>
+      current.save({
+        mode: 'custom',
+        baseUrl: 'https://vision-b.example.com/v1',
+        model: 'model-a',
+        expected: expected(first),
+      }),
+    ).toThrow(/重新输入/)
+    expect(readFileSync(join(root, 'vision-model.json'), 'utf8')).toBe(fileBefore)
+    expect(current.snapshot().baseUrl).toBe('https://vision-a.example.com/v1')
+
+    const sameOrigin = current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision-a.example.com/v2',
+      model: 'model-a-compatible',
+      expected: expected(current.view()),
+    })
+    expect(sameOrigin.snapshot.apiKeyConfigured).toBe(true)
+    expect(current.resolveCustomRoute(false).apiKey).toBe('vision-secret-a')
   })
 
   it('清除 Key 需要显式调用，成功后移除密文并关闭独立图片路由', () => {
@@ -283,6 +404,43 @@ describe('独立图片模型配置', () => {
     expect(copied.snapshot().status).toBe('stale')
     expect(copied.snapshot().reason).toContain('目录')
     expect(() => copied.resolveCustomRoute(true)).toThrow(/目录/)
+  })
+
+  it('rename 失败保留旧文件，临时文件清理异常不覆盖主错误', () => {
+    const root = directory()
+    const current = store(root)
+    current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision.example.com/v1',
+      model: 'model-a',
+      apiKey: 'vision-secret-value',
+      expected: expected(current.view()),
+    })
+    const file = join(root, 'vision-model.json')
+    const before = readFileSync(file, 'utf8')
+    const rename = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('simulated rename failure')
+    })
+    const unlink = vi.spyOn(fs, 'unlinkSync').mockImplementationOnce(() => {
+      throw new Error('simulated cleanup failure')
+    })
+    try {
+      expect(() =>
+        current.save({
+          mode: 'custom',
+          baseUrl: 'https://vision.example.com/v2',
+          model: 'model-a',
+          expected: expected(current.view()),
+        }),
+      ).toThrow(/保存失败/)
+      expect(readFileSync(file, 'utf8')).toBe(before)
+      expect(current.snapshot().baseUrl).toBe('https://vision.example.com/v1')
+      // 清理本身失败时临时文件可能保留，但旧文件不动且主错误仍是保存失败。
+      expect(readdirSync(root).filter((name) => name.endsWith('.tmp'))).toHaveLength(1)
+    } finally {
+      rename.mockRestore()
+      unlink.mockRestore()
+    }
   })
 
   it('损坏文件明确报错并保留原文件，不静默回退为继承', () => {

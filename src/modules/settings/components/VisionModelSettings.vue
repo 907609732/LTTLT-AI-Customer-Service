@@ -153,6 +153,7 @@ async function save(): Promise<void> {
   const validation = validateVisionModelDraft(
     { mode: mode.value, baseUrl: baseUrl.value, model: model.value, apiKey: apiKey.value },
     loaded.value.apiKeyConfigured,
+    loaded.value.baseUrl,
   )
   if (validation) {
     error.value = validation

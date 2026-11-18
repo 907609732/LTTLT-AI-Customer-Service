@@ -276,6 +276,27 @@ describe('图片模型设置组件', () => {
     wrapper.unmount()
   })
 
+  it('跨 origin 换地址但未重输 Key 时阻止保存，错误保留草稿', async () => {
+    const fixture = mockedService(configured)
+    const wrapper = mountComponent(fixture.service)
+    await flushPromises()
+    await wrapper
+      .get('[aria-label="图片模型 API 地址"]')
+      .setValue('https://vision-b.example.com/v1')
+    await flushPromises()
+    await button(wrapper, '保存图片模型设置').trigger('click')
+    await flushPromises()
+    expect(fixture.save).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('重新输入 API Key')
+    expect(
+      (wrapper.get('[aria-label="图片模型 API 地址"]').element as HTMLInputElement).value,
+    ).toBe('https://vision-b.example.com/v1')
+    expect((wrapper.get('[aria-label="图片模型 API Key"]').element as HTMLInputElement).value).toBe(
+      '',
+    )
+    wrapper.unmount()
+  })
+
   it('切换注入服务会取消旧验证请求，迟到结果不能覆盖新状态', async () => {
     const fixture = mockedService(configured)
     let release: ((result: VisionModelVerifyResult) => void) | undefined

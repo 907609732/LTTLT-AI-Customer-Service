@@ -5,16 +5,18 @@
 ## 已完成范围
 
 - `mode = inherit | custom` 的共享安全契约、状态与预设。
-- 独立文件 `vision-model.json` 的严格校验、0600 临时文件 + rename 原子写入。
+- 独立文件 `vision-model.json` 的严格校验、0600 临时文件写入 + fsync + rename 原子提交。
 - Key 只通过注入的 Electron `safeStorage` 加解密；加密不可用时拒绝保存，不存在 base64/明文降级。
-- 可见配置 CAS、内部 revision/代次、业务目录 owner 绑定。
-- 渲染层快照只含 `mode/baseUrl/model/apiKeyConfigured/status/reason`；不含 Key、密文、配置摘要、Key 代次或内部代次。
-- 缺口文件默认 `inherit`：保留旧文字模型图片能力，但明确标为“未独立验证”，不强迫旧用户重新验证。
-- `custom` 必须通过固定内置合成 PNG 的显式图片验证；普通 `/models` 连接测试不写入图片验证状态。
+- 安全 revision CAS、内部 generation、业务目录 owner 绑定。
+- 渲染层快照只含 `mode/baseUrl/model/apiKeyConfigured/status/reason`；不含 Key、密文、配置摘要、Key 代次或内部代次。设置页另用非秘密 `revision` 做并发写入；capabilities 不投影该字段。
+- 缺文件默认 `inherit`：保留旧文字模型图片能力，但明确标为“未独立验证”，不强迫旧用户重新验证。
+- `custom` 必须通过固定内置红/蓝上下顺序 PNG 的显式图片验证；普通 `/models` 连接测试不写入图片验证状态，提示本身不泄露颜色答案。
+- 跨 origin（协议 + 主机 + 端口）换 Endpoint 时必须显式重新输入 Key；后端拒绝且旧配置不变。同 origin 的路径或模型名变化可保留 Key。
+- 任何有效配置变化都会撤销旧图片验证，A→B→A 也必须重新验证，不能靠摘要复活。
 - 已验证图片请求只在 **local + custom + 含真实 `image_url`** 时进入独立 OpenAI 兼容 `/chat/completions`；文字请求、`inherit` 和 managed 模式始终委托原端口，不静默回退。
 - 独立组件 `VisionModelSettings.vue`，通过注入的 `VisionModelService` 工作；无服务时明确不可用，保存/连接/图片验证都需手动点击。
-- 32 项专项测试，覆盖 mock HTTP body、图片分流、文字端点隔离、Key 不泄漏、继承兼容、过期响应、取消/超时、普通文本不冒充图片验证、UI 草稿与清除确认。
-- 设置页 CAS 使用安全 revision；Key 轮换即使可见字段不变也会递增 revision，旧设置页不能覆盖新 Key。
+- 43 项专项测试，覆盖注入式 mock、真实 `node:http` 127.0.0.1 回环 HTTP、图片分流、文字端点隔离、跨 origin Key、Key 不泄漏、继承兼容、过期响应、取消/超时、A→B→A 闭锁、原子写失败、普通文本不冒充图片验证、UI 草稿与清除确认。
+- 设置页 CAS 使用安全 revision；Key 轮换即使可见字段不变也会递增 revision，旧设置页保存/清 Key 明确冲突。
 
 ## 文件与职责
 
@@ -26,7 +28,7 @@
 | `src/modules/settings/vision-model-service.ts`            | DeepSeek 视觉预设、UI 草稿校验、组件注入类型                         |
 | `src/modules/settings/components/VisionModelSettings.vue` | 独立可挂载设置组件；不直接网络、Electron 或持久化                    |
 | `tests/vision-model-settings.test.ts`                     | 存储、加密、CAS、owner、验证失效                                     |
-| `tests/knowledge-vision-routing.test.ts`                  | mock HTTP、路由、隔离、过期/取消/超时、真实学习器接线                |
+| `tests/knowledge-vision-routing.test.ts`                  | 注入/真实回环 HTTP、路由、隔离、过期/取消/超时、真实学习器接线       |
 | `tests/vision-model-ui.test.ts`                           | 继承/独立模式、显式动作、失败草稿、清 Key 确认、迟到 UI 结果         |
 
 ## 数据文件
@@ -60,7 +62,8 @@
 - 缺文件不自动写默认文件；返回 `inherit`。
 - 损坏或结构无效的文件明确报错并保留原文件，不静默回退。公共装配必须捕获该领域错误，让文字模型、接待和启动继续可用，同时独立视觉失败关闭；不能把错误吞成“已验证”或静默 inherit。
 - 原子写先 fsync 临时文件，再 rename；rename 后尽力 fsync 目录（Windows 不支持时忽略）。失败清理临时文件不会覆盖主错误。
-- 端点、模型、Key 版本、模式改变使旧验证失效；模式变化直接移除旧验证，防止 `custom → inherit → custom` 后自动复活。
+- 任何有效配置变化（Endpoint、模型、Key 版本、模式）都会移除旧验证；即使之后回到完全相同的旧值，也必须重新显式验证。
+- 更换 origin 时如未输入新 Key，保存直接拒绝，不把旧 Key 发给新主机。
 - 文件复制到另一业务目录时 owner 不匹配，旧验证显示 `stale`。
 - Key 密文只由主进程解密；IPC/快照/日志不得返回。
 
@@ -72,15 +75,16 @@
 | `unverified` | 已选独立模式但尚未成功完成固定图片验证                    |
 | `verified`   | 当前端点、模型、Key 版本、目录 owner 均与成功验证记录一致 |
 | `failed`     | 当前配置的固定图片验证请求或答案失败                      |
-| `stale`      | 端点/模型/Key 或目录已变化，需重新验证                    |
+| `stale`      | 业务目录 owner 已变化，旧验证不可用                       |
 
 设置服务通过 `VisionModelSettingsView = { snapshot, revision }` 返回安全 revision；`VisionModelSaveInput.expected` 和 `clearKey` 都带该 revision。`capabilities.visionModel` 仍只投影 `VisionModelSnapshot` 六字段，不把 revision 当成能力数据。验证成功/失败也会递增 revision，组件必须使用返回的新 revision 进行下一次清除/保存。
 
-普通连接 `probe` 使用现有 `listCustomModels` 的 `/models` 校验、Bearer 鉴权和 20 秒超时，不改变 status，也不授予图片能力。
+普通连接 `probe` 使用现有 `listCustomModels` 的 `/models` 校验、Bearer 鉴权和 20 秒超时，不改变 status，也不授予图片能力。外部取消与列表自身超时通过 `AbortSignal.any` 一直关联到响应体读取结束，不能只在响应头返回时拆除监听。
 
 ## 图片验证
 
-- 图片是代码内固定生成的 64×64 红色系 PNG，仅用于内部探针；不使用客户图片，也不放宽正常知识图片来源。
+- 图片是代码内固定生成的 64×64 PNG：上半区红、下半区蓝，仅用于内部探针；不使用客户图片，也不放宽正常知识图片来源。
+- 提示只要求按从上到下的顺序回答两个区域颜色，不包含“红色/蓝色/red/blue”等答案词。
 - 请求为 OpenAI 兼容：
 
 ```json
@@ -90,7 +94,7 @@
     {
       "role": "user",
       "content": [
-        { "type": "text", "text": "…只回答“红色”…" },
+        { "type": "text", "text": "…按从上到下顺序回答两个区域的颜色…" },
         {
           "type": "image_url",
           "image_url": { "url": "data:image/png;base64,..." }
@@ -103,7 +107,7 @@
 }
 ```
 
-- 只接受可核对答案 `红色` / `red`（允许首尾引号和句末标点）。任意非空文本、忽略图片的文字回复、HTTP 失败都不会标记已验证。
+- 只接受固定 fixture 的上下顺序答案：`红色、蓝色` / `红蓝` / `red, blue` 的紧凑等价形式；单一颜色、普通文字、忽略图片的回复、HTTP 失败都不会标记已验证。
 - 验证结果写入前复核 revision、generation、配置摘要和 owner；配置在请求期间改变时，迟到结果不能写入新配置。
 
 ## 知识模型包装端口
@@ -181,8 +185,8 @@ knowledge.setModel(visionRuntime.knowledgePort())
 实际执行：
 
 ```text
-npx vitest run tests/vision-model-settings.test.ts tests/knowledge-vision-routing.test.ts tests/vision-model-ui.test.ts --no-file-parallelism --maxWorkers=1
-# 3 files / 32 tests passed
+npx vitest run tests/vision-model-settings.test.ts tests/knowledge-vision-routing.test.ts tests/vision-model-ui.test.ts --no-file-parallelism --maxWorkers=2 --minWorkers=1
+# 3 files / 43 tests passed
 
 npx vue-tsc --noEmit
 npx tsc -p config/tsconfig.electron.json --noEmit
@@ -193,12 +197,19 @@ npx prettier --check <changed files> --config config/prettier.json --ignore-path
 # passed
 ```
 
-未执行：真实模型/真实 Key、真实买家图片、托管服务、全量测试、打包、安装包、重启 GUI。测试使用本机回环 mock HTTP、临时目录和注入的加密替身。
+未执行：真实模型/真实 Key、真实买家图片、托管服务、全量测试、打包、安装包、重启 GUI。
+
+测试分层：
+
+- 注入 `request` 的单元测试用于精确控制 body/时序；
+- 至少一项使用原生 `node:http.createServer` 绑定 `127.0.0.1` 随机端口、原生 `fetch` 的真实回环 HTTP 测试，捕获验证提示、`image_url`、Authorization 和文字原端口隔离；
+- 另有真实双端口测试证明跨 origin 未重输 Key 时 B 上游 0 次、新 Key 只发往 B；以及响应头已 flush、body 挂起时取消 probe 能有限结束。
+- 全部使用临时目录、合成 Key/PNG 和 mock 服务，不访问真实外网或付费模型。
 
 ## 已知边界
 
 - 当前只有领域与组件，公共 IPC、快照、挂载、预设入口和运行时装配未完成。
 - 买家含图回复未分流；只覆盖知识图片学习。
 - `probe` 依赖服务商提供兼容 `/models`；不提供时只能直接做图片验证。
-- 图片验证要求服务商对固定红色合成图返回可核对答案；不同模型可能因提示遵循或图像能力失败，这是预期闭锁，不是自动降级理由。
+- 图片验证要求服务商对固定红/蓝顺序图返回可核对的双颜色答案；不同模型可能因提示遵循或图像能力失败，这是预期闭锁，不是自动降级理由。
 - 固定图仅用于内部验证，不替代真实商品图片识别质量验收。

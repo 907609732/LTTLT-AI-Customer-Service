@@ -46,7 +46,7 @@ class VisionRequestError extends Error {
   }
 }
 
-const SUITE_VERSION = 1
+const SUITE_VERSION = 2
 const DEFAULT_TIMEOUT_MS = 60_000
 const MAX_TIMEOUT_MS = 120_000
 
@@ -69,25 +69,6 @@ function combineSignals(signal: AbortSignal | undefined, timeoutMs: number): Com
     },
     timedOut: () => timedOut,
     externalAborted,
-  }
-}
-
-function mergedSignal(signals: (AbortSignal | null | undefined)[]): {
-  signal: AbortSignal
-  cleanup(): void
-} {
-  const controller = new AbortController()
-  const active = signals.filter((signal): signal is AbortSignal => Boolean(signal))
-  const abort = () => controller.abort()
-  for (const signal of active) {
-    if (signal.aborted) controller.abort()
-    else signal.addEventListener('abort', abort, { once: true })
-  }
-  return {
-    signal: controller.signal,
-    cleanup() {
-      for (const signal of active) signal.removeEventListener('abort', abort)
-    },
   }
 }
 
@@ -149,8 +130,8 @@ function failureMessage(error: unknown): string {
 }
 
 /**
- * 固定 64×64 合成 PNG，仅用于用户显式点击的图片能力探针。
- * 图像内容全部为红色系，可核对答案，不包含客户图片或外部资源。
+ * 固定 64×64 合成 PNG：上红下蓝，仅用于用户显式点击的图片能力探针。
+ * 提示只问从上到下的颜色，不把答案写进请求；正常图片来源也未因此放宽。
  */
 function verifyPng(): Buffer {
   const width = 64
@@ -161,10 +142,17 @@ function verifyPng(): Buffer {
     pixels[y * stride] = 0
     for (let x = 0; x < width; x++) {
       const offset = y * stride + 1 + x * 4
-      // 轻微变化的红色像素避免压缩成极小常量，同时保持答案唯一为“红色”。
-      pixels[offset] = 235 + ((x * 7 + y * 11) % 21)
-      pixels[offset + 1] = (x * 3 + y * 5) % 18
-      pixels[offset + 2] = (x * 5 + y * 2) % 15
+      if (y < height / 2) {
+        // 上半区轻微变化的红色，避免压缩成可轻易猜到的单像素常量。
+        pixels[offset] = 235 + ((x * 7 + y * 11) % 21)
+        pixels[offset + 1] = (x * 3 + y * 5) % 18
+        pixels[offset + 2] = (x * 5 + y * 2) % 15
+      } else {
+        // 下半区轻微变化的蓝色，要求模型按上下顺序识别两种颜色。
+        pixels[offset] = (x * 5 + y * 3) % 15
+        pixels[offset + 1] = (x * 7 + y * 2) % 20
+        pixels[offset + 2] = 235 + ((x * 3 + y * 11) % 21)
+      }
       pixels[offset + 3] = 255
     }
   }
@@ -211,9 +199,9 @@ function answerMatches(value: string): boolean {
   const normalized = value
     .trim()
     .toLowerCase()
-    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
-    .replace(/[。.!！\s]+$/g, '')
-  return normalized === '红色' || normalized === 'red'
+    .replace(/[\s，,。.!！、:：;；"'“”‘’-]/g, '')
+  // 只接受固定 fixture 的“上红下蓝”顺序，不接受任意非空文本或单一颜色。
+  return normalized === '红色蓝色' || normalized === '红蓝' || normalized === 'redblue'
 }
 
 /**
@@ -404,13 +392,18 @@ export class VisionModelRuntime {
     if (options.signal?.aborted) throw new Error('图片模型连接测试已取消')
     if (options.isCurrent?.() === false) throw new Error('图片模型连接测试已取消')
     const outer = options.signal
-    const requestWithOuter: typeof fetch = async (input, init) => {
-      const merged = mergedSignal([init?.signal, outer])
-      try {
-        return await this.request(input, { ...init, signal: merged.signal })
-      } finally {
-        merged.cleanup()
-      }
+    const requestWithOuter: typeof fetch = (input, init) => {
+      // listCustomModels 还会读取 /models 响应体；合并信号必须活到 body 消费结束。
+      const signals = [init?.signal, outer].filter(
+        (signal): signal is AbortSignal => signal !== null && signal !== undefined,
+      )
+      const signal =
+        signals.length > 1
+          ? AbortSignal.any(signals)
+          : signals.length === 1
+            ? signals[0]
+            : undefined
+      return this.request(input, { ...init, ...(signal ? { signal } : {}) })
     }
     try {
       const models = await listCustomModels(
@@ -450,7 +443,7 @@ export class VisionModelRuntime {
     if (options.signal?.aborted) throw new Error('图片验证已取消')
     if (options.isCurrent?.() === false) throw new Error('图片验证已取消')
     const prompt =
-      '这是一张内置的合成验证图，整张图以红色为主。请只回答“红色”两个字，不要解释、不要补充其他内容。'
+      '图中从上到下排列着两个纯色区域。请只按从上到下的顺序回答这两个区域的颜色，使用中文颜色词，两个词之间用顿号分隔；不要解释，不要补充其他内容。'
     const messages: ModelMessages = [
       {
         role: 'user',
@@ -502,7 +495,7 @@ export class VisionModelRuntime {
     if (!answerMatches(response.text)) {
       const recorded = this.store.recordVerification(ticket, {
         ok: false,
-        reason: '固定合成图验证失败：模型没有返回可核对的答案（只接受“红色”）。',
+        reason: '固定合成图验证失败：模型没有按从上到下的顺序返回两个可核对颜色。',
       })
       return {
         ok: false,

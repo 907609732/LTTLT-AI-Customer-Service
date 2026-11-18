@@ -5,6 +5,7 @@ import { z } from 'zod'
 import {
   defaultVisionModelSnapshot,
   normalizeVisionBaseUrl,
+  visionBaseUrlOrigin,
   visionModeSchema,
   type VisionMode,
   type VisionModelExpected,
@@ -342,6 +343,11 @@ export class VisionModelSettingsStore {
     if (input.mode === 'custom' && !providedKey && !this.state.key)
       throw new Error('请填写图片模型 API Key')
     if (providedKey.length > 20_000) throw new Error('图片模型 API Key 过长')
+    if (this.state.key && this.state.baseUrl && nextBaseUrl && !providedKey) {
+      // Key 绑定 origin；换协议/主机/端口必须显式重输，不能把 A 的旧 Key 静默发给 B。
+      if (visionBaseUrlOrigin(this.state.baseUrl) !== visionBaseUrlOrigin(nextBaseUrl))
+        throw new Error('更换图片模型服务地址后必须重新输入 API Key；原配置未改动')
+    }
 
     let key = this.state.key
     if (providedKey) {
@@ -371,8 +377,8 @@ export class VisionModelSettingsStore {
       baseUrl: nextBaseUrl,
       model: nextModel,
       ...(key ? { key } : { key: undefined }),
-      // 模式变化必须清除旧验证，防止 custom→inherit→custom 后无重新验证自动复活。
-      ...(modeChanged ? { verify: undefined } : {}),
+      // 任何有效配置变化都撤销旧验证；A→B→A 即使摘要相同也必须重新显式验证。
+      verify: undefined,
     }
     this.commit(next, '图片模型保存失败，请检查数据目录权限；原文件未改动')
     return this.view()
