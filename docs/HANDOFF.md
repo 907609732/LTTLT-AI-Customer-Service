@@ -1,16 +1,20 @@
-## 2026-11-18：1.0.67 同批欢迎保存回执修复（待 CI 复验）
+## 2026-11-18：1.0.67 最终整合（1c221df 实店验收代码 + 00a7ec6 PR39 商品主图修复；云验收与正常启动通过，main 已整合）
 
-`ShopOpsPanel` 的欢迎保存改为消费 `save-welcome` 返回的权威已存记录：仅接受通过 `welcomeSettingSchema` 校验的 `result.data`，更新本欢迎 baseline/cache/CAS version，不再在成功后立即 `load()` 可能仍落后的 snapshot。保存期间的新输入保留；快照暂时低于已确认版本不误报冲突，真正更高版本仍提示冲突并阻止覆盖。未改共享 runtime、backend/CAS、PDD 发送/授权/hook/collector 或版本。
-
-验证：最终 7 用例在 0803 baseline RED 5 fail / 2 pass，修复后 GREEN 7/7；root 独立 43/43（4 文件）及完整 native 94/94；typecheck、改动 ESLint/边界/Prettier、build 通过。1.0.67 仍未重做实店买家发送，最终 CI/启动待复验。日志、diff、worker-report 在 ignored `artifacts/pdd-1067-integration-20261118/welcome-race/`。
-
-## 2026-11-18：1.0.67 整合候选（1c221df 实店验收代码 + 00a7ec6 PR39 商品主图修复；待 CI/运行验收）
+`ShopOpsPanel` 的欢迎保存改为消费 `save-welcome` 返回的权威已存记录：仅接受通过 `welcomeSettingSchema` 校验的 `result.data`，更新本欢迎 baseline/cache/CAS version，不再在成功后立即 `load()` 可能仍落后的 snapshot。回执同时写入现有按 workspace/store 隔离的 scoped draft-cache，只覆盖该店欢迎的权威已存记录供嵌入区卸载重建回读，不写回其他字段。保存期间的新输入保留；快照暂时低于已确认版本不误报冲突，真正更高版本仍提示冲突并阻止覆盖。未改共享 runtime、backend/CAS、PDD 发送/授权/hook/collector 或版本。
 
 本分支 `codex/pdd-1067-integration-20261118` 以 1.0.66 实店验收代码 `1c221df` 为基线，合入 `origin/main` `00a7ec6`（PR39 商品主图采集修复）。保留双方代码：`electron/platform-product-dom.ts` 与 `tests/platform-product-dom.test.ts` 和 00a7ec6 逐字节相同；hook/reply-engine/shop-window/DOM 发送/授权/monitor 源码和 1c221df 逐字节相同。`package.json` 与 `package-lock.json` 统一 1.0.67。
 
-1.0.66 实店用户已确认 A/B/A 与 3 个不同商品；最后一次 A 实际是第三件，不能写成原商品回切。.66三轮实店归属复核通过；67待同次CI与运行验收。已完成两父整合 commit 并推送分支，未打包/发布/启动正式 GUI。
+1.0.66 实店用户已确认 A/B/A 与 3 个不同商品，6 条 app candidates 均 sent，trace/card/source title 一致，native 自身回复唯一、另一买家 0；A→B 19:42:26.294、B→A 19:43:54.994，3 个不同商品短哈希 9B3213594CBA/FD05E46B5441/F8A9D9BEF823。最后一次 A 实际是第三件，不能写成原商品回切；.66 三轮实店归属复核通过并已正常启动。**1.0.67 没有新实店发送**：本轮未新增真实买家消息，实店结论只沿用 .66 的上述记录，不把 .66 发送算作 .67 送达证据。
 
-本机验证：合并前两项基线 31/31；合并后定向 7 文件 92/92；typecheck、改动 ESLint/边界/Prettier、check:vendor（80/94）、完整 build 通过；真实 Electron 五项 5/5（离线合成夹具：商品来源、v15 中间行、错误买家、无 echo 不重发、后台 rAF），临时 userData，无真实店铺/网络/发送/模型。日志与报告见 ignored `artifacts/pdd-1067-integration-20261118/`。
+首次云 CI `44299800997`（head `080392d`）桌面验收 `93/94`，唯一失败 `business:welcome-timing-settings`：欢迎保存成功后旧分支 `cached.delete + load()` 读到被后续刷新抢走 ticket 的落后快照，textarea 被清空。仅按该失败局部修复 `ShopOpsPanel` 欢迎回执（消费 `save-welcome` 权威 `result.data`）并新增 `tests/shop-ops-welcome-receipt.test.ts`，未改共享 runtime/backend/CAS、PDD 发送/授权/hook、原生断言或产品其他行为。
+
+本机验证：最终 7 用例在 0803 baseline RED 5 fail / 2 pass，修复后 GREEN 7/7；合并前两项基线 31/31；合并后定向 7 文件 92/92；root 独立 43/43（4 文件）及完整 native 94/94；typecheck、改动 ESLint/边界/Prettier、check:vendor（80/94）、完整 build 通过；真实 Electron 五项 5/5（离线合成夹具，临时 userData，无真实店铺/网络/发送/模型）。日志、diff、worker-report 在 ignored `artifacts/pdd-1067-integration-20261118/`。
+
+最终云验收：[44306942021](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44306942021) 对 commit `fb9bcb28acbe56f13c7e2c1b96f04e3f80e02427` 成功；Unit `175` 文件/`1366` 测试、上游 `242/242`、native `94/94`、knowledge manager `18`/ingestion `7`、packaged `10` 项均通过。installer/ZIP/manifest 三项 SHA256 匹配，manifest version/sourceCommit/workflow 精确；解压版 package-smoke exit 0。ASAR 的 hook/reply-engine/shop-window 与当前源码及 1c221df 已验收源逐字节相同，`main.cjs` 含 PR39 三个 ASCII 标记。证据见 `artifacts/pdd-1067-integration-20261118/cloud-acceptance-final.json`。
+
+1.0.67 正常启动验收（2026-11-18 20:59:14，实测）：从 `release/ci-fb9bcb2/unpacked/LingtuAI.exe` 启动，PID `115308`，无诊断参数，界面版本 `1.0.67`；仍用原 profile `yunduo-ui-restored`，原两家店铺保留，米配匠连接成功且 A/B 历史画面正常显示，两店 AI 均保持关闭；旧 1.0.66 正常关闭，诊断端口监听为 0。启动后仅弹出 Windows 网络安全窗口，等待用户手动处理，未代点。实测事实见 `artifacts/pdd-1067-integration-20261118/codex-normal-startup.json`。
+
+main 整合回执：本分支已快进并入 `main` 并推送，`main` 的最终提交即本轮文档回执提交。打包与云验收代码固定为 `fb9bcb28acbe56f13c7e2c1b96f04e3f80e02427`，其后只有 `docs/HANDOFF.md` 与 `docs/VALIDATION.md` 两份文档跟进，产品源码与该 SHA 逐字节相同，因此不重新打包、不升版本（仍 1.0.67）。剩余待办只有 Windows 网络安全弹窗，仍需用户手动处理，尚未关闭。1.0.67 没有新增买家发送，实店证据仍只对应 .66。
 
 ## 2026-11-18：PDD 新商品卡来源最小修复（1.0.66 / hook v15，Codex 独立预审可进入 CI；实店新卡待测）
 
@@ -23,6 +27,8 @@
 验证：新增 21 项商品来源测试先 RED（最终 `logs/red-targeted-v14-final.log` 6 失败/3 通过；Codex 边界预审 5/6 失败），修复后 21/21 通过，Codex 独立 7/7 通过；PDD/发送/监控定向 13 文件 189 项通过；真实 `ShopWindowManager` + hook 的 `dom-send:pdd-product-source` 与 v15 真实中间行 2/2 通过（`artifacts/desktop-selected-1795000022298/report.json`，临时 userData/合成 data HTML/无真实网络）；typecheck、改动 ESLint/Prettier、check:vendor（80/94）、upstream 242/242、完整 build 退出 0。完整日志、失败记录与 diff 见 ignored `artifacts/pdd-product-fix-20261118/worker-report.md`。
 
 **未执行**：实店/91888、Inspector、真实平台消息、真实买家发送、AI 开关、模型、重启 GUI、打包、commit/push。实店新卡是否到达、A/B 不同商品能否隔离、候选商品显示与最终收发仍需 Codex 和实店独立验收；本修复只保证：受支持的 Store/DOM/有正文 WS 通道中，新显式 type0/41 卡会透传商品；info-only WS 仍不支持，需同 nativeId 的 Store/DOM 承接；仅有 ID 但正文与同源标题都为空的卡仍 unknown/不入队。因此不承诺商品来源实店通过。
+
+**历史状态标注**：本节“实店新卡待测”的历史待测状态已被上方 1.0.67 节的实店记录覆盖（.66 实店 A/B/A 三件不同商品、6 条 candidates 均 sent）；本节只保留当时的离线预审范围与失败证据，不回改实店结论。
 
 ## 2026-11-18：PDD 发送诊断修复（1.0.65 / hook v14，待 Codex 独立复核）
 
