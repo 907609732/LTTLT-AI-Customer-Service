@@ -12,7 +12,11 @@ export interface SizeCandidateGuard {
   capture(traceId: string, messages: unknown): void
   captureReply(traceId: string, reply: string): void
   attach(proposal: SizeCandidateProposal): void
-  finalTextReason(proposal: { traceId?: string; text: string }, bannedWords?: BannedRule[]): string
+  finalTextReason(
+    proposal: { traceId?: string; text: string },
+    bannedWords?: BannedRule[],
+    greeting?: string,
+  ): string
 }
 
 const CAPTURED_LIMIT = 1000
@@ -69,7 +73,7 @@ export function createSizeCandidateGuard(options: {
       proposal.invalidReason = reason
       proposal.isCurrent = () => previousCurrent() && !reason()
     },
-    finalTextReason(proposal, bannedWords = []) {
+    finalTextReason(proposal, bannedWords = [], greeting = '') {
       if (!proposal.traceId) return ''
       if (!captured.has(proposal.traceId)) return EXPIRED
       const evidence = captured.get(proposal.traceId)
@@ -77,6 +81,7 @@ export function createSizeCandidateGuard(options: {
         ? sizeFinalTextReason(evidence, proposal.text, {
             canonical: canonical.get(proposal.traceId),
             bannedWords,
+            greeting,
           })
         : ''
     },

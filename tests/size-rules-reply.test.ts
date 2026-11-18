@@ -139,22 +139,25 @@ describe('final size recommendation guard', () => {
   })
 
   it('validates the final training text without rebuilding or exceeding shop limits', () => {
-    const safe = { reply: '按本商' }
-    expect(applySizeTrainingOutput(evidence, safe, '')).toEqual(safe)
-    expect(() => applySizeTrainingOutput(evidence, { reply: '推荐L码' }, '')).toThrow(/范围外尺码/)
-    expect(() => applySizeTrainingOutput(evidence, { reply: 'XL 最合适' }, '')).toThrow(/未知尺码/)
+    const canonical = enforceSizeReply(evidence, { reply: 'XL 最合适' }).reply
+    expect(applySizeTrainingOutput(evidence, { reply: canonical }, '', { canonical })).toEqual({
+      reply: canonical,
+    })
+    expect(
+      applySizeTrainingOutput(evidence, { reply: canonical.slice(0, 5) }, '', { canonical }),
+    ).toEqual({ reply: canonical.slice(0, 5) })
+    expect(() => applySizeTrainingOutput(evidence, { reply: '推荐M码' }, '')).toThrow(/缺少/)
     expect(() =>
       applySizeTrainingOutput(evidence, { reply: '推荐M码' }, '尺码规则已更新，旧候选失效'),
     ).toThrow(/已更新/)
-    const filtered = filterBannedWords('M', [{ word: 'M', replacement: 'L' }])
-    expect(filtered).toBe('L')
-    expect(() => applySizeTrainingOutput(evidence, { reply: filtered.slice(0, 5) }, '')).toThrow(
-      /范围外尺码|未知尺码/,
-    )
-    const safeTruncated = filterBannedWords('按本商品尺码表核对', [{ word: 'M', replacement: 'L' }])
-    expect(applySizeTrainingOutput(evidence, { reply: safeTruncated.slice(0, 5) }, '')).toEqual({
-      reply: '按本商品尺',
-    })
+    const rules = [{ word: 'M', replacement: 'L' }]
+    const filtered = filterBannedWords(canonical, rules)
+    expect(() =>
+      applySizeTrainingOutput(evidence, { reply: filtered }, '', {
+        canonical,
+        bannedWords: rules,
+      }),
+    ).toThrow(/不一致/)
   })
 
   it('compares every vendor label rewrite against the protected canonical text', () => {
@@ -184,6 +187,39 @@ describe('final size recommendation guard', () => {
         bannedWords: [],
       }),
     ).toMatch(/不一致/)
+    expect(
+      sizeFinalTextReason(evidence, `欢迎提问\n${canonical}`, {
+        canonical,
+        greeting: '欢迎提问',
+      }),
+    ).toBe('')
+    const welcomeRewrite = [{ word: 'M', replacement: '2XL' }]
+    expect(
+      sizeFinalTextReason(evidence, `欢迎提问\n${filterBannedWords(canonical, welcomeRewrite)}`, {
+        canonical,
+        bannedWords: welcomeRewrite,
+        greeting: '欢迎提问',
+      }),
+    ).toMatch(/不一致/)
+  })
+
+  it('notifies the candidate guard with the guarded reply and real trace id', async () => {
+    const onGuardedReply = vi.fn()
+    const client = {
+      reply: vi.fn(async (_input: unknown) => {
+        captureSizeEvidence(evidence)
+        return { reply: 'XL 最合适', traceId: 'trace-guarded' }
+      }),
+    }
+    installSizeReplyGuard(client, { resolve: vi.fn(async () => evidence) }, { onGuardedReply })
+    await client.reply({
+      thread: [{ from: 'buyer', type: 'text', content: '身高170cm体重60kg选什么' }],
+      reviewContext: { storeId: 'a', productId: 'g' },
+    })
+    expect(onGuardedReply).toHaveBeenCalledWith(
+      'trace-guarded',
+      expect.stringContaining('建议优先核对 M'),
+    )
   })
 
   it('fails closed when the rule version changes while the model response is late', async () => {

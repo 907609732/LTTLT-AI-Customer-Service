@@ -4,13 +4,15 @@ import path from 'node:path'
 import type { SizeRuleContext } from '../../src/shared/contracts/size-rules'
 
 export type BannedRule = { word: string; replacement: string }
-export type FinalOptions = { canonical?: string; bannedWords?: BannedRule[] }
+export type FinalOptions = {
+  canonical?: string
+  bannedWords?: BannedRule[]
+  /** Trusted, already-filtered welcome text for this send, including exact version. */
+  greeting?: string
+}
 
-function mention(text: string, label: string): boolean {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return /^[a-z0-9]/i.test(label)
-    ? new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, 'i').test(text)
-    : text.includes(label)
+export function filterBannedText(text: string, rules: BannedRule[]): string {
+  return vendorFilter(text, rules).trim()
 }
 
 function vendorFilter(text: string, rules: BannedRule[]): string {
@@ -74,23 +76,15 @@ export function sizeFinalTextReason(
   if (!evidence.selectionRequested && !evidence.tableQueryRequested) return ''
   if (evidence.bindingStatus !== 'valid') return ''
   if (!evidence.selectionRequested) return ''
-  if (options.canonical) {
-    const expected = expectedAfterVendorFilter(
-      options.canonical,
-      evidence.eligibleLabels,
-      options.bannedWords ?? [],
-    )
-    return reasonForExpected(text.trim(), expected)
-  }
-  const allowed = new Set(evidence.eligibleLabels)
-  for (const row of evidence.rows)
-    if (!allowed.has(row.label) && mention(text, row.label))
-      return '最终回复在禁用词或长度处理后出现范围外尺码，未采用；请重新生成'
-  for (const match of text.matchAll(/\b[A-Z]{1,4}\b/g))
-    if (!allowed.has(match[0].toLocaleLowerCase()))
-      return '最终回复在禁用词或长度处理后出现未知尺码，未采用；请重新生成'
-  for (const match of text.matchAll(/([a-z]{1,4}|\d{1,3})\s*(?:码|号)/gi))
-    if (!allowed.has(match[1]!))
-      return '最终回复在禁用词或长度处理后出现未知尺码，未采用；请重新生成'
-  return ''
+  if (!options.canonical) return '缺少本次尺码生成证据，旧候选已失效；请重新生成'
+  const expected = expectedAfterVendorFilter(
+    options.canonical,
+    evidence.eligibleLabels,
+    options.bannedWords ?? [],
+  )
+  let actual = text.trim()
+  const greeting = options.greeting?.trim() ?? ''
+  if (greeting && actual.startsWith(`${greeting}\n`))
+    actual = actual.slice(greeting.length + 1).trim()
+  return reasonForExpected(actual, expected)
 }

@@ -115,6 +115,7 @@ import { createSizeContextPreparation } from './size-rules/inject'
 import { installSizeReplyGuard } from './size-rules/guard'
 import { createSizeCandidateGuard } from './size-rules/candidate-guard'
 import { applySizeTrainingOutput } from './size-rules/training-output'
+import { filterBannedText } from './size-rules/final-text'
 import {
   capturedSizeCanonicalReply,
   capturedSizeEvidence,
@@ -517,8 +518,6 @@ export function createLocalRuntime(options: {
         if (context && typeof context === 'object' && Reflect.get(context, 'purpose') === 'reply')
           sizeCandidates.capture(id, Reflect.get(event, 'messages'))
       }
-      const reply = Reflect.get(event, 'reply')
-      if (type === 'result' && typeof reply === 'string') sizeCandidates.captureReply(id, reply)
     }
     return id
   }
@@ -779,7 +778,16 @@ export function createLocalRuntime(options: {
     beforeSend: (proposal: SendProposal) => {
       knowledge.guardProposal(proposal)
       sizeCandidates.attach(proposal)
-      const sizeTextReason = sizeCandidates.finalTextReason(proposal, read().bannedWords)
+      const current = read()
+      const welcome = current.welcomeByStore[proposal.storeId]
+      const greeting =
+        proposal.welcome &&
+        welcome &&
+        welcome.version === proposal.welcome.version &&
+        welcome.version > 0
+          ? filterBannedText(welcome.text, current.bannedWords)
+          : ''
+      const sizeTextReason = sizeCandidates.finalTextReason(proposal, current.bannedWords, greeting)
       if (sizeTextReason) {
         review.rejectFinalText(proposal.storeId, proposal.uid, sizeTextReason)
         return false
@@ -997,10 +1005,16 @@ export function createLocalRuntime(options: {
   sizeRulesUnavailable = sizeRulesAssembly.error
   const sizeReplyClient = backend.engine?.aiClient
   if (sizeReplyClient)
-    installSizeReplyGuard(sizeReplyClient, {
-      resolve: (storeId, productId, question, thread) =>
-        sizeRulesAssembly.resolve(storeId, productId, question, thread),
-    })
+    installSizeReplyGuard(
+      sizeReplyClient,
+      {
+        resolve: (storeId, productId, question, thread) =>
+          sizeRulesAssembly.resolve(storeId, productId, question, thread),
+      },
+      {
+        onGuardedReply: (traceId, reply) => sizeCandidates.captureReply(traceId, reply),
+      },
+    )
   let reportingQueued = false
   scheduleReporting = () => {
     if (reportingQueued || closed || !managed.canAccessWorkspace()) return

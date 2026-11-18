@@ -97,6 +97,7 @@ function contextInput(input: unknown) {
 export function installSizeReplyGuard<T extends GuardableReplyClient>(
   client: T,
   resolver: SizeReplyResolver,
+  options: { onGuardedReply?: (traceId: string, reply: string) => void } = {},
 ): T {
   const original = client.reply.bind(client)
   client.reply = async (input: unknown): Promise<unknown> => {
@@ -128,6 +129,8 @@ export function installSizeReplyGuard<T extends GuardableReplyClient>(
       if (!current) return result
       const guarded = enforceSizeReply(current, result as Record<string, unknown>)
       captureSizeCanonicalReply(guarded.reply)
+      const traceId = guarded.traceId
+      if (typeof traceId === 'string' && traceId) options.onGuardedReply?.(traceId, guarded.reply)
       return guarded
     })
   }

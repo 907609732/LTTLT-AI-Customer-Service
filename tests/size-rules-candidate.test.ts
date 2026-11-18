@@ -167,6 +167,23 @@ describe('size candidate generation binding', () => {
     expect(guard.finalTextReason({ traceId: 'trace-final', text: '推荐L码' })).toMatch(
       /不一致|范围外尺码|未知尺码/,
     )
+    expect(
+      guard.finalTextReason(
+        { traceId: 'trace-final', text: `欢迎咨询\n${canonical}` },
+        [],
+        '欢迎咨询',
+      ),
+    ).toBe('')
+    expect(
+      guard.finalTextReason(
+        {
+          traceId: 'trace-final',
+          text: `欢迎咨询\n${filterBannedWords(canonical, rules)}`,
+        },
+        rules,
+        '欢迎咨询',
+      ),
+    ).toMatch(/不一致/)
     expect(guard.finalTextReason({ traceId: 'trace-final', text: '按本商品' })).toBe('')
     expect(guard.finalTextReason({ traceId: 'other', text: '推荐M码' })).toContain('证据已过期')
     guard.capture('trace-known-none', [])
