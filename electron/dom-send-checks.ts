@@ -62,13 +62,31 @@ export async function domSendChecks(check: Check) {
   ) as TestAdapter
   const load = async (mode: string) => {
     nativeInputs = 0
-    const html = `<!doctype html><html><body><div class="chat-item-box active" data-random="buyer-1">测试买家</div><div id="buyer-history"><div class="chat-item customerMessage"><p class="chat-message-content">买家原始问题</p></div></div><textarea style="width:400px;height:80px"></textarea>${mode === 'no-button' ? '' : '<button>发送</button>'}<div id="messages"></div><script>
+    // 旧 DOM 夹具没有真实 MMS 的 LI#middlePanel_list_<msgId>，因此显式声明聊天消息区
+    // `.chatMessage` 边界；hook v13 的 legacy 兜底只在该边界内读无 ID 气泡，绝不读左侧
+    // 联系人预览。真实 v13 结构另由下方 dom-send:v13-real-middle-row 覆盖。
+    const html = `<!doctype html><html><body><div class="chat-item-box active" data-random="buyer-1">测试买家</div><div class="chatMessage"><div id="buyer-history"><div class="chat-item customerMessage"><p class="chat-message-content">买家原始问题</p></div></div></div><textarea style="width:400px;height:80px"></textarea>${mode === 'no-button' ? '' : '<button>发送</button>'}<div class="chatMessage"><div id="messages"></div></div><script>
       window.clicks=0;window.keys=0;window.inputs=[];document.addEventListener('keydown',()=>window.keys++);
       const input=document.querySelector('textarea');
       input.addEventListener('input',event=>window.inputs.push({value:input.value,data:event.data}));
       ${mode === 'busy' ? "input.value='人工草稿';" : ''}
       ${mode === 'edited' ? "input.addEventListener('input',()=>{input.value='人工改写';});" : ''}
       document.querySelector('button')?.addEventListener('click',(event)=>{window.trusted=event.isTrusted;window.clicks++;const value=input.value;input.value='';${mode === 'no-echo' ? '' : "const bubble=document.createElement('div');bubble.className='chat-item merchantMessage';const p=document.createElement('p');p.className='chat-message-content';p.textContent=value;bubble.append(p);document.querySelector('#messages').append(bubble);"}});
+      </script></body></html>`
+    await fixture.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+    assert.equal((await adapter.ensure()).ok, true)
+  }
+  // 真实 1.0.62/1.0.64 中央消息结构：LI#middlePanel_list_<msgId> + 同 UID Vuex 角色，
+  // 左侧只放联系人预览。用于确认 v13 发送/回显通路，不替代上面的 legacy 兼容断言。
+  const loadV13 = async () => {
+    nativeInputs = 0
+    const html = `<!doctype html><html><body><div id="app"><div class="chat-item-box active" data-random="buyer-0-reply"><p class="chat-message-content">左侧预览旧缓存</p></div></div><div class="middlePanel"><ul class="message-list"><li id="middlePanel_list_9001" class="clearfix onemsg"><div class="merchantMessage"><div class="buyer-item"><div class="msg-content"><p class="msg-content-box">买家原始问题</p></div></div></div></li></ul></div><textarea style="width:400px;height:80px"></textarea><button>发送</button><script>
+      window.clicks=0;window.keys=0;window.inputs=[];
+      const input=document.querySelector('textarea');
+      input.addEventListener('input',event=>window.inputs.push({value:input.value,data:event.data}));
+      const conv={userInfo:{uid:'buyer'},messageList:[{msg_id:'9001',from:{role:'user'},content:'买家原始问题',ts:Date.now()}]};
+      document.querySelector('#app').__vue__={$store:{state:{selectingChatUid:'buyer',currentUserInfo:conv,chatList:[conv]},getters:{}}};
+      document.querySelector('button').addEventListener('click',(event)=>{window.trusted=event.isTrusted;window.clicks++;const value=input.value;input.value='';const id=String(Date.now());const row=document.createElement('li');row.id='middlePanel_list_'+id;row.className='clearfix onemsg';row.innerHTML='<div class="merchantMessage"><div class="cs-item"><div class="msg-content"><p class="msg-content-box"></p></div></div></div>';row.querySelector('.msg-content-box').textContent=value;document.querySelector('.message-list').append(row);conv.messageList.push({msg_id:id,from:{role:'mall_cs'},content:value,ts:Date.now()});});
       </script></body></html>`
     await fixture.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
     assert.equal((await adapter.ensure()).ok, true)
@@ -197,6 +215,28 @@ export async function domSendChecks(check: Check) {
       assert.equal(s.text, text)
       assert.equal(nativeInputs, 2)
       assert.equal(await fixture.webContents.executeJavaScript('window.trusted'), true)
+    })
+    await check('dom-send:v13-real-middle-row', '/fixture/pdd', async () => {
+      await loadV13()
+      const text = 'v13 真实中间消息行单次发送'
+      assert.equal((await bulkAdapter.sendText('buyer', text)).ok, true)
+      const s = (await fixture.webContents.executeJavaScript(
+        `({clicks:window.clicks,keys:window.keys,hook:window.__PDD_WEB_VER,rows:document.querySelectorAll('[id^="middlePanel_list_"]').length,text:document.querySelector('.message-list').textContent})`,
+      )) as { clicks: number; keys: number; hook: number; rows: number; text: string }
+      assert.equal(s.clicks, 1)
+      assert.equal(s.keys, 0)
+      assert.equal(s.hook, 13)
+      assert.equal(s.rows, 2, '初始消息 + 一条真实回显')
+      assert.ok(s.text.includes(text))
+      const history = (await adapter.reviewHistory('buyer', false)) as {
+        known: boolean
+        messages: Array<{ from: string; content: string }>
+      }
+      assert.equal(history.known, true)
+      assert.ok(
+        history.messages.every((m) => m.content !== '左侧预览旧缓存'),
+        '联系人预览不能进入复核',
+      )
     })
     await check('dom-review:auto-mode-one-verified-send', '/fixture/pdd', async () => {
       await load('success')
