@@ -1,6 +1,6 @@
 # 2026-11-18 主干整合第一阶段：设备授权注册回跳
 
-基线 `07a2ac6`（main 与 `codex/pdd-1067-integration-20261118` 同一提交），整合分支 `codex/main-consolidation-20261118`。整合方式固定为 `git merge --no-ff --no-commit a28750d`，保留 `codex/device-registration-redirect-20261117` 的真实父历史（base `377193d`，ahead=1）；本阶段结束时保持 merge 未提交，供 Codex 复核。
+基线 `07a2ac6`（main 与 `codex/pdd-1067-integration-20261118` 同一提交），整合分支 `codex/main-consolidation-20261118`。整合方式固定为 `git merge --no-ff --no-commit a28750d`，保留 `codex/device-registration-redirect-20261117` 的真实父历史（base `377193d`，ahead=1）；合并已提交并合入 main，本文件随后只做 docs-only 状态更新。
 
 依据：`artifacts/main-integration-20261118/deepseek-audit-final.md`、`artifacts/main-integration-20261118/codex-review-notes.md`（后者纠正 stash 第三父漏检，并确认 `a28750d` 是唯一已完成但未进入主干的代码提交）。Git bundle 已 verify、8 个 dirty 树已备份；其他工作树、dirty 改动与 stash 全部只读保留。
 
@@ -28,7 +28,7 @@
 
 ## 收尾状态
 
-冲突全部解决且暂存，merge 未提交；staged diff、合并父、允许文件清单与冲突处理说明写入 ignored `artifacts/main-integration-20261118/implementation-stage1.*`。
+冲突全部解决后提交为 `b3a5f69`（父 `07a2ac6` + `a28750d`），5 个已证明覆盖的 ref 用 `-s ours` 登记为 `121fffb`，tree 与 auth merge 相同；`main`/`origin/main` 均为 `121fffb`。staged diff、合并父、允许文件清单与冲突处理说明保留在 ignored `artifacts/main-integration-20261118/implementation-stage1.*` 与 `main-merge-final.*`。
 
 ## P2 复核补正（2026-11-18，独立复核后）
 
@@ -45,4 +45,6 @@
 - [x] 提交真实两父 merge（`07a2ac6`、`a28750d`）
 - [x] 5 个已证明 ref 的历史登记（`-s ours`，tree 零差异）
 - [x] main fast-forward 推送，CI 按现有 main push 自动运行
-- [ ] 正常启动与最终 docs-only 回执（Codex 随后执行）
+- [x] 正常启动 1.0.68（PID 18076，原 profile、2 店、AI 关闭）
+- [x] 两条 CI 对 exact `121fffb` 成功（desktop 44335250367、server 44335249564）
+- [x] 验收条件已完成：main 合并、启动、CI、来源与保留矩阵；后续仅 docs-only 回执，不再升版本或重跑

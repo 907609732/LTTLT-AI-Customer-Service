@@ -35,16 +35,28 @@
 | `stash@{1}` `396c4f5` | 仅 `docs/HANDOFF.md` 1 个文件                                                                | 1.0.13 OCR/视觉学习的旧交接文字，已被 main 的 1.0.17/1.0.18 记录覆盖。**无功能代码，不恢复**                                                                                                                                                                                                                                                                                                                                                                        |
 | `stash@{2}` `aa34610` | 9 个 tracked 文件（parent `69a0dc7`），**第三父** `stash@{2}^3` 保存 5 个 untracked 文件     | 旧审计“缺 `size-specifications.cjs`”的结论**不正确**：`git rev-list` 的父列表显示 stash2 有第三父，`electron/size-specifications.cjs`、React 组件与测试都在 `stash@{2}^3` 中。正确结论是：这是旧 React/CJS/`desk-v1` 架构下 Task 8 尺码规则的**旧 WIP（未完成草稿）**，不是“缺文件”；当前 Vue/TS 模块无 `createSizeSpecifications`，不能整段移植。**不恢复、不整树应用**，列为需独立迁移评估的未完成工作，原 stash 与 bundle 保留，不得假称已合入，也不得无授权丢弃 |
 
-## 四、本阶段实际改动与验证
+## 四、最终结果（提交、CI、启动）
 
-进入候选树的文件见 `docs/superpowers/plans/2026-11-18-main-consolidation.md` 与 `artifacts/main-integration-20261118/implementation-stage1.json`；staged diff 见 `implementation-stage1.diff`。版本统一 1.0.68（不回退 1.0.47）。冲突逐项解决，未全局选 ours/theirs，未丢失 server auth 改动与 main 既有成本/支付/主图/PDD/欢迎回执/调试 gate 代码。
+- auth merge `b3a5f69`：父 `07a2ac6` + `a28750d`，tree `5f46ae2c…`，主题 `merge: integrate device registration redirect in 1.0.68`。
+- 历史登记 `121fffb`：`-s ours` 记录 5 个已证明覆盖的 ref（`runtime-refactor`、`taskbar-icon`、`progress-site`、`origin/docs/lingtu-ecosystem-20261117`、`origin/docs/lingtu-ecosystem-current-20261117`），tree 与 auth merge 完全相同，`git diff --exit-code` 为 0。
+- `main` 与 `origin/main` 均为 `121fffb`（正常 push，无 force）；`codex/main-consolidation-20261118` 同步推送。
+- 全部 named 本地/远端 ref 已是 `121fffb` 祖先；87 个原 dirty 文件 hash 完全不变，3 份 stash、30 个工作树保留。
+- CI 两条均对 exact `121fffb` 成功：desktop `44335250367`（175 文件/1366 单元、上游 242、native 94、知识 18+7、packaged 10）、server `44335249564`（13 文件 72 网页测试、11 个 verify 步骤全 0、隔离 SQLite/MySQL/PostgreSQL）。未发布 Release、未部署。
+- 主目录源码 build exit 0，实际打开 1.0.68（PID 18076，原 profile、2 店、AI 关闭、店铺页未开、无 debug flags/安全弹窗）。旧 1.0.67 的 Alt+F4 只关闭窗口、后台未退，按路径仅结束已知旧进程，不记为正常退出（`codex-old-runtime-exit.json`），只作观察/后续诊断。
 
-本阶段只执行 `git diff --check`、`npm run check:vendor` 以及改动自有文档/package 的解析与 `prettier --check`；**未**运行全量 `npm run check`、`npm run test:desktop`、上游 242 项、native 或 Go 测试，未执行 server prepare，未 commit/push、未更新 main、未重启应用。三份新增 auth 测试与 `admin-login-hint.test.tsx` 的定向执行待 Codex 复核后另派；真实浏览器注册/设备回跳验收仍未进行。
+## 五、5 个未吸收 snapshot 备份的分类
 
-## 五、P2 复核补正与局部验收（2026-11-18 续）
+`refs/codex/snapshots/*` 中 5 个 tip 不是 `121fffb` 祖先，均无可直接整合的独有完成代码（详见 `snapshot-audit-final.md`）：
 
-Codex 独立结构复核：原 49 文件 95 补丁 hunk 保留、0 丢失；manifest 94→97 且全部 hash 匹配；`vendor`/`electron`/`src`/CI 无改动；独立代码审查无生产 P1/P2，但确认一个 P2——`server/scripts/verify.ts` 的 test 步骤只跑 `lingtu` 与 `auth/api`，未执行 3 份新增 auth suite。已按最小范围补正（仅追加 3 个精确测试路径与 3 个实际改动 lint 路径），并在两份 suite 内补关键断言（路由 `beforeLoad` 已登录内部/外部回退；`SignUpForm` 的 `OAuthProviders.redirectTo` 与微信 `handleLoginResult` 传参），未删除既有断言、未改生产逻辑、未引入依赖。
+1. `29a162d`：知识采集跳转已被主干 `392c9b8` 改写实现取代，功能已吸收，不做 cherry-pick。
+2. `40a332e`：源码/测试/vendor backend 与已在祖先中的 `a6c86b4` 完全一致，已吸收。
+3. `fd45e38`：仅新增发布验收文档的 server 来源基线，树为旧根结构，不能整并回 Vue 工程；保留作来源证据。
+4. `6235fd0`：旧 React/CJS `desk-v1` 尺码规则 Task 8 未完成草稿（自述 2 项 RED 待补），当前 Vue/TS 无 `createSizeSpecifications`；**不作为功能交付**，需独立迁移评估。
+5. `d5f0113`：与 `aaef4df`（已在祖先）逐字一致的重复快照，后续 `71b702c` 又扩展，已吸收。
 
-局部实际执行（缓存 `E:\codex-builds\lingtu-main-integration-web-20261118`，固定 upstream `48a6c87`，`prepare.mjs` 与 `preparation.test.mjs` 2/2 通过）：4 目标 suite **4 文件 9 项通过**；既有 `auth-redirect.test.ts` **6 项通过**；typecheck、变更范围 oxlint、oxfmt、网页 build 通过。依赖直连被拒后改用全局 Bun 缓存 `--offline`（1213 包，277s），未改动全局代理或安全设置。
+均未合并、未删除、未改动。另 3 个 tip（`cb96f05`、`a28750d`、`ff15260`）已在祖先中，不计入。
 
-`server/scripts/verify.ts` 已接线 CI 3 suite；但**未**运行完整 `server:verify`（含未改动的 Go/DB/deploy 步骤），未做真实账号浏览器注册/设备回跳 E2E，未提交、未推送、未更新 main。
+## 六、未作为功能交付的两项
+
+- 旧 React/CJS 尺码结构化模块（`6235fd0` / `stash@{2}` 系）：2 项 RED 未完成、架构不兼容，未交付。
+- 视觉模型独立配置：只有设计/计划文档（main 两份未跟踪 docs），未实施、未交付。

@@ -1,12 +1,16 @@
 # 客户端与独立服务端验证
 
-## 2026-11-18：主干整合第一阶段验收（源码 1.0.68，设备授权注册回跳）
+## 2026-11-18：主干整合验收（源码 1.0.68，设备授权注册回跳；已合入 main 并实际启动）
 
-范围与保留：`07a2ac6` + `a28750d` 真实两父 merge；只重放 redirect 网页补丁（`server/patches.json` 新增 3 键、2 键追加 hunks）、3 个新增自有 auth suite、`admin-login-hint.test.tsx` 更新、`server/source-files.json`（94→97，全部 hash 匹配）与 `server/PROVENANCE.md`；`server/scripts/verify.ts` 仅追加 3 份 suite 与 3 个实际改动 lint 输入（CI 3 suite 接线）。原 95 hunks / 94 条旧 manifest 条目 0 丢失；`package.json`/`package-lock.json` 仅 1.0.67→1.0.68，无依赖变化；`src`/`electron`/`vendor`/`.github`/Go 零差异。
+范围与保留：`07a2ac6` + `a28750d` 真实两父 merge `b3a5f69`；只重放 redirect 网页补丁（`server/patches.json` 新增 3 键、2 键追加 hunks）、3 个新增自有 auth suite、`admin-login-hint.test.tsx` 更新、`server/source-files.json`（94→97，全部 hash 匹配）与 `server/PROVENANCE.md`；`server/scripts/verify.ts` 仅追加 3 份 suite 与 3 个实际改动 lint 输入（CI 3 suite 接线）。原 95 hunks / 94 条旧 manifest 条目 0 丢失；`package.json`/`package-lock.json` 仅 1.0.67→1.0.68，无依赖变化；`src`/`electron`/`vendor`/`.github`/Go 零差异。
 
-实际执行（真实退出码与计数）：server 4 目标 suite **4 文件 9 项通过**、既有 `auth-redirect.test.ts` **6 项通过**；`prepare.mjs` exit 0、`preparation.test.mjs` **2/2**（upstream `48a6c87`）；网页 typecheck（先跑生成路由）、变更范围 oxlint、oxfmt、网页 build 全部 **exit 0**；根目录独立 **5 文件 15 项通过**；隔离 `07a2ac6` baseline 先跑 **8 项失败 / 7 项通过**（RED 为被修行为断言，非缺 suite/依赖失败）；根桌面 build **exit 0**、server-tools TypeScript **exit 0**；`npm run check:vendor` 80/97、`git diff --cached --check` exit 0。E 缓存 5 个生成文件与 C 源逐字节一致，main 与 origin/main 均为候选祖先。
+实际执行（真实退出码与计数）：server 4 目标 suite **4 文件 9 项通过**、既有 `auth-redirect.test.ts` **6 项通过**；`prepare.mjs` exit 0、`preparation.test.mjs` **2/2**（upstream `48a6c87`）；网页 typecheck（先跑生成路由）、变更范围 oxlint、oxfmt、网页 build 全部 **exit 0**；根目录独立 **5 文件 15 项通过**；隔离 `07a2ac6` baseline 先跑 **8 项失败 / 7 项通过**；根桌面 build **exit 0**、server-tools TypeScript **exit 0**；`check:vendor` 80/97、`git diff --check` exit 0。E 缓存 5 个生成文件与 C 源逐字节一致。
 
-未执行：真实账号注册/设备确认 E2E、完整 `server:verify`（Go/DB/deploy 未改，不重复运行）、native/上游/根全量、部署。CI 由 main push 自动触发，最终 docs-only 回执稍后跟进。
+CI（均 exact `121fffbfd4e2062cf80b71fcfabc670496618f21`，success）：desktop `44335250367`——175 文件/1366 单元、上游 242、native 94、知识 18+7、packaged 10 项通过；server `44335249564`——13 文件 72 网页测试、11 个 verify 步骤全 0、隔离 SQLite/MySQL/PostgreSQL 通过。证据由同 run 下载核对，未发布 Release、未部署。
+
+提交与历史：auth merge `b3a5f69`（父 `07a2ac6` + `a28750d`）；5 个已证明覆盖的 ref 以 `-s ours` 登记为 `121fffb`，tree 与 auth merge 相同（`5f46ae2c…`）；全部 named 本地/远端分支均为祖先；5 个未吸收 `codex/snapshots` 为已审计备份（无独有完成代码）；87 个原 dirty 文件 hash 不变、3 份 stash、30 个工作树保留；`main`/`origin/main` 均为 `121fffb`。
+
+启动与边界：主目录源码 build 0 并实际打开 1.0.68（PID 18076，原 profile、2 店、AI 关闭、店铺页未开、无 debug flags/安全弹窗）。旧 1.0.67 Alt+F4 后窗口消失但后台未退，按路径只结束已知旧进程，不记为正常退出。未新增实店消息、未做真实账号注册/设备确认 E2E、未部署、未发布 Release；尺码结构化模块（2 项 RED 未完成）与视觉独立配置（仅设计）未作为功能交付。
 
 ## 2026-11-18：1.0.67 最终整合（1c221df + 00a7ec6；云验收与正常启动通过，main 已整合）
 

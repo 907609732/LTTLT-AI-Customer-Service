@@ -1,10 +1,14 @@
-## 2026-11-18：主干整合第一阶段验收（1.0.68，设备授权注册回跳；已提交到整合分支，main 推送与启动按后续步骤执行）
+## 2026-11-18：主干整合验收（1.0.68，设备授权注册回跳；已合入 main 并实际启动）
 
 以 `07a2ac6` 为基线、用 `git merge --no-ff` 整合 `a28750d`（`codex/device-registration-redirect-20261117`，base `377193d`）保留真实父历史，只重放设备授权注册回跳成果：`server/patches.json` 为 `web/src/features/auth/sign-up/components/sign-up-form.tsx` 与 `web/src/features/auth/sign-in/index.tsx` 追加 redirect hunks，并新增 `web/src/features/auth/sign-up/index.tsx`、`web/src/routes/(auth)/sign-up.tsx`、`web/src/features/auth/hooks/use-auth-redirect.ts` 三个补丁键；纳入 3 个新增自有 auth suite、更新后的 `admin-login-hint.test.tsx`、`server/source-files.json`（97 条，全部 hash 匹配）与 `server/PROVENANCE.md`；`server/scripts/verify.ts` 仅向既有 CI 输入追加这 3 份 suite 与 3 个实际改动 lint 文件。main 既有成本/支付/主图采集/PDD 实店修复/欢迎回执/调试 gate 与全部 guard 保持，原 95 个补丁 hunk 与 94 条旧 manifest 条目 0 丢失；`package.json`/`package-lock.json` 统一 1.0.68，无依赖变化；`vendor`/`electron`/`src`/CI/Go 零差异。
 
-实际验证（Codex 与独立审查复核通过）：server 4 个 auth suite **9 项通过** + 既有 auth sanitizer **6 项**；`prepare.mjs` exit 0 与 `preparation.test.mjs` **2/2**（固定 upstream `48a6c87`）；网页 typecheck、变更范围 oxlint、oxfmt、网页 build 全部 **exit 0**；根目录独立 **5 文件 15 项通过**；隔离 `07a2ac6` baseline 先跑 **8 项失败 / 7 项通过**（RED 全部落在被修行为断言，非缺 suite 或依赖失败）；根桌面 build **exit 0**、server-tools TypeScript **exit 0**；`npm run check:vendor` 80/97、`git diff --cached --check` exit 0。E 缓存生成的 5 个文件与 C 源逐字节一致。
+提交与历史：auth merge `b3a5f69`（父 `07a2ac6` + `a28750d`）；5 个已证明覆盖的 ref（runtime-refactor、taskbar-icon、progress-site、两个 docs/lingtu-ecosystem）以 `-s ours` 登记为 `121fffb`，其 tree 与 auth merge 完全相同（`5f46ae2c…`，`git diff --exit-code` 为 0）。全部 named 本地/远端分支均为 `121fffb` 祖先；5 个未吸收的 `codex/snapshots` 为备份并已审计（无可直接整合的独有完成代码，不能 merge 旧根）。87 个原 dirty 文件 hash 完全不变，3 份 stash 与 30 个工作树保留；`main` 与 `origin/main` 均为 `121fffb`。
 
-未执行：真实账号浏览器注册/设备确认回跳 E2E、完整 `server:verify`（未改动的 Go/DB/deploy 步骤）、部署与平台/profile 操作。main fast-forward 推送与正常启动按后续步骤执行，最终 docs-only 回执稍后同批升级不改版本。
+实际验证与 CI：server 4 个 auth suite **9 项通过** + 既有 auth sanitizer **6 项**；`prepare.mjs` exit 0 与 `preparation.test.mjs` **2/2**；网页 typecheck、变更范围 oxlint、oxfmt、网页 build 全部 **exit 0**；根目录独立 **5 文件 15 项通过**；隔离 `07a2ac6` baseline 先跑 **8 项失败 / 7 项通过**（RED 全部落在被修行为断言）；根桌面 build **exit 0**、server-tools TypeScript **exit 0**；`check:vendor` 80/97、`git diff --check` exit 0。两条 CI 均对 exact `121fffb` 成功：[desktop 44335250367](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44335250367)（175 文件/1366 单元、上游 242、native 94、知识 18+7、packaged 10）、[server 44335249564](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44335249564)（13 文件 72 网页测试、11 个 verify 步骤全 0、隔离 SQLite/MySQL/PostgreSQL 通过）；证据已由同 run 下载核对，未发布 Release、未部署。
+
+启动与边界：主目录源码 build exit 0 并实际打开 1.0.68（PID 18076，`E:\~1awucheng\Plastic SCM\AI电商客服软件\client\node_modules\electron\dist\electron.exe`），使用原 profile、两家店铺记录保留、AI 均关闭、店铺页未打开、无 debug flags 与安全弹窗。旧 1.0.67 在 Alt+F4 后仅窗口消失、后台进程未退，Codex 按路径核验后只结束已知旧实例进程（`115308` 等），**不记为正常退出**，仅作观察/后续诊断，不扩大改运行时。
+
+未做与未交付：未新增实店消息、未做真实账号注册/设备确认 E2E、未发布 Release、未部署。旧 React/CJS 尺码结构化模块（2 项 RED 未完成）与视觉模型独立配置（仅设计）未作为功能交付。本批 1.0.68 不再升版本，后续仅文档跟进。
 
 ## 2026-11-18：1.0.67 最终整合（1c221df 实店验收代码 + 00a7ec6 PR39 商品主图修复；云验收与正常启动通过，main 已整合）
 
