@@ -434,7 +434,12 @@ describe('独立图片模型配置', () => {
     if (raw.key) delete raw.key.origin
     writeFileSync(file, JSON.stringify(raw))
     const migrated = store(root, safeStorage)
-    expect(migrated.snapshot()).toMatchObject({ mode: 'inherit', apiKeyConfigured: true })
+    expect(migrated.snapshot()).toMatchObject({
+      mode: 'inherit',
+      apiKeyConfigured: true,
+      status: 'stale',
+    })
+    expect(migrated.snapshot().reason).toContain('来源未知')
     expect(() =>
       migrated.save({
         mode: 'custom',
@@ -442,7 +447,7 @@ describe('独立图片模型配置', () => {
         model: 'model-b',
         expected: expected(migrated.view()),
       }),
-    ).toThrow(/重新输入|归属/)
+    ).toThrow(/重新输入|归属|来源未知/)
     const explicit = migrated.save({
       mode: 'custom',
       baseUrl: 'https://vision-b.example.com/v1',
@@ -452,6 +457,81 @@ describe('独立图片模型配置', () => {
     })
     expect(explicit.snapshot.apiKeyConfigured).toBe(true)
     expect(migrated.resolveCustomRoute(false).apiKey).toBe('vision-secret-b')
+  })
+
+  it('旧密文无 origin 时，baseUrl=B 且 suite2/摘要匹配也不能推断 Key 来源', () => {
+    const root = directory()
+    const safeStorage = encryption()
+    const current = store(root, safeStorage)
+    current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision-a.example.com/v1',
+      model: 'model-a',
+      apiKey: 'vision-secret-a',
+      expected: expected(current.view()),
+    })
+    const file = join(root, 'vision-model.json')
+    const keyA = (JSON.parse(readFileSync(file, 'utf8')) as { key: { ciphertext: string } }).key
+      .ciphertext
+    current.save({
+      mode: 'custom',
+      baseUrl: 'https://vision-b.example.com/v1',
+      model: 'model-b',
+      apiKey: 'vision-secret-b',
+      expected: expected(current.view()),
+    })
+    current.recordVerification(current.captureVerificationTicket(), { ok: true })
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as {
+      key: { ciphertext: string; origin?: string }
+      verify?: { suite?: number }
+    }
+    expect(raw.verify?.suite).toBe(VISION_VERIFICATION_SUITE_VERSION)
+    raw.key.ciphertext = keyA
+    delete raw.key.origin
+    writeFileSync(file, JSON.stringify(raw))
+    const migrated = store(root, safeStorage)
+    expect(migrated.snapshot()).toMatchObject({
+      mode: 'custom',
+      baseUrl: 'https://vision-b.example.com/v1',
+      apiKeyConfigured: true,
+      status: 'stale',
+    })
+    expect(migrated.snapshot().reason).toContain('来源未知')
+    expect(readFileSync(file, 'utf8')).toBe(JSON.stringify(raw))
+    expect(() => migrated.resolveCustomRoute(false)).toThrow(/来源未知/)
+    expect(() =>
+      migrated.save({
+        mode: 'custom',
+        baseUrl: 'https://vision-b.example.com/v1',
+        model: 'model-b',
+        expected: expected(migrated.view()),
+      }),
+    ).toThrow(/来源未知|重新输入/)
+    const explicit = migrated.save({
+      mode: 'custom',
+      baseUrl: 'https://vision-b.example.com/v1',
+      model: 'model-b',
+      apiKey: 'vision-secret-b-new',
+      expected: expected(migrated.view()),
+    })
+    expect(explicit.snapshot.apiKeyConfigured).toBe(true)
+    expect(migrated.resolveCustomRoute(false).apiKey).toBe('vision-secret-b-new')
+  })
+
+  it('空 baseUrl 下不能写入新的来源未知 Key 密文', () => {
+    const root = directory()
+    const current = store(root)
+    expect(() =>
+      current.save({
+        mode: 'inherit',
+        baseUrl: '',
+        model: '',
+        apiKey: 'new-key-without-origin',
+        expected: expected(current.view()),
+      }),
+    ).toThrow(/API 地址/)
+    expect(existsSync(join(root, 'vision-model.json'))).toBe(false)
+    expect(current.snapshot().apiKeyConfigured).toBe(false)
   })
 
   it('旧 suite1 验证记录仍保留 Key 和配置，但读取为 stale 且不能放行图片', () => {

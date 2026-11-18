@@ -294,6 +294,23 @@ describe('图片模型设置组件', () => {
     wrapper.unmount()
   })
 
+  it('旧 Key 来源未知时显示 stale 原因，不显示已验证', async () => {
+    const fixture = mockedService(
+      snapshot({
+        ...configured,
+        status: 'stale',
+        reason:
+          '旧图片模型 Key 的来源未知，不能继续用于当前服务地址；请重新输入 API Key 后再测试或验证。',
+      }),
+    )
+    const wrapper = mountComponent(fixture.service)
+    await flushPromises()
+    expect(wrapper.text()).toContain('配置已变更，需重新验证')
+    expect(wrapper.text()).toContain('来源未知')
+    expect(wrapper.text()).not.toContain('已验证')
+    wrapper.unmount()
+  })
+
   it('跨 origin 换地址但未重输 Key 时阻止保存，错误保留草稿', async () => {
     const fixture = mockedService(configured)
     const wrapper = mountComponent(fixture.service)

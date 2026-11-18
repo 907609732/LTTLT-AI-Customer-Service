@@ -706,6 +706,85 @@ describe('独立图片模型连接与路由', () => {
     }
   })
 
+  it('真实双端口旧文件 baseUrl=B/KeyA无origin：probe/verify/图片均 0 上游，重输后才可用', async () => {
+    const serverA = await startLoopbackServer()
+    const serverB = await startLoopbackServer()
+    const root = directory()
+    try {
+      const store = new VisionModelSettingsStore({ dataDir: root, safeStorage })
+      const base: KnowledgeModelPort = {
+        complete: async () => 'base-text-response',
+        vision: () => ({ supported: true, maxImages: 4, reason: '旧文字模型图片能力' }),
+      }
+      const runtime = new VisionModelRuntime({ store, base })
+      store.save({
+        mode: 'custom',
+        baseUrl: `${serverA.baseUrl}/v1`,
+        model: 'deepseek-flash',
+        apiKey: 'migration-key-a',
+        expected: expected(store.view()),
+      })
+      const file = join(root, 'vision-model.json')
+      const keyA = (JSON.parse(readFileSync(file, 'utf8')) as { key: { ciphertext: string } }).key
+        .ciphertext
+      store.save({
+        mode: 'custom',
+        baseUrl: `${serverB.baseUrl}/v1`,
+        model: 'deepseek-flash',
+        apiKey: 'migration-key-b-old',
+        expected: expected(store.view()),
+      })
+      await runtime.verify()
+      expect(serverB.requests).toHaveLength(1)
+      const raw = JSON.parse(readFileSync(file, 'utf8')) as {
+        key: { ciphertext: string; origin?: string }
+        verify?: { suite?: number }
+      }
+      expect(raw.verify?.suite).toBe(VISION_VERIFICATION_SUITE_VERSION)
+      raw.key.ciphertext = keyA
+      delete raw.key.origin
+      writeFileSync(file, JSON.stringify(raw))
+
+      const migrated = new VisionModelSettingsStore({ dataDir: root, safeStorage })
+      expect(migrated.snapshot()).toMatchObject({
+        mode: 'custom',
+        baseUrl: `${serverB.baseUrl}/v1`,
+        apiKeyConfigured: true,
+        status: 'stale',
+      })
+      expect(migrated.snapshot().reason).toContain('来源未知')
+      const migratedRuntime = new VisionModelRuntime({ store: migrated, base })
+      const beforeB = serverB.requests.length
+      const beforeA = serverA.requests.length
+      await expect(migratedRuntime.probe()).resolves.toMatchObject({ ok: false })
+      await expect(migratedRuntime.verify()).rejects.toThrow(/来源未知/)
+      await expect(
+        migratedRuntime.knowledgePort().complete({ messages: imageMessages() }),
+      ).rejects.toThrow(/来源未知|验证/)
+      expect(serverB.requests).toHaveLength(beforeB)
+      expect(serverA.requests).toHaveLength(beforeA)
+
+      migrated.save({
+        mode: 'custom',
+        baseUrl: `${serverB.baseUrl}/v1`,
+        model: 'deepseek-flash',
+        apiKey: 'migration-key-b-new',
+        expected: expected(migrated.view()),
+      })
+      await expect(migratedRuntime.verify()).resolves.toMatchObject({
+        ok: true,
+        status: 'verified',
+      })
+      expect(serverB.requests).toHaveLength(beforeB + 1)
+      expect(serverB.requests.at(-1)!.authorization).toBe('Bearer migration-key-b-new')
+      expect(serverA.requests.map((request) => request.authorization)).not.toContain(
+        'Bearer migration-key-b-new',
+      )
+    } finally {
+      await Promise.all([closeServer(serverA.server), closeServer(serverB.server)])
+    }
+  })
+
   it('同源 A→B→A 回到旧端点也不自动复活验证，图片请求零上游', async () => {
     const loopback = await startLoopbackServer()
     const root = directory()

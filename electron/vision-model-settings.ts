@@ -137,6 +137,8 @@ const UNVERIFIED_REASON = '已保存独立配置，尚未执行固定合成图�
 const STALE_CONFIG_REASON = '图片模型端点、模型或 Key 已改变，请重新执行固定合成图验证。'
 const STALE_OWNER_REASON = '视觉配置来自另一业务目录，图片验证已失效，请重新验证。'
 const STALE_SUITE_REASON = '图片验证套件已更新，旧验证不能继续用于图片学习，请重新验证。'
+const UNKNOWN_KEY_ORIGIN_REASON =
+  '旧图片模型 Key 的来源未知，不能继续用于当前服务地址；请重新输入 API Key 后再测试或验证。'
 const KEY_CLEARED_REASON = '独立图片模型 Key 已清除，图片学习不可用。'
 
 /**
@@ -188,16 +190,8 @@ export class VisionModelSettingsStore {
     }
     const parsed = fileSchema.safeParse(raw)
     if (!parsed.success) throw new Error('图片模型配置无效，原文件未改动，请恢复备份后重试')
-    const loaded = parsed.data
-    if (loaded.key && !loaded.key.origin && loaded.baseUrl) {
-      // 旧文件没有 Key origin：仅从当前已保存的地址推断并保留在内存；不改写文件。
-      try {
-        loaded.key.origin = visionBaseUrlOrigin(loaded.baseUrl)
-      } catch {
-        // 地址不可解析时保持“归属未知”，后续向任何新地址发送都必须重输 Key。
-      }
-    }
-    return loaded
+    // 旧文件缺少 Key origin 时保持“来源未知”；当前 baseUrl 是用户可编辑值，不能作为归属证据。
+    return parsed.data
   }
 
   private write(value: SettingsFile): void {
@@ -250,20 +244,16 @@ export class VisionModelSettingsStore {
 
   private keyOrigin(): string | undefined {
     const stored = this.state.key?.origin
-    if (stored) {
-      try {
-        return new URL(stored).origin
-      } catch {
-        return undefined
-      }
-    }
-    // 兼容旧文件：当前保存的地址可作为同一次密钥输入的归属证据。
-    if (!this.state.baseUrl) return undefined
+    if (!stored) return undefined
     try {
-      return visionBaseUrlOrigin(this.state.baseUrl)
+      return new URL(stored).origin
     } catch {
       return undefined
     }
+  }
+
+  private hasUnknownKeyOrigin(): boolean {
+    return Boolean(this.state.key && !this.keyOrigin())
   }
 
   private digest(value: SettingsFile): string {
@@ -311,6 +301,7 @@ export class VisionModelSettingsStore {
     status: VisionModelSnapshot['status']
     reason: string
   } {
+    if (this.hasUnknownKeyOrigin()) return { status: 'stale', reason: UNKNOWN_KEY_ORIGIN_REASON }
     if (this.state.mode === 'inherit')
       return {
         status: 'inherit',
@@ -378,11 +369,12 @@ export class VisionModelSettingsStore {
     if (input.mode === 'custom' && !providedKey && !this.state.key)
       throw new Error('请填写图片模型 API Key')
     if (providedKey.length > 20_000) throw new Error('图片模型 API Key 过长')
+    if (providedKey && !nextBaseUrl)
+      throw new Error('请先填写图片模型 API 地址，再保存 API Key；未写入来源未知的新 Key')
     if (this.state.key && nextBaseUrl && !providedKey) {
       // Key 绑定最初输入它的 origin；即使中间切过 inherit 空地址也不能绕过。
       const boundOrigin = this.keyOrigin()
-      if (!boundOrigin)
-        throw new Error('无法确认已保存图片模型 Key 的服务归属，请重新输入 API Key；原配置未改动')
+      if (!boundOrigin) throw new Error(`${UNKNOWN_KEY_ORIGIN_REASON}；原配置未改动`)
       if (boundOrigin !== visionBaseUrlOrigin(nextBaseUrl))
         throw new Error('更换图片模型服务地址后必须重新输入 API Key；原配置未改动')
     }
@@ -505,7 +497,8 @@ export class VisionModelSettingsStore {
     if (!this.state.baseUrl || !this.state.model || !this.state.key)
       throw new Error('图片模型配置不完整，请先保存地址、模型和 Key')
     const boundOrigin = this.keyOrigin()
-    if (!boundOrigin || boundOrigin !== visionBaseUrlOrigin(this.state.baseUrl))
+    if (!boundOrigin) throw new Error(UNKNOWN_KEY_ORIGIN_REASON)
+    if (boundOrigin !== visionBaseUrlOrigin(this.state.baseUrl))
       throw new Error('图片模型 Key 与当前服务地址归属不一致，请重新输入 API Key')
     if (requireVerified) {
       const verification = this.verificationState()
