@@ -103,6 +103,7 @@ async function close() {
     <header data-window-drag>
       <b>回复监控</b>
       <span class="mode">{{ mode }}</span>
+      <span v-if="!expanded" class="resize-tip" data-no-drag>拖动上边缘调高度</span>
       <button data-no-drag class="close" aria-label="关闭监控" @click="close">×</button>
     </header>
     <div class="monitor-body">
@@ -231,6 +232,11 @@ header {
 }
 header b {
   font-size: 13px;
+}
+.resize-tip {
+  color: #596a80;
+  font-size: 10px;
+  white-space: nowrap;
 }
 .mode {
   border-radius: 4px;
