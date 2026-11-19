@@ -68,7 +68,7 @@ const emit = defineEmits<{
       <div class="knowledge-card-heading">
         <b
           ><span class="knowledge-card-number">{{ page * 20 + index + 1 }}</span>
-          {{ row.binding.title || row.canonical.title }}</b
+          {{ row.displayTitle || row.binding.title || row.canonical.title }}</b
         ><span class="badge">{{ row.binding.productId }}</span
         ><span class="badge">{{
           row.sourceSummary.kinds.map(sourceLabel).join(' / ') || '手工录入'

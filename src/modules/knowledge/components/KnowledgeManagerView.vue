@@ -121,7 +121,7 @@ const {
   addProductImages,
   removeStagedProductImage,
   saveProductProfile,
-  manageProductKnowledge,
+  openProductPanel,
   openTraining,
   loadTrainingProducts,
   editEntry,
@@ -1129,7 +1129,7 @@ v{{ source.revision }} · {{ source.hash }}
       @remove-staged="removeStagedProductImage"
       @cancel="closeProductProfile"
       @save="saveProductProfile"
-      @manage-knowledge="manageProductKnowledge"
+      @open-panel="openProductPanel"
     />
   </main>
 </template>

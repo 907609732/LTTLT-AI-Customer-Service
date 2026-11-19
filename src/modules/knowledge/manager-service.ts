@@ -195,6 +195,14 @@ export function createKnowledgeClient(workspaceId: string) {
         tokens,
       }) as Promise<{ discarded: number }>
     },
+    /** Dedicated staging cleanup intentionally has no renderer-lease wrapper; main IPC still checks workspace. */
+    discardStagedProductImages(tokens: string[]) {
+      return request({
+        workspaceId,
+        operation: 'product-image-discard',
+        tokens,
+      }) as Promise<{ discarded: number }>
+    },
     saveProductProfile(input: KnowledgeProductProfileSaveInput) {
       return request({
         workspaceId,

@@ -14,7 +14,11 @@ import type { createKnowledgeClient } from './manager-service'
 export function useKnowledgeProductProfile(options: {
   client: () => Pick<
     ReturnType<typeof createKnowledgeClient>,
-    'productProfile' | 'stageProductImages' | 'discardProductImages' | 'saveProductProfile'
+    | 'productProfile'
+    | 'stageProductImages'
+    | 'discardProductImages'
+    | 'discardStagedProductImages'
+    | 'saveProductProfile'
   >
   storeId: Ref<string>
   refresh(): Promise<void>
@@ -38,7 +42,9 @@ export function useKnowledgeProductProfile(options: {
   async function discardTokens(tokens: string[]) {
     if (!tokens.length) return
     try {
-      await options.client().discardProductImages(tokens)
+      // The staging-cleanup bridge is intentionally not wrapped in the renderer lease guard:
+      // a late native picker result still needs cleanup, while main IPC rechecks the workspace.
+      await options.client().discardStagedProductImages(tokens)
     } catch {
       // Expired/workspace-changed staging is also bounded and reclaimed by the main-process TTL.
     }
@@ -91,11 +97,12 @@ export function useKnowledgeProductProfile(options: {
     if (!profile.value || saving.value || staging.value) return
     const owner = generation,
       shop = options.storeId.value,
-      current = profile.value
+      current = profile.value,
+      service = options.client()
     staging.value = true
     profileError.value = ''
     try {
-      const images = await options.client().stageProductImages({
+      const images = await service.stageProductImages({
         storeId: shop,
         bindingId: current.binding.id,
         expectedBindingRevision: current.binding.revision,
@@ -107,7 +114,7 @@ export function useKnowledgeProductProfile(options: {
         shop !== options.storeId.value ||
         profile.value?.binding.id !== current.binding.id
       ) {
-        await discardTokens(images.map((image) => image.token))
+        await service.discardStagedProductImages(images.map((image) => image.token)).catch(() => {})
         return
       }
       staged.value = [...staged.value, ...images]
@@ -133,8 +140,9 @@ export function useKnowledgeProductProfile(options: {
     }
     saving.value = true
     profileError.value = ''
+    let result: KnowledgeProductProfile
     try {
-      const result = await options.client().saveProductProfile({
+      result = await options.client().saveProductProfile({
         storeId: shop,
         bindingId: current.binding.id,
         expectedBindingRevision: current.binding.revision,
@@ -146,29 +154,49 @@ export function useKnowledgeProductProfile(options: {
         copy: form.value.copy,
         imageTokens: staged.value.map((image) => image.token),
       })
-      if (owner !== generation || shop !== options.storeId.value) return false
-      staged.value = []
-      profile.value = result
-      options.notice.value = '商品资料已保存'
-      saving.value = false
-      await close(false)
-      await options.refresh()
-      return true
     } catch (cause) {
       if (owner === generation) profileError.value = reason(cause)
+      saving.value = false
       return false
-    } finally {
-      if (owner === generation) saving.value = false
     }
+    if (owner !== generation || shop !== options.storeId.value) {
+      saving.value = false
+      return false
+    }
+    // The write is committed. Closing/refreshing is presentation-only and must never be
+    // reported as a write failure or leave a re-submittable form.
+    staged.value = []
+    profile.value = result
+    options.notice.value = '商品资料已保存'
+    profileError.value = ''
+    saving.value = false
+    await close(false)
+    try {
+      await options.refresh()
+    } catch (cause) {
+      options.error.value = `商品资料已保存，但列表刷新失败：${reason(cause)}`
+    }
+    return true
   }
   async function prepareLeave() {
     if (!profile.value) return true
+    if (saving.value) {
+      options.error.value = '正在保存商品资料，请稍候再切换'
+      return false
+    }
+    if (staging.value) {
+      options.error.value = '正在选择商品图片，请稍候再切换'
+      return false
+    }
     if (dirty.value) {
       options.error.value = '商品资料有未保存修改，请先保存或取消商品编辑'
       return false
     }
     await close(false)
     return true
+  }
+  function setError(message: string) {
+    profileError.value = message
   }
   function reset() {
     void close()
@@ -191,6 +219,7 @@ export function useKnowledgeProductProfile(options: {
     removeStaged,
     save,
     prepareLeave,
+    setError,
     reset,
   }
 }

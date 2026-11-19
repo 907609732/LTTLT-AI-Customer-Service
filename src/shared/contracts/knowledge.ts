@@ -204,6 +204,8 @@ export interface KnowledgePage<T> {
   revision: number
 }
 export interface KnowledgeProductCard {
+  /** Store-local title from the dedicated manual source; binding/canonical stay unchanged. */
+  displayTitle?: string
   /** List-only bounded projection; full copy stays in the dedicated editor read. */
   summary?: string
   /** At most three visible thumbnails from manual/platform sources, in that order. */

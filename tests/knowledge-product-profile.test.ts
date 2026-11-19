@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -14,10 +15,13 @@ import {
 import { collectorMaterialLabels } from '../electron/knowledge/collector-materials'
 
 const png = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgQIAK6mS4QAAAABJRU5ErkJggg==',
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAABHNCSVQICAgIfAhkiAAAAAFzUkdCAK7OHOkAAAAUSURBVAiZYzRO+/+fgYGBgYkBCgAm3AKbkF7TaAAAAABJRU5ErkJggg==',
   'base64',
 )
-const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9])
+const jpeg = Buffer.from(
+  '/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAACAAIDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAABwj/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCfgLjDT//Z',
+  'base64',
+)
 const cleanups: (() => void)[] = []
 afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup()
@@ -97,16 +101,30 @@ function staticSource(
   return { source }
 }
 
-it('isolates the same product id between two shops and projects list summaries and only a few images', () => {
+it('isolates the same canonical product id between two shops and projects manual display titles and only a few images', () => {
   const f = fixture()
-  const a = rootProduct(f.repository, 'a')
-  const b = rootProduct(f.repository, 'b')
-  f.repository.saveCanonical({
-    id: a.canonical.id,
-    expectedRevision: a.canonical.revision,
+  const canonical = f.repository.saveCanonical({
     title: '共享名称',
     code: 'SHARED-CODE',
   })
+  const a = {
+    canonical,
+    binding: f.repository.bindProduct({
+      canonicalId: canonical.id,
+      storeId: 'a',
+      productId: 'same-product',
+      title: '平台原标题',
+    }),
+  }
+  const b = {
+    canonical,
+    binding: f.repository.bindProduct({
+      canonicalId: canonical.id,
+      storeId: 'b',
+      productId: 'same-product',
+      title: '平台原标题',
+    }),
+  }
   const imageA = f.repository.addAsset(png, { name: 'a.png', mimeType: 'image/png' })
   const imageB = f.repository.addAsset(jpeg, { name: 'b.jpg', mimeType: 'image/jpeg' })
   f.repository.saveDraft({
@@ -116,6 +134,8 @@ it('isolates the same product id between two shops and projects list summaries a
   })
   const aProfile = f.service.read('a', a.binding.id)
   const bProfile = f.service.read('b', b.binding.id)
+  expect(aProfile.binding.canonicalId).toBe(canonical.id)
+  expect(bProfile.binding.canonicalId).toBe(canonical.id)
   expect(aProfile.binding.productId).toBe('same-product')
   expect(bProfile.binding.productId).toBe('same-product')
   expect(aProfile.manualPrice).toBe('')
@@ -129,6 +149,7 @@ it('isolates the same product id between two shops and projects list summaries a
     label: KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL,
     text: JSON.stringify({
       version: 1,
+      title: '甲店手工标题',
       price: '甲店手工价',
       notes: '甲店备注',
       copy: '甲店手工文案'.repeat(30),
@@ -143,6 +164,7 @@ it('isolates the same product id between two shops and projects list summaries a
     label: KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL,
     text: JSON.stringify({
       version: 1,
+      title: '乙店手工标题',
       price: '乙店手工价',
       notes: '乙店备注',
       copy: '乙店手工文案',
@@ -152,6 +174,14 @@ it('isolates the same product id between two shops and projects list summaries a
   })
   const listA = f.repository.listProducts({ storeId: 'a' }).items[0]!
   const listB = f.repository.listProducts({ storeId: 'b' }).items[0]!
+  expect(listA.displayTitle).toBe('甲店手工标题')
+  expect(listB.displayTitle).toBe('乙店手工标题')
+  expect(listA.binding.title).toBe('平台原标题')
+  expect(listB.binding.title).toBe('平台原标题')
+  expect(listA.canonical.title).toBe('共享名称')
+  expect(f.repository.listProducts({ storeId: 'a', search: '甲店手工标题' }).total).toBe(1)
+  expect(f.repository.listProducts({ storeId: 'a', search: '乙店手工标题' }).total).toBe(0)
+  expect(f.service.read('a', a.binding.id).title).toBe('甲店手工标题')
   expect(listA.summary).toContain('甲店手工文案')
   expect(listB.summary).toContain('乙店手工文案')
   expect(listA.summary).not.toContain('乙店')
@@ -186,6 +216,14 @@ it('requires binding and manual-source CAS for first and concurrent writes while
     >
   ).value
   expect(saved.manualPrice).toBe('')
+  expect(saved.title).toBe('本店新标题')
+  expect(saved.binding).toEqual(opened.binding)
+  expect(f.repository.getBinding(binding.id)).toEqual(binding)
+  expect(
+    knowledgeProductProfileStoredSchema.parse(
+      JSON.parse(f.repository.getSource(saved.manualSourceId!)!.text),
+    ).title,
+  ).toBe('本店新标题')
   await expect(f.service.save(input)).rejects.toThrow(/变更|冲突|刷新/)
   await expect(
     f.service.save({
@@ -339,6 +377,10 @@ it('commits several images and keeps the versioned source and assets across stor
     .find((row) => row.label === KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL)
   expect(restoredSource).toBeDefined()
   expect(restoredSource!.assetIds).toEqual([imageA, imageB])
+  expect(restored.getBinding(a.binding.id)?.title).toBe(a.binding.title)
+  expect(knowledgeProductProfileStoredSchema.parse(JSON.parse(restoredSource!.text)).title).toBe(
+    '第二版',
+  )
   expect(restored.sourceVersions(restoredSource!.id).map((row) => row.revision)).toEqual(
     expect.arrayContaining([2, 1]),
   )
@@ -392,10 +434,205 @@ it('keeps the dedicated manual source in family backups without copying it to th
     .filter((row) => row.label === KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL)
   expect(manualA).toHaveLength(1)
   expect(manualB).toHaveLength(0)
-  expect(restored.getBinding(a.id)?.title).toBe('甲店独有标题')
+  expect(restored.getBinding(a.id)?.title).toBe('甲店根商品')
   expect(restored.getBinding(b.id)?.title).toBe('乙店根商品')
+  expect(knowledgeProductProfileStoredSchema.parse(JSON.parse(manualA[0]!.text)).title).toBe(
+    '甲店独有标题',
+  )
+  expect(restored.listProducts({ storeId: 'a' }).items[0]?.displayTitle).toBe('甲店独有标题')
+  expect(restored.listProducts({ storeId: 'b' }).items[0]?.displayTitle).toBe('乙店根商品')
 })
 
+it('projects only real platform prices and expires by the earliest displayed price time', () => {
+  const now = 10_000_000
+  const f = fixture(() => now)
+  const { binding, canonical } = rootProduct(f.repository, 'a')
+  const skuNew = f.repository.bindProduct({
+    canonicalId: canonical.id,
+    storeId: 'a',
+    productId: binding.productId,
+    skuId: 'new',
+  })
+  const skuMissing = f.repository.bindProduct({
+    canonicalId: canonical.id,
+    storeId: 'a',
+    productId: binding.productId,
+    skuId: 'missing',
+  })
+  const dynamic = (target: typeof binding, price: string | undefined, capturedAt: number) =>
+    f.repository.saveSource({
+      kind: 'platform',
+      storeId: 'a',
+      bindingId: target.id,
+      label: collectorMaterialLabels.dynamic,
+      text: JSON.stringify({
+        productId: binding.productId,
+        skuId: target.skuId,
+        ...(price === undefined ? {} : { price }),
+        stock: 1,
+        capturedAt,
+      }),
+    })
+  dynamic(binding, '10.00', now - 2 * 60 * 60 * 1000)
+  dynamic(skuNew, '20.00', now - 5 * 60 * 1000)
+  dynamic(skuMissing, undefined, now)
+  f.repository.saveSource({
+    kind: 'manual',
+    storeId: 'a',
+    bindingId: binding.id,
+    label: collectorMaterialLabels.dynamic,
+    text: JSON.stringify({ price: '99.00', capturedAt: now }),
+  })
+  const cleared = dynamic(binding, '30.00', now)
+  f.repository.setMetadata(`cleared-source:${cleared.id}`, '1')
+  const result = f.service.read('a', binding.id).platformPrice
+  expect(new Set(result.prices)).toEqual(new Set(['10.00', '20.00']))
+  expect(result.capturedAt).toBe(now - 2 * 60 * 60 * 1000)
+  expect(result.expired).toBe(true)
+})
+
+it('keeps other imported gallery images, respects removed/cleared sources and never falls back after an empty manual copy', () => {
+  const f = fixture()
+  const { binding } = rootProduct(f.repository, 'a')
+  const imported = f.repository.addAsset(png, { name: 'imported.png', mimeType: 'image/png' })
+  const removed = f.repository.addAsset(jpeg, { name: 'removed.jpg', mimeType: 'image/jpeg' })
+  const cleared = f.repository.addAsset(png, { name: 'cleared.png', mimeType: 'image/png' })
+  f.repository.saveSource({
+    kind: 'manual',
+    storeId: 'a',
+    bindingId: binding.id,
+    label: '历史手工图',
+    text: '已登记但非平台采集的图片',
+    assetIds: [imported.id],
+  })
+  f.repository.saveSource({
+    kind: 'image',
+    storeId: 'a',
+    bindingId: binding.id,
+    label: '已移除图',
+    text: 'old',
+    assetIds: [removed.id],
+    removed: true,
+  })
+  const clearedSource = f.repository.saveSource({
+    kind: 'image',
+    storeId: 'a',
+    bindingId: binding.id,
+    label: '已清除图',
+    text: 'old',
+    assetIds: [cleared.id],
+  })
+  f.repository.setMetadata(`cleared-source:${clearedSource.id}`, '1')
+  f.repository.saveSource({
+    kind: 'platform',
+    storeId: 'a',
+    bindingId: binding.id,
+    label: collectorMaterialLabels.static,
+    text: JSON.stringify({ title: '平台标题', description: '旧平台文案' }),
+  })
+  f.repository.saveSource({
+    kind: 'manual',
+    storeId: 'a',
+    bindingId: binding.id,
+    label: KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL,
+    text: JSON.stringify({
+      version: 1,
+      title: '本店空文案标题',
+      price: '',
+      notes: '',
+      copy: '',
+      imageAssetIds: [],
+    }),
+    assetIds: [],
+  })
+  const profile = f.service.read('a', binding.id)
+  expect(profile.title).toBe('本店空文案标题')
+  expect(profile.copy).toBe('')
+  expect(profile.images.map((image) => image.assetId)).toEqual([imported.id])
+  const card = f.repository.listProducts({ storeId: 'a' }).items[0]!
+  expect(card.displayTitle).toBe('本店空文案标题')
+  expect(card.summary).toBe('')
+  expect(card.imageAssetIds).toEqual([imported.id])
+})
+
+it('reclaims only newly written asset files after a failed transaction and keeps the token usable', async () => {
+  const f = fixture()
+  const { binding } = rootProduct(f.repository, 'a')
+  f.chooseProductImages.mockResolvedValue([{ name: 'new.png', bytes: png }])
+  const opened = f.service.read('a', binding.id)
+  const staged = await f.service.stage({
+    storeId: 'a',
+    bindingId: binding.id,
+    expectedBindingRevision: opened.binding.revision,
+    expectedManualSourceId: null,
+    expectedManualSourceRevision: null,
+  })
+  const originalSaveSource = f.repository.saveSource.bind(f.repository)
+  vi.spyOn(f.repository, 'saveSource').mockImplementationOnce(() => {
+    throw Error('fixture source failure')
+  })
+  await expect(
+    f.service.save({
+      storeId: 'a',
+      bindingId: binding.id,
+      expectedBindingRevision: opened.binding.revision,
+      expectedManualSourceId: null,
+      expectedManualSourceRevision: null,
+      title: '失败标题',
+      manualPrice: '',
+      notes: '',
+      copy: '',
+      imageTokens: [staged[0]!.token],
+    }),
+  ).rejects.toThrow('fixture source failure')
+  expect(f.repository.listSources({ storeId: 'a' })).toHaveLength(0)
+  expect(
+    existsSync(join(f.directory, 'assets', createHash('sha256').update(png).digest('hex'))),
+  ).toBe(false)
+  const second = await f.service.save({
+    storeId: 'a',
+    bindingId: binding.id,
+    expectedBindingRevision: opened.binding.revision,
+    expectedManualSourceId: null,
+    expectedManualSourceRevision: null,
+    title: '重试标题',
+    manualPrice: '',
+    notes: '',
+    copy: '',
+    imageTokens: [staged[0]!.token],
+  })
+  expect(second.title).toBe('重试标题')
+  vi.mocked(f.repository.saveSource).mockImplementation(originalSaveSource)
+  const shared = f.repository.addAsset(jpeg, { name: 'shared.jpg', mimeType: 'image/jpeg' })
+  f.chooseProductImages.mockResolvedValue([{ name: 'shared.jpg', bytes: jpeg }])
+  const next = f.service.read('a', binding.id)
+  const secondStage = await f.service.stage({
+    storeId: 'a',
+    bindingId: binding.id,
+    expectedBindingRevision: next.binding.revision,
+    expectedManualSourceId: next.manualSourceId,
+    expectedManualSourceRevision: next.manualSourceRevision,
+  })
+  vi.spyOn(f.repository, 'saveSource').mockImplementationOnce(() => {
+    throw Error('fixture shared failure')
+  })
+  await expect(
+    f.service.save({
+      storeId: 'a',
+      bindingId: binding.id,
+      expectedBindingRevision: next.binding.revision,
+      expectedManualSourceId: next.manualSourceId,
+      expectedManualSourceRevision: next.manualSourceRevision,
+      title: '共享失败标题',
+      manualPrice: '',
+      notes: '',
+      copy: '',
+      imageTokens: [secondStage[0]!.token],
+    }),
+  ).rejects.toThrow('fixture shared failure')
+  expect(f.repository.row('assets', shared.id)).not.toBeNull()
+  expect(f.repository.readAsset(shared.id)).toEqual(jpeg)
+})
 it('prefills existing platform title and static description and reports only a real expired platform price', () => {
   const now = 10_000_000
   const f = fixture(() => now)
@@ -419,7 +656,10 @@ it('rejects spoofed image contents, caps the gallery and does not stage a late p
   const f = fixture()
   const { binding } = rootProduct(f.repository, 'a')
   f.chooseProductImages.mockResolvedValue([
-    { name: 'fake.png', bytes: Buffer.from('not-an-image') },
+    {
+      name: 'fake.png',
+      bytes: Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from('junk')]),
+    },
   ])
   await expect(
     f.service.stage({
@@ -429,7 +669,7 @@ it('rejects spoofed image contents, caps the gallery and does not stage a late p
       expectedManualSourceId: null,
       expectedManualSourceRevision: null,
     }),
-  ).rejects.toThrow(/图片格式|伪装/)
+  ).rejects.toThrow(/图片|伪装|解码/)
 
   f.chooseProductImages.mockResolvedValue(
     Array.from({ length: KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES + 1 }, (_, index) => ({

@@ -738,13 +738,17 @@ export class KnowledgeRepository {
         `SELECT json_extract(s.body,'$.text') AS text
          FROM sources s JOIN bindings b ON b.id=s.binding_id
          WHERE b.store_id=? AND b.product_id=? AND b.active=1
+           AND json_extract(s.body,'$.kind')='platform'
            AND COALESCE(json_extract(s.body,'$.removed'),0)=0
            AND json_extract(s.body,'$.label')='平台动态快照'
-           AND json_valid(json_extract(s.body,'$.text'))`,
+           AND json_valid(json_extract(s.body,'$.text'))
+           AND NOT EXISTS(SELECT 1 FROM metadata m WHERE m.key='cleared-source:'||s.id AND m.value='1')
+         ORDER BY json_extract(json_extract(s.body,'$.text'),'$.capturedAt') DESC, s.rowid DESC`,
       )
       .all(binding.storeId, binding.productId) as { text: string }[]
-    const prices = new Set<string>()
-    let capturedAt: number | null = null
+    // Only usable prices contribute. A newer price-less SKU must not hide an older shown price,
+    // and one old displayed SKU must make the displayed price projection expired.
+    const priceTimes = new Map<string, number>()
     for (const row of rows) {
       const parsed = z
         .object({
@@ -755,14 +759,23 @@ export class KnowledgeRepository {
         .safeParse(JSON.parse(row.text))
       if (!parsed.success) continue
       const price = parsed.data.price?.trim()
-      if (price) prices.add(price)
-      capturedAt =
-        capturedAt === null ? parsed.data.capturedAt : Math.max(capturedAt, parsed.data.capturedAt)
+      if (!price) continue
+      const previous = priceTimes.get(price)
+      priceTimes.set(
+        price,
+        previous === undefined
+          ? parsed.data.capturedAt
+          : Math.min(previous, parsed.data.capturedAt),
+      )
     }
+    const prices = [...priceTimes.keys()].slice(0, 8)
+    const capturedAt = prices.length
+      ? Math.min(...prices.map((price) => priceTimes.get(price)!))
+      : null
     const expiresAt =
       capturedAt === null ? null : capturedAt + this.getSettings().dynamicTtlMinutes * 60000
     return {
-      prices: [...prices].slice(0, 8),
+      prices,
       capturedAt,
       expiresAt,
       expired: expiresAt !== null && expiresAt <= this.now(),
@@ -778,7 +791,7 @@ export class KnowledgeRepository {
     ).count
     const source = this.db
       .prepare(
-        "SELECT json_extract(json_extract(body,'$.text'),'$.skus[0].specs') AS specs,json_extract(json_extract(body,'$.text'),'$.merchantCode') AS code FROM sources WHERE binding_id=? AND COALESCE(json_extract(body,'$.removed'),0)=0 AND json_extract(body,'$.label')='平台静态资料' AND json_valid(json_extract(body,'$.text')) LIMIT 1",
+        "SELECT json_extract(json_extract(s.body,'$.text'),'$.skus[0].specs') AS specs,json_extract(json_extract(s.body,'$.text'),'$.merchantCode') AS code FROM sources s WHERE s.binding_id=? AND COALESCE(json_extract(s.body,'$.removed'),0)=0 AND json_extract(s.body,'$.label')='平台静态资料' AND json_valid(json_extract(s.body,'$.text')) AND NOT EXISTS(SELECT 1 FROM metadata m WHERE m.key='cleared-source:'||s.id AND m.value='1') LIMIT 1",
       )
       .get(binding.id) as { specs: string | null; code: string | null } | undefined
     const specifications = source?.specs
@@ -790,7 +803,7 @@ export class KnowledgeRepository {
       : []
     const catalog = this.db
       .prepare(
-        "SELECT json_extract(json_extract(body,'$.text'),'$.merchantCode') AS code FROM sources WHERE binding_id=? AND COALESCE(json_extract(body,'$.removed'),0)=0 AND json_extract(body,'$.label')='平台目录快照' AND json_valid(json_extract(body,'$.text')) LIMIT 1",
+        "SELECT json_extract(json_extract(s.body,'$.text'),'$.merchantCode') AS code FROM sources s WHERE s.binding_id=? AND COALESCE(json_extract(s.body,'$.removed'),0)=0 AND json_extract(s.body,'$.label')='平台目录快照' AND json_valid(json_extract(s.body,'$.text')) AND NOT EXISTS(SELECT 1 FROM metadata m WHERE m.key='cleared-source:'||s.id AND m.value='1') LIMIT 1",
       )
       .get(binding.id) as { code: string | null } | undefined
     const capture = this.db
@@ -813,7 +826,9 @@ export class KnowledgeRepository {
   listProducts(input: KnowledgePageInput & { storeId: string }) {
     const page = knowledgePageSchema.parse(input)
     const search = page.search?.toLowerCase() ?? ''
-    const where = `b.store_id=? AND b.active=1 AND b.sku_id='' AND (?='' OR instr(lower(json_extract(c.body,'$.title')||' '||json_extract(c.body,'$.code')||' '||b.product_id||' '||json_extract(b.body,'$.title')),?)>0)`
+    const visibleManual = `s2.binding_id=b.id AND COALESCE(json_extract(s2.body,'$.removed'),0)=0 AND json_extract(s2.body,'$.label')='${KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL}' AND NOT EXISTS(SELECT 1 FROM metadata m WHERE m.key='cleared-source:'||s2.id AND m.value='1')`
+    const manualTitle = `COALESCE((SELECT CASE WHEN json_valid(json_extract(s2.body,'$.text')) THEN json_extract(json_extract(s2.body,'$.text'),'$.title') END FROM sources s2 WHERE ${visibleManual} LIMIT 1),'')`
+    const where = `b.store_id=? AND b.active=1 AND b.sku_id='' AND (?='' OR instr(lower(json_extract(c.body,'$.title')||' '||json_extract(c.body,'$.code')||' '||b.product_id||' '||json_extract(b.body,'$.title')||' '||${manualTitle}),?)>0)`
     const total = (
       this.db
         .prepare(
@@ -831,19 +846,22 @@ export class KnowledgeRepository {
     const sourceRows = bindingIds.length
       ? (this.db
           .prepare(
-            `SELECT binding_id AS bindingId,
-                    json_extract(body,'$.kind') AS kind,
-                    json_extract(body,'$.label') AS label,
-                    json_extract(body,'$.assetIds[0]') AS asset0,
-                    json_extract(body,'$.assetIds[1]') AS asset1,
-                    json_extract(body,'$.assetIds[2]') AS asset2,
-                    CASE WHEN json_valid(json_extract(body,'$.text'))
-                      THEN substr(json_extract(json_extract(body,'$.text'),'$.copy'),1,200) END AS manualCopy,
-                    CASE WHEN json_valid(json_extract(body,'$.text'))
-                      THEN substr(json_extract(json_extract(body,'$.text'),'$.description'),1,200) END AS platformDescription
-             FROM sources
-             WHERE binding_id IN (${placeholders}) AND COALESCE(json_extract(body,'$.removed'),0)=0
-             ORDER BY rowid`,
+            `SELECT s.binding_id AS bindingId,
+                    json_extract(s.body,'$.kind') AS kind,
+                    json_extract(s.body,'$.label') AS label,
+                    json_extract(s.body,'$.assetIds[0]') AS asset0,
+                    json_extract(s.body,'$.assetIds[1]') AS asset1,
+                    json_extract(s.body,'$.assetIds[2]') AS asset2,
+                    CASE WHEN json_valid(json_extract(s.body,'$.text'))
+                      THEN substr(json_extract(json_extract(s.body,'$.text'),'$.copy'),1,200) END AS manualCopy,
+                    CASE WHEN json_valid(json_extract(s.body,'$.text'))
+                      THEN substr(json_extract(json_extract(s.body,'$.text'),'$.title'),1,500) END AS manualTitle,
+                    CASE WHEN json_valid(json_extract(s.body,'$.text'))
+                      THEN substr(json_extract(json_extract(s.body,'$.text'),'$.description'),1,200) END AS platformDescription
+             FROM sources s
+             WHERE s.binding_id IN (${placeholders}) AND COALESCE(json_extract(s.body,'$.removed'),0)=0
+               AND NOT EXISTS(SELECT 1 FROM metadata m WHERE m.key='cleared-source:'||s.id AND m.value='1')
+             ORDER BY s.rowid`,
           )
           .all(...bindingIds) as {
           bindingId: string
@@ -853,6 +871,7 @@ export class KnowledgeRepository {
           asset1: string | null
           asset2: string | null
           manualCopy: string | null
+          manualTitle: string | null
           platformDescription: string | null
         }[])
       : []
@@ -887,13 +906,14 @@ export class KnowledgeRepository {
       )
       const staticSource = sources.find((source) => source.label === '平台静态资料')
       const catalogSource = sources.find((source) => source.label === '平台目录快照')
+      // Once a manual source exists, an intentionally cleared copy must stay empty instead of
+      // falling back to old platform text (the detail reader uses the same rule).
       const summary = (
-        manual?.manualCopy ||
-        staticSource?.platformDescription ||
-        catalogSource?.platformDescription ||
-        ''
+        manual
+          ? manual.manualCopy
+          : staticSource?.platformDescription || catalogSource?.platformDescription
       )
-        .replace(/\s+/g, ' ')
+        ?.replace(/\s+/g, ' ')
         .trim()
       const imageAssetIds: string[] = []
       const addImage = (id: string | null) => {
@@ -906,12 +926,14 @@ export class KnowledgeRepository {
         [platformImages.asset0, platformImages.asset1, platformImages.asset2].forEach(addImage)
       const catalog = catalogSource
       if (catalog) addImage(catalog.asset0)
-      for (const source of sources) addImage(source.asset0)
-      const knowledge = this.productKnowledgeCounts(binding)
+      for (const source of sources) [source.asset0, source.asset1, source.asset2].forEach(addImage)
+      const knowledge = this.productKnowledgeCounts(binding),
+        canonical = this.getCanonical(binding.canonicalId)!
       return {
-        canonical: this.getCanonical(binding.canonicalId)!,
+        canonical,
         binding,
-        summary,
+        displayTitle: manual?.manualTitle || binding.title || canonical.title,
+        summary: summary || '',
         imageAssetIds,
         productSummary: this.productSummary(binding),
         sources: sources.length,

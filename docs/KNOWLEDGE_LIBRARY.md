@@ -6,11 +6,11 @@
 
 商品列表改为紧凑行：标题/平台编号/来源同一行，下方只投影短文案、最多3个缩略图、审核/草稿数及学习进度，右侧保留识别、学习、同款备份、编辑、训练、解绑。分页查询在 SQL 中截取摘要和少量资产ID，不传来源全文或逐行读取详情。点击“编辑”打开主窗口内的深炭色居中弹窗，最大约980px、`max-height:min(88vh,900px)`；顶部为图/标题/来源/关闭，正文独立滚动，底部固定取消/保存。左260px方形主图、可切缩略图和本地加图，右侧本店标题、只读商品ID、手工价格、独立平台采集价/过期、备注；下方全宽文案（字数）和知识点计数/增加知识点。760px以下单列。“知识点”入口仍打开原问答编辑器，草稿自动保存、审核、试问、原始资料和绑定/共享操作不变。
 
-读取经 `product-profile`：本店标题（空时回退平台静态标题/共享标题）、静态来源描述、同店商品动态快照价格（缺失或过期显示真实空态/过期，不伪造），备注初次为空。列表只返回 `summary`（≤200字）和 `imageAssetIds`（≤3）。保存经 `product-profile-save`，一次事务更新当前店铺根 binding 标题及专用手工资料，不修改共享 canonical，也不覆写平台快照、身份或原审核版本。共享名称/编码继续在原工作区维护。
+读取经 `product-profile`：本店展示标题优先取专用手工来源 JSON（兼容缺省标题的旧来源），再回退平台静态/目录标题与共享标题；文案在已有手工来源时保持其值（空也保持空，不回落旧平台文案），否则取平台静态/目录描述。平台价只读同店同商品当前根/SKU 的 `kind='platform'`、未 removed/cleared 且带价格的动态快照，并按所展示价格的最早采集时间判过期；无可用价格时保持空态。列表只返回 `displayTitle`、`summary`（≤200字）和 `imageAssetIds`（≤3），展示标题参与搜索。保存经 `product-profile-save`，一次事务写入专用手工来源的标题、手工价、备注、文案及新增图；binding/canonical 原值不改，binding revision 仅用于身份与并发核对。
 
-手工字段保存为现有 source/asset/版本机制中的专用 `kind='manual'`、标签 `商品手工资料`、`lingtu-product-profile-v1` JSON；因此无需DB迁移，原始版本历史、附件和同款/单店备份恢复沿用原闭包。该来源不会被 `resolve` 用于接待，商品学习/OCR过滤它，知识 pipeline 也会拒绝把它当学习来源。首次写入和并发保存都核对 workspace/store、活跃根 binding revision、手工 source ID/revision；失败保留表单，成功后才消费暂存并刷新列表、把焦点还给触发按钮。
+手工字段保存为现有 source/asset/版本机制中的专用 `kind='manual'`、标签 `商品手工资料`、`lingtu-product-profile-v1` JSON（标题可选以兼容旧来源）；因此无需DB迁移，原始版本历史、附件和同款/单店备份恢复沿用原闭包。详情图集按手工、平台、其他已登记图片顺序合并（上限16张），尊重 removed/cleared-source。该来源不会被 `resolve` 用于接待，商品学习/OCR过滤它，知识 pipeline 也会拒绝把它当学习来源。首次写入和并发保存都核对 workspace/store、活跃根 binding revision、手工 source ID/revision；binding/canonical 与标题原值保持不变。失败保留表单，成功后才消费暂存并刷新列表、把焦点还给触发按钮。
 
-图片选择在主进程通过原生 file picker，仅接受按字节确认的 PNG/JPEG/GIF/WebP，单图≤10MB、单次≤8张、合计≤50MB、图集≤8张。选图只写入有界内存 staging（2分钟TTL、最多16项、单用途不透明 token、绑定工作区/店铺/根 binding/双 revision），不写业务DB；取消、切店、关闭或迟到结果丢弃，保存成功才与手工来源同事务提交附件。渲染层不接收路径或任意文件句柄。
+图片选择在主进程通过原生 file picker，仅接受按字节确认并由既有 `@napi-rs/canvas` 实际解码的 PNG/JPEG/GIF/WebP（含像素尺寸/总量上限），单图≤10MB、单次≤8张、合计≤50MB、图集≤8张。选图只写入有界内存 staging（2分钟TTL、最多16项、单用途不透明 token、绑定工作区/店铺/根 binding/双 revision），不写业务DB；取消、切店、关闭或迟到结果丢弃，保存成功才与手工来源同事务提交附件。事务失败仅清理本次新建且此前不存在的 content-addressed 文件，不删除已有或共享 digest；token 在 COMMIT 后才消费。渲染层不接收路径或任意文件句柄。
 
 验证入口：`npx vitest run tests/knowledge-product-profile.test.ts tests/knowledge-product-editor.test.ts tests/knowledge-manager.test.ts`；实际隔离 Electron 主窗口/窄屏为 `LINGTU_DESKTOP_CHECKS=business:knowledge-product-editor node scripts/run-desktop.mjs`（临时 userData、合成商品与图片、无平台或模型访问）。
 

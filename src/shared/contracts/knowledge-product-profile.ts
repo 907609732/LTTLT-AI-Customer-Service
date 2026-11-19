@@ -4,7 +4,10 @@ import type { CanonicalProduct, KnowledgeSource, ProductBinding } from './knowle
 /** A dedicated, structured manual source. Existing generic sources keep their old interpretation. */
 export const KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL = '商品手工资料'
 export const KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES = 8
+export const KNOWLEDGE_PRODUCT_PROFILE_GALLERY_LIMIT = 16
 export const KNOWLEDGE_PRODUCT_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+export const KNOWLEDGE_PRODUCT_IMAGE_MAX_DIMENSION = 10_000
+export const KNOWLEDGE_PRODUCT_IMAGE_MAX_PIXELS = 40_000_000
 export const KNOWLEDGE_PRODUCT_IMAGE_MAX_TOTAL_BYTES = 50 * 1024 * 1024
 export const KNOWLEDGE_PRODUCT_IMAGE_STAGE_TTL_MS = 2 * 60 * 1000
 export const KNOWLEDGE_PRODUCT_IMAGE_STAGE_LIMIT = 16
@@ -14,6 +17,8 @@ const imageToken = z.string().uuid()
 export const knowledgeProductProfileStoredSchema = z
   .object({
     version: z.literal(1),
+    /** Optional for sources written before the store-local title moved out of the binding. */
+    title: z.string().trim().min(1).max(500).optional(),
     price: z.string().max(60),
     notes: z.string().max(4000),
     copy: z.string().max(20000),
@@ -60,6 +65,7 @@ export interface KnowledgeProductProfileImage {
   mimeType: string
   size: number
 }
+export type KnowledgeProductProfilePanel = 'qa' | 'sources' | 'trial' | 'bindings'
 export interface KnowledgeStagedProductImage {
   /** Opaque, single-use token; the renderer never receives a filesystem path or raw bytes. */
   token: string

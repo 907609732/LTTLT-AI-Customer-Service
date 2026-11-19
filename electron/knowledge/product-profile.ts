@@ -1,10 +1,15 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { existsSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
 import { z } from 'zod'
 import {
   KNOWLEDGE_PRODUCT_IMAGE_MAX_BYTES,
+  KNOWLEDGE_PRODUCT_IMAGE_MAX_DIMENSION,
+  KNOWLEDGE_PRODUCT_IMAGE_MAX_PIXELS,
   KNOWLEDGE_PRODUCT_IMAGE_MAX_TOTAL_BYTES,
   KNOWLEDGE_PRODUCT_IMAGE_STAGE_LIMIT,
   KNOWLEDGE_PRODUCT_IMAGE_STAGE_TTL_MS,
+  KNOWLEDGE_PRODUCT_PROFILE_GALLERY_LIMIT,
   KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES,
   KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL,
   isKnowledgeProductProfileSource,
@@ -24,6 +29,10 @@ import type {
 } from '../../src/shared/contracts/knowledge'
 import type { KnowledgeRepository } from './repository'
 import { collectorMaterialLabels } from './collector-materials'
+import { knowledgeRequire } from './node-loader'
+const canvas = knowledgeRequire('@napi-rs/canvas') as {
+  loadImage(input: Buffer): Promise<{ width: number; height: number }>
+}
 
 interface PickedImage {
   name: string
@@ -68,12 +77,26 @@ function sanitizeName(value: string) {
   const name = z.string().trim().min(1).max(1000).parse(value).split(/[\\/]/).pop() || ''
   return z.string().trim().min(1).max(200).parse(name)
 }
-function validatePicked(file: PickedImage) {
+async function validatePicked(file: PickedImage) {
   const name = sanitizeName(file.name)
   if (!file.bytes.byteLength || file.bytes.byteLength > KNOWLEDGE_PRODUCT_IMAGE_MAX_BYTES)
     throw Error('单张图片需在10MB以内')
   const mimeType = imageMime(file.bytes)
   if (!mimeType) throw Error('图片格式伪装或不受支持；仅接受PNG、JPEG、GIF或WebP')
+  try {
+    const image = await canvas.loadImage(Buffer.from(file.bytes))
+    if (
+      !image.width ||
+      !image.height ||
+      image.width > KNOWLEDGE_PRODUCT_IMAGE_MAX_DIMENSION ||
+      image.height > KNOWLEDGE_PRODUCT_IMAGE_MAX_DIMENSION ||
+      image.width * image.height > KNOWLEDGE_PRODUCT_IMAGE_MAX_PIXELS
+    )
+      throw Error('图片像素尺寸超出限制')
+  } catch (cause) {
+    if (cause instanceof Error && cause.message === '图片像素尺寸超出限制') throw cause
+    throw Error('图片内容无法解码或格式伪装')
+  }
   return { name, mimeType, bytes: file.bytes }
 }
 function parseStored(source: KnowledgeSource) {
@@ -115,10 +138,13 @@ export function createKnowledgeProductProfileService(options: {
     if (!repo.getCanonical(binding.canonicalId)) throw Error('共享商品不存在')
     return binding
   }
+  function sourceVisible(source: KnowledgeSource) {
+    return !source.removed && repo.getMetadata(`cleared-source:${source.id}`) !== '1'
+  }
   function manual(binding: ProductBinding) {
     const source = repo
       .listSources({ storeId: binding.storeId, bindingId: binding.id })
-      .find((row) => !row.removed && isKnowledgeProductProfileSource(row))
+      .find((row) => sourceVisible(row) && isKnowledgeProductProfileSource(row))
     return source ? { source, stored: parseStored(source) } : null
   }
   function assertManualExpectation(
@@ -145,7 +171,9 @@ export function createKnowledgeProductProfileService(options: {
   function read(storeId: string, bindingId: string): KnowledgeProductProfile {
     options.assertActive()
     const binding = assertBinding(storeId, bindingId)
-    const sources = repo.listSources({ storeId, bindingId }).filter((source) => !source.removed)
+    const sources = repo
+      .listSources({ storeId, bindingId })
+      .filter((source) => sourceVisible(source))
     const current = manual(binding)
     let platformDescription = ''
     let platformTitle = ''
@@ -182,18 +210,27 @@ export function createKnowledgeProductProfileService(options: {
         // A malformed legacy catalog row remains visible as a source, but cannot prefill facts.
       }
     }
+    // Keep the same manual/platform/other order as the list. Other imported images must not
+    // disappear just because they are not collector-labelled.
     const assetIds: string[] = []
     if (current) assetIds.push(...current.stored.imageAssetIds)
     const platformImages = sources.find((source) => source.label === collectorMaterialLabels.images)
     if (platformImages) assetIds.push(...platformImages.assetIds)
     if (catalog) assetIds.push(...catalog.assetIds)
+    for (const source of sources) {
+      assetIds.push(...source.assetIds)
+      if (source.locator.assetId) assetIds.push(source.locator.assetId)
+      if (source.locator.imageAssetId) assetIds.push(source.locator.imageAssetId)
+    }
     const images = [...new Set(assetIds)]
       .filter((id) => repo.row<KnowledgeAsset>('assets', id)?.mimeType.startsWith('image/'))
+      .slice(0, KNOWLEDGE_PRODUCT_PROFILE_GALLERY_LIMIT)
       .map((id) => describeImage(repo, id))
+    const canonical = repo.getCanonical(binding.canonicalId)!
     return {
-      canonical: repo.getCanonical(binding.canonicalId)!,
+      canonical,
       binding,
-      title: binding.title || platformTitle || repo.getCanonical(binding.canonicalId)!.title,
+      title: current?.stored.title || binding.title || platformTitle || canonical.title,
       productId: binding.productId,
       storeId: binding.storeId,
       copy: current ? current.stored.copy : platformDescription,
@@ -237,7 +274,7 @@ export function createKnowledgeProductProfileService(options: {
     if (!picked.length) return []
     if (picked.length > KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES)
       throw Error(`一次最多选择${KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES}张图片`)
-    const images = picked.map(validatePicked)
+    const images = await Promise.all(picked.map(validatePicked))
     cleanupStages()
     if (stages.size + images.length > KNOWLEDGE_PRODUCT_IMAGE_STAGE_LIMIT)
       throw Error('暂存图片数量过多，请先保存或取消当前编辑')
@@ -315,57 +352,70 @@ export function createKnowledgeProductProfileService(options: {
     const existing = current?.stored.imageAssetIds ?? []
     if (existing.length + staged.length > KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES)
       throw Error(`图集最多${KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES}张图片`)
-    return repo.transaction(() => {
-      // Re-read inside the write transaction so concurrent edits cannot slip between checks.
-      binding = assertBinding(value.storeId, value.bindingId)
-      assertBindingRevision(binding, value.expectedBindingRevision)
-      current = manual(binding)
-      assertManualExpectation(
-        current,
-        value.expectedManualSourceId,
-        value.expectedManualSourceRevision,
-      )
-      const assetIds = [...existing]
-      for (const { stage } of staged) {
-        const asset = repo.addAsset(stage.bytes, {
-          name: stage.name,
-          mimeType: stage.mimeType,
-        })
-        if (!assetIds.includes(asset.id)) assetIds.push(asset.id)
-      }
-      if (assetIds.length > KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES)
-        throw Error(`图集最多${KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES}张图片`)
-      const stored = knowledgeProductProfileStoredSchema.parse({
-        version: 1,
-        price: value.manualPrice.trim(),
-        notes: value.notes,
-        copy: value.copy,
-        imageAssetIds: assetIds,
-      })
-      repo.saveSource({
-        ...(current ? { id: current.source.id, expectedRevision: current.source.revision } : {}),
-        kind: 'manual',
-        storeId: value.storeId,
-        bindingId: value.bindingId,
-        label: KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL,
-        text: JSON.stringify(stored),
-        locator: {},
-        assetIds,
-      })
-      if (binding.title !== value.title)
-        repo.bindProduct({
-          id: binding.id,
-          expectedRevision: binding.revision,
-          canonicalId: binding.canonicalId,
-          storeId: binding.storeId,
-          productId: binding.productId,
-          skuId: '',
+    const createdFiles: string[] = []
+    let result: KnowledgeProductProfile
+    try {
+      result = repo.transaction(() => {
+        // Re-read inside the write transaction so concurrent edits cannot slip between checks.
+        binding = assertBinding(value.storeId, value.bindingId)
+        assertBindingRevision(binding, value.expectedBindingRevision)
+        current = manual(binding)
+        assertManualExpectation(
+          current,
+          value.expectedManualSourceId,
+          value.expectedManualSourceRevision,
+        )
+        const assetIds = [...existing]
+        for (const { stage } of staged) {
+          const digest = createHash('sha256').update(stage.bytes).digest('hex')
+          const file = join(repo.directory, 'assets', digest)
+          const existed = Boolean(repo.row<KnowledgeAsset>('assets', digest)) || existsSync(file)
+          if (!existed) createdFiles.push(file)
+          const asset = repo.addAsset(stage.bytes, {
+            name: stage.name,
+            mimeType: stage.mimeType,
+          })
+          if (!assetIds.includes(asset.id)) assetIds.push(asset.id)
+        }
+        if (assetIds.length > KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES)
+          throw Error(`图集最多${KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES}张图片`)
+        const stored = knowledgeProductProfileStoredSchema.parse({
+          version: 1,
           title: value.title,
+          price: value.manualPrice.trim(),
+          notes: value.notes,
+          copy: value.copy,
+          imageAssetIds: assetIds,
         })
-      const result = read(value.storeId, value.bindingId)
-      for (const { token } of staged) stages.delete(token)
-      return result
-    })
+        repo.saveSource({
+          ...(current ? { id: current.source.id, expectedRevision: current.source.revision } : {}),
+          kind: 'manual',
+          storeId: value.storeId,
+          bindingId: value.bindingId,
+          label: KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL,
+          text: JSON.stringify(stored),
+          locator: {},
+          assetIds,
+        })
+        // The binding and canonical identity/title stay untouched: pending learning plans and
+        // citations remain valid while the store-local display title lives in this source.
+        return read(value.storeId, value.bindingId)
+      })
+    } catch (cause) {
+      // addAsset writes its content-addressed file immediately, not at SQL COMMIT. A later
+      // failure must reclaim only files this attempt created, never pre-existing/shared blobs.
+      for (const file of new Set(createdFiles)) {
+        try {
+          unlinkSync(file)
+        } catch {
+          // Best effort; the unregistered blob is content-addressed and can be reclaimed later.
+        }
+      }
+      throw cause
+    }
+    // A single-use staging token is consumed only after the database transaction committed.
+    for (const { token } of staged) stages.delete(token)
+    return result
   }
   function clear() {
     stages.clear()

@@ -1374,6 +1374,8 @@ export async function businessChecks(options: {
           bindingId: binding.id,
         })) as import('../src/shared/contracts/knowledge-product-profile').KnowledgeProductProfile
         assert.equal(saved.title, '本店保存后的商品标题')
+        assert.equal(saved.binding.title, '商品资料编辑隔离标题')
+        assert.equal(saved.binding.revision, binding.revision)
         assert.equal(saved.manualPrice, '18.80')
         assert.equal(saved.notes, '仅用于隔离验收的备注')
         assert.equal(saved.copy, '隔离验收商品文案，包含尺码与材质说明。')

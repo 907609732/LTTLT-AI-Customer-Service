@@ -4,6 +4,7 @@ import { sourceLabel } from '../manager-labels'
 import type {
   KnowledgeProductProfile,
   KnowledgeProductProfileForm,
+  KnowledgeProductProfilePanel,
   KnowledgeStagedProductImage,
 } from '@/shared/contracts/knowledge-product-profile'
 import KnowledgeProductImage from './KnowledgeProductImage.vue'
@@ -25,7 +26,7 @@ const emit = defineEmits<{
   'remove-staged': [token: string]
   cancel: []
   save: []
-  'manage-knowledge': [create: boolean]
+  'open-panel': [panel: KnowledgeProductProfilePanel, create?: boolean]
 }>()
 const form = ref<KnowledgeProductProfileForm>({
   title: props.profile.title,
@@ -146,12 +147,12 @@ onBeforeUnmount(() => {
             :alt="`${profile.title}商品图片`"
             :load-asset="loadAsset"
           />
-          <span v-else class="knowledge-product-profile-empty">暂无图片</span>
+          <span v-else class="knowledge-product-profile-empty">无图</span>
         </span>
         <div class="knowledge-product-profile-heading">
           <h2>{{ form.title.trim() || profile.title || '未命名商品' }}</h2>
-          <p>{{ profile.productId }} · {{ sourceNames || '手工录入' }}</p>
         </div>
+        <span class="knowledge-product-profile-source">{{ sourceNames || '手工录入' }}</span>
         <button
           type="button"
           class="knowledge-product-profile-close"
@@ -189,6 +190,7 @@ onBeforeUnmount(() => {
                 type="button"
                 :class="{ active: index === selected }"
                 :aria-label="`查看图片 ${image.name}`"
+                :disabled="saving"
                 @click="selected = index"
               >
                 <KnowledgeProductImage
@@ -217,12 +219,12 @@ onBeforeUnmount(() => {
               >
                 移除这张
               </button>
-              <small>最多 8 张；选择时只暂存，不写知识库</small>
+              <small>图集 {{ gallery.length }} 张 · 新增 {{ staged.length }} 张</small>
             </div>
           </section>
           <section class="knowledge-product-profile-fields">
             <label>
-              商品标题
+              <span class="knowledge-product-profile-field-label">商品标题 <em>仅本店</em></span>
               <input
                 ref="titleInput"
                 v-model="form.title"
@@ -230,7 +232,6 @@ onBeforeUnmount(() => {
                 maxlength="500"
                 :disabled="saving"
               />
-              <small>仅保存到当前店铺根商品；共享名称/编码仍在知识点工作区维护</small>
             </label>
             <label>
               商品 ID
@@ -246,7 +247,7 @@ onBeforeUnmount(() => {
                 placeholder="未填写"
                 :disabled="saving"
               />
-              <small>手工价与平台采集价分开保存；留空显示“未填写”</small>
+              <small>留空显示未填写</small>
             </label>
             <div class="knowledge-product-profile-platform" aria-label="平台采集价格">
               <div>
@@ -262,7 +263,7 @@ onBeforeUnmount(() => {
               <textarea
                 v-model="form.notes"
                 aria-label="备注"
-                rows="4"
+                rows="3"
                 maxlength="4000"
                 :disabled="saving"
               />
@@ -277,7 +278,7 @@ onBeforeUnmount(() => {
           <textarea
             v-model="form.copy"
             aria-label="商品文案"
-            rows="8"
+            rows="6"
             maxlength="20000"
             :disabled="saving"
           />
@@ -288,9 +289,25 @@ onBeforeUnmount(() => {
             <span>{{ profile.knowledge.approved }} 条已审核</span>
             <span>{{ profile.knowledge.drafts }} 条草稿</span>
           </div>
-          <div>
-            <button type="button" @click="emit('manage-knowledge', false)">管理知识点</button>
-            <button type="button" class="primary" @click="emit('manage-knowledge', true)">
+          <div class="knowledge-product-profile-panels">
+            <button type="button" :disabled="saving" @click="emit('open-panel', 'qa')">
+              知识点
+            </button>
+            <button type="button" :disabled="saving" @click="emit('open-panel', 'sources')">
+              原始资料
+            </button>
+            <button type="button" :disabled="saving" @click="emit('open-panel', 'trial')">
+              试问
+            </button>
+            <button type="button" :disabled="saving" @click="emit('open-panel', 'bindings')">
+              共享与SKU
+            </button>
+            <button
+              type="button"
+              class="primary"
+              :disabled="saving"
+              @click="emit('open-panel', 'qa', true)"
+            >
               ＋ 增加一个知识点
             </button>
           </div>
@@ -299,7 +316,7 @@ onBeforeUnmount(() => {
       </div>
       <footer class="knowledge-product-profile-footer">
         <span v-if="saving">正在保存商品资料…</span>
-        <span v-else-if="staging">正在暂存本地图片…</span>
+        <span v-else-if="staging">正在读取图片…</span>
         <button type="button" :disabled="saving" @click="requestClose">取消</button>
         <button type="button" class="primary" :disabled="saving || staging" @click="emit('save')">
           保存
@@ -362,8 +379,8 @@ onBeforeUnmount(() => {
 .knowledge-product-profile button.primary:hover:not(:disabled) {
   background: #1d4ed8;
 }
-.knowledge-product-profile input:not([type='checkbox']),
-.knowledge-product-profile textarea {
+.knowledge-manager .knowledge-product-profile input:not([type='checkbox']),
+.knowledge-manager .knowledge-product-profile textarea {
   width: 100%;
   color: #f7f3ea;
   background: #191714;
@@ -371,7 +388,7 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   padding: 9px 11px;
 }
-.knowledge-product-profile input[readonly]:not([type='checkbox']) {
+.knowledge-manager .knowledge-product-profile input[readonly]:not([type='checkbox']) {
   color: #b8aea1;
   background: #1d1a17;
 }
@@ -388,18 +405,19 @@ onBeforeUnmount(() => {
 .knowledge-product-profile-header {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex: none;
-  padding: 18px;
+  min-height: 66px;
+  padding: 12px 18px;
   border-bottom: 1px solid #302b26;
 }
 .knowledge-product-profile-head-thumb {
-  width: 64px;
-  height: 64px;
+  width: 32px;
+  height: 32px;
   flex: none;
   overflow: hidden;
   border: 1px solid #3a342d;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 .knowledge-product-profile-heading {
   flex: 1;
@@ -408,24 +426,25 @@ onBeforeUnmount(() => {
 .knowledge-product-profile-heading h2 {
   margin: 0;
   overflow: hidden;
-  font-size: 20px;
-  line-height: 1.4;
+  font-size: 16px;
+  line-height: 32px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.knowledge-product-profile-heading p {
-  margin: 4px 0 0;
-  overflow: hidden;
-  color: #b8aea1;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.knowledge-product-profile-source {
+  flex: none;
+  padding: 3px 9px;
+  color: #c7bdb2;
+  background: #2a2520;
+  border: 1px solid #3a342d;
+  border-radius: 999px;
+  font-size: 12px;
 }
 .knowledge-product-profile-close {
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   padding: 0 !important;
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1;
 }
 .knowledge-product-profile-body {
@@ -492,16 +511,29 @@ onBeforeUnmount(() => {
 .knowledge-product-profile-fields {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 9px;
   min-width: 0;
 }
 .knowledge-product-profile-fields label,
 .knowledge-product-profile-copy {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   color: #d8d0c5;
   font-size: 13px;
+}
+.knowledge-product-profile-field-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.knowledge-product-profile-field-label em {
+  padding: 1px 6px;
+  color: #93c5fd;
+  background: #1e3a5f;
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
 }
 .knowledge-product-profile-fields small {
   color: #8f8579;
@@ -554,8 +586,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 18px;
-  padding: 12px;
+  margin-top: 14px;
+  padding: 10px 12px;
   background: #1d1a17;
   border: 1px solid #302b26;
   border-radius: 10px;
@@ -564,14 +596,19 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
+}
+.knowledge-product-profile-panels button {
+  min-height: 30px;
+  padding: 3px 9px;
+  font-size: 12px;
 }
 .knowledge-product-profile-knowledge span {
   color: #b8aea1;
   font-size: 13px;
 }
 .knowledge-product-profile-error {
-  margin: 14px 0 0;
+  margin: 12px 0 0;
   padding: 9px 11px;
   color: #fecaca;
   background: #3b1f1f;
@@ -584,8 +621,12 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   gap: 10px;
   flex: none;
-  padding: 14px 18px;
+  min-height: 54px;
+  padding: 10px 18px;
   border-top: 1px solid #302b26;
+}
+.knowledge-product-profile-footer button {
+  min-height: 32px;
 }
 .knowledge-product-profile-footer span {
   margin-right: auto;
@@ -620,10 +661,11 @@ onBeforeUnmount(() => {
     flex-direction: column;
   }
   .knowledge-product-profile-footer {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
   .knowledge-product-profile-footer span {
-    flex-basis: 100%;
+    flex: 1;
+    min-width: 0;
   }
 }
 </style>

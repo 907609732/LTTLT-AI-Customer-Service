@@ -43,6 +43,7 @@ const fake = vi.hoisted(() => ({
   productProfile: vi.fn(),
   stageProductImages: vi.fn(),
   discardProductImages: vi.fn(),
+  discardStagedProductImages: vi.fn(),
   saveProductProfile: vi.fn(),
 }))
 it('shows the saved shop product code on the knowledge card', () => {
@@ -177,6 +178,7 @@ async function setup(controller = false, canLearn = false, prepare?: () => void)
   fake.productProfile.mockReset()
   fake.stageProductImages.mockReset().mockResolvedValue([])
   fake.discardProductImages.mockReset().mockResolvedValue({ discarded: 0 })
+  fake.discardStagedProductImages.mockReset().mockResolvedValue({ discarded: 0 })
   fake.saveProductProfile.mockReset()
   fake.context.mockResolvedValue({ workspaceId: 'w', storeId: 'a', revision: 1 })
   fake.onContext.mockReturnValue(() => {})
@@ -2031,6 +2033,7 @@ it('renders the compact product row with title, id and source on one line, summa
     sources: 2,
     approved: 3,
     drafts: 1,
+    displayTitle: '本店展示标题',
     summary: '这是列表按需投影的简短文案摘要',
     imageAssetIds: ['i1', 'i2', 'i3', 'i4'],
     productSummary: {
@@ -2058,7 +2061,7 @@ it('renders the compact product row with title, id and source on one line, summa
   })
   const article = wrapper.get('article')
   const heading = article.get('.knowledge-card-heading')
-  expect(heading.text()).toContain('21 本店标题')
+  expect(heading.text()).toContain('21 本店展示标题')
   expect(heading.text()).toContain('product-1')
   expect(heading.text()).toContain('平台采集 / 手工资料')
   expect(article.get('.knowledge-card-summary').text()).toContain('简短文案摘要')
@@ -2137,8 +2140,39 @@ it('guards unsaved product edits on route leave and discards staged images on ca
   expect(manager.productProfileError.value).toContain('已变化')
   expect(manager.productProfileForm.value?.title).toBe('尚未保存的标题')
   expect(manager.productProfile.value?.binding.id).toBe('b')
+  const lateToken = '7c1f2a9a-2f46-4ad6-a7a9-ccecb90efea2'
+  let resolveLate!: (
+    value: {
+      token: string
+      name: string
+      mimeType: string
+      size: number
+      preview: string
+    }[],
+  ) => void
+  fake.stageProductImages.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveLate = resolve
+      }),
+  )
+  const late = manager.addProductImages()
+  await flushPromises()
+  expect(manager.productProfileStaging.value).toBe(true)
   await manager.closeProductProfile()
-  expect(fake.discardProductImages).toHaveBeenCalledWith([token])
+  resolveLate([
+    {
+      token: lateToken,
+      name: 'late.png',
+      mimeType: 'image/png',
+      size: 10,
+      preview: 'data:image/png;base64,cG5n',
+    },
+  ])
+  await late
+  expect(fake.discardStagedProductImages).toHaveBeenCalledWith([token])
+  expect(fake.discardStagedProductImages).toHaveBeenCalledWith([lateToken])
+  expect(manager.productProfileStaged.value).toHaveLength(0)
   expect(manager.productProfile.value).toBeUndefined()
   expect(fake.saveProductProfile).toHaveBeenCalledTimes(1)
   wrapper.unmount()

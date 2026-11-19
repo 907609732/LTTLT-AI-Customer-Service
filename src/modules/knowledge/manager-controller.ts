@@ -13,6 +13,7 @@ import { getDesktop } from '@/shared/platform/desktop'
 import { downloadText } from '@/shared/platform/files'
 import { knowledgeDraftSchema, knowledgeScopeSchema } from '@/shared/contracts/knowledge'
 import { isKnowledgeProductProfileSource } from '@/shared/contracts/knowledge-product-profile'
+import type { KnowledgeProductProfilePanel } from '@/shared/contracts/knowledge-product-profile'
 import type {
   KnowledgeDraftInput,
   KnowledgeEntry,
@@ -312,6 +313,9 @@ export function useKnowledgeManager() {
       stageProductImages: (input: Parameters<typeof service.stageProductImages>[0]) =>
         guard(service.stageProductImages(input)),
       discardProductImages: (tokens: string[]) => guard(service.discardProductImages(tokens)),
+      // Staging cleanup must survive a stale store/generation after the native picker closes.
+      // It still goes through IPC workspace validation and opaque-token ownership.
+      discardStagedProductImages: (tokens: string[]) => service.discardStagedProductImages(tokens),
       saveProductProfile: (input: Parameters<typeof service.saveProductProfile>[0]) =>
         guard(service.saveProductProfile(input)),
       context: () => guard(Promise.resolve(service.context())),
@@ -662,7 +666,15 @@ export function useKnowledgeManager() {
     resetCatalog()
     productProfile.reset()
   }
+  function profileInteractionLocked() {
+    if (!productProfile.saving.value && !productProfile.staging.value) return false
+    error.value = productProfile.saving.value
+      ? '正在保存商品资料，请稍候再切换'
+      : '正在选择商品图片，请稍候再切换'
+    return true
+  }
   async function changeStore(next: string) {
+    if (profileInteractionLocked()) return
     await run(async () => {
       await closeEditor()
       leaseRevision++
@@ -682,6 +694,7 @@ export function useKnowledgeManager() {
     })
   }
   async function changeTab(next: KnowledgeManagerTab) {
+    if (profileInteractionLocked()) return
     await run(async () => {
       await closeEditor()
       tab.value = next
@@ -724,6 +737,7 @@ export function useKnowledgeManager() {
     await refresh()
   }
   async function showView(next: typeof view.value) {
+    if (profileInteractionLocked()) return
     await run(() => setView(next))
   }
   async function openProduct(row: KnowledgeProductCard) {
@@ -751,11 +765,18 @@ export function useKnowledgeManager() {
       await productProfile.open(row, trigger)
     })
   }
-  async function manageProductKnowledge(create: boolean) {
+  async function openProductPanel(panel: KnowledgeProductProfilePanel, create = false) {
     await run(async () => {
       const current = productProfile.profile.value
       if (!current) return
-      if (productProfile.dirty.value) throw Error('请先保存或取消商品资料修改，再进入知识点编辑')
+      if (productProfile.saving.value || productProfile.staging.value) {
+        productProfile.setError('正在保存商品资料，请稍候')
+        return
+      }
+      if (productProfile.dirty.value) {
+        productProfile.setError('请先保存或取消商品资料修改，再进入知识点编辑')
+        return
+      }
       const row: KnowledgeProductCard = {
         canonical: current.canonical,
         binding: current.binding,
@@ -770,6 +791,8 @@ export function useKnowledgeManager() {
       }
       await productProfile.close(false)
       await openProduct(row)
+      detailTab.value = panel
+      if (panel === 'bindings') await loadCanonicals()
       if (create) await writeOne()
     })
   }
@@ -1487,7 +1510,7 @@ export function useKnowledgeManager() {
     addProductImages: productProfile.addImages,
     removeStagedProductImage: productProfile.removeStaged,
     saveProductProfile: productProfile.save,
-    manageProductKnowledge,
+    openProductPanel,
     openTraining,
     loadTrainingProducts,
     editEntry,
