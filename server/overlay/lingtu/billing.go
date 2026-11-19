@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"reflect"
 	"regexp"
 	"time"
 
@@ -14,6 +13,9 @@ import (
 
 var ErrBillingConflict = errors.New("billing order conflicts with payment or retry")
 var ErrBillingInput = errors.New("invalid billing input")
+
+const PermanentSupportPlanID = "support_100000"
+
 var billingIdentifier = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
 
 // Monetary amounts are integer minor currency units, never floating point.
@@ -25,10 +27,11 @@ type BillingPlan struct {
 	ListAmount int64  `json:"list_amount,omitempty"`
 	Calls      int    `json:"calls"`
 	ValidDays  int    `json:"valid_days"`
+	Permanent  bool   `json:"permanent,omitempty" gorm:"not null;default:false"`
 }
 
 func (p BillingPlan) Valid() bool {
-	return billingIdentifier.MatchString(p.ID) && len(p.Name) > 0 && len(p.Name) <= 128 && p.Currency == "cny" && p.ListAmount >= 0 && (p.ListAmount == 0 || p.ListAmount >= p.Amount) && p.Amount > 0 && p.Amount <= 100000000 && p.Calls > 0 && p.Calls <= 1000000 && p.ValidDays > 0 && p.ValidDays <= 365
+	return billingIdentifier.MatchString(p.ID) && len(p.Name) > 0 && len(p.Name) <= 128 && p.Currency == "cny" && p.ListAmount >= 0 && (p.ListAmount == 0 || p.ListAmount >= p.Amount) && p.Amount > 0 && p.Amount <= 100000000 && p.Calls > 0 && p.Calls <= 1000000 && p.ValidDays > 0 && p.ValidDays <= 365 && (!p.Permanent || p.ID == PermanentSupportPlanID)
 }
 
 type BillingOrder struct {
@@ -75,7 +78,7 @@ type BillingStore struct{ db *gorm.DB }
 
 func NewBillingStore(db *gorm.DB) *BillingStore { return &BillingStore{db: db} }
 func (s *BillingStore) Migrate() error {
-	if err := s.db.AutoMigrate(&BillingOrder{}, &BillingCredit{}, &PaidGrant{}); err != nil {
+	if err := s.db.AutoMigrate(&BillingOrder{}, &BillingCredit{}, &PaidGrant{}, &PermanentGrant{}); err != nil {
 		return err
 	}
 	// Existing receipts prove mixing occurred, but cannot establish which past calls
@@ -104,8 +107,15 @@ func (s *BillingStore) CreateChannelOrder(uid int, request string, plan BillingP
 	var existing BillingOrder
 	lookup := func() (BillingOrder, error) {
 		err := s.db.Where("user_id = ? AND request_id = ?", uid, request).First(&existing).Error
-		if err == nil && (!reflect.DeepEqual(existing.Plan, plan) || existing.Channel != channel) {
-			err = ErrBillingConflict
+		if err == nil {
+			original := plan
+			// Retrying an order created before the offer changed reuses its immutable terms.
+			if original.Permanent && !existing.Plan.Permanent {
+				original.Permanent = false
+			}
+			if existing.Plan != original || existing.Channel != channel {
+				err = ErrBillingConflict
+			}
 		}
 		return existing, err
 	}
@@ -209,31 +219,7 @@ func (s *BillingStore) Credit(payment BillingPayment, now time.Time) error {
 		if order.State != "pending" && order.State != "closed" && order.State != "reconciling" {
 			return ErrBillingConflict
 		}
-		grant := PaidGrant{UserID: order.UserID}
-		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&grant).Error; err != nil {
-			return err
-		}
-		if err := tx.First(&grant, "user_id = ?", order.UserID).Error; err != nil {
-			return err
-		}
-		limit := grant.Limit
-		epoch := grant.Epoch
-		if grant.ExpiresAt <= now.Unix() {
-			epoch++
-			limit = grant.Used + grant.Reserved
-		}
-		if limit > 2000000000-order.Plan.Calls {
-			return ErrBillingConflict
-		}
-		expiry := max(grant.ExpiresAt, now.Add(365*24*time.Hour).Unix())
-		if err := tx.Model(&PaidGrant{}).Where("user_id = ?", order.UserID).Updates(map[string]any{"call_limit": limit + order.Plan.Calls, "expires_at": expiry, "epoch": epoch}).Error; err != nil {
-			return err
-		}
-		// Keep the pools and counters separate, but carry an active trial through
-		// the paid validity period. Expired trials and historical receipts stay unchanged.
-		if err := tx.Model(&TrialGrant{}).
-			Where("user_id = ? AND expires_at > ? AND expires_at < ?", order.UserID, now.Unix(), expiry).
-			UpdateColumn("expires_at", expiry).Error; err != nil {
+		if err := creditPaidQuota(tx, order, now); err != nil {
 			return err
 		}
 		receipt := BillingCredit{OrderID: order.ID, EventID: payment.EventID, UserID: order.UserID, Calls: order.Plan.Calls, CreatedAt: now.Unix(), ProviderKey: &key, Channel: payment.Channel, MerchantID: payment.MerchantID, TransactionID: payment.TransactionID, PaidAt: payment.PaidAt}
@@ -243,6 +229,53 @@ func (s *BillingStore) Credit(payment BillingPayment, now time.Time) error {
 		return tx.Model(&BillingOrder{}).Where("id = ?", order.ID).Updates(map[string]any{"state": "paid", "paid_at": payment.PaidAt, "credited_at": now.Unix()}).Error
 	})
 }
+func creditPaidQuota(tx *gorm.DB, order BillingOrder, now time.Time) error {
+	if order.Plan.Permanent {
+		grant := PermanentGrant{UserID: order.UserID}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&grant).Error; err != nil {
+			return err
+		}
+		result := tx.Model(&PermanentGrant{}).
+			Where("user_id = ? AND call_limit <= ?", order.UserID, 2000000000-order.Plan.Calls).
+			UpdateColumn("call_limit", gorm.Expr("call_limit + ?", order.Plan.Calls))
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrBillingConflict
+		}
+		// Keep the existing trial extension benefit finite for permanent purchases.
+		return extendActiveTrial(tx, order.UserID, now, now.Add(365*24*time.Hour).Unix())
+	}
+	grant := PaidGrant{UserID: order.UserID}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&grant).Error; err != nil {
+		return err
+	}
+	if err := tx.First(&grant, "user_id = ?", order.UserID).Error; err != nil {
+		return err
+	}
+	limit := grant.Limit
+	epoch := grant.Epoch
+	if grant.ExpiresAt <= now.Unix() {
+		epoch++
+		limit = grant.Used + grant.Reserved
+	}
+	if limit > 2000000000-order.Plan.Calls {
+		return ErrBillingConflict
+	}
+	expiry := max(grant.ExpiresAt, now.Add(365*24*time.Hour).Unix())
+	if err := tx.Model(&PaidGrant{}).Where("user_id = ?", order.UserID).Updates(map[string]any{"call_limit": limit + order.Plan.Calls, "expires_at": expiry, "epoch": epoch}).Error; err != nil {
+		return err
+	}
+	return extendActiveTrial(tx, order.UserID, now, expiry)
+}
+
+func extendActiveTrial(tx *gorm.DB, userID int, now time.Time, expiry int64) error {
+	return tx.Model(&TrialGrant{}).
+		Where("user_id = ? AND expires_at > ? AND expires_at < ?", userID, now.Unix(), expiry).
+		UpdateColumn("expires_at", expiry).Error
+}
+
 func (s *BillingStore) Order(uid int, id string) (BillingOrder, error) {
 	var o BillingOrder
 	if uid <= 0 || !billingIdentifier.MatchString(id) {

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useRuntimeStore } from '@/shared/state/runtime'
+import { permanentAccountExpiry } from '@/shared/contracts/managed'
 import { useTask } from '@/shared/ui/use-task'
 import { modelPresets } from '../model-presets'
 import { Refresh } from '@element-plus/icons-vue'
@@ -31,6 +32,7 @@ const visionMountKey = computed(
 )
 const quotaExpiry = computed(() => {
   const expires = session.value.account?.trial.expiresAt
+  if (expires === permanentAccountExpiry) return '含永久额度'
   return expires ? new Date(expires * 1000).toLocaleString('zh-CN') : '未提供'
 })
 watch(provider, () => {

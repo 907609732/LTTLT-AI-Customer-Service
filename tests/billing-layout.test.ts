@@ -39,7 +39,14 @@ function setup(state = 'paid', compact = false) {
           ...order,
           plan:
             body?.plan_id === 'support_100000'
-              ? { ...plan, id: 'support_100000', name: '共创支持包', amount: 100000, calls: 100000 }
+              ? {
+                  ...plan,
+                  id: 'support_100000',
+                  name: '共创支持包',
+                  amount: 100000,
+                  calls: 100000,
+                  permanent: true,
+                }
               : plan,
           state: 'pending',
           paid_at: 0,
@@ -54,7 +61,14 @@ function setup(state = 'paid', compact = false) {
           reason: '',
           plans: [
             plan,
-            { ...plan, id: 'support_100000', name: '共创支持包', amount: 100000, calls: 100000 },
+            {
+              ...plan,
+              id: 'support_100000',
+              name: '共创支持包',
+              amount: 100000,
+              calls: 100000,
+              permanent: true,
+            },
           ],
           channels: [{ id: 'alipay', ready: true, reason: '' }],
           quota: { trial: pool, paid: pool, remaining: 158 },
@@ -107,10 +121,13 @@ describe('简化充值页', () => {
     await flushPromises()
     const card = wrapper.get('.billing-plan--premium')
     expect(card.text()).toContain('¥1000.00')
+    expect(card.text()).toContain('永久有效')
+    expect(wrapper.get('.billing-plan:not(.billing-plan--premium)').text()).toContain('365 天')
     expect(card.text()).toContain('一对一客服')
     expect(card.text()).toContain('程序开发者一对一对接')
     await card.get('button').trigger('click')
     expect(document.querySelector('.billing-cashier-dialog')?.textContent).toContain('共创支持包')
+    expect(document.querySelector('.billing-cashier-dialog')?.textContent).toContain('永久有效')
     expect(request.mock.calls.filter((call) => call[0] === 'POST')).toHaveLength(1)
   })
   it('进入充值页自动展示额度与已完成订单，仅收起额度明细', async () => {

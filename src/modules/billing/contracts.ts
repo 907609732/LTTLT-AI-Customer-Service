@@ -6,7 +6,7 @@ const identifier = billingIdentifier
 /** 官方扫码渠道。USDT、对公转账等未获批渠道不在此枚举内。 */
 export const billingChannelSchema = z.enum(['alipay', 'wechat'])
 export type BillingChannel = z.infer<typeof billingChannelSchema>
-/** 服务端账本按试用/付费两个独立计时池返回；过期池的 remaining 为 0。 */
+/** 服务端分开返回试用、有期限的付费和永久额度。 */
 const quotaBucket = z.object({
   provenance: z.string().max(64).optional(),
   limit: z.number().int().nonnegative(),
@@ -24,6 +24,7 @@ export const billingPlanSchema = z.object({
   list_amount: z.number().int().positive().max(100000000).optional(),
   calls: z.number().int().positive().max(1000000),
   valid_days: z.number().int().positive().max(365),
+  permanent: z.boolean().optional(),
 })
 export const billingCatalogSchema = z.object({
   ready: z.boolean(),
@@ -35,7 +36,12 @@ export const billingCatalogSchema = z.object({
     .max(2)
     .optional(),
   quota: z
-    .object({ trial: quotaBucket, paid: quotaBucket, remaining: z.number().int().nonnegative() })
+    .object({
+      trial: quotaBucket,
+      paid: quotaBucket,
+      permanent: quotaBucket.optional(),
+      remaining: z.number().int().nonnegative(),
+    })
     .optional(),
   service: z
     .object({

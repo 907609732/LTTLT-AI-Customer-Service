@@ -50,7 +50,7 @@ type TrialStore struct{ db *gorm.DB }
 
 func NewTrialStore(db *gorm.DB) *TrialStore { return &TrialStore{db: db} }
 func (s *TrialStore) Migrate() error {
-	if err := s.db.AutoMigrate(&TrialGrant{}, &PaidGrant{}, &TrialRequest{}, &trialLimitGate{}, &trialDailyBudget{}, &trialLimitedRequest{}); err != nil {
+	if err := s.db.AutoMigrate(&TrialGrant{}, &PaidGrant{}, &PermanentGrant{}, &TrialRequest{}, &trialLimitGate{}, &trialDailyBudget{}, &trialLimitedRequest{}); err != nil {
 		return err
 	}
 	return s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&trialLimitGate{ID: 1}).Error
@@ -159,7 +159,10 @@ func (s *TrialStore) settle(userID int, requestID, outcome string, charge bool) 
 			updates["used"] = gorm.Expr("used + 1")
 		}
 		model := any(&TrialGrant{})
-		if request.Source == "paid" {
+		switch request.Source {
+		case permanentQuotaSource:
+			model = &PermanentGrant{}
+		case "paid":
 			model = &PaidGrant{}
 			var paid PaidGrant
 			if err := tx.First(&paid, "user_id = ?", userID).Error; err != nil {

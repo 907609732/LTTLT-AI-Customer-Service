@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { permanentAccountExpiry } from '@/shared/contracts/managed'
 import { useBilling } from '../use-billing'
 import { paymentCodeImage } from '../payment-code'
 import type { BillingChannel, BillingOrder, BillingPlan } from '../contracts'
 const props = defineProps<{ section?: 'plans' | 'orders' | 'usage'; compact?: boolean }>()
 const billing = useBilling()
+const validity = (plan: BillingPlan) => (plan.permanent ? '永久有效' : `${plan.valid_days} 天`)
 const {
   account,
   catalog,
@@ -224,13 +226,24 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
             <span>付费剩余</span><strong>{{ catalog.quota.paid.remaining }} 次</strong>
             <span>到期 {{ date(catalog.quota.paid.expires_at) }}</span>
           </div>
+          <div v-if="catalog.quota.permanent?.limit" class="quota-stat">
+            <span>永久额度剩余</span><strong>{{ catalog.quota.permanent.remaining }} 次</strong>
+            <span>永久有效</span>
+          </div>
           <div class="quota-stat">
             <span>试用剩余</span><strong>{{ catalog.quota.trial.remaining }} 次</strong>
             <span>到期 {{ date(catalog.quota.trial.expires_at) }}</span>
           </div>
           <div class="quota-stat">
             <span>处理中或待对账</span
-            ><strong>{{ catalog.quota.paid.reserved + catalog.quota.trial.reserved }} 次</strong>
+            ><strong
+              >{{
+                catalog.quota.paid.reserved +
+                catalog.quota.trial.reserved +
+                (catalog.quota.permanent?.reserved ?? 0)
+              }}
+              次</strong
+            >
           </div>
         </template>
         <template v-else>
@@ -244,7 +257,12 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
             <span>处理中或待对账</span><strong>{{ account.trial.reserved }} 次</strong>
           </div>
           <div class="quota-stat">
-            <span>到期时间</span><strong>{{ date(account.trial.expiresAt) }}</strong>
+            <span>到期时间</span
+            ><strong>{{
+              account.trial.expiresAt === permanentAccountExpiry
+                ? '含永久额度'
+                : date(account.trial.expiresAt)
+            }}</strong>
           </div>
         </template>
         <p>AI 回复按次计费，处理中额度将在结果确认后更新。</p>
@@ -300,7 +318,7 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
               </div>
               <div>
                 <dt>有效期</dt>
-                <dd>{{ plan.valid_days }} 天</dd>
+                <dd>{{ validity(plan) }}</dd>
               </div>
             </dl>
             <div v-if="isPremium(plan)" class="premium-benefits">
@@ -329,7 +347,7 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
       <p v-if="!nativeReady && catalog?.ready && catalogError === ''" class="section-note">
         微信/支付宝扫码渠道尚未配置；如管理员启用了网页支付，可使用上方按钮按网页收银台付款。
       </p>
-      <p class="section-note">充值额度叠加，未到期的试用余额同步延长有效期。</p>
+      <p class="section-note">充值后会延长未到期的试用额度。</p>
     </section>
     <el-dialog
       v-if="!compact && signedIn && billing.transport"
@@ -345,7 +363,7 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
       <div class="cashier">
         <p v-if="selectedPlan">
           {{ selectedPlan.name }} · {{ money(selectedPlan.amount) }} · {{ selectedPlan.calls }} 次 ·
-          有效期 {{ selectedPlan.valid_days }} 天
+          有效期 {{ validity(selectedPlan) }}
         </p>
         <p v-if="selectedPlan && isPremium(selectedPlan)" class="premium-benefits">
           专属一对一客服 · 程序开发者一对一对接

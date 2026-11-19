@@ -175,16 +175,16 @@
     {
       "path": "overlay/lingtu/trial.go",
       "upstreamPath": "managed-server/overlay/lingtu/trial.go",
-      "sha256": "ac403e1a8466700b66656a23cf1a3643e2c5202347aeb3c055633d63ab3d0786",
+      "sha256": "7fa123842743efd948c9a29be834cfa6b09af106b0afe2dbd0ef9579ccbbae5d",
       "upstreamSha256": "0b6035bacc7645f2d44b4b011b6fed9c39d69506017a9d1c44dfee45d9a88f24",
-      "localPatch": "2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
+      "localPatch": "2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts; 2026-11-19: permanent co-creation support quota and compatibility regression."
     },
     {
       "path": "overlay/lingtu/trial_test.go",
       "upstreamPath": "managed-server/overlay/lingtu/trial_test.go",
-      "sha256": "965ee778eae646d4ba74429b6f8fe5bde8a77d3872c963e40770c62939b76e63",
+      "sha256": "517637bb190d1b29c0c094176e8b4d366f1f44eb0605ecd89104542ba4598951",
       "upstreamSha256": "601d8f4b40ee0c81b7838e86acee5a539fd62e17065e39db84dd84bbb6f24736",
-      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
+      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts; 2026-11-19: permanent co-creation support quota and compatibility regression."
     },
     {
       "path": "overlay/lingtuhost/admin.go",
@@ -226,9 +226,9 @@
     {
       "path": "overlay/lingtuhost/admin_test.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin_test.go",
-      "sha256": "eb84f6e08b8dbf3cf7118474e9d916fa6761747bcf04fc8129878005c7c8327e",
+      "sha256": "193ad06e64182ccbae35b36b1e3dcd90f9be98143b24c4fd38526cb27d66fbfc",
       "upstreamSha256": "449bcdc0686398980572603b969a6365ece81412578ab79e6131dd9fbf375bf4",
-      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts"
+      "localPatch": "2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs; 2026-11-17: enforce managed context policy with typed purpose/version/source, stale-version rejection before quota, hidden reply prompt, bounded learning output, source and vision gates, persisted usage purpose, and 16K text ceiling for policy-aware calls and legacy calls with active hidden prompts; 2026-11-19: permanent co-creation support quota and compatibility regression."
     },
     {
       "path": "overlay/lingtuhost/admin_usage.go",
@@ -300,9 +300,9 @@
     {
       "path": "overlay/lingtuhost/routes.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/routes.go",
-      "sha256": "1727cf2623a7137e1e31f589462ba2e632480bbb417c50e67425621f5f8a66eb",
+      "sha256": "0393f96aae2bfb5cca7a456e4116022bbc83edaeb5d7aa4e97c462c33eeaab1c",
       "upstreamSha256": "06864f9097cc5e2c7010927b6f5ba3d3bba95e0099ff771abbaaebc73932d5c4",
-      "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors. Reuse bounded client body middleware; only exact POST /api/client/chat/completions permits 16MiB image envelopes, all other client routes retain 1MiB. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs Add the managed context policy safe projection to the existing authenticated GET /api/client/config: keep default_model/models/max_tokens semantics, add top-level policy_version plus runtime_context/learning from ClientProjection only, use DefaultContextPolicy when no row exists, and fail closed with 503 on an unreadable setting."
+      "localPatch": "Explicit numeric-loopback HTTP support; register isolated team and billing domain routes on the existing client-auth group, failing startup on migration errors. Reuse bounded client body middleware; only exact POST /api/client/chat/completions permits 16MiB image envelopes, all other client routes retain 1MiB. Resolve managed-model policy and explicit selection without changing legacy request digest, bounded PNG input, account authentication or call settlement.; 2026-11-17: merge production native payment, paid quota and free summary with persisted CNY micro-costs Add the managed context policy safe projection to the existing authenticated GET /api/client/config: keep default_model/models/max_tokens semantics, add top-level policy_version plus runtime_context/learning from ClientProjection only, use DefaultContextPolicy when no row exists, and fail closed with 503 on an unreadable setting.; 2026-11-19: permanent co-creation support quota and compatibility regression."
     },
     {
       "path": "overlay/lingtuhost/vision.go",
@@ -550,33 +550,33 @@
     },
     {
       "path": "overlay/lingtu/billing.go",
-      "sha256": "01ea111544964bca6cfeeec2fdb30e4c7b679cd996b35debb203dc90247d9f45",
-      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+      "sha256": "08c577e7bfad016503bdbd901535a2036059780647eddc0622e18941474bb4a5",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-19: permanent co-creation support quota and compatibility regression."
     },
     {
       "path": "overlay/lingtu/quota.go",
-      "sha256": "d8998b61142c3ebdd486f364c72c712b21faa690d30bc31cea5d8876a661a1d6",
-      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+      "sha256": "92a651b4a71f95d0caa4e142fd5c8dc665ac889e4d6dad47a49bb3739b70eb7a",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-19: permanent co-creation support quota and compatibility regression."
     },
     {
       "path": "overlay/lingtu/quota_test.go",
-      "sha256": "303c78383d915b203037972de108dd4cf09162af1782895cf915eac9f91b8a75",
-      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+      "sha256": "1a44c08655ab7b3661d76b8f3dd242a7117cc1882efcabefc9c4a7c621306921",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-19: permanent co-creation support quota and compatibility regression."
     },
     {
       "path": "overlay/lingtuhost/billing_native.go",
-      "sha256": "b67b2b1ade7f08913578aa685fc59accd041d5645a6afcbaf6cb9e219307f639",
-      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+      "sha256": "4aee324c2d740701d279a4e815abc86260ef7bfdd09f8722c106da4789e06c1b",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-19: permanent co-creation support quota and compatibility regression."
     },
     {
       "path": "overlay/lingtuhost/billing_native_test.go",
-      "sha256": "9472d7237f35884cf3e8c1e1f01d559e9e5e85f1262dfcf465c53c0b750c33d1",
-      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+      "sha256": "5b7cc1e942e4e3391b3bb88f0b7a53360c36b94c2c91f64514ea4e4a25c56db0",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-19: permanent co-creation support quota and compatibility regression."
     },
     {
       "path": "overlay/lingtuhost/billing_test.go",
-      "sha256": "5937e8210c1a0feef034d918172bf5c82bde87f2c747b3319a217ce2e8ff95dd",
-      "localPatch": "2026-11-19: opt-in managed learning policy and explicit 1-40 call budget; default 20 remains, no production deployment."
+      "sha256": "7d7fa27c59e3c4e2c724d0c16ed191e37fa952539c277350ecb3883cca90ab9f",
+      "localPatch": "2026-11-19: opt-in managed learning policy and explicit 1-40 call budget; default 20 remains, no production deployment.; 2026-11-19: permanent co-creation support quota and compatibility regression."
     },
     {
       "path": "overlay/lingtuhost/billing_config_test.go",
@@ -595,8 +595,8 @@
     },
     {
       "path": "overlay/lingtuhost/billing_config.go",
-      "sha256": "7c599278952536eba36c4689c03a7a0acd05bf3d94ebbe0a9c66c9b472259831",
-      "localPatch": "2026-11-19: prepare opt-in managed-learning policy and explicit call budget; no production deployment."
+      "sha256": "498dd57dac39a5c73528d0cda1d78c79063bb6351e1f388ccaa62d15260d85e6",
+      "localPatch": "2026-11-19: prepare opt-in managed-learning policy and explicit call budget; no production deployment.; 2026-11-19: permanent co-creation support quota and compatibility regression."
     }
   ]
 }

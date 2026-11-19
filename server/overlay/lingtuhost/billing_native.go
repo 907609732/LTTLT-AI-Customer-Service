@@ -37,7 +37,7 @@ func defaultBillingPlans() []lingtu.BillingPlan {
 	return []lingtu.BillingPlan{
 		{ID: "usage_1000", Name: "体验包 · 小小心意", Currency: "cny", Amount: 990, ListAmount: 1000, Calls: 1000, ValidDays: 365},
 		{ID: "usage_10000", Name: "标准包 · 支持一份", Currency: "cny", Amount: 10000, ListAmount: 10000, Calls: 10000, ValidDays: 365},
-		{ID: "support_100000", Name: "共创支持包", Currency: "cny", Amount: 100000, Calls: 100000, ValidDays: 365},
+		{ID: lingtu.PermanentSupportPlanID, Name: "共创支持包", Currency: "cny", Amount: 100000, Calls: 100000, ValidDays: 365, Permanent: true},
 	}
 }
 func (h *billingHost) nativeChannel(channel string) nativeProvider {

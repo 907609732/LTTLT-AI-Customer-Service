@@ -55,7 +55,7 @@ func trialDB(t *testing.T) *gorm.DB {
 		}
 		// Match SQLite's per-test database: paid grants and immutable receipts must
 		// not survive into another test's trial/quota accounting.
-		if err := db.Migrator().DropTable(&BillingCredit{}, &BillingOrder{}, &PaidGrant{}, &trialLimitedRequest{}, &trialDailyBudget{}, &trialLimitGate{}, &TrialRequest{}, &TrialGrant{}, &ManagedSession{}, &DeviceGrant{}); err != nil {
+		if err := db.Migrator().DropTable(&BillingCredit{}, &BillingOrder{}, &PaidGrant{}, &PermanentGrant{}, &trialLimitedRequest{}, &trialDailyBudget{}, &trialLimitGate{}, &TrialRequest{}, &TrialGrant{}, &ManagedSession{}, &DeviceGrant{}); err != nil {
 			t.Fatal(err)
 		}
 	}

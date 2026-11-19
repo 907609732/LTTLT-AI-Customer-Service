@@ -32,7 +32,7 @@ type billingServiceInfo struct {
 func billingServiceVersion() billingServiceInfo {
 	// Preserve every capability already serving production, then expose the
 	// persisted per-request token cost estimate added on top of the cost base.
-	return billingServiceInfo{Version: "2026.11.19-learning.1", BillingProtocol: 2, Capabilities: []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates", "trial-expiry-extends-on-recharge", "managed-learning-policy"}}
+	return billingServiceInfo{Version: "2026.11.19-permanent.1", BillingProtocol: 2, Capabilities: []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates", "trial-expiry-extends-on-recharge", "managed-learning-policy", "permanent-support-quota"}}
 }
 
 // Stored only inside ManagedSetting's authenticated encryption serializer.
@@ -110,7 +110,12 @@ func billingPublicConfig(settings billingSettings) billingConfig {
 	}
 	c.Ready = true
 	c.Reason = ""
-	c.Plans = settings.Plans
+	c.Plans = append([]lingtu.BillingPlan(nil), settings.Plans...)
+	for i := range c.Plans {
+		if c.Plans[i].ID == lingtu.PermanentSupportPlanID {
+			c.Plans[i].Permanent = true
+		}
+	}
 	return c
 }
 func billingSettingsView(settings billingSettings, source string) gin.H {
@@ -249,7 +254,7 @@ func (h *billingHost) adminCheckBilling(c *gin.Context) {
 		clientFailure(c, 503, "merchant_test_failed")
 		return
 	}
-	for _, table := range []interface{}{&lingtu.BillingOrder{}, &lingtu.BillingCredit{}, &lingtu.TrialGrant{}} {
+	for _, table := range []interface{}{&lingtu.BillingOrder{}, &lingtu.BillingCredit{}, &lingtu.TrialGrant{}, &lingtu.PaidGrant{}, &lingtu.PermanentGrant{}} {
 		rows, err := h.db.Model(table).Select("1").Limit(1).Rows()
 		if err != nil {
 			clientFailure(c, 503, "billing_unavailable")

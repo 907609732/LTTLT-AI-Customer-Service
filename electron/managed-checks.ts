@@ -83,7 +83,29 @@ export async function managedChecks(options: {
         capabilities: { model: 'managed-fixture', vision: false, max_images: 4 },
       }
     else if (endpoint === '/api/client/billing' && request.method === 'GET')
-      result = { ready: false, reason: '', plans: [] }
+      result = {
+        ready: true,
+        reason: '',
+        plans: [
+          {
+            id: 'usage_1000',
+            name: '体验包',
+            currency: 'cny',
+            amount: 990,
+            calls: 1000,
+            valid_days: 365,
+          },
+          {
+            id: 'support_100000',
+            name: '共创支持包',
+            currency: 'cny',
+            amount: 100000,
+            calls: 100000,
+            valid_days: 365,
+            permanent: true,
+          },
+        ],
+      }
     else if (endpoint === '/api/client/billing/orders' && request.method === 'GET')
       result = { orders: [] }
     else if (endpoint === '/api/client/chat/completions') {
@@ -247,7 +269,7 @@ export async function managedChecks(options: {
       )
       for (let attempt = 0; attempt < 80; attempt++) {
         const ready = await win.webContents.executeJavaScript(
-          `document.querySelector('.orders-content')?.innerText.includes('暂无可核实的充值订单记录')`,
+          `document.querySelector('.orders-content')?.innerText.includes('暂无可核实的充值订单记录') && Boolean(document.querySelector('.billing-plan--premium'))`,
         )
         if (ready) break
         await new Promise((resolve) => setTimeout(resolve, 50))
@@ -259,6 +281,12 @@ export async function managedChecks(options: {
       assert.match(billingText, /最近充值订单/)
       assert.match(billingText, /暂无可核实的充值订单记录/)
       assert.doesNotMatch(billingText, /查看记录/)
+      const support = await win.webContents.executeJavaScript(
+        `document.querySelector('.billing-plan--premium')?.innerText`,
+      )
+      assert.match(support, /永久有效/)
+      assert.doesNotMatch(support, /365 天/)
+      assert.match(billingText, /365 天/)
     })
     await check(
       'managed:uncertain-request-stops-retry-until-explicit-review',

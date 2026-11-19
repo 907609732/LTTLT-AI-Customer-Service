@@ -13,6 +13,9 @@ export const defaultModelSource: ModelSource = {
   apiOrigin: 'https://api-kefu.lttlt.top',
   portalOrigin: 'https://account-kefu.lttlt.top',
 }
+// Server marker for an aggregate containing usable permanent credits.
+export const permanentAccountExpiry = 253402300799
+
 export const managedSessionSchema = z.object({
   status: z.enum(['signed_out', 'authorizing', 'signed_in', 'offline', 'expired', 'disabled']),
   account: z

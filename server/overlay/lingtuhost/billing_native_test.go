@@ -19,7 +19,7 @@ func TestNativeSupportPlanCheckoutAndCredit(t *testing.T) {
 		t.Fatalf("checkout duplicated: %+v %v", orders, err)
 	}
 	order := orders[0]
-	if order.Plan.Amount != 100000 || order.Plan.Calls != 100000 || order.Plan.ValidDays != 365 {
+	if order.Plan.Amount != 100000 || order.Plan.Calls != 100000 || order.Plan.ValidDays != 365 || !order.Plan.Permanent {
 		t.Fatalf("wrong support tier: %+v", order.Plan)
 	}
 	provider.result.State = "paid"
@@ -31,7 +31,7 @@ func TestNativeSupportPlanCheckoutAndCredit(t *testing.T) {
 		}
 	}
 	quota, err := h.store.Quota(42, time.Now())
-	if err != nil || quota.Paid.Remaining != 100000 || quota.Trial.Remaining != 2 || quota.Trial.ExpiresAt != quota.Paid.ExpiresAt {
+	if err != nil || quota.Permanent.Remaining != 100000 || quota.Paid.Remaining != 0 || quota.Trial.Remaining != 2 {
 		t.Fatalf("incorrect support entitlement: %+v %v", quota, err)
 	}
 }
@@ -44,7 +44,7 @@ func TestNativeCatalogDefaultPlansAndChannelIsolation(t *testing.T) {
 	if len(c.Plans) != 3 || c.Plans[0].ID != "usage_1000" || c.Plans[0].Amount != 990 || c.Plans[1].Amount != 10000 {
 		t.Fatalf("default plans missing: %+v", c.Plans)
 	}
-	if p := c.Plans[2]; p.ID != "support_100000" || p.Amount != 100000 || p.Calls != 100000 || p.ValidDays != 365 || !p.Valid() {
+	if p := c.Plans[2]; p.ID != "support_100000" || p.Amount != 100000 || p.Calls != 100000 || p.ValidDays != 365 || !p.Permanent || !p.Valid() {
 		t.Fatalf("support plan incorrect: %+v", p)
 	}
 	if len(c.Channels) != 2 || c.Channels[0].Ready || c.Channels[1].Ready {

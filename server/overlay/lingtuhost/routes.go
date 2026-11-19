@@ -236,7 +236,7 @@ func (h *Host) accountResponse(c *gin.Context, uid int) {
 	}
 	// Keep the historical account field as an aggregate admission snapshot for old
 	// desktop sessions; the billing catalog exposes the independent source pools.
-	c.JSON(200, gin.H{"capabilities": capability, "user_id": uid, "display_name": user.DisplayName, "status": account.Status, "quota": quota, "trial": gin.H{"limit": quota.Trial.Limit + quota.Paid.Limit, "used": quota.Trial.Used + quota.Paid.Used, "reserved": quota.Trial.Reserved + quota.Paid.Reserved, "remaining": quota.Remaining, "expires_at": max(quota.Trial.ExpiresAt, quota.Paid.ExpiresAt)}})
+	c.JSON(200, gin.H{"capabilities": capability, "user_id": uid, "display_name": user.DisplayName, "status": account.Status, "quota": quota, "trial": quota.AccountQuota()})
 }
 func (h *Host) config(c *gin.Context) {
 	policy, err := lingtu.LoadTrialPolicy(model.DB)

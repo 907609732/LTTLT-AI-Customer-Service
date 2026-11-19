@@ -339,3 +339,104 @@ func TestAuxiliaryUnknownReconciliationRemainsFree(t *testing.T) {
 		t.Fatalf("summary reconciliation billed %+v", g)
 	}
 }
+
+func TestPermanentSupportQuotaRetainsOriginalOrderTermsAndSettlement(t *testing.T) {
+	db := trialDB(t)
+	trials, billing := NewTrialStore(db), NewBillingStore(db)
+	if err := trials.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := billing.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1800000000, 0)
+	if err := trials.Grant(42, now, 1, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := BillingPlan{ID: "support_100000", Name: "Support", Currency: "cny", Amount: 100000, Calls: 100000, ValidDays: 365}
+	legacy, err := billing.CreateOrder(42, "legacy", plan, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Permanent = true
+	retry, err := billing.CreateOrder(42, "legacy", plan, now)
+	if err != nil || retry.ID != legacy.ID || retry.Plan.Permanent {
+		t.Fatalf("legacy retry changed terms: %+v %v", retry, err)
+	}
+	order, err := billing.CreateOrder(42, "new", plan, now)
+	if err != nil || !order.Plan.Permanent {
+		t.Fatalf("new terms missing: %+v %v", order, err)
+	}
+
+	pay := func(o BillingOrder, event string) {
+		t.Helper()
+		session := "cs_" + event
+		if err := billing.AttachCheckout(o.ID, session); err != nil {
+			t.Fatal(err)
+		}
+		payment := BillingPayment{OrderID: o.ID, SessionID: session, EventID: event, Amount: plan.Amount, Currency: plan.Currency}
+		for range 2 {
+			if err := billing.Credit(payment, now); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	pay(order, "permanent")
+	q, err := billing.Quota(42, now)
+	if err != nil || q.Permanent.Remaining != 100000 || q.Paid.Limit != 0 || q.Trial.ExpiresAt != now.Add(365*24*time.Hour).Unix() {
+		t.Fatalf("permanent purchase affected timed paid quota or trial extension: %+v %v", q, err)
+	}
+	duplicate, err := billing.CreateOrder(42, "duplicate_event", plan, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := billing.AttachCheckout(duplicate.ID, "cs_duplicate"); err != nil {
+		t.Fatal(err)
+	}
+	if err := billing.Credit(BillingPayment{OrderID: duplicate.ID, SessionID: "cs_duplicate", EventID: "permanent", Amount: plan.Amount, Currency: plan.Currency}, now); err == nil {
+		t.Fatal("duplicate event credited another order")
+	}
+	duplicate, err = billing.Order(42, duplicate.ID)
+	if err != nil || duplicate.State != "pending" {
+		t.Fatalf("failed credit changed order: %+v %v", duplicate, err)
+	}
+	pay(legacy, "legacy")
+	q, err = billing.Quota(42, now)
+	if err != nil || q.Paid.Remaining != 100000 || q.Permanent.Remaining != 100000 {
+		t.Fatalf("legacy purchase changed pools: %+v %v", q, err)
+	}
+
+	reserve := func(id string, at time.Time, source string) {
+		t.Helper()
+		if _, err := trials.Reserve(42, id, "digest_"+id, at); err != nil {
+			t.Fatal(err)
+		}
+		var request TrialRequest
+		if err := db.First(&request, "user_id = ? AND request_id = ?", 42, id).Error; err != nil || request.Source != source {
+			t.Fatalf("reservation source: %+v %v", request, err)
+		}
+	}
+	reserve("trial", now, "trial")
+	reserve("paid", now, "paid")
+	later := now.Add(2 * 365 * 24 * time.Hour)
+	reserve("success", later, "permanent")
+	reserve("uncertain", later, "permanent")
+	if err := trials.Settle(42, "success", "success"); err != nil {
+		t.Fatal(err)
+	}
+	if err := trials.Settle(42, "uncertain", "uncertain"); err != nil {
+		t.Fatal(err)
+	}
+	q, err = billing.Quota(42, later)
+	if err != nil || q.Permanent.Reserved != 1 || q.Permanent.Used != 1 || q.Remaining != 99998 || q.Trial.Remaining != 0 || q.Paid.Remaining != 0 {
+		t.Fatalf("incorrect quota after expiry and settlement: %+v %v", q, err)
+	}
+	if err := trials.Settle(42, "uncertain", "failed"); err != nil {
+		t.Fatal(err)
+	}
+	q, err = billing.Quota(42, later)
+	if err != nil || q.Permanent.Reserved != 0 || q.Remaining != 99999 || q.AccountQuota().ExpiresAt != PermanentAccountExpiry {
+		t.Fatalf("reconciliation or account compatibility failed: %+v %v", q, err)
+	}
+}
