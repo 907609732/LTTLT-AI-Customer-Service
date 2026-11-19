@@ -6,11 +6,13 @@ import { useKnowledgeMaintenance } from './maintenance-controller'
 import { useKnowledgeProductLearning } from './product-learning-controller'
 import { useKnowledgeMiss } from './miss-controller'
 import { useKnowledgeProductFamily } from './product-family-controller'
+import { useKnowledgeProductProfile } from './product-profile-controller'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { getDesktop } from '@/shared/platform/desktop'
 import { downloadText } from '@/shared/platform/files'
 import { knowledgeDraftSchema, knowledgeScopeSchema } from '@/shared/contracts/knowledge'
+import { isKnowledgeProductProfileSource } from '@/shared/contracts/knowledge-product-profile'
 import type {
   KnowledgeDraftInput,
   KnowledgeEntry,
@@ -95,7 +97,9 @@ export function useKnowledgeManager() {
         .flatMap((v) => v.sourceRefs.map((r) => r.sourceId)),
     )
     return value.sources.filter(
-      (s) => bindings.some((b) => b.id === s.bindingId) || dependencies.has(s.id),
+      (s) =>
+        !isKnowledgeProductProfileSource(s) &&
+        (bindings.some((b) => b.id === s.bindingId) || dependencies.has(s.id)),
     )
   }
   const sourceOriginLabel = (source: KnowledgeSource) =>
@@ -239,6 +243,14 @@ export function useKnowledgeManager() {
     previewClear,
     clearKnowledge,
   } = maintenance
+  const productProfileFocus = ref<HTMLElement>()
+  const productProfile = useKnowledgeProductProfile({
+    client,
+    storeId,
+    refresh,
+    notice,
+    error,
+  })
   watch(storeId, () => {
     maintenance.reset()
     clearTimeout(progressTimer)
@@ -253,6 +265,7 @@ export function useKnowledgeManager() {
     trainingLoading.value = false
     trainingError.value = ''
     resetLearning()
+    productProfile.reset()
     ingestion.reset()
     batchResults.value = []
   })
@@ -294,6 +307,13 @@ export function useKnowledgeManager() {
         guard(service.clearPreview(scope)),
       reassociate: (input: Parameters<typeof service.reassociate>[0]) =>
         guard(service.reassociate(input)),
+      productProfile: (storeId: string, bindingId: string) =>
+        guard(service.productProfile(storeId, bindingId)),
+      stageProductImages: (input: Parameters<typeof service.stageProductImages>[0]) =>
+        guard(service.stageProductImages(input)),
+      discardProductImages: (tokens: string[]) => guard(service.discardProductImages(tokens)),
+      saveProductProfile: (input: Parameters<typeof service.saveProductProfile>[0]) =>
+        guard(service.saveProductProfile(input)),
       context: () => guard(Promise.resolve(service.context())),
       hide: () => guard(Promise.resolve(service.hide())),
     }
@@ -640,6 +660,7 @@ export function useKnowledgeManager() {
     question.value = ''
     trialSku.value = ''
     resetCatalog()
+    productProfile.reset()
   }
   async function changeStore(next: string) {
     await run(async () => {
@@ -720,6 +741,37 @@ export function useKnowledgeManager() {
     question.value = ''
     trial.value = undefined
     trialSku.value = ''
+  }
+  async function openProductProfile(row: KnowledgeProductCard, trigger?: HTMLElement) {
+    if (row.binding.storeId !== storeId.value)
+      throw Error('商品不属于当前知识库店铺，请刷新商品列表后重试')
+    productProfileFocus.value = trigger
+    await run(async () => {
+      await closeEditor()
+      await productProfile.open(row, trigger)
+    })
+  }
+  async function manageProductKnowledge(create: boolean) {
+    await run(async () => {
+      const current = productProfile.profile.value
+      if (!current) return
+      if (productProfile.dirty.value) throw Error('请先保存或取消商品资料修改，再进入知识点编辑')
+      const row: KnowledgeProductCard = {
+        canonical: current.canonical,
+        binding: current.binding,
+        sources: current.sources.count,
+        approved: current.knowledge.approved,
+        drafts: current.knowledge.drafts,
+        sourceSummary: {
+          count: current.sources.count,
+          kinds: current.sources.kinds,
+          thumbnailAssetId: current.images[0]?.assetId ?? null,
+        },
+      }
+      await productProfile.close(false)
+      await openProduct(row)
+      if (create) await writeOne()
+    })
   }
   function editEntry(entry: KnowledgeEntry) {
     entry = currentEntry(entry)
@@ -1183,6 +1235,7 @@ export function useKnowledgeManager() {
       error.value = '正在处理操作，请完成后再关闭知识库'
       return
     }
+    if (!(await productProfile.prepareLeave())) return
     await run(async () => {
       do {
         await saveDraft()
@@ -1196,6 +1249,7 @@ export function useKnowledgeManager() {
       error.value = '正在处理操作，请完成后再离开知识库'
       return false
     }
+    if (!(await productProfile.prepareLeave())) return false
     if (!dirty.value) return true
     try {
       await saveDraft()
@@ -1297,6 +1351,7 @@ export function useKnowledgeManager() {
         recommendations.value = []
         entryHistory.value = []
         resetCatalog()
+        productProfile.reset()
         ingestion.reset()
         batchResults.value = []
         workspace.value = next
@@ -1335,6 +1390,7 @@ export function useKnowledgeManager() {
     clearTimeout(progressTimer)
     offContext?.()
     offClose?.()
+    productProfile.reset()
   })
   return {
     desktop,
@@ -1417,6 +1473,21 @@ export function useKnowledgeManager() {
     changeTab,
     showView,
     openProduct,
+    openProductProfile,
+    productProfile: productProfile.profile,
+    productProfileForm: productProfile.form,
+    productProfileStaged: productProfile.staged,
+    productProfileLoading: productProfile.loading,
+    productProfileSaving: productProfile.saving,
+    productProfileStaging: productProfile.staging,
+    productProfileError: productProfile.error,
+    productProfileFocus,
+    closeProductProfile: productProfile.close,
+    updateProductProfileForm: productProfile.updateForm,
+    addProductImages: productProfile.addImages,
+    removeStagedProductImage: productProfile.removeStaged,
+    saveProductProfile: productProfile.save,
+    manageProductKnowledge,
     openTraining,
     loadTrainingProducts,
     editEntry,

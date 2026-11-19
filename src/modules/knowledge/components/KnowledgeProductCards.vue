@@ -36,10 +36,19 @@ function learningActive(row: KnowledgeProductCard) {
   const job = learningJob(row)
   return !!job && ['queued', 'running', 'paused', 'needs-confirmation'].includes(job.status)
 }
+function visibleImages(row: KnowledgeProductCard) {
+  const ids = row.imageAssetIds?.length
+    ? row.imageAssetIds
+    : row.sourceSummary.thumbnailAssetId
+      ? [row.sourceSummary.thumbnailAssetId]
+      : []
+  return [...new Set(ids)].slice(0, 3)
+}
 const emit = defineEmits<{
   'job-action': [input: KnowledgePipelineInput]
   select: [id: string, checked: boolean]
-  edit: [row: KnowledgeProductCard]
+  edit: [row: KnowledgeProductCard, trigger?: HTMLElement]
+  knowledge: [row: KnowledgeProductCard]
   training: [row: KnowledgeProductCard]
   learn: [row: KnowledgeProductCard]
   ocr: [row: KnowledgeProductCard]
@@ -57,33 +66,39 @@ const emit = defineEmits<{
     />
     <div class="knowledge-card-body">
       <div class="knowledge-card-heading">
-        <b>{{ page * 20 + index + 1 }} {{ row.binding.title || row.canonical.title }}</b
+        <b
+          ><span class="knowledge-card-number">{{ page * 20 + index + 1 }}</span>
+          {{ row.binding.title || row.canonical.title }}</b
         ><span class="badge">{{ row.binding.productId }}</span
         ><span class="badge">{{
           row.sourceSummary.kinds.map(sourceLabel).join(' / ') || '手工录入'
         }}</span>
       </div>
-      <p class="knowledge-muted">
-        共享商品：{{ row.canonical.title }} · 商品编码：{{
-          row.productSummary?.code || row.canonical.code || '暂无编码'
-        }}
-        · {{ row.sources }} 份来源 · {{ row.productSummary?.skuCount ?? 0 }} 个SKU ·
-        {{ row.productSummary?.specifications.join(' / ') || '规格未采集' }}
+      <p class="knowledge-card-summary">
+        {{ row.summary || '暂无商品文案摘要，点击编辑补充。' }}
       </p>
-      <p class="knowledge-muted">
-        动态资料：{{
+      <small class="knowledge-muted knowledge-card-meta">
+        商品编码：{{ row.productSummary?.code || row.canonical.code || '暂无编码' }} ·
+        {{ row.sources }} 份来源 · {{ row.productSummary?.skuCount ?? 0 }} 个SKU ·
+        {{ row.productSummary?.specifications.join(' / ') || '规格未采集' }} ·
+        {{
           row.productSummary?.capturedAt
             ? `${new Date(row.productSummary.capturedAt).toLocaleString()}采集 · ${row.productSummary.expired ? '已过期，需重新核对' : '有效至' + new Date(row.productSummary.expiresAt!).toLocaleString()}`
             : '未取得动态快照'
         }}
-      </p>
+      </small>
       <div class="knowledge-card-media">
         <KnowledgeThumbnail
-          v-if="row.sourceSummary.thumbnailAssetId"
-          :asset-id="row.sourceSummary.thumbnailAssetId"
+          v-for="assetId in visibleImages(row)"
+          :key="assetId"
+          :asset-id="assetId"
           :load="loadAsset"
-        /><span v-else class="knowledge-image-empty">暂无来源图片</span
-        ><button @click="emit('edit', row)">
+        /><span v-if="!visibleImages(row).length" class="knowledge-image-empty">暂无来源图片</span
+        ><button
+          class="knowledge-card-counts"
+          data-testid="product-knowledge"
+          @click="emit('knowledge', row)"
+        >
           {{ row.approved }} 条已审核 · {{ row.drafts }} 条草稿 ›
         </button>
         <KnowledgeJobProgress
@@ -104,7 +119,11 @@ const emit = defineEmits<{
       >
         开始学习</button
       ><button @click="emit('backup', row.canonical.id)">同款备份</button
-      ><button @click="emit('edit', row)">编辑</button
+      ><button
+        data-testid="product-edit"
+        @click="emit('edit', row, $event.currentTarget as HTMLElement)"
+      >
+        编辑</button
       ><button data-testid="product-training" @click="emit('training', row)">AI训练场</button
       ><button class="danger" @click="emit('remove', row)">解除关联</button>
     </div>
@@ -112,17 +131,46 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
+.knowledge-card-number {
+  color: #8a94a6;
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+.knowledge-card-summary {
+  display: -webkit-box;
+  margin: 7px 0 5px !important;
+  overflow: hidden;
+  color: #4b5563;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.knowledge-card-meta {
+  display: block;
+  margin-bottom: 6px;
+}
 .knowledge-card-media {
   flex-wrap: nowrap;
   gap: 8px;
+  overflow-x: auto;
 }
 .knowledge-card-media > button {
   flex: none;
   white-space: nowrap;
 }
+.knowledge-card-counts {
+  color: #2453e8 !important;
+  border-radius: 16px !important;
+}
 .knowledge-image-empty {
   width: 80px;
   font-size: 12px;
   flex: none;
+}
+@media (max-width: 1100px) {
+  .knowledge-card-media {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
 }
 </style>

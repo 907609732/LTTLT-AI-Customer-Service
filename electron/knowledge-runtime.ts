@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { cpSync, mkdirSync } from 'node:fs'
 import { createKnowledgeRepository } from './knowledge/repository'
+import { createKnowledgeProductProfileService } from './knowledge/product-profile'
 import {
   inspectKnowledgeBackup,
   knowledgeBackupScope,
@@ -17,6 +18,7 @@ import type {
   KnowledgeClearPreview,
 } from '../src/shared/contracts/knowledge-client'
 import type { KnowledgeCitation, KnowledgeResolution } from '../src/shared/contracts/knowledge'
+import { isKnowledgeProductProfileSource } from '../src/shared/contracts/knowledge-product-profile'
 import { modelMessagesSchema, CONTEXT_TRIGGER, type ModelMessages } from './context-compression'
 import { estimateKnowledgeCitationTokens, estimateKnowledgeTokens } from './knowledge/budget'
 import type { ManagedContextPolicy } from './managed-context-policy'
@@ -95,6 +97,8 @@ export function createKnowledgeRuntime(options: {
   stores(): { id: string; storeName: string; platform: string }[]
   changed(): void
   chooseRestore?(): Promise<string | undefined>
+  /** Native file picker owned by the knowledge runtime; renderer receives only staged previews/tokens. */
+  chooseProductImages?(): Promise<{ name: string; bytes: Uint8Array }[]>
   resolveSku?(storeId: string, productId: string, question: string): string
   /**
    * Managed reception reads the current safe projection from the main-process
@@ -156,6 +160,13 @@ export function createKnowledgeRuntime(options: {
     active()
     if (!options.stores().some((s) => s.id === id)) throw Error('店铺不存在或已移除')
   }
+  const productProfile = createKnowledgeProductProfileService({
+    repository: repo,
+    workspaceId: options.workspaceId,
+    assertActive: active,
+    assertStore: store,
+    chooseProductImages: options.chooseProductImages,
+  })
   const skuIdentity = (storeId: string, productId: string, query: string, requested = '') =>
     requested ||
     options.resolveSku?.(storeId, productId, query) ||
@@ -720,8 +731,10 @@ export function createKnowledgeRuntime(options: {
         }
         if ('sourceIds' in input)
           for (const id of input.sourceIds) {
-            if (repo.getSource(id)?.storeId !== input.storeId)
-              throw Error('所选来源与当前任务店铺不符')
+            const source = repo.getSource(id)
+            if (source?.storeId !== input.storeId) throw Error('所选来源与当前任务店铺不符')
+            if (source && isKnowledgeProductProfileSource(source))
+              throw Error('商品手工资料不参与学习，请在知识点中单独编辑并审核')
           }
         if ('jobId' in input && repo.getJob(input.jobId)?.storeId !== input.storeId)
           throw Error('任务与当前店铺不符')
@@ -864,6 +877,23 @@ export function createKnowledgeRuntime(options: {
           throw Error('仅支持预览已登记的安全图片（20MB以内）')
         return `data:${mime};base64,${bytes.toString('base64')}`
       }
+      if (request.operation === 'product-profile')
+        return productProfile.read(request.storeId, request.bindingId)
+      if (request.operation === 'product-image-stage')
+        return productProfile.stage({
+          storeId: request.storeId,
+          bindingId: request.bindingId,
+          expectedBindingRevision: request.expectedBindingRevision,
+          expectedManualSourceId: request.expectedManualSourceId,
+          expectedManualSourceRevision: request.expectedManualSourceRevision,
+        })
+      if (request.operation === 'product-image-discard')
+        return productProfile.discard(request.tokens)
+      if (request.operation === 'product-profile-save') {
+        const result = await productProfile.save(request.input)
+        options.changed()
+        return result
+      }
       if (request.operation === 'backup') {
         if (request.storeId) store(request.storeId)
         return repo.createBackup(
@@ -964,6 +994,7 @@ export function createKnowledgeRuntime(options: {
       controllers.clear()
       resolutions.clear()
       traces.clear()
+      productProfile.clear()
       pipeline?.dispose()
     },
   }

@@ -29,6 +29,7 @@ import {
   resolveReceptionKeywordSafety,
 } from './reception-keyword-settings'
 import path from 'node:path'
+import { readFile, stat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import {
   app,
@@ -278,6 +279,28 @@ export function createLocalRuntime(options: {
         properties: ['openDirectory'],
       })
       return selection.canceled ? undefined : selection.filePaths[0]
+    },
+    // Native paths and bytes stay in the main process. The renderer only receives
+    // validated previews plus opaque, short-lived staging tokens.
+    chooseProductImages: async () => {
+      const selection = await dialog.showOpenDialog({
+        title: '选择商品图片',
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: '商品图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }],
+      })
+      if (selection.canceled) return []
+      if (selection.filePaths.length > 8) throw Error('一次最多选择8张商品图片')
+      const files: { name: string; bytes: Uint8Array }[] = []
+      let total = 0
+      for (const file of selection.filePaths) {
+        const info = await stat(file)
+        if (!info.isFile() || info.size > 10 * 1024 * 1024)
+          throw Error('单张商品图片需为10MB以内的普通文件')
+        total += info.size
+        if (total > 50 * 1024 * 1024) throw Error('一次选择的商品图片合计不能超过50MB')
+        files.push({ name: path.basename(file), bytes: await readFile(file) })
+      }
+      return files
     },
     changed: () => {
       if (!closed) for (const listener of listeners) listener({ type: 'knowledge:changed' })

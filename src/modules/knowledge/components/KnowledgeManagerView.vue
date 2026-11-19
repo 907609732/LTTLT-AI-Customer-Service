@@ -8,6 +8,7 @@ import KnowledgeJobProgress from './KnowledgeJobProgress.vue'
 import KnowledgeCatalogDialog from './KnowledgeCatalogDialog.vue'
 import KnowledgeThumbnail from './KnowledgeThumbnail.vue'
 import KnowledgeProductCards from './KnowledgeProductCards.vue'
+import KnowledgeProductProfileDialog from './KnowledgeProductProfileDialog.vue'
 import ShopTrainingPanel from './ShopTrainingPanel.vue'
 import KnowledgeOcrPreview from './KnowledgeOcrPreview.vue'
 import KnowledgeDraftEditor from './KnowledgeDraftEditor.vue'
@@ -106,6 +107,21 @@ const {
   changeTab,
   showView,
   openProduct,
+  openProductProfile,
+  productProfile,
+  productProfileForm,
+  productProfileStaged,
+  productProfileLoading,
+  productProfileSaving,
+  productProfileStaging,
+  productProfileError,
+  productProfileFocus,
+  closeProductProfile,
+  updateProductProfileForm,
+  addProductImages,
+  removeStagedProductImage,
+  saveProductProfile,
+  manageProductKnowledge,
   openTraining,
   loadTrainingProducts,
   editEntry,
@@ -390,7 +406,8 @@ const missFilters = [
           :can-learn="Boolean(capabilities?.learn)"
           :load-asset="client().asset"
           @select="select"
-          @edit="(row) => run(() => openProduct(row))"
+          @edit="openProductProfile"
+          @knowledge="(row) => run(() => openProduct(row))"
           @training="(row) => run(() => openTraining(row))"
           @learn="(row) => run(() => learnProduct(row.binding))"
           @ocr="(row) => run(() => recognizeProduct(row.binding))"
@@ -1095,6 +1112,25 @@ v{{ source.revision }} · {{ source.hash }}
         </footer>
       </section>
     </div>
+    <div v-if="productProfileLoading" class="knowledge-product-profile-loading" role="status">
+      正在读取商品资料…
+    </div>
+    <KnowledgeProductProfileDialog
+      v-if="productProfile && productProfileForm"
+      :profile="productProfile"
+      :staged="productProfileStaged"
+      :saving="productProfileSaving"
+      :staging="productProfileStaging"
+      :error="productProfileError"
+      :load-asset="client().asset"
+      :return-focus="productProfileFocus"
+      @change="updateProductProfileForm"
+      @add-images="addProductImages"
+      @remove-staged="removeStagedProductImage"
+      @cancel="closeProductProfile"
+      @save="saveProductProfile"
+      @manage-knowledge="manageProductKnowledge"
+    />
   </main>
 </template>
 

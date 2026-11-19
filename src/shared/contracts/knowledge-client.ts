@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { knowledgePipelineInputSchema } from './knowledge-pipeline'
 import {
+  knowledgeProductImageDiscardSchema,
+  knowledgeProductImageStageSchema,
+  knowledgeProductProfileSaveSchema,
+} from './knowledge-product-profile'
+import {
   knowledgeCommandSchema,
   knowledgeQuerySchema,
   knowledgeResolveSchema,
@@ -204,6 +209,35 @@ export const knowledgeRequestSchema = z
         operation: z.literal('backup'),
         canonicalId: z.string().min(1).max(200).optional(),
         storeId: z.string().min(1).max(200).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        workspaceId: z.string().min(1),
+        operation: z.literal('product-profile'),
+        storeId: z.string().trim().min(1).max(200),
+        bindingId: z.string().trim().min(1).max(200),
+      })
+      .strict(),
+    z
+      .object({
+        workspaceId: z.string().min(1),
+        operation: z.literal('product-image-stage'),
+        ...knowledgeProductImageStageSchema.shape,
+      })
+      .strict(),
+    z
+      .object({
+        workspaceId: z.string().min(1),
+        operation: z.literal('product-image-discard'),
+        ...knowledgeProductImageDiscardSchema.shape,
+      })
+      .strict(),
+    z
+      .object({
+        workspaceId: z.string().min(1),
+        operation: z.literal('product-profile-save'),
+        input: knowledgeProductProfileSaveSchema,
       })
       .strict(),
   ])

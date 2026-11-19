@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { BrowserWindow, safeStorage } from 'electron'
+import { BrowserWindow, dialog, safeStorage } from 'electron'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -1275,6 +1275,175 @@ export async function businessChecks(options: {
       assert.equal(visionSwitch, true)
       const shot = await win.webContents.capturePage()
       fs.writeFileSync(path.resolve('artifacts/desktop/image-current-model.png'), shot.toPNG())
+    })
+    await check('business:knowledge-product-editor', '/knowledge', async () => {
+      await load('/')
+      let current = await snapshot()
+      let shop = current.stores.find((row) => row.id === storeA)?.id ?? current.stores[0]?.id
+      if (!shop) {
+        const added = await execute({
+          action: 'add-store',
+          values: { platform: 'sim-local', storeName: '商品资料隔离店' },
+        })
+        shop = String(added.data.id)
+        storeA = shop
+      }
+      await execute({ action: 'select-store', storeId: shop })
+      current = await snapshot()
+      const productId = `profile-fixture-${Date.now()}`
+      const canonical = (await options.knowledge({
+        workspaceId: current.workspaceId,
+        operation: 'command',
+        command: {
+          type: 'save-canonical',
+          canonical: { title: '商品资料编辑隔离标题', code: 'PROFILE-CODE' },
+        },
+      })) as import('../src/shared/contracts/knowledge').CanonicalProduct
+      const binding = (await options.knowledge({
+        workspaceId: current.workspaceId,
+        operation: 'command',
+        command: {
+          type: 'bind-product',
+          binding: {
+            canonicalId: canonical.id,
+            storeId: shop,
+            productId,
+            title: '商品资料编辑隔离标题',
+          },
+        },
+      })) as import('../src/shared/contracts/knowledge').ProductBinding
+      const originalBounds = win.getBounds()
+      const wasMaximized = win.isMaximized()
+      const originalZoom = win.webContents.getZoomFactor()
+      const png = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgQIAK6mS4QAAAABJRU5ErkJggg==',
+        'base64',
+      )
+      const imagePath = path.join(dataDir, 'fixture-product-profile.png')
+      fs.writeFileSync(imagePath, png)
+      const callsBefore = calls.length
+      try {
+        await load('/knowledge')
+        await wait(
+          `Array.from(document.querySelectorAll('[data-testid="product-edit"]')).some(button => button.closest('.knowledge-card')?.textContent.includes(${JSON.stringify(productId)}))`,
+        )
+        await win.webContents.executeJavaScript(
+          `(()=>{const card=Array.from(document.querySelectorAll('.knowledge-card')).find(node=>node.textContent.includes(${JSON.stringify(productId)}));card.querySelector('[data-testid="product-edit"]').click()})()`,
+        )
+        await wait(`Boolean(document.querySelector('.knowledge-product-profile'))`)
+        const opened = (await win.webContents.executeJavaScript(`(()=>{
+          const dialog=document.querySelector('.knowledge-product-profile');
+          const rect=dialog.getBoundingClientRect();
+          return {width:rect.width,height:rect.height,maxWidth:getComputedStyle(dialog).maxWidth,
+            focus:document.activeElement?.getAttribute('aria-label')||''}
+        })()`)) as { width: number; height: number; maxWidth: string; focus: string }
+        assert.equal(opened.focus, '商品标题')
+        assert(opened.width <= 980)
+        assert(opened.height <= Math.min(win.getContentBounds().height * 0.88, 900) + 1)
+        await setInput('商品标题', '本店保存后的商品标题')
+        await setInput('手工价格', '18.80')
+        await setInput('备注', '仅用于隔离验收的备注')
+        await setInput('商品文案', '隔离验收商品文案，包含尺码与材质说明。')
+        const originalPicker = dialog.showOpenDialog
+        dialog.showOpenDialog = (async () => ({
+          canceled: false,
+          filePaths: [imagePath],
+        })) as typeof dialog.showOpenDialog
+        try {
+          await win.webContents.executeJavaScript(
+            `document.querySelector('[data-testid="add-product-images"]').click()`,
+          )
+          await wait(`Boolean(document.querySelector('[data-testid="remove-staged-image"]'))`)
+        } finally {
+          dialog.showOpenDialog = originalPicker
+        }
+        await win.webContents.executeJavaScript(
+          `(()=>{const button=Array.from(document.querySelectorAll('.knowledge-product-profile-footer button')).find(node=>node.textContent.trim()==='保存');button.click()})()`,
+        )
+        await wait(`!document.querySelector('.knowledge-product-profile')`)
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.activeElement?.getAttribute('data-testid') || ''`,
+          ),
+          'product-edit',
+        )
+        const saved = (await options.knowledge({
+          workspaceId: current.workspaceId,
+          operation: 'product-profile',
+          storeId: shop,
+          bindingId: binding.id,
+        })) as import('../src/shared/contracts/knowledge-product-profile').KnowledgeProductProfile
+        assert.equal(saved.title, '本店保存后的商品标题')
+        assert.equal(saved.manualPrice, '18.80')
+        assert.equal(saved.notes, '仅用于隔离验收的备注')
+        assert.equal(saved.copy, '隔离验收商品文案，包含尺码与材质说明。')
+        assert.equal(saved.images.length, 1)
+        assert.equal(saved.copySource, 'manual')
+        assert.equal(calls.length, callsBefore, '商品资料保存不能调用模型')
+        win.setSize(1280, 900)
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/knowledge-product-editor-list.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+        await win.webContents.executeJavaScript(
+          `(()=>{const card=Array.from(document.querySelectorAll('.knowledge-card')).find(node=>node.textContent.includes(${JSON.stringify(productId)}));card.querySelector('[data-testid="product-edit"]').click()})()`,
+        )
+        await wait(`Boolean(document.querySelector('.knowledge-product-profile'))`)
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/knowledge-product-editor-desktop.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.documentElement.scrollWidth<=window.innerWidth+1`,
+          ),
+          true,
+        )
+        await win.webContents.executeJavaScript(
+          `(()=>{const button=document.querySelector('[aria-label="关闭商品编辑"]');button.click()})()`,
+        )
+        await wait(`!document.querySelector('.knowledge-product-profile')`)
+        if (win.isMaximized()) win.unmaximize()
+        win.webContents.setZoomFactor(1.8)
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        await win.webContents.executeJavaScript(
+          `(()=>{const card=Array.from(document.querySelectorAll('.knowledge-card')).find(node=>node.textContent.includes(${JSON.stringify(productId)}));card.querySelector('[data-testid="product-edit"]').click()})()`,
+        )
+        await wait(`Boolean(document.querySelector('.knowledge-product-profile'))`)
+        const narrow = (await win.webContents.executeJavaScript(`(()=>{
+          const dialog=document.querySelector('.knowledge-product-profile');
+          const grid=document.querySelector('.knowledge-product-profile-grid');
+          const rect=dialog.getBoundingClientRect();
+          return {width:rect.width,innerWidth:window.innerWidth,
+            columns:getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length,
+            overflow:document.documentElement.scrollWidth>window.innerWidth+1}
+        })()`)) as { width: number; innerWidth: number; columns: number; overflow: boolean }
+        assert.equal(narrow.columns, 1, JSON.stringify(narrow))
+        assert(narrow.width <= narrow.innerWidth)
+        assert.equal(narrow.overflow, false)
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/knowledge-product-editor-narrow.png'),
+          (await win.webContents.capturePage()).toPNG(),
+        )
+        await win.webContents.executeJavaScript(
+          `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`,
+        )
+        await wait(`!document.querySelector('.knowledge-product-profile')`)
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.activeElement?.getAttribute('data-testid') || ''`,
+          ),
+          'product-edit',
+        )
+      } finally {
+        win.webContents.setZoomFactor(originalZoom)
+        win.setBounds(originalBounds)
+        if (wasMaximized) win.maximize()
+      }
     })
     await check('business:size-vision-common', '/shop/manage', async () => {
       const log = (step: string) => console.log(`[size-vision] ${step}`)

@@ -1,5 +1,13 @@
 # knowledge 模块
 
+2026-11-19 商品资料编辑弹窗：商品行把标题/编号/来源收在同一行，下面只展示分页投影的短文案、最多3张缩略图、审核/草稿计数和学习进度，右侧保留原操作。点击“编辑”进入深炭色居中弹窗（≤980px、`max-height:min(88vh,900px)`），顶部显示图/标题/来源/关闭，正文独立滚动，底部固定取消/保存；左260px图集支持切换和本地加图，右侧编辑当前店铺根商品标题、只读商品ID、手工价格、平台采集价/有效期和备注，全宽文案显示字数，并保留“管理知识点/增加一个知识点”进入原问答编辑器。`product-profile-controller.ts` 只持有该弹窗表单和暂存图；`manager-controller.ts` 仍是店铺/账号租约、路由离开、草稿/审核和刷新生命周期的唯一所有者。按钮使用 `data-testid="product-edit"`/`product-knowledge`，窄屏通过 760px media query 单列。
+
+读取使用 `product-profile` 窄操作：标题先取本店 `${binding.title}`，回退平台静态资料标题和共享标题；文案优先已存手工来源，否则平台静态描述；平台价只投影同店同商品当前动态快照，缺失/过期不补造。列表 SQL 只取最多200字摘要和3个图片资产ID，不把来源正文或逐行详情传给渲染层。保存使用 `product-profile-save`，一次事务提交标题、手工价、备注、文案和新增图。标题只更新当前店铺根 binding，共享名称/编码仍走原工作区入口。
+
+图片使用主进程原生选择器，渲染层不接触路径：PNG/JPEG/GIF/WebP按字节签名识别，单图≤10MB、单次≤8张、合计≤50MB，图集≤8张。成功选图只进入带工作区/店铺/根 binding/双 revision 租约的内存 staging（最多16项、2分钟TTL、单次使用不透明 token），不写业务DB；取消/切店/关闭丢弃，保存成功才由 `KnowledgeRepository.addAsset/saveSource` 与手工资料同事务提交。首次和并发保存都核对 binding revision、手工来源 ID/revision，冲突保留表单和合法暂存；平台快照、身份和原审核条目不被覆写。
+
+手工资料固定使用现有 `sources/source_versions/assets` 机制、`kind='manual'`、标签 `商品手工资料` 和 `lingtu-product-profile-v1` JSON（`src/shared/contracts/knowledge-product-profile.ts`），因此无需DB迁移，并进入原件/同款/单店备份恢复闭包。该来源不参与 `resolve` 接待，也不作为学习素材：商品学习/OCR入口过滤它，运行时 pipeline 对传入该来源直接拒绝。保存失败、重复提交、迟到选图、两店相同商品ID（含同款共享canonical）隔离见 `tests/knowledge-product-profile.test.ts`、`tests/knowledge-product-editor.test.ts` 与 `tests/knowledge-manager.test.ts`；真实主窗口桌面/窄屏入口为 `LINGTU_DESKTOP_CHECKS=business:knowledge-product-editor node scripts/run-desktop.mjs`。
+
 商品复选框始终可用；有选择后才显示全选本页、全选当前筛选（含跨页）、全不选及学习选中商品。批量学习固定使用点击时当前店铺、当前筛选内的精确选中集合，仍经过资料预估与明确确认；商品行的“开始学习”独立限定为该商品，不合并列表勾选范围。列表/筛选/选择/账号/店铺变化后丢弃未完成的批量预览。
 
 2026-11-19：知识库 `#/knowledge` 改为主工作台内容区子路由，与配置中心共用顶栏。正式主进程不再创建知识库独立窗口，原入口和店铺/训练预选继续经过窄桥及工作区校验，`knowledge:navigate` 仅通知主工作台固定目的地。页面显示返回工作台按钮，切换页面先保存草稿；保存失败或当前操作尚未完成时阻止离开。后台任务不随内容区切换取消。独立窗口适配只保留既有隔离验收用途。

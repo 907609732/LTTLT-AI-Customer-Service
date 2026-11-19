@@ -18,6 +18,13 @@ import type {
   KnowledgePipelineInput,
   KnowledgePipelineResults,
 } from '@/shared/contracts/knowledge-pipeline'
+import type {
+  KnowledgeProductImageStageInput,
+  KnowledgeProductProfile,
+  KnowledgeProductProfileSave,
+  KnowledgeProductProfileSaveInput,
+  KnowledgeStagedProductImage,
+} from '@/shared/contracts/knowledge-product-profile'
 export async function openKnowledgeManager(
   storeId: string,
   options: {
@@ -165,6 +172,35 @@ export function createKnowledgeClient(workspaceId: string) {
         message: string
         context: import('@/shared/contracts/knowledge-client').KnowledgeWindowContext
       }>
+    },
+    productProfile(storeId: string, bindingId: string) {
+      return request({
+        workspaceId,
+        operation: 'product-profile',
+        storeId,
+        bindingId,
+      }) as Promise<KnowledgeProductProfile>
+    },
+    stageProductImages(input: KnowledgeProductImageStageInput) {
+      return request({
+        workspaceId,
+        operation: 'product-image-stage',
+        ...input,
+      }) as Promise<KnowledgeStagedProductImage[]>
+    },
+    discardProductImages(tokens: string[]) {
+      return request({
+        workspaceId,
+        operation: 'product-image-discard',
+        tokens,
+      }) as Promise<{ discarded: number }>
+    },
+    saveProductProfile(input: KnowledgeProductProfileSaveInput) {
+      return request({
+        workspaceId,
+        operation: 'product-profile-save',
+        input: input as KnowledgeProductProfileSave,
+      }) as Promise<KnowledgeProductProfile>
     },
     context: () => bridge?.context(),
     onContext: bridge?.onContext,

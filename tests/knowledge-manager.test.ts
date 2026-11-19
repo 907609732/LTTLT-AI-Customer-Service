@@ -40,6 +40,10 @@ const fake = vi.hoisted(() => ({
   clearPreview: vi.fn(),
   clear: vi.fn(),
   restore: vi.fn(),
+  productProfile: vi.fn(),
+  stageProductImages: vi.fn(),
+  discardProductImages: vi.fn(),
+  saveProductProfile: vi.fn(),
 }))
 it('shows the saved shop product code on the knowledge card', () => {
   const directory = mkdtempSync(join(tmpdir(), 'knowledge-card-code-'))
@@ -170,6 +174,10 @@ async function setup(controller = false, canLearn = false, prepare?: () => void)
   fake.sourceHistory.mockReset().mockResolvedValue([])
   fake.entryHistory.mockReset().mockResolvedValue([])
   fake.backup.mockReset().mockResolvedValue({ directory: 'test-backup' })
+  fake.productProfile.mockReset()
+  fake.stageProductImages.mockReset().mockResolvedValue([])
+  fake.discardProductImages.mockReset().mockResolvedValue({ discarded: 0 })
+  fake.saveProductProfile.mockReset()
   fake.context.mockResolvedValue({ workspaceId: 'w', storeId: 'a', revision: 1 })
   fake.onContext.mockReturnValue(() => {})
   fake.onCloseRequest.mockReturnValue(() => {})
@@ -940,10 +948,7 @@ it('explicit window shop context clears previous product identity before writing
     .find((button) => button.text() === '刷新')!
     .trigger('click')
   await flushPromises()
-  await wrapper
-    .findAll('button')
-    .find((button) => button.text() === '编辑')!
-    .trigger('click')
+  await wrapper.get('[data-testid="product-knowledge"]').trigger('click')
   await flushPromises()
   expect(wrapper.get('.knowledge-workspace').text()).toContain('product-a')
   const listener = fake.onContext.mock.calls[0]![0] as (context: {
@@ -1532,10 +1537,7 @@ it('shows only current product overrides, saves to A and keeps B-origin shared e
     .find((button) => button.text() === '刷新')!
     .trigger('click')
   await flushPromises()
-  await wrapper
-    .findAll('button')
-    .find((button) => button.text() === '编辑')!
-    .trigger('click')
+  await wrapper.get('[data-testid="product-knowledge"]').trigger('click')
   await flushPromises()
   expect(wrapper.findAll('.knowledge-entry').map((row) => row.text())).toEqual([
     expect.stringContaining('question-shared'),
@@ -1580,10 +1582,7 @@ it('shows only current product overrides, saves to A and keeps B-origin shared e
   expect(fake.sourceHistory).toHaveBeenCalledWith('b-origin')
   await wrapper.get('[data-testid="knowledge-store"]').setValue('b')
   await flushPromises()
-  await wrapper
-    .findAll('button')
-    .find((button) => button.text() === '编辑')!
-    .trigger('click')
+  await wrapper.get('[data-testid="product-knowledge"]').trigger('click')
   await flushPromises()
   expect(wrapper.findAll('.knowledge-entry').map((row) => row.text())).toEqual([
     expect.stringContaining('question-shared'),
@@ -2013,5 +2012,211 @@ it('explicit shop exports ignore an open product detail and store backup uses th
   expect(fake.export).toHaveBeenLastCalledWith('a', 'csv', undefined)
   await manager!.backupStore()
   expect(fake.backup).toHaveBeenLastCalledWith(undefined, 'a')
+  wrapper.unmount()
+})
+it('renders the compact product row with title, id and source on one line, summary and bounded images', async () => {
+  const card: KnowledgeProductCard = {
+    canonical: { id: 'c', title: '共享标题', code: 'CODE', revision: 1, updatedAt: 1 },
+    binding: {
+      id: 'b',
+      canonicalId: 'c',
+      storeId: 'a',
+      productId: 'product-1',
+      skuId: '',
+      title: '本店标题',
+      revision: 2,
+      active: true,
+      updatedAt: 1,
+    },
+    sources: 2,
+    approved: 3,
+    drafts: 1,
+    summary: '这是列表按需投影的简短文案摘要',
+    imageAssetIds: ['i1', 'i2', 'i3', 'i4'],
+    productSummary: {
+      skuCount: 2,
+      specifications: ['颜色：红'],
+      capturedAt: 10,
+      expiresAt: 20,
+      expired: false,
+      code: 'PLATFORM-CODE',
+    },
+    sourceSummary: {
+      count: 2,
+      kinds: ['platform', 'manual'],
+      thumbnailAssetId: 'i1',
+    },
+  }
+  const wrapper = mount(KnowledgeProductCards, {
+    props: {
+      products: [card],
+      selection: [],
+      page: 1,
+      canLearn: false,
+      loadAsset: vi.fn(async () => 'data:image/png;base64,cG5n'),
+    },
+  })
+  const article = wrapper.get('article')
+  const heading = article.get('.knowledge-card-heading')
+  expect(heading.text()).toContain('21 本店标题')
+  expect(heading.text()).toContain('product-1')
+  expect(heading.text()).toContain('平台采集 / 手工资料')
+  expect(article.get('.knowledge-card-summary').text()).toContain('简短文案摘要')
+  expect(article.findAll('.knowledge-card-media .knowledge-thumbnail')).toHaveLength(3)
+  expect(article.text()).toContain('3 条已审核')
+  expect(article.text()).toContain('1 条草稿')
+  expect(article.get('[data-testid="product-edit"]').text()).toBe('编辑')
+  wrapper.unmount()
+})
+it('guards unsaved product edits on route leave and discards staged images on cancel', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  const card: KnowledgeProductCard = {
+    canonical: { id: 'c', title: '共享标题', code: 'CODE', revision: 1, updatedAt: 1 },
+    binding: {
+      id: 'b',
+      canonicalId: 'c',
+      storeId: 'a',
+      productId: 'product-1',
+      skuId: '',
+      title: '本店标题',
+      revision: 2,
+      active: true,
+      updatedAt: 1,
+    },
+    sources: 0,
+    approved: 0,
+    drafts: 0,
+    sourceSummary: { count: 0, kinds: [], thumbnailAssetId: null },
+  }
+  const original = fake.query.getMockImplementation()!
+  fake.query.mockImplementation(async (input) =>
+    input.type === 'products' ? { items: [card], total: 1, revision: 1 } : original(input),
+  )
+  await manager.refresh()
+  fake.productProfile.mockResolvedValue({
+    canonical: card.canonical,
+    binding: card.binding,
+    title: card.binding.title,
+    productId: card.binding.productId,
+    storeId: 'a',
+    copy: '',
+    copySource: 'empty',
+    manualPrice: '',
+    notes: '',
+    manualSourceId: null,
+    manualSourceRevision: null,
+    images: [],
+    knowledge: { approved: 0, drafts: 0 },
+    platformPrice: { prices: [], capturedAt: null, expiresAt: null, expired: false },
+    sources: { count: 0, kinds: [] },
+  })
+  await manager.openProductProfile(manager.products.value[0]!)
+  manager.updateProductProfileForm({
+    title: '尚未保存的标题',
+    manualPrice: '',
+    notes: '',
+    copy: '',
+  })
+  expect(await manager.prepareLeave()).toBe(false)
+  expect(manager.error.value).toContain('未保存')
+  const token = 'f1b0e5e8-5c5c-4e77-8e2f-b11ad5f2aa10'
+  fake.stageProductImages.mockResolvedValue([
+    {
+      token,
+      name: 'staged.png',
+      mimeType: 'image/png',
+      size: 10,
+      preview: 'data:image/png;base64,cG5n',
+    },
+  ])
+  await manager.addProductImages()
+  expect(manager.productProfileStaged.value).toHaveLength(1)
+  fake.saveProductProfile.mockRejectedValueOnce(Error('商品资料已变化，请刷新后重试'))
+  expect(await manager.saveProductProfile()).toBe(false)
+  expect(manager.productProfileError.value).toContain('已变化')
+  expect(manager.productProfileForm.value?.title).toBe('尚未保存的标题')
+  expect(manager.productProfile.value?.binding.id).toBe('b')
+  await manager.closeProductProfile()
+  expect(fake.discardProductImages).toHaveBeenCalledWith([token])
+  expect(manager.productProfile.value).toBeUndefined()
+  expect(fake.saveProductProfile).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})
+it('opens the product profile modal from the row, saves once and returns to the refreshed list', async () => {
+  const card: KnowledgeProductCard = {
+    canonical: { id: 'c', title: '共享标题', code: 'CODE', revision: 1, updatedAt: 1 },
+    binding: {
+      id: 'b',
+      canonicalId: 'c',
+      storeId: 'a',
+      productId: 'product-1',
+      skuId: '',
+      title: '本店标题',
+      revision: 2,
+      active: true,
+      updatedAt: 1,
+    },
+    sources: 1,
+    approved: 2,
+    drafts: 1,
+    summary: '列表文案摘要',
+    imageAssetIds: [],
+    sourceSummary: { count: 1, kinds: ['platform'], thumbnailAssetId: null },
+  }
+  const opened = {
+    canonical: card.canonical,
+    binding: card.binding,
+    title: '本店标题',
+    productId: 'product-1',
+    storeId: 'a',
+    copy: '列表文案摘要',
+    copySource: 'platform' as const,
+    manualPrice: '',
+    notes: '',
+    manualSourceId: null,
+    manualSourceRevision: null,
+    images: [],
+    knowledge: { approved: 2, drafts: 1 },
+    platformPrice: { prices: [], capturedAt: null, expiresAt: null, expired: false },
+    sources: { count: 1, kinds: ['platform' as const] },
+  }
+  let queryCalls = 0
+  const { wrapper } = await setup(false, false, () => {
+    fake.productProfile.mockResolvedValue(opened)
+    fake.saveProductProfile.mockResolvedValue({
+      ...opened,
+      title: '保存后的标题',
+      manualPrice: '18.00',
+      notes: '保存备注',
+    })
+    const original = fake.query.getMockImplementation()!
+    fake.query.mockImplementation(async (input) => {
+      queryCalls++
+      return input.type === 'products' ? { items: [card], total: 1, revision: 1 } : original(input)
+    })
+  })
+  const row = wrapper.get('[data-testid="product-edit"]')
+  await row.trigger('click')
+  await flushPromises()
+  expect(fake.productProfile).toHaveBeenCalledWith('a', 'b')
+  expect(wrapper.get('[role="dialog"]').classes()).toContain('knowledge-product-profile')
+  await wrapper.get('[aria-label="商品标题"]').setValue('保存后的标题')
+  await wrapper.get('[data-testid="product-manual-price"]').setValue('18.00')
+  const beforeRefresh = queryCalls
+  await wrapper.get('footer .primary').trigger('click')
+  await flushPromises()
+  expect(fake.saveProductProfile).toHaveBeenCalledTimes(1)
+  expect(fake.saveProductProfile).toHaveBeenCalledWith(
+    expect.objectContaining({
+      storeId: 'a',
+      bindingId: 'b',
+      expectedBindingRevision: 2,
+      title: '保存后的标题',
+      manualPrice: '18.00',
+    }),
+  )
+  expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  expect(queryCalls).toBeGreaterThan(beforeRefresh)
   wrapper.unmount()
 })

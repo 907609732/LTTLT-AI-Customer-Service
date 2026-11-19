@@ -216,3 +216,5 @@ knowledge runtime 的既有 backup/restore-preview 请求新增可选 storeId，
 ## 知识库内容区（2026-11-19）
 
 `/knowledge` 与 `/shop/manage` 同为 MainLayout 子路由，知识库传入 `embedded=true`，复用主顶栏和内容区。`createKnowledgeWindow` 的 embedded 宿主沿用原上下文/账号校验及维护重建契约，不创建额外 BrowserWindow；`knowledge:navigate` 仅向主窗口发送账号和固定 library/home 目的地，由 app 层导航并过滤迟到账号事件。原知识查询/命令 IPC 不变。路由离开由 controller 保存草稿并阻止失败或处理中离开，卸载继续注销事件和轮询；后台任务保持运行。独立窗口宿主保留给历史隔离验收。
+
+商品资料弹窗复用同一 `knowledge:request` 窄桥，新增 `product-profile`、`product-image-stage`、`product-image-discard`、`product-profile-save` 操作，不开放路径或通用文件接口。`electron/knowledge/product-profile.ts` 只在主进程读取单商品资料、管理有界内存 staging，并通过现有 repository/source/asset/版本事务提交；`local-runtime` 注入原生图片选择器。列表分页 SQL 只投影短文案与最多3个图片ID。专用手工来源不进入学习/接待，详细边界见 [KNOWLEDGE_LIBRARY.md](KNOWLEDGE_LIBRARY.md) 与 knowledge 模块 README。

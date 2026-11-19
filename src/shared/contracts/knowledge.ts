@@ -204,6 +204,10 @@ export interface KnowledgePage<T> {
   revision: number
 }
 export interface KnowledgeProductCard {
+  /** List-only bounded projection; full copy stays in the dedicated editor read. */
+  summary?: string
+  /** At most three visible thumbnails from manual/platform sources, in that order. */
+  imageAssetIds?: string[]
   productSummary?: {
     skuCount: number
     specifications: string[]

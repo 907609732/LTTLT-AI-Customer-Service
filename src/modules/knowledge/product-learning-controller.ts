@@ -1,5 +1,6 @@
 import { ref, type Ref } from 'vue'
 import type { ProductBinding, KnowledgeSource } from '@/shared/contracts/knowledge'
+import { isKnowledgeProductProfileSource } from '@/shared/contracts/knowledge-product-profile'
 import type { KnowledgeEstimate, KnowledgeOcrPreview } from '@/shared/contracts/knowledge-pipeline'
 import type { createKnowledgeClient } from './manager-service'
 
@@ -46,6 +47,7 @@ export function useKnowledgeProductLearning(options: {
       for (const source of detail.sources) {
         if (
           !source.removed &&
+          !isKnowledgeProductProfileSource(source) &&
           (source.bindingId === binding.id ||
             detail.bindings.some(
               (row) =>
@@ -81,6 +83,7 @@ export function useKnowledgeProductLearning(options: {
       .filter(
         (source) =>
           !source.removed &&
+          !isKnowledgeProductProfileSource(source) &&
           (source.bindingId === binding.id ||
             detail.bindings.some(
               (row) => row.id === source.bindingId && row.productId === binding.productId,

@@ -2,6 +2,18 @@
 
 该知识库已于2026-11-15随 [v1.0.1](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.1) 合入main并发布，包含统一仓储、独立管理窗口、只读采集、资料解析/模型学习、日检、待学问题、兼容导出和备份恢复。最终源码、全量检查与下载同次成品验收见 [RELEASE_V1.0.1.md](RELEASE_V1.0.1.md)。逐次历史交付记录在 `.superpowers/sdd/2026-11-15-knowledge-library/task-1-report.md` 至 `task-5-report.md`；实店新一轮采集和真实云模型语义质量仍未验收。
 
+## 商品资料编辑弹窗（2026-11-19）
+
+商品列表改为紧凑行：标题/平台编号/来源同一行，下方只投影短文案、最多3个缩略图、审核/草稿数及学习进度，右侧保留识别、学习、同款备份、编辑、训练、解绑。分页查询在 SQL 中截取摘要和少量资产ID，不传来源全文或逐行读取详情。点击“编辑”打开主窗口内的深炭色居中弹窗，最大约980px、`max-height:min(88vh,900px)`；顶部为图/标题/来源/关闭，正文独立滚动，底部固定取消/保存。左260px方形主图、可切缩略图和本地加图，右侧本店标题、只读商品ID、手工价格、独立平台采集价/过期、备注；下方全宽文案（字数）和知识点计数/增加知识点。760px以下单列。“知识点”入口仍打开原问答编辑器，草稿自动保存、审核、试问、原始资料和绑定/共享操作不变。
+
+读取经 `product-profile`：本店标题（空时回退平台静态标题/共享标题）、静态来源描述、同店商品动态快照价格（缺失或过期显示真实空态/过期，不伪造），备注初次为空。列表只返回 `summary`（≤200字）和 `imageAssetIds`（≤3）。保存经 `product-profile-save`，一次事务更新当前店铺根 binding 标题及专用手工资料，不修改共享 canonical，也不覆写平台快照、身份或原审核版本。共享名称/编码继续在原工作区维护。
+
+手工字段保存为现有 source/asset/版本机制中的专用 `kind='manual'`、标签 `商品手工资料`、`lingtu-product-profile-v1` JSON；因此无需DB迁移，原始版本历史、附件和同款/单店备份恢复沿用原闭包。该来源不会被 `resolve` 用于接待，商品学习/OCR过滤它，知识 pipeline 也会拒绝把它当学习来源。首次写入和并发保存都核对 workspace/store、活跃根 binding revision、手工 source ID/revision；失败保留表单，成功后才消费暂存并刷新列表、把焦点还给触发按钮。
+
+图片选择在主进程通过原生 file picker，仅接受按字节确认的 PNG/JPEG/GIF/WebP，单图≤10MB、单次≤8张、合计≤50MB、图集≤8张。选图只写入有界内存 staging（2分钟TTL、最多16项、单用途不透明 token、绑定工作区/店铺/根 binding/双 revision），不写业务DB；取消、切店、关闭或迟到结果丢弃，保存成功才与手工来源同事务提交附件。渲染层不接收路径或任意文件句柄。
+
+验证入口：`npx vitest run tests/knowledge-product-profile.test.ts tests/knowledge-product-editor.test.ts tests/knowledge-manager.test.ts`；实际隔离 Electron 主窗口/窄屏为 `LINGTU_DESKTOP_CHECKS=business:knowledge-product-editor node scripts/run-desktop.mjs`（临时 userData、合成商品与图片、无平台或模型访问）。
+
 ## 清除后的自动重启（1.0.19）
 
 继续先自动备份、校验和用户完整确认，再清除知识范围。正常完成会在进程内重建服务；回滚成功也不会重启。仅当确认清除后的重建及回滚重建均失败，主进程所有者调用 Electron 原生 app.relaunch()/app.quit() 自动重启一次，不再要求用户手动操作。复用 before-quit 的运行时退出队列、不等待同队列内的关闭，避免死锁；保留原工作目录、启动参数、userData 与登录分区，无新增 IPC 或 AI 操作入口。重启失败明确提示并保留恢复点，不伪报清除成功，不自动再次执行清除。

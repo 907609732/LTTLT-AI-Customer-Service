@@ -37,6 +37,7 @@ import {
   type KnowledgeCommand,
   type KnowledgeQuery,
 } from '../../src/shared/contracts/knowledge'
+import { KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL } from '../../src/shared/contracts/knowledge-product-profile'
 import { eligibleKnowledge, resolveKnowledgeRows } from './resolver'
 import { migrateLegacyKnowledge } from './migration'
 import { createLegacyPorts } from './legacy'
@@ -720,6 +721,53 @@ export class KnowledgeRepository {
       revision: this.revision,
     }
   }
+  productKnowledgeCounts(binding: ProductBinding) {
+    const count = (part: 'draft' | 'approved') =>
+      (
+        this.db
+          .prepare(
+            `SELECT COUNT(*) AS count FROM entries WHERE json_extract(body,'$.${part}') IS NOT NULL AND (json_extract(body,'$.${part}.scope.canonicalId')=? OR json_extract(body,'$.${part}.scope.bindingId')=?) ${part === 'draft' ? "AND json_extract(body,'$.status')='draft'" : ''}`,
+          )
+          .get(binding.canonicalId, binding.id) as { count: number }
+      ).count
+    return { approved: count('approved'), drafts: count('draft') }
+  }
+  productPlatformPrice(binding: ProductBinding) {
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(s.body,'$.text') AS text
+         FROM sources s JOIN bindings b ON b.id=s.binding_id
+         WHERE b.store_id=? AND b.product_id=? AND b.active=1
+           AND COALESCE(json_extract(s.body,'$.removed'),0)=0
+           AND json_extract(s.body,'$.label')='平台动态快照'
+           AND json_valid(json_extract(s.body,'$.text'))`,
+      )
+      .all(binding.storeId, binding.productId) as { text: string }[]
+    const prices = new Set<string>()
+    let capturedAt: number | null = null
+    for (const row of rows) {
+      const parsed = z
+        .object({
+          price: z.string().max(100).optional(),
+          capturedAt: z.number().finite().nonnegative(),
+        })
+        .passthrough()
+        .safeParse(JSON.parse(row.text))
+      if (!parsed.success) continue
+      const price = parsed.data.price?.trim()
+      if (price) prices.add(price)
+      capturedAt =
+        capturedAt === null ? parsed.data.capturedAt : Math.max(capturedAt, parsed.data.capturedAt)
+    }
+    const expiresAt =
+      capturedAt === null ? null : capturedAt + this.getSettings().dynamicTtlMinutes * 60000
+    return {
+      prices: [...prices].slice(0, 8),
+      capturedAt,
+      expiresAt,
+      expired: expiresAt !== null && expiresAt <= this.now(),
+    }
+  }
   productSummary(binding: ProductBinding) {
     const skuCount = (
       this.db
@@ -778,39 +826,101 @@ export class KnowledgeRepository {
         `SELECT b.body FROM bindings b JOIN canonical c ON c.id=b.canonical_id WHERE ${where} ORDER BY b.rowid LIMIT ? OFFSET ?`,
       )
       .all(input.storeId, search, search, page.limit, page.offset) as { body: string }[]
+    const bindingIds = bindings.map((row) => (JSON.parse(row.body) as ProductBinding).id)
+    const placeholders = bindingIds.map(() => '?').join(',')
+    const sourceRows = bindingIds.length
+      ? (this.db
+          .prepare(
+            `SELECT binding_id AS bindingId,
+                    json_extract(body,'$.kind') AS kind,
+                    json_extract(body,'$.label') AS label,
+                    json_extract(body,'$.assetIds[0]') AS asset0,
+                    json_extract(body,'$.assetIds[1]') AS asset1,
+                    json_extract(body,'$.assetIds[2]') AS asset2,
+                    CASE WHEN json_valid(json_extract(body,'$.text'))
+                      THEN substr(json_extract(json_extract(body,'$.text'),'$.copy'),1,200) END AS manualCopy,
+                    CASE WHEN json_valid(json_extract(body,'$.text'))
+                      THEN substr(json_extract(json_extract(body,'$.text'),'$.description'),1,200) END AS platformDescription
+             FROM sources
+             WHERE binding_id IN (${placeholders}) AND COALESCE(json_extract(body,'$.removed'),0)=0
+             ORDER BY rowid`,
+          )
+          .all(...bindingIds) as {
+          bindingId: string
+          kind: KnowledgeSource['kind']
+          label: string
+          asset0: string | null
+          asset1: string | null
+          asset2: string | null
+          manualCopy: string | null
+          platformDescription: string | null
+        }[])
+      : []
+    const sourcesByBinding = new Map<string, typeof sourceRows>()
+    for (const row of sourceRows) {
+      const list = sourcesByBinding.get(row.bindingId) ?? []
+      list.push(row)
+      sourcesByBinding.set(row.bindingId, list)
+    }
+    const candidateAssets = new Set<string>()
+    for (const list of sourcesByBinding.values())
+      for (const row of list)
+        for (const id of [row.asset0, row.asset1, row.asset2]) if (id) candidateAssets.add(id)
+    const imageAssets = new Set(
+      candidateAssets.size
+        ? (
+            this.db
+              .prepare(
+                `SELECT id FROM assets WHERE id IN (${[...candidateAssets].map(() => '?').join(',')}) AND json_extract(body,'$.mimeType') LIKE 'image/%'`,
+              )
+              .all(...candidateAssets) as { id: string }[]
+          ).map((row) => row.id)
+        : [],
+    )
     const items = bindings.map((row) => {
       const binding = JSON.parse(row.body) as ProductBinding
-      // SQL extracts metadata for this page; source text and image bytes are loaded on demand.
-      const sources = this.db
-        .prepare(
-          "SELECT json_extract(body,'$.kind') AS kind,json_extract(body,'$.assetIds[0]') AS assetId FROM sources WHERE binding_id=? AND COALESCE(json_extract(body,'$.removed'),0)=0",
-        )
-        .all(binding.id) as { kind: KnowledgeSource['kind']; assetId: string | null }[]
-      const thumbnailAssetId =
-        sources
-          .map((source) => source.assetId)
-          .find(
-            (id) => id && this.row<KnowledgeAsset>('assets', id)?.mimeType.startsWith('image/'),
-          ) ?? null
-      const count = (part: 'draft' | 'approved') =>
-        (
-          this.db
-            .prepare(
-              `SELECT COUNT(*) AS count FROM entries WHERE json_extract(body,'$.${part}') IS NOT NULL AND (json_extract(body,'$.${part}.scope.canonicalId')=? OR json_extract(body,'$.${part}.scope.bindingId')=?) ${part === 'draft' ? "AND json_extract(body,'$.status')='draft'" : ''}`,
-            )
-            .get(binding.canonicalId, binding.id) as { count: number }
-        ).count
+      // SQL extracts bounded list data for this page; full source text and image bytes stay on demand.
+      const sources = sourcesByBinding.get(binding.id) ?? []
+      const manual = sources.find(
+        (source) =>
+          source.kind === 'manual' && source.label === KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL,
+      )
+      const staticSource = sources.find((source) => source.label === '平台静态资料')
+      const catalogSource = sources.find((source) => source.label === '平台目录快照')
+      const summary = (
+        manual?.manualCopy ||
+        staticSource?.platformDescription ||
+        catalogSource?.platformDescription ||
+        ''
+      )
+        .replace(/\s+/g, ' ')
+        .trim()
+      const imageAssetIds: string[] = []
+      const addImage = (id: string | null) => {
+        if (id && imageAssets.has(id) && !imageAssetIds.includes(id) && imageAssetIds.length < 3)
+          imageAssetIds.push(id)
+      }
+      if (manual) [manual.asset0, manual.asset1, manual.asset2].forEach(addImage)
+      const platformImages = sources.find((source) => source.label === '平台图片资料')
+      if (platformImages)
+        [platformImages.asset0, platformImages.asset1, platformImages.asset2].forEach(addImage)
+      const catalog = catalogSource
+      if (catalog) addImage(catalog.asset0)
+      for (const source of sources) addImage(source.asset0)
+      const knowledge = this.productKnowledgeCounts(binding)
       return {
         canonical: this.getCanonical(binding.canonicalId)!,
         binding,
+        summary,
+        imageAssetIds,
         productSummary: this.productSummary(binding),
         sources: sources.length,
-        approved: count('approved'),
-        drafts: count('draft'),
+        approved: knowledge.approved,
+        drafts: knowledge.drafts,
         sourceSummary: {
           count: sources.length,
           kinds: [...new Set(sources.map((source) => source.kind))],
-          thumbnailAssetId,
+          thumbnailAssetId: imageAssetIds[0] ?? null,
         },
       }
     })
