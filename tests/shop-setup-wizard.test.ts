@@ -15,6 +15,20 @@ import {
 import type { SchedulerRun } from '../src/shared/contracts/scheduler'
 import { getDesktop } from '../src/shared/platform/desktop'
 const wrappers: ReturnType<typeof mount>[] = []
+it('新店售后下一步仅进入确认页，明确确认前不保存政策或显示完成', async () => {
+  const { wrapper, runtime, setup } = await fixture()
+  const run = vi.spyOn(runtime, 'run')
+  setup.onboardingPhase = 'settings'
+  setup.step = 4
+  await flushPromises()
+  await wrapper.find('[data-save]').trigger('click')
+  await flushPromises()
+  expect(setup.step).toBe(5)
+  expect(setup.saved).toBe(false)
+  expect(wrapper.text()).toContain('确认并保存')
+  expect(wrapper.text()).not.toContain('设置完成')
+  expect(run).not.toHaveBeenCalled()
+})
 it('客服风格提供四种回复间隔，默认随机且保存携带已载入版本', async () => {
   const { wrapper, runtime } = await fixture()
   runtime.available = true

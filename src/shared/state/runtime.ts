@@ -12,6 +12,7 @@ export const useRuntimeStore = defineStore('local-runtime', () => {
   const platformStoreId = ref('')
   const bridge = getBackendBridge(),
     available = Boolean(bridge)
+  const onboardingSupported = ref(bridge?.onboardingPresentation === true)
   let ticket = 0,
     off: (() => void) | undefined,
     timer: ReturnType<typeof setTimeout> | undefined
@@ -68,8 +69,12 @@ export const useRuntimeStore = defineStore('local-runtime', () => {
       await refresh()
     }
   }
-  async function presentStore(storeId: string, visible: boolean): Promise<void> {
-    if (bridge) await bridge.presentStore(storeId, visible)
+  async function presentStore(
+    storeId: string,
+    visible: boolean,
+    layout?: 'default' | 'onboarding-login',
+  ): Promise<void> {
+    if (bridge) await bridge.presentStore(storeId, visible, layout)
   }
   function dispose(): void {
     ticket++
@@ -81,6 +86,7 @@ export const useRuntimeStore = defineStore('local-runtime', () => {
   return {
     snapshot,
     available,
+    onboardingSupported,
     loading,
     error,
     selectedStoreId,

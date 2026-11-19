@@ -182,3 +182,7 @@ backend.cjs 的既有 save-config 仅新增 MANUAL_REPLY_KEYWORDS 分支：按 k
 ## 2026-11-17：同一买家随机回复节奏
 
 reply-engine 与 backend.cjs 新增可选 resolveUidIntervalMs：ReplyEngine 保存并转发给每个 StoreWorker，Worker 把 storeId、uid、lastSentAt 与自身随机源交给该函数。抽样、缓存、随保存失效和范围校验全部在本工程 TypeScript，vendor 不保存节奏业务规则；未注入时每次动态读取上游 perUidMinIntervalMs（旧 save-config 改值立即生效）。注入时不再叠加旧 0.5~2s 发送抖动，只保留所选的一套间隔；解析异常时退到 1 秒下限，不回退旧 60 秒。决策文案显示本次实际间隔，pacingIntervalMs(uid) 供本工程消息诊断读取同一值。发送审批、取消、发送前复核、重试与单店分钟上限均未改动；REPLY_PACING 旧保存分支保留但桌面端不再使用。随机模式、范围校验与旧值迁移在 electron/reply-pacing.ts（reply-pacing.json），config.json 的旧固定值原样保留用于审计/回退。source-files.json 保留 upstreamGitBlob/upstreamSha256，仅更新这两个文件的实际 sha256 与 localPatch。
+
+# 2026-11-19：新店引导登录区固定留顶
+
+`electron/platform-host.cjs` 的既有 layoutViews 仅按可信呈现参数 `layout=onboarding-login` 将顶边从72调整到216，为八步条和登录确认预留144逻辑像素；其他布局及隐藏逻辑不变。渲染调用经原 business:present-store 主frame校验和枚举白名单，不接受任意坐标。source-files.json 保留 upstreamGitBlob、此前实际 previousSha256，并更新实际sha256及补丁原因。真实模块的布局回归及242项上游测试通过；不把隔离前端预览当作原生新主进程已生效。

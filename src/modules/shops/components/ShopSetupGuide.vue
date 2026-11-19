@@ -259,6 +259,10 @@ function next() {
 }
 async function save() {
   validation.value = ''
+  if (setup.onboardingPhase === 'settings') {
+    setup.step = 5
+    return
+  }
   if (await setup.saveRules()) setup.step = 5
 }
 function goToStep(index: number) {
@@ -321,11 +325,16 @@ const afterSales = [
     class="shop-setup-resume"
     type="primary"
     @click="setup.resume()"
-    >继续基础设置</el-button
+    >{{ setup.onboardingPhase ? '继续店铺引导' : '继续基础设置' }}</el-button
   >
   <main
-    v-if="setup.visible && (route.path === '/' || receptionBusy)"
+    v-if="
+      setup.visible &&
+      (!setup.onboardingPhase || setup.onboardingPhase === 'settings') &&
+      (route.path === '/' || receptionBusy)
+    "
     class="shop-setup-page"
+    :class="{ 'new-store-settings': setup.onboardingPhase === 'settings' }"
     role="region"
     aria-label="店铺信息助手"
     @keydown.esc="!navigationBusy && setup.dismiss()"
@@ -716,7 +725,7 @@ const afterSales = [
             </section>
           </template>
           <template v-else>
-            <div class="finish-hero">
+            <div v-if="!setup.onboardingPhase" class="finish-hero">
               <span class="success-symbol">✓</span>
               <h1>设置完成</h1>
               <p>本店客服设置已保存，请在训练场核对实际回复效果。</p>
@@ -795,7 +804,13 @@ const afterSales = [
               <button @click="configure('goods')">商品知识</button
               ><button @click="configure('training')">AI训练场</button>
             </div>
-            <footer class="finish-actions">
+            <footer v-if="setup.onboardingPhase" class="finish-actions">
+              <el-button :disabled="setup.saving" @click="editAgain">返回修改</el-button>
+              <el-button type="primary" :loading="setup.saving" @click="setup.completeOnboarding"
+                >确认并保存</el-button
+              >
+            </footer>
+            <footer v-else class="finish-actions">
               <el-button @click="editAgain">重新修改</el-button
               ><el-button type="primary" @click="setup.finish()">完成并返回</el-button>
               <el-button @click="configure('knowledge')">继续知识库配置</el-button>
@@ -827,7 +842,15 @@ const afterSales = [
           >以最新接待配置为基线重试</el-button
         >
         <footer v-if="setup.step > 0 && setup.step < 5" class="wizard-footer">
-          <el-button data-back :disabled="navigationBusy" @click="setup.step--">上一步</el-button
+          <el-button
+            data-back
+            :disabled="navigationBusy"
+            @click="
+              setup.onboardingPhase && setup.step === 1
+                ? (setup.onboardingPhase = 'import')
+                : setup.step--
+            "
+            >上一步</el-button
           ><span>{{
             setup.step === 3
               ? setup.receptionDeferred
@@ -849,7 +872,7 @@ const afterSales = [
             :loading="navigationBusy"
             :disabled="setup.loading"
             @click="save"
-            >保存并完成</el-button
+            >{{ setup.onboardingPhase ? '下一步，确认信息' : '保存并完成' }}</el-button
           >
         </footer>
       </section>
@@ -960,6 +983,13 @@ const afterSales = [
   </div>
 </template>
 <style scoped>
+.shop-setup-page.new-store-settings {
+  top: 216px;
+}
+.new-store-settings > .wizard-header,
+.new-store-settings .wizard-steps {
+  display: none;
+}
 :global(.el-overlay:has(.shop-setup-conflict-box)) {
   /* Element Plus 2.8.8 为遮罩分配内联层级；仅此确认框需高于固定店铺助手。 */
   z-index: 4000 !important;

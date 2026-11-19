@@ -14,6 +14,7 @@ async function fixture() {
   setActivePinia(createPinia())
   const runtime = useRuntimeStore()
   runtime.available = true
+  runtime.onboardingSupported = true
   runtime.snapshot.workspaceId = 'test-workspace'
   runtime.snapshot.capabilities.platforms.push({ id: 'sim-local', label: '本机模拟店铺' })
   function added(id = 'new-shop') {
@@ -97,7 +98,8 @@ it('添加后直接打开登录，失败重试只打开已建记录', async () =
   runtime.snapshot.stores[0]!.runtime.online = true
   runtime.snapshot.stores[0]!.runtime.authenticated = true
   await flushPromises()
-  expect(useShopSetupStore().visible).toBe(true)
+  expect(useShopSetupStore().visible).toBe(false)
+  expect(useShopSetupStore().onboardingPhase).toBe('login')
   wrapper.unmount()
 })
 it('等待期间不可重复提交或取消', async () => {

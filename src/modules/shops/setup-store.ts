@@ -1,6 +1,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useRuntimeStore } from '@/shared/state/runtime'
+import { useKnowledgeOnboarding } from '@/modules/knowledge'
 import { normalizeWelcomeSetting, welcomeDelayIssue } from '@/shared/contracts/welcome'
 import {
   createReceptionSetupSaver,
@@ -89,6 +90,25 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     workspaceId = ref(''),
     visible = ref(false),
     step = ref(0)
+  const onboardingPhase = ref<'login' | 'import' | 'settings' | 'complete' | null>(null)
+  const onboarding = useKnowledgeOnboarding({ storeId, workspaceId })
+  const onboardingIndex = computed(() =>
+    onboardingPhase.value === 'login'
+      ? 0
+      : onboardingPhase.value === 'import'
+        ? 1
+        : onboardingPhase.value === 'complete'
+          ? 7
+          : Math.min(6, step.value + 1),
+  )
+  const onboardingImportNote = computed(() => {
+    if (!onboardingPhase.value || onboardingIndex.value < 2) return ''
+    if (onboarding.activeJob.value) return '任务正在后台执行'
+    if (!onboarding.imported.value) return '商品与学习稍后补充'
+    return onboarding.job.value?.kind === 'learn' && onboarding.job.value.status === 'succeeded'
+      ? '学习结果待审核'
+      : '资料已导入，学习稍后进行'
+  })
   const returnAvailable = ref(false),
     awaitingLogin = ref(false),
     pending = ref(false),
@@ -196,9 +216,9 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
   const loginReady = computed(() => {
     const target = shop.value
     if (!target?.runtime.online || target.runtime.identityError) return false
-    return target.platform === 'pdd-web'
-      ? target.runtime.authenticated === true
-      : target.runtime.authenticated !== false
+    return target.platform === 'doudian-client'
+      ? target.runtime.authenticated !== false
+      : target.runtime.authenticated === true
   })
   function resetReuse() {
     sourceRequest++
@@ -226,6 +246,7 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     visible.value = false
     returnAvailable.value = false
     awaitingLogin.value = false
+    onboardingPhase.value = null
     pending.value = false
     error.value = ''
     loading.value = false
@@ -239,6 +260,12 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     resetSession()
   }
   function dismiss() {
+    if (onboardingPhase.value && valid()) {
+      visible.value = false
+      awaitingLogin.value = false
+      returnAvailable.value = true
+      return
+    }
     if (valid() && !saved.value && (loaded.value || !runtime.available)) {
       sessionDrafts.set(storeId.value, {
         draft: cloneSetupDraft(draft.value),
@@ -249,8 +276,15 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     resetSession()
   }
   function open(id: string) {
-    if (storeId.value) dismiss()
-    else resetSession()
+    if (valid() && !saved.value && (loaded.value || !runtime.available)) {
+      sessionDrafts.set(storeId.value, {
+        draft: cloneSetupDraft(draft.value),
+        step: Math.min(step.value, 4),
+        reuse: reuseApplied.value ? cloneApplied(reuseApplied.value) : null,
+      })
+    }
+    // Hiding the same onboarding keeps its task; opening a target always starts a new lease.
+    resetSession()
     if (!runtime.snapshot.workspaceId || !runtime.snapshot.stores.some((item) => item.id === id))
       return
     workspaceId.value = runtime.snapshot.workspaceId
@@ -269,8 +303,46 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     // 建立平台窗口不是登录完成。自动引导只等待当前店铺的真实认证结果。
     visible.value = false
     awaitingLogin.value = true
+    // Old main/preload builds cannot reserve native view space. Keep their original flow.
+    onboardingPhase.value = runtime.onboardingSupported ? 'login' : null
     returnAvailable.value = false
-    if (loginReady.value && runtime.selectedStoreId === id) resume()
+    if (!runtime.onboardingSupported && loginReady.value && runtime.selectedStoreId === id) resume()
+  }
+  async function confirmLogin() {
+    if (!valid() || pending.value || onboardingPhase.value !== 'login') return
+    const lease = version,
+      id = storeId.value
+    const current = () => lease === version && valid() && runtime.selectedStoreId === id
+    pending.value = true
+    error.value = ''
+    try {
+      await runtime.run({ action: 'open-store', storeId: id })
+      if (!current()) return
+      // run refreshes the snapshot; an open page or online connection alone is insufficient.
+      if (
+        !loginReady.value ||
+        !shop.value?.storeName.trim() ||
+        (shop.value.platform === 'xianyu' && shop.value.storeName === '闲鱼店铺')
+      )
+        throw Error('尚未确认登录和店铺身份，请在下方完成登录后重试')
+      awaitingLogin.value = false
+      onboardingPhase.value = 'import'
+      visible.value = true
+    } catch (cause) {
+      if (current()) error.value = message(cause)
+    } finally {
+      if (current()) pending.value = false
+    }
+  }
+  function startOnboardingSettings(backgroundConfirmed = false) {
+    if (!valid() || onboarding.busy.value || (onboarding.activeJob.value && !backgroundConfirmed))
+      return
+    onboardingPhase.value = 'settings'
+    step.value = 1
+    visible.value = true
+  }
+  async function completeOnboarding() {
+    if (await saveRules()) onboardingPhase.value = 'complete'
   }
   async function loadRules() {
     if (!valid() || loading.value || saving.value) return
@@ -647,7 +719,8 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
   function resume() {
     if (!valid()) return finish()
     awaitingLogin.value = false
-    visible.value = true
+    visible.value = onboardingPhase.value !== 'login'
+    awaitingLogin.value = onboardingPhase.value === 'login'
     returnAvailable.value = false
   }
   function pauseForConfiguration() {
@@ -713,6 +786,20 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     { flush: 'sync' },
   )
   watch(
+    [
+      () => runtime.snapshot.managed.active.mode,
+      () => runtime.snapshot.managed.active.apiOrigin,
+      () => runtime.snapshot.managed.session.account?.userId,
+      () => runtime.snapshot.managed.restartRequired,
+    ],
+    () => {
+      // Accounts share local-runtime; workspaceId alone cannot invalidate a paid-learning lease.
+      sessionDrafts.clear()
+      resetSession()
+    },
+    { flush: 'sync' },
+  )
+  watch(
     () => runtime.snapshot.stores.map((item) => item.id).join(','),
     () => {
       const loadedSource = reuse.loaded
@@ -736,12 +823,25 @@ export const useShopSetupStore = defineStore('shop-setup', () => {
     { flush: 'sync' },
   )
   watch(loginReady, (ready) => {
-    if (ready && awaitingLogin.value && valid() && runtime.selectedStoreId === storeId.value) {
+    if (
+      !onboardingPhase.value &&
+      ready &&
+      awaitingLogin.value &&
+      valid() &&
+      runtime.selectedStoreId === storeId.value
+    ) {
       step.value = 0
       resume()
     }
   })
   return {
+    onboardingPhase,
+    onboardingIndex,
+    onboardingImportNote,
+    onboarding,
+    confirmLogin,
+    startOnboardingSettings,
+    completeOnboarding,
     storeId,
     visible,
     step,

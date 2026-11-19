@@ -19,3 +19,4 @@ export type {
 
 export { default as KnowledgeManagerView } from './components/KnowledgeManagerView.vue'
 export { openKnowledgeManager, createKnowledgeClient } from './manager-service'
+export { useKnowledgeOnboarding } from './onboarding'

@@ -270,7 +270,9 @@
     {
       "path": "electron/platform-host.cjs",
       "upstreamGitBlob": "dae7802443d31596c9d9efd1173e6db4f8ff280c",
-      "sha256": "7691064e768bb58f8a04887c826f4221754205a5a8e67ffd53936f2f8e48e56a"
+      "sha256": "cb84f525ff0b6fb2787ec532af3483ec9722a65436305d0401a5c75c528b2780",
+      "previousSha256": "7691064e768bb58f8a04887c826f4221754205a5a8e67ffd53936f2f8e48e56a",
+      "localPatch": "Trusted presentation layout reserves a fixed 144px onboarding login header; default bounds and visibility remain unchanged."
     },
     {
       "path": "electron/product-knowledge.cjs",

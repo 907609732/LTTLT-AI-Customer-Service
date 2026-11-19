@@ -86,6 +86,8 @@ watch(
     quickReplyVisible,
     loginVisible,
     () => setup.visible,
+    () => setup.onboardingPhase,
+    () => setup.returnAvailable,
   ],
   () => {
     const visible =
@@ -96,7 +98,11 @@ watch(
       !quickReplyVisible.value &&
       !loginVisible.value &&
       !setup.visible
-    void runtime.presentStore(runtime.platformStoreId, visible).catch((error) => {
+    const presentation =
+      setup.onboardingPhase === 'login' && !setup.returnAvailable
+        ? runtime.presentStore(runtime.platformStoreId, visible, 'onboarding-login')
+        : runtime.presentStore(runtime.platformStoreId, visible)
+    void presentation.catch((error) => {
       task.error.value = error instanceof Error ? error.message : String(error)
     })
   },

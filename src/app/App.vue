@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ShopSetupGuide } from '@/modules/shops'
+import { ShopSetupGuide, ShopOnboardingGuide } from '@/modules/shops'
 </script>
 <template>
   <div class="application-page"><router-view /></div>
   <ShopSetupGuide />
+  <ShopOnboardingGuide />
 </template>
 <style scoped>
 .application-page {

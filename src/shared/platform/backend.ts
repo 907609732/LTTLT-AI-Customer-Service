@@ -13,6 +13,7 @@ export function getBackendBridge(): BackendBridge | undefined {
   )
     return undefined
   return {
+    onboardingPresentation: desktop.onboardingPresentation === true,
     snapshot: desktop.backendSnapshot,
     execute: desktop.backendExecute,
     subscribe: desktop.onBackendEvent,

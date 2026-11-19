@@ -70,10 +70,14 @@ export function registerBusinessIpc(runtime: LocalRuntime): () => void {
   ipcMain.handle('business:present-store', (event, input) => {
     requireAppFrame(event)
     const value = z
-      .object({ storeId: z.string().max(64), visible: z.boolean() })
+      .object({
+        storeId: z.string().max(64),
+        visible: z.boolean(),
+        layout: z.enum(['default', 'onboarding-login']).optional(),
+      })
       .strict()
       .parse(input)
-    runtime.presentStore(value.storeId, value.visible)
+    runtime.presentStore(value.storeId, value.visible, value.layout)
   })
   // 模拟顾客页的状态与启动入口：只返回端口/地址，页面口令留在主进程内存与用户复制的那条链接里。
   ipcMain.handle('sim:status', (event) => {

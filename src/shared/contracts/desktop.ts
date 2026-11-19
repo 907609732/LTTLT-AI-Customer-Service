@@ -42,6 +42,7 @@ export interface DesktopApi extends Partial<ReceptionBridge> {
   schedulerExecute?(command: SchedulerCommand): Promise<SchedulerSnapshot>
   knowledge?: import('./knowledge-client').KnowledgeBridge
   readonly isElectron: boolean
+  readonly onboardingPresentation?: boolean
   minimize(): Promise<void>
   toggleMaximize(): Promise<boolean>
   close(): Promise<void>
@@ -58,7 +59,11 @@ export interface DesktopApi extends Partial<ReceptionBridge> {
   backendExecute?(command: BackendCommand): Promise<BackendResult>
   onBackendEvent?(listener: (event: BackendEvent) => void): () => void
   setStoreZoom?(input: import('./store-zoom').StoreZoomRequest): Promise<number>
-  presentStore?(storeId: string, visible: boolean): Promise<void>
+  presentStore?(
+    storeId: string,
+    visible: boolean,
+    layout?: 'default' | 'onboarding-login',
+  ): Promise<void>
   /** 本机模拟顾客服务的状态；未启动时如实返回 running=false 与失败原因。 */
   simulatorStatus?(): Promise<SimulatorStatus>
   /** 在系统浏览器打开模拟顾客页；浏览器预览版不具备此能力。 */

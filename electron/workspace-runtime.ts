@@ -288,9 +288,9 @@ export function createWorkspaceRuntime(options: {
       requireAvailable()
       return current.setStoreZoom(input)
     },
-    presentStore(storeId, visible) {
+    presentStore(storeId, visible, layout) {
       requireAvailable()
-      current.presentStore(storeId, visible)
+      current.presentStore(storeId, visible, layout)
     },
     simulatorStatus() {
       requireAvailable()

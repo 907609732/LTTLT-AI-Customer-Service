@@ -378,10 +378,15 @@ export interface BackendEvent {
   revision?: number
 }
 export interface BackendBridge {
+  onboardingPresentation?: boolean
   snapshot(): Promise<BackendSnapshot>
   execute(command: BackendCommand): Promise<BackendResult>
   subscribe(listener: (event: BackendEvent) => void): () => void
-  presentStore(storeId: string, visible: boolean): Promise<void>
+  presentStore(
+    storeId: string,
+    visible: boolean,
+    layout?: 'default' | 'onboarding-login',
+  ): Promise<void>
 }
 
 export function emptySnapshot(): BackendSnapshot {

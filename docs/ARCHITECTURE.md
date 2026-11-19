@@ -1,5 +1,11 @@
 # 架构导航
 
+新店八步引导沿 `AddShopDialog → setup-store → ShopOnboardingGuide / ShopSetupGuide` 复用现有基础设置。新店登录检测不再自动推进；“我已登录”执行原 open-store 并核对当前快照身份，才进入知识导入。已有店铺 open 仍进入原基础设置。切换目标始终重新建立版本租约，暂时隐藏当前引导保留本会话草稿/任务；账号或工作区变更清空内存状态，后台任务沿既有知识任务存储保存。
+
+新 preload 通过可选 `onboardingPresentation=true` 静态声明原生留顶能力，经共享适配器进入运行状态。旧 preload 缺少该能力时维持原六步基础设置路径，不因仅更新前端而让原生网页盖住新步骤条；新能力随正常主进程/preload 同批源码编译生效，不用环境变量或渲染开关伪造当前进程版本。
+
+`knowledge/onboarding` 只经知识 client 的既有 pipeline/query 调用目录、文件预览、导入、估算和学习。只跟踪本次明确提交的 jobId；文件学习取 import checkpoint 的实际拆分 sourceIds，和本店资料/绑定交叉核对；采集学习限定本次任务的绑定及更新资料。结果未知闭锁重复提交，不自动处理历史待确认任务。`presentStore` 增加可选 `default | onboarding-login` 布局模式，通过原服务主 frame IPC 校验后传给 platform-host；两种固定顶边为72/216逻辑像素，渲染层不能提交任意几何值。未重新编译主进程时不能宣称原生留顶已生效。
+
 2026-11-19 托管商品学习：`knowledge-pipeline-assembly → knowledge-runtime 动态 prepareLearning → createManagedLearningPort → 原 vendor managed queue/chat` 贯通来源/策略预检。`electron/managed-learning.ts` 只从当前店铺真实 PDD 采集来源派生学习用途、策略版本及文字/图片类型；managed 学习使用 basePort，提交钩子由原队列内 `isCurrent` 触发，先复核暂停、账号、来源版本及商品预算，再持久化 submitted。估算在预检后通过同一事务复读并原子消费；本机 Key 不暴露托管预检，保留旧计划与独立视觉路径。候选单品预算可配置 1–40，默认 20、学习默认关闭，配置、任务估算确认与人工审核分别保留。实现、部署与实际模型边界见 [托管接线](MANAGED_SERVICE.md) 和 [修复回执](parallel/MANAGED_LEARNING_FIX_20261119.md)。
 
 2026-11-19 本机视觉与尺码：`local-runtime → createVisionModelAssembly → VisionModelSettingsStore/Runtime → onKnowledgeModel → knowledge.setModel` 形成独立知识图片端口。`visionAssembly` 在 store 损坏时返回仅关闭图片的端口，managed 模式直接使用原托管端口；`capabilities.visionModel` 只投影安全六字段，`get/save/probe/verify/clear-vision-key` 走现有 business 命令，`LoginDialog` 经 settings 模块服务挂载组件。知识库 trial 在 `knowledge-runtime` 的原预算/租约链中注入尺码证据并在模型返回后复核规则版本；正式接待 beforeSend 只校验 vendor 过滤后的最终文本，不做重写。尺码候选按生成 trace 有界记录，淘汰证据用 tombstone 闭锁，普通无尺码证据不受影响。

@@ -8,6 +8,7 @@ import { developerDebugChannels } from '../src/shared/contracts/developer-debug'
 const api: DesktopApi = {
   checkForUpdates: (manual) => ipcRenderer.invoke('app:check-updates', manual),
   isElectron: true,
+  onboardingPresentation: true,
   knowledge: Object.freeze<import('../src/shared/contracts/knowledge-client').KnowledgeBridge>({
     onNavigate: (listener) => {
       const handler = (
@@ -80,8 +81,12 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener('business:event', receive)
   },
   setStoreZoom: (input) => ipcRenderer.invoke('business:store-zoom', input),
-  presentStore: (storeId, visible) =>
-    ipcRenderer.invoke('business:present-store', { storeId, visible }),
+  presentStore: (storeId, visible, layout) =>
+    ipcRenderer.invoke('business:present-store', {
+      storeId,
+      visible,
+      ...(layout ? { layout } : {}),
+    }),
   simulatorStatus: () => ipcRenderer.invoke('sim:status'),
   openSimulatorPage: () => ipcRenderer.invoke('sim:open-page'),
   openAssist: (target) => ipcRenderer.invoke('assist:open', target),

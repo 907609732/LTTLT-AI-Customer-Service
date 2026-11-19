@@ -21,7 +21,8 @@ function createPlatformHost({dataDir,partitionNamespace='',allowExternalClient=p
   const window=getWindow?.();
   const usable=window&&!window.isDestroyed();
   const [width,height]=usable?window.getContentSize():[0,0];
-  const top=72;
+  // Only trusted desktop presentation selects this fixed inset; no renderer coordinates.
+  const top=presentation.layout==='onboarding-login'?216:72;
   const bounds={x:300,y:top,width:Math.max(0,width-300),height:Math.max(0,height-top)};
   for(const [id,entry] of views){
    if(!entry.view)continue;

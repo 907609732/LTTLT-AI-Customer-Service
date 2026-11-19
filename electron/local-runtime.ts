@@ -145,7 +145,11 @@ interface PlatformHost {
   managerFactory: unknown
   start(): Promise<void>
   close(): Promise<void>
-  setPresentation(value: { storeId: string; visible: boolean }): void
+  setPresentation(value: {
+    storeId: string
+    visible: boolean
+    layout?: 'default' | 'onboarding-login'
+  }): void
 }
 /** 厂商店铺窗口管理器的只读用法：闲鱼适配器需要拿同一店铺的 WebContents。 */
 interface VendorShopManager {
@@ -1551,7 +1555,7 @@ export function createLocalRuntime(options: {
         throw Error('店铺不存在')
       return applyStoreZoom(platformAdapters.get(input.storeId), input.percent)
     },
-    presentStore(storeId: string, visible: boolean) {
+    presentStore(storeId: string, visible: boolean, layout?: 'default' | 'onboarding-login') {
       if (
         visible &&
         !snapshotSchema
@@ -1559,7 +1563,7 @@ export function createLocalRuntime(options: {
           .stores.some((s) => s.id === storeId)
       )
         throw new Error('店铺不存在')
-      host.setPresentation({ storeId, visible })
+      host.setPresentation({ storeId, visible, layout: layout ?? 'default' })
     },
     async dispose() {
       closed = true
