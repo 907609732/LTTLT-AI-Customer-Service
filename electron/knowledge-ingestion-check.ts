@@ -269,6 +269,27 @@ app
       `document.querySelectorAll('.knowledge-card-actions').length===2&&!document.querySelector('[data-testid="write-one"]').disabled`,
     )
     await click('编辑')
+    // 商品行的“编辑”现在打开新版商品资料弹窗；旧夹具直接等问答编辑面板会超时。
+    await until(`Boolean(document.querySelector('[aria-label="编辑商品资料"]'))`)
+    assert.equal(
+      await evaluate<boolean>(
+        `document.querySelector('[aria-label="商品知识点"]')?.textContent.includes('1 条草稿') === true`,
+      ),
+      true,
+      '商品资料弹窗应显示本商品的真实知识点计数',
+    )
+    // “知识点”进入原问答编辑器：确认刚才模型学习产生的草稿确实可以继续编辑。
+    await click('知识点')
+    await until(`Boolean(document.querySelector('[aria-label="知识编辑与审核"]'))`)
+    await until(
+      `document.querySelector('.knowledge-workspace')?.textContent.includes('材质尺寸') === true`,
+    )
+    await click('保存并关闭')
+    await until(`!document.querySelector('[aria-label="知识编辑与审核"]')`)
+    // “原始资料”从同一弹窗直达本商品来源面板，再按原路径导入、预览和学习。
+    await click('编辑')
+    await until(`Boolean(document.querySelector('[aria-label="编辑商品资料"]'))`)
+    await click('原始资料')
     await until(`Boolean(document.querySelector('[aria-label="知识编辑与审核"]'))`)
     await click('原始资料 / 来源版本')
     assert(

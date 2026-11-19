@@ -45,3 +45,22 @@
 - 无阻塞项。修复后完整 `npm run test:desktop` 已在隔离临时目录全通过。
 - `business:ui-add-store` 用 `pdd-web` 离线记录做双店业务夹具，是为了不改变模拟客服台“单模拟店铺”的既有断言和 `openSimulatorPage` 选取语义；模拟店铺本身仍由 `sim:add-store-runtime-fixture` 经 runtime 创建并覆盖。
 - 本机安装包、真实账号/平台验证、外部模型调用均未在本轮执行；`[skip ci]` 提交，未推送、未合并、未改版本。
+
+## 第二轮：知识导入专项旧编辑入口修复
+
+提交 `662f68e` 合入主干 `0373bd3` 后，第二次云端完整 `npm run check` 与 `test:desktop` 通过，knowledge manager 专项通过；`knowledge ingestion` 专项仍在旧入口阻塞。
+
+- 云端失败日志（只读）：`artifacts/install-1.0.88/cloud-run2-failed.log`。首错：`electron/knowledge-ingestion-check.ts` 点击商品“编辑”后等待 `[aria-label="知识编辑与审核"]`，实际打开的是新版深色商品资料弹窗（`[aria-label="编辑商品资料"]`）。
+- 本机完整复现：`node scripts/verify-knowledge-ingestion.mjs` → `Error: 页面等待超时 Boolean(document.querySelector('[aria-label="知识编辑与审核"]'))`，页面正文为商品资料弹窗（日志 `10-ingestion-red.log`、`10-ingestion-red-failure.txt`）。
+- 根因：商品行“编辑”的入口在商品资料编辑弹窗改造后改为打开 `KnowledgeProductProfileDialog`；旧夹具直接等原问答编辑面板。新版弹窗通过“知识点”进入原问答编辑器，通过“原始资料”进入原来源版本面板。
+- 修复（`electron/knowledge-ingestion-check.ts`）：
+  - 点击“编辑”后等待 `[aria-label="编辑商品资料"]`，并核对弹窗 `[aria-label="商品知识点"]` 显示本商品的真实草稿计数（1 条草稿）。
+  - 点击“知识点”进入 `[aria-label="知识编辑与审核"]`，核对模型学习产生的“材质尺寸”草稿可继续编辑，再用“保存并关闭”返回。
+  - 再次“编辑”并点击“原始资料”直达本商品来源面板，然后保留原“原始资料 / 来源版本”选择、PDF 本商品来源导入、来源图片预览、学习本商品资料、真实视觉字节、未知调用闭锁、归档范围与批量审核部分失败的完整断言。
+  - 未删断言、未跳过、未改成功判定、未增加自动重试；未改生产代码、schema、vendor、版本或 CI。
+- 验证：
+  - `node scripts/verify-knowledge-ingestion.mjs` 全通过，报告 7 项检查、5 次本机模型请求、`visibleWindows: false`（日志 `11-ingestion-fix1.log`，报告 `17-ingestion-report.json`）；`--reuse-renderer` 复跑同样 7/7 通过（日志 `11b-ingestion-confirm.log`）。
+  - `node scripts/verify-knowledge-manager.mjs` 本机首次运行全通过，18 项检查、4 次本机模型请求（日志 `12-manager.log`，报告 `18-manager-report.json`）；未发现后续脚本夹具不兼容。
+  - `scripts/package-smoke.ts` 只读核对：安装包冒烟通过 knowledge IPC `choose-sources`/`preview-import` 直接验证解析，不依赖商品“编辑”弹窗或 `知识编辑与审核` 面板，无需修改其断言。
+  - `npx tsc -p config/tsconfig.electron.json`、改动文件 ESLint、Prettier、`git diff --check` 通过（日志 `13-typecheck.log`、`14-eslint.log`、`15-prettier.log`）。
+  - 按授权未重跑全量 `npm run check`/`test:desktop`（同代码范围已有通过证据），未打包、未安装、未推送、未调用外部模型或真实业务。
