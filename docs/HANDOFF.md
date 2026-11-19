@@ -1,3 +1,11 @@
+## 2026-11-19 训练场多轮 IPC 克隆修复（1.0.86 源码）
+
+本机 DeepSeek 在独立 worktree、基线 c0a339d 上实现，执行退出码 0，官方 NDJSON final.reason.kind=completed；Codex 独立复核后整合。训练场历史原为 Vue 深层响应式对象，slice 只复制数组，第二轮起 IPC 克隆失败。现在只在本组件提交边界映射出普通 from/content 对象，保留历史、最近 20 条上限、图片参数、商品/店铺绑定和迟到结果守卫；未改全局序列化或 vendor。
+
+回归先在旧源码出现第二轮 DataCloneError，修复后相关 13 项测试、Vue 类型、改动文件 ESLint/Prettier 和源码构建通过。Codex 在临时数据目录的真实 Electron 主窗口连续提交三轮，验证第二轮携带首轮问答、第三轮携带前两轮问答，真实 preload/IPC/本机模型传输均通过。模型为本机回环夹具，不把该验收表述为 DeepSeek 真实模型或买家发送验收。初次验收脚本使用旧标题栏选择器失败，修正为当前窗口控件选择器后通过，失败日志保留。
+
+用户确认已保存当前店铺设置并允许重启；本批递增一次为 1.0.86，同步锁版本。原账号、业务目录及三家已登记店铺保留；启动与最终验收回执见 [专项记录](parallel/TRAINING_CLONE_FIX_20261119.md)。未制作安装包、未推送或公开发布、未重试旧知识库任务。另一个聊天的添加店铺简化候选不在本次修复范围。证据位于 artifacts/training-clone-fix-20261119/。
+
 ## 2026-11-19 后台宽屏布局（1.0.85 源码）
 
 后台 admin-workspace 移除 1600px 上限，工作区随可用宽度伸展。浏览器局部样式预览在 2560px 屏幕下宽约 2326px，390px 窄屏保持无横向溢出；原样式的小屏断点及卡片布局沿用。已检查实际截图，原生后台网页 Bun 1.4.4 / Rsbuild 构建成功。预览截图位于 artifacts/deepseek-unified/admin-wide-preview.png 与 admin-narrow-preview.png。用户明确确认后，已上线到现有账号后台。保留原 JS 与 Go 程序，以独立内容哈希 CSS 和原子替换 HTML 引用部署等价规则；备份在 /opt/lingtu-kefu/backups/20261119-admin-wide。刷新真实页面后临时预览样式不存在，线上样式已加载，实际内容宽 2314px，等于 main 宽度，横向溢出为零。HTML/CSS 均 200，原服务程序 SHA256 已核对一致。部署与实机截图见 artifacts/admin-wide-20261119/，1.0.85 桌面源码已打开，原账号和两店恢复。

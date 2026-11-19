@@ -109,7 +109,11 @@ async function send() {
       ...(storeId ? { storeId } : {}),
       values: {
         question: text,
-        history: history.value.slice(-20),
+        // Vue turns stored rows into reactive proxies; Electron's IPC structured clone
+        // rejects them ("An object could not be cloned.") before the main process runs.
+        history: history.value
+          .slice(-20)
+          .map((item) => ({ from: item.from, content: item.content })),
         ...(selectedProduct ? { productId: selectedProduct } : {}),
         ...(imageUrls.length ? { images: imageUrls } : {}),
       },

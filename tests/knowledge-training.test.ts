@@ -476,4 +476,104 @@ describe('shop training panel isolation', () => {
     expect(wrapper.get('[aria-label="测试图片地址"]').element.tagName).toBe('TEXTAREA')
     wrapper.unmount()
   })
+
+  it('sends cloneable history on later rounds, carries earlier turns and keeps the last 20 messages', async () => {
+    let round = 0
+    backend.execute.mockImplementation(async (command) => {
+      // Electron structured-clones every IPC argument before the main process sees it.
+      structuredClone(command)
+      round += 1
+      return { status: 'ok', message: '', data: { reply: `第${round}轮回复` } }
+    })
+    const wrapper = mount(ShopTrainingPanel, {
+      ...options,
+      props: {
+        storeId: 'a',
+        storeName: '店铺A',
+        products: [productCard('a', 'P1')],
+        productId: 'P1',
+      },
+    })
+    async function ask(text: string) {
+      await wrapper.get('[aria-label="模拟买家问题"]').setValue(text)
+      await wrapper.get('form.runtime-form').trigger('submit')
+      await flushPromises()
+    }
+    await wrapper.get('[aria-label="测试图片地址"]').setValue('https://img.example/a.png')
+    await ask('第1轮问题')
+    expect(backend.execute.mock.calls[0]![0].values).toEqual({
+      question: '第1轮问题',
+      history: [],
+      productId: 'P1',
+      images: ['https://img.example/a.png'],
+    })
+    expect(wrapper.text()).toContain('第1轮回复')
+    await ask('第2轮问题')
+    expect(backend.execute.mock.calls[1]![0].values).toEqual({
+      question: '第2轮问题',
+      history: [
+        { from: 'buyer', content: '第1轮问题' },
+        { from: 'seller', content: '第1轮回复' },
+      ],
+      productId: 'P1',
+    })
+    expect(wrapper.text()).toContain('第2轮回复')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    await ask('第3轮问题')
+    expect(backend.execute.mock.calls[2]![0].values).toEqual({
+      question: '第3轮问题',
+      history: [
+        { from: 'buyer', content: '第1轮问题' },
+        { from: 'seller', content: '第1轮回复' },
+        { from: 'buyer', content: '第2轮问题' },
+        { from: 'seller', content: '第2轮回复' },
+      ],
+      productId: 'P1',
+    })
+    for (let index = 4; index <= 11; index += 1) await ask(`第${index}轮问题`)
+    const last = backend.execute.mock.calls.at(-1)![0].values
+    expect(last.history).toHaveLength(20)
+    expect(last.history[0]).toEqual({ from: 'buyer', content: '第1轮问题' })
+    expect(last.history.at(-1)).toEqual({ from: 'seller', content: '第10轮回复' })
+    expect(wrapper.text()).not.toContain('第1轮问题')
+    expect(wrapper.text()).toContain('第11轮回复')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(backend.execute).toHaveBeenCalledTimes(11)
+    wrapper.unmount()
+  })
+
+  it('keeps the question and image inputs after a clone-safe failure and retries only on demand', async () => {
+    let attempts = 0
+    backend.execute.mockImplementation(async (command) => {
+      structuredClone(command)
+      attempts += 1
+      throw new Error('模型暂不可用')
+    })
+    const wrapper = mount(ShopTrainingPanel, {
+      ...options,
+      props: { storeId: 'a', storeName: '店铺A', products: [], productId: '' },
+    })
+    await wrapper.get('[aria-label="模拟买家问题"]').setValue('失败问题')
+    await wrapper.get('[aria-label="测试图片地址"]').setValue('https://img.example/fail.png')
+    await wrapper.get('form.runtime-form').trigger('submit')
+    await flushPromises()
+    expect(attempts).toBe(1)
+    expect(backend.execute).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('模型暂不可用')
+    expect((wrapper.get('[aria-label="模拟买家问题"]').element as HTMLTextAreaElement).value).toBe(
+      '失败问题',
+    )
+    expect((wrapper.get('[aria-label="测试图片地址"]').element as HTMLTextAreaElement).value).toBe(
+      'https://img.example/fail.png',
+    )
+    await wrapper.get('form.runtime-form').trigger('submit')
+    await flushPromises()
+    expect(attempts).toBe(2)
+    expect(backend.execute.mock.calls[1]![0].values).toEqual({
+      question: '失败问题',
+      history: [],
+      images: ['https://img.example/fail.png'],
+    })
+    wrapper.unmount()
+  })
 })
