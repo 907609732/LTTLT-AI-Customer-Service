@@ -32,6 +32,8 @@ export interface LearningCall {
   imageLocator?: import('../../src/shared/contracts/knowledge').KnowledgeSourceLocator
 }
 export interface LearningPlan {
+  /** Plans from before managed typed learning lack this marker and must be re-estimated. */
+  version: 2
   storeId: string
   bindingIds: string[]
   sourceIds: string[]
@@ -104,6 +106,8 @@ export function createKnowledgeLearner(options: {
   function validate(plan: LearningPlan) {
     active()
     options.assertStore?.(plan.storeId)
+    if (options.model.prepareLearning && plan.version !== 2)
+      throw Error('旧版学习估算不含托管来源/策略校验，请重新估算；不会自动重发旧任务')
     if (plan.model !== modelFingerprint()) throw Error('模型配置或图片能力已变化，请重新估算')
     if (
       plan.family !== family(plan.bindingIds) ||
@@ -116,6 +120,23 @@ export function createKnowledgeLearner(options: {
       plan.refs.some((r) => repo.getSource(r.sourceId)?.revision !== r.revision)
     )
       throw Error('来源或商品关联已变化，请重新估算')
+  }
+  async function preflight(plan: LearningPlan, signal?: AbortSignal, isCurrent?: () => boolean) {
+    if (!options.model.prepareLearning) return
+    const checked = new Set<string>()
+    for (const call of plan.calls) {
+      if (signal?.aborted || isCurrent?.() === false) throw Error('知识任务已取消')
+      const key = `${call.sourceId}\n${call.assetIds.length > 0}`
+      if (checked.has(key)) continue
+      checked.add(key)
+      await options.model.prepareLearning({
+        sourceId: call.sourceId,
+        withImages: call.assetIds.length > 0,
+        ...(signal ? { signal } : {}),
+        ...(isCurrent ? { isCurrent } : {}),
+      })
+    }
+    if (signal?.aborted || isCurrent?.() === false) throw Error('知识任务已取消')
   }
   function messages(call: LearningCall): ModelMessages {
     const source = repo.getSource(call.sourceId)!
@@ -317,6 +338,7 @@ export function createKnowledgeLearner(options: {
     if (!calls.length)
       throw Error('没有可学习资料，请先完成解析；平台原始快照/采集范围不会作为共享事实')
     const plan: LearningPlan = {
+      version: 2,
       storeId,
       bindingIds: [...new Set(bindingIds)],
       sourceIds: [...new Set(sourceIds)],
@@ -418,14 +440,34 @@ export function createKnowledgeLearner(options: {
           const interval = options.model.minimumIntervalMs?.() ?? 0
           nextCallAt =
             Date.now() + (Number.isFinite(interval) ? Math.max(0, Math.min(60000, interval)) : 0)
-          cp = { ...cp, state: 'submitted' }
-          job = patch(job, { expectedRevision: job.revision, checkpoint: { ...cp } })
+          let submitted = false
+          const markSubmitted = () => {
+            if (submitted) return
+            if (!current()) throw Error('知识任务已取消')
+            cp = { ...cp, state: 'submitted' }
+            job = patch(job, { expectedRevision: job.revision, checkpoint: { ...cp } })
+            submitted = true
+          }
+          // Managed learning marks submission from inside the adapter only after
+          // source/policy/account checks. Local Key keeps its existing checkpoint order.
+          const managedLearning = options.model.prepareLearning
+            ? {
+                sourceId: call.sourceId,
+                withImages: call.assetIds.length > 0,
+                beforeSubmit: markSubmitted,
+              }
+            : undefined
+          if (!managedLearning) markSubmitted()
           const response = await options.model.complete({
             messages: request,
             maxTokens: 4096,
             signal: controller.signal,
             isCurrent: current,
+            ...(managedLearning ? { learning: managedLearning } : {}),
           })
+          // A conforming adapter submits before the paid call. This fallback keeps
+          // the checkpoint truthful for a test/diagnostic port that omits the hook.
+          if (!submitted) markSubmitted()
           if (!current()) return
           cp = { ...cp, state: 'received', response }
           job = patch(job, { expectedRevision: job.revision, checkpoint: { ...cp } })
@@ -532,13 +574,19 @@ export function createKnowledgeLearner(options: {
       if (closed || controller.signal.aborted) return
       const job = repo.getJob(id)
       if (!job || !['running', 'queued'].includes(job.status)) return
+      const notCharged =
+        cause instanceof Error && Reflect.get(cause, 'knowledgeLearningNotCharged') === true
+      const uncertain = job.checkpoint.state === 'submitted' && !notCharged
       patch(job, {
         expectedRevision: job.revision,
-        status: job.checkpoint.state === 'submitted' ? 'needs-confirmation' : 'failed',
+        status: uncertain ? 'needs-confirmation' : 'failed',
+        ...(notCharged ? { checkpoint: { ...job.checkpoint, state: 'ready' } } : {}),
         error:
-          (job.checkpoint.state === 'submitted'
+          (uncertain
             ? '模型结果不确定，可能已计费；明确重试可能重复计费，或选择跳过。'
-            : '') + (cause instanceof Error ? cause.message : String(cause)),
+            : notCharged
+              ? '托管服务在计费前拒绝了学习请求，未产生不确定计费；'
+              : '') + (cause instanceof Error ? cause.message : String(cause)),
       })
     }
   }
@@ -558,6 +606,10 @@ export function createKnowledgeLearner(options: {
       JSON.stringify([...sourceIds].sort()) !== JSON.stringify([...plan.sourceIds].sort())
     )
       throw Error('估算范围已变化')
+    validate(plan)
+    // Managed mode fails here, before a job or submitted checkpoint exists, when
+    // the server lacks the policy contract or the source cannot be typed as PDD.
+    await preflight(plan)
     validate(plan)
     const job = repo.createJob({ kind: 'learn', storeId, payload: { ...plan } })
     repo.setMetadata(`learning-estimate:${estimateId}`, '')

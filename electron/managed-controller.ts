@@ -261,6 +261,90 @@ export function createManagedController(options: {
     if (state.account.trial.remaining < 1)
       throw new options.factory.ManagedSessionError('trial_exhausted')
   }
+  /**
+   * Policy reads stay optional for the legacy reception path. Learning passes
+   * strict=true so an old server, malformed projection or account switch fails
+   * before the learning job can mark a paid request as submitted.
+   */
+  async function loadContextPolicy(
+    strict: boolean,
+    signal?: AbortSignal,
+  ): Promise<ManagedContextPolicy | null> {
+    if (closed) {
+      if (!strict) return null
+      throw new Error('托管连接已关闭；学习请求未发送')
+    }
+    if (signal?.aborted) throw new Error('知识任务已取消')
+    const key = policyIdentity()
+    if (!key) {
+      clearPolicyCache()
+      if (!strict) return null
+      if (active.mode !== 'managed') throw new Error('当前不是托管模式；学习请求未发送')
+      if (requiresRestart())
+        throw new Error('模型来源或账号已更改，请重启软件后使用；学习请求未发送')
+      if (identityError) throw new Error(`${identityError}；学习请求未发送`)
+      throw new options.factory.ManagedSessionError('session_expired')
+    }
+    // Reception may reuse the short projection cache, but learning must read the
+    // current revision immediately before its pre-submit checkpoint.
+    if (!strict && policyCache?.key === key && policyCache.expiresAt > Date.now())
+      return policyCache.value
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 60_000)
+    const requestSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
+    try {
+      requireAccount()
+      const raw = await session.config({ signal: requestSignal })
+      // The account and source may change while the config request is in
+      // flight; recheck both and discard any late projection.
+      requireAccount()
+      if (closed || policyIdentity() !== key || requiresRestart()) {
+        clearPolicyCache()
+        if (strict) throw new Error('托管账号或模型来源已变化；学习请求未发送，请重新读取策略')
+        return null
+      }
+      const parsed = managedContextPolicySchema.safeParse(raw)
+      if (!parsed.success) {
+        // Old servers omit the policy fields; a damaged projection is never
+        // replaced by an invented enabled policy.
+        clearPolicyCache()
+        if (strict)
+          throw new Error(
+            '当前托管服务未提供可校验的商品详情学习策略（可能为旧版服务端）；学习请求未发送，需要服务端支持后再试。',
+          )
+        return null
+      }
+      policyCache = {
+        key,
+        expiresAt: Date.now() + MANAGED_CONTEXT_POLICY_TTL_MS,
+        value: parsed.data,
+      }
+      return parsed.data
+    } catch (cause) {
+      clearPolicyCache()
+      if (!strict) return null
+      if (signal?.aborted) throw new Error('知识任务已取消')
+      if (
+        cause instanceof Error &&
+        (cause.message.startsWith('当前托管服务未提供') ||
+          cause.message.includes('账号或模型来源已变化') ||
+          cause.message.includes('账号已更改') ||
+          cause.message.includes('托管连接已关闭'))
+      )
+        throw cause
+      const message = cause instanceof Error ? cause.message : String(cause)
+      const code = cause instanceof Error ? Reflect.get(cause, 'code') : undefined
+      const error = new Error(
+        code === 'canceled'
+          ? '托管账号已切换或登出；学习请求未发送'
+          : `托管学习策略读取失败：${message}；学习请求未发送，不会改用普通回复。`,
+      )
+      if (typeof code === 'string') Object.assign(error, { code })
+      throw error
+    } finally {
+      clearTimeout(timer)
+    }
+  }
   return {
     active,
     dataDir,
@@ -370,41 +454,34 @@ export function createManagedController(options: {
         submissions.delete(request.parent_request_id)
       }
     },
+    async learningPolicy(input: {
+      learningSource: 'pdd_detail_text' | 'pdd_detail_image'
+      withImages: boolean
+      signal?: AbortSignal
+    }): Promise<{ policyVersion: number; maxTokens: number; maxCallsPerProduct: number }> {
+      ready()
+      const policy = await loadContextPolicy(true, input.signal)
+      if (!policy)
+        throw new Error(
+          '当前托管服务未提供商品详情学习策略；学习请求未发送，需要服务端支持后再试。',
+        )
+      if (!policy.learning.enabled)
+        throw new Error('当前托管账号未开通商品详情学习；学习请求未发送')
+      if (!policy.learning.allowed_sources.includes(input.learningSource))
+        throw new Error('当前学习策略未允许该商品详情来源；学习请求未发送')
+      if (input.withImages && !policy.learning.vision_enabled)
+        throw new Error('当前学习策略未允许图片学习；学习请求未发送')
+      if (input.withImages && state.account?.capabilities?.vision !== true)
+        throw new Error('当前托管账号未提供图片学习能力；学习请求未发送')
+      requireAccount()
+      return {
+        policyVersion: policy.policy_version,
+        maxTokens: policy.learning.max_output_tokens,
+        maxCallsPerProduct: policy.learning.max_calls_per_product,
+      }
+    },
     async contextPolicy(): Promise<ManagedContextPolicy | null> {
-      if (closed) return null
-      const key = policyIdentity()
-      if (!key) {
-        clearPolicyCache()
-        return null
-      }
-      if (policyCache?.key === key && policyCache.expiresAt > Date.now()) return policyCache.value
-      try {
-        requireAccount()
-        const raw = await session.config({})
-        // The account and source may change while the config request is in
-        // flight; recheck both and discard any late projection.
-        requireAccount()
-        if (closed || policyIdentity() !== key || requiresRestart()) {
-          clearPolicyCache()
-          return null
-        }
-        const parsed = managedContextPolicySchema.safeParse(raw)
-        if (!parsed.success) {
-          // Old servers omit the policy fields; a damaged projection is never
-          // replaced by an invented enabled policy.
-          clearPolicyCache()
-          return null
-        }
-        policyCache = {
-          key,
-          expiresAt: Date.now() + MANAGED_CONTEXT_POLICY_TTL_MS,
-          value: parsed.data,
-        }
-        return parsed.data
-      } catch {
-        clearPolicyCache()
-        return null
-      }
+      return loadContextPolicy(false)
     },
     async serviceRequest(
       endpoint: string,

@@ -71,6 +71,7 @@ function fixture() {
     },
   }
   let userId = 1
+  let vision = true
   let configBody: unknown = structuredClone(policy)
   let configStatus = 200
   let configGate: Promise<void> | undefined
@@ -119,7 +120,7 @@ function fixture() {
         display_name: '测试账号' + userId,
         status: 'enabled',
         trial: { limit: 20, used: 2, reserved: 0, remaining: 18, expires_at: expiry },
-        capabilities: { vision: true, model: 'managed-1', max_images: 4 },
+        capabilities: { vision, model: 'managed-1', max_images: 4 },
       }
     else if (endpoint.endsWith('/config')) {
       configEntered?.()
@@ -179,6 +180,9 @@ function fixture() {
     },
     setUser: (id: number) => {
       userId = id
+    },
+    setVision(value: boolean) {
+      vision = value
     },
   }
 }
@@ -344,5 +348,89 @@ describe('托管上下文策略安全投影', () => {
     gate.release()
     await expect(pending).resolves.toBeNull()
     await expect(controller.contextPolicy()).resolves.toBeNull()
+  })
+
+  it('学习预检返回当前真实 revision，旧服务端和禁用来源在请求前失败', async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    const controller = await f.signedIn()
+    const configCalls = () =>
+      f.calls.filter((call) => new URL(call.url).pathname === '/api/client/config').length
+    await expect(
+      controller.learningPolicy({
+        learningSource: 'pdd_detail_text',
+        withImages: false,
+      }),
+    ).resolves.toEqual({ policyVersion: 3, maxTokens: 4096, maxCallsPerProduct: 20 })
+    expect(configCalls()).toBe(1)
+    await controller.learningPolicy({ learningSource: 'pdd_detail_text', withImages: false })
+    expect(configCalls()).toBe(2)
+
+    vi.setSystemTime(Date.now() + 61_000)
+    f.setConfig({ ...policy, learning: { ...policy.learning, enabled: false } })
+    await expect(
+      controller.learningPolicy({
+        learningSource: 'pdd_detail_text',
+        withImages: false,
+      }),
+    ).rejects.toThrow(/未开通商品详情学习/)
+
+    vi.setSystemTime(Date.now() + 61_000)
+    f.setConfig({
+      ...policy,
+      learning: { ...policy.learning, allowed_sources: ['pdd_detail_image'] },
+    })
+    await expect(
+      controller.learningPolicy({
+        learningSource: 'pdd_detail_text',
+        withImages: false,
+      }),
+    ).rejects.toThrow(/未允许该商品详情来源/)
+
+    vi.setSystemTime(Date.now() + 61_000)
+    f.setConfig({
+      ...policy,
+      learning: { ...policy.learning, vision_enabled: false },
+    })
+    await expect(
+      controller.learningPolicy({
+        learningSource: 'pdd_detail_image',
+        withImages: true,
+      }),
+    ).rejects.toThrow(/未允许图片学习/)
+
+    vi.setSystemTime(Date.now() + 61_000)
+    f.setConfig({ default_model: 'managed-1', models: policy.models, max_tokens: 512 })
+    await expect(
+      controller.learningPolicy({
+        learningSource: 'pdd_detail_text',
+        withImages: false,
+      }),
+    ).rejects.toThrow(/旧版服务端/)
+  })
+
+  it('学习预检校验账号视觉能力并忽略账号切换期间的迟到策略', async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    f.setVision(false)
+    const controller = await f.signedIn()
+    await expect(
+      controller.learningPolicy({
+        learningSource: 'pdd_detail_image',
+        withImages: true,
+      }),
+    ).rejects.toThrow(/未提供图片学习能力/)
+
+    f.setVision(true)
+    vi.setSystemTime(Date.now() + 61_000)
+    const gate = f.holdConfig()
+    const pending = controller.learningPolicy({
+      learningSource: 'pdd_detail_text',
+      withImages: false,
+    })
+    await gate.entered
+    await controller.execute('managed-logout', {})
+    gate.release()
+    await expect(pending).rejects.toThrow(/知识任务已取消|账号|登录/)
   })
 }, 15_000)

@@ -18,6 +18,7 @@ function setup(
   complete: KnowledgeModelPort['complete'],
   ocrText?: Parameters<typeof createKnowledgeLearner>[0]['ocrText'],
   minimumIntervalMs = 0,
+  modelOverrides: Record<string, unknown> = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'knowledge-learn-'))
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }))
@@ -33,7 +34,8 @@ function setup(
       complete,
       vision: () => ({ supported: true, maxImages: 4, reason: '' }),
       minimumIntervalMs: () => minimumIntervalMs,
-    },
+      ...modelOverrides,
+    } as KnowledgeModelPort,
     ocrText,
   })
   cleanup.push(() => learner.dispose())
@@ -86,6 +88,49 @@ async function settled(repo: ReturnType<typeof createKnowledgeRepository>, id: s
   }
   throw Error('job did not settle')
 }
+it('preflights a managed learning call and marks submitted only inside the typed send', async () => {
+  let sourceId = ''
+  let jobId = ''
+  let checkpointAtSubmit = ''
+  const prepareLearning = vi.fn(async () => ({ maxTokens: 2048 }))
+  const { repo, b, learner } = setup(
+    async (input) => {
+      const learning = (
+        input as {
+          learning?: {
+            sourceId: string
+            withImages: boolean
+            beforeSubmit(): void
+          }
+        }
+      ).learning
+      expect(learning).toMatchObject({ sourceId, withImages: false })
+      learning!.beforeSubmit()
+      checkpointAtSubmit = String(repo.getJob(jobId)?.checkpoint.state ?? '')
+      return '{"candidates":[]}'
+    },
+    undefined,
+    0,
+    { prepareLearning },
+  )
+  const source = repo.saveSource({
+    storeId: 's',
+    bindingId: b.id,
+    kind: 'platform',
+    label: '平台静态资料',
+    text: '纯棉',
+    locator: { url: 'https://mms.pinduoduo.com/goods/goods_add/index?goods_id=1' },
+  })
+  sourceId = source.id
+  const estimate = await learner.estimate('s', [b.id], [source.id])
+  jobId = (await learner.start('s', [b.id], [source.id], estimate.estimateId)).jobId
+  const result = await settled(repo, jobId)
+  expect(result.status).toBe('succeeded')
+  expect(prepareLearning).toHaveBeenCalledWith(
+    expect.objectContaining({ sourceId, withImages: false }),
+  )
+  expect(checkpointAtSubmit).toBe('submitted')
+})
 it('paces requests before submission and cancels an unpaid wait without another model call', async () => {
   vi.useFakeTimers()
   try {

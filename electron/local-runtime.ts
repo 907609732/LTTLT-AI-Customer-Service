@@ -3,6 +3,7 @@ import { selectProductSpecContext } from './product-spec-context'
 import { createKnowledgeCompatibilityPorts } from './knowledge-compatibility'
 import { createKnowledgeRepository } from './knowledge'
 import { createKnowledgeRuntime, type KnowledgeModelPort } from './knowledge-runtime'
+import { createManagedLearningPort } from './managed-learning'
 import { createProductCatalog } from './product-catalog'
 import { applyStoreZoom } from './store-zoom'
 import { createStoreBackendOpener } from './store-backend'
@@ -761,7 +762,23 @@ export function createLocalRuntime(options: {
               }
             : port.vision(),
       }
-      knowledge.setModel(visionAssembly.wrap(basePort))
+      const visionPort = visionAssembly.wrap(basePort)
+      knowledge.setModel(
+        managed.active.mode === 'managed'
+          ? createManagedLearningPort({
+              base: visionPort,
+              repository: knowledgeRepository,
+              platformForStore: (storeId) =>
+                read().stores.find((store) => store.id === storeId)?.platform,
+              policy: (input) => managed.learningPolicy(input),
+              assertReady: () => {
+                if (closed || !managed.canAccessWorkspace() || managed.snapshot().restartRequired)
+                  throw Error('当前账号知识库不可用，请切换工作区后重试；学习请求未发送')
+                managed.ready()
+              },
+            })
+          : visionPort,
+      )
     },
     // 每次引擎读取配置时叠加开关；自定义本店关键词仍由厂商 handoff 记录优先。
     resolveKeywordSafety: (

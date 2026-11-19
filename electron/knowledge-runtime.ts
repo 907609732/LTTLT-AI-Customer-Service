@@ -39,11 +39,37 @@ export interface KnowledgePipelinePort {
   dispose(): void
 }
 
+export type KnowledgeLearningSource = 'pdd_detail_text' | 'pdd_detail_image'
+
+/**
+ * Main-process only learning request. The adapter derives purpose/version/source
+ * from the owned source and current managed policy; callers cannot supply them.
+ */
+export interface KnowledgeLearningRequest {
+  sourceId: string
+  withImages: boolean
+  /**
+   * Called exactly once after all local policy/source checks and immediately
+   * before the paid request. A checkpoint must not claim submission earlier.
+   */
+  beforeSubmit(): void
+}
+
 /** Main-process only. Neither keys, arbitrary URLs nor publication are part of this model port. */
 export interface KnowledgeModelPort {
   identity?(): string
   minimumIntervalMs?(): number
   vision(): { supported: boolean; reason: string; maxImages: number }
+  /**
+   * Optional managed-only learning preflight. Local Key ports omit it so the
+   * existing learning path and request shape remain unchanged.
+   */
+  prepareLearning?(input: {
+    sourceId: string
+    withImages: boolean
+    signal?: AbortSignal
+    isCurrent?: () => boolean
+  }): Promise<{ maxTokens: number }>
   complete(input: {
     messages: ModelMessages
     maxTokens?: number
@@ -51,13 +77,15 @@ export interface KnowledgeModelPort {
     signal?: AbortSignal
     isCurrent?: () => boolean
     traceId?: string
+    /** Managed only; ordinary reply/trial calls omit it. */
+    learning?: KnowledgeLearningRequest
     /**
-     * Opt-in managed-policy metadata for an approved direct-learning caller.
-     * Existing reply/trial calls omit all three, so their wire body is unchanged.
+     * Internal forwarding fields populated only by the managed adapter after
+     * its preflight. Existing reply/trial calls omit all three.
      */
     purpose?: 'reply' | 'learning'
     policyVersion?: number
-    learningSource?: 'pdd_detail_text' | 'pdd_detail_image'
+    learningSource?: KnowledgeLearningSource
   }): Promise<string>
 }
 export function createKnowledgeRuntime(options: {
