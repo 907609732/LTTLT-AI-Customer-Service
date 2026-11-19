@@ -995,7 +995,7 @@ export function useKnowledgeManager() {
       ids.push(...result.items.map((item) => ('binding' in item ? item.binding.id : item.id)))
     }
     assertListing(scope)
-    selection.value = ids
+    selection.value = [...new Set(ids)]
     allScope.value = true
   }
   function clearSelection() {
@@ -1008,20 +1008,27 @@ export function useKnowledgeManager() {
       selected = new Set(selection.value)
     if (scope.view !== 'library' || scope.tab !== 'products' || !selected.size)
       throw Error('请先选择商品')
-    const bindings: ProductBinding[] = []
+    const selectedKey = [...selected].sort().join('\u0000')
+    const bindings = new Map<string, ProductBinding>()
     let revision: number | undefined
+    const assertSelected = () => {
+      assertListing(scope)
+      if ([...new Set(selection.value)].sort().join('\u0000') !== selectedKey)
+        throw Error('所选商品已变化，请重新选择')
+    }
     for (let offset = 0; offset < scope.total; offset += 100) {
       const result = await listingPage(service, scope, offset, 100)
-      assertListing(scope)
+      assertSelected()
       if (revision !== undefined && revision !== result.revision)
         throw Error('商品范围已变化，请重新选择')
       revision = result.revision
       for (const item of result.items)
-        if ('binding' in item && selected.has(item.binding.id)) bindings.push(item.binding)
+        if ('binding' in item && selected.has(item.binding.id))
+          bindings.set(item.binding.id, item.binding)
     }
-    assertListing(scope)
-    if (bindings.length !== selected.size) throw Error('所选商品已变化，请重新选择')
-    await learnProducts(bindings, () => assertListing(scope))
+    assertSelected()
+    if (bindings.size !== selected.size) throw Error('所选商品已变化，请重新选择')
+    await learnProducts([...bindings.values()], assertSelected)
   }
   function select(id: string, checked: boolean) {
     selection.value = checked

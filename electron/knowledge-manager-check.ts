@@ -233,11 +233,14 @@ app
 
     if (process.argv.includes('--batch-learning-only')) {
       const modelCallsBefore = calls.length
-      await until(`!!document.querySelector('.knowledge-selection')`)
-      assert(
-        (
-          await evaluate<string>('document.querySelector(".knowledge-selection").innerText')
-        ).includes('已选 0 项'),
+      await until(`Boolean(document.querySelector('.knowledge-card > input[type="checkbox"]'))`)
+      assert.equal(
+        await evaluate<boolean>(`!!document.querySelector('.knowledge-selection')`),
+        false,
+      )
+      await evaluate(`document.querySelector('.knowledge-card > input[type="checkbox"]').click()`)
+      await until(
+        `document.querySelector('.knowledge-selection')?.innerText.includes('已选 1 项') === true`,
       )
       await click('全选当前筛选 8 项')
       await until(`document.querySelector('.knowledge-selection').innerText.includes('已选 8 项')`)
@@ -246,11 +249,11 @@ app
       await screenshot('batch-learning-preview.png')
       await click('取消')
       await click('全不选')
-      await until(`document.querySelector('.knowledge-selection').innerText.includes('已选 0 项')`)
+      await until(`!document.querySelector('.knowledge-selection')`)
       await screenshot('batch-learning-toolbar.png')
       assert.equal(calls.length, modelCallsBefore)
       checks.push(
-        'batch toolbar visible without selection; select all 8, preview, cancel, clear all; no model call',
+        'select one card reveals toolbar; select all 8, preview, cancel, clear all; no model call',
       )
       fs.writeFileSync(
         path.join(output, 'batch-learning-report.json'),

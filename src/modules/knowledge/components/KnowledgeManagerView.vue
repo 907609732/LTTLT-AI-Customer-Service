@@ -313,8 +313,7 @@ const missFilters = [
     </div>
     <div
       v-if="
-        (view === 'library' && tab === 'products') ||
-        (((view === 'library' && tab !== 'training') || view === 'review') && selection.length > 0)
+        ((view === 'library' && tab !== 'training') || view === 'review') && selection.length > 0
       "
       class="knowledge-selection"
     >

@@ -48,6 +48,61 @@ it('batch learning uses selected bindings, then a single-product action replaces
   )
 })
 
+it('deduplicates selected sources and excludes removed, unselected and other-store sources', async () => {
+  const bindings = ['one', 'two'].map((id) => ({
+    id,
+    canonicalId: `c-${id}`,
+    storeId: 'a',
+    productId: id,
+    skuId: '',
+    title: id,
+    revision: 1,
+    active: true,
+    updatedAt: 1,
+  })) satisfies ProductBinding[]
+  const otherProduct = {
+    ...bindings[0]!,
+    id: 'other-product',
+    canonicalId: 'c-one',
+    productId: 'other',
+  }
+  const otherStore = {
+    ...bindings[0]!,
+    id: 'other-store',
+    canonicalId: 'c-one',
+    storeId: 'b',
+  }
+  const query = vi.fn(async ({ canonicalId }: { canonicalId: string }) => ({
+    bindings: [...bindings, otherProduct, otherStore],
+    sources:
+      canonicalId === 'c-one'
+        ? [
+            { id: 's-one', bindingId: 'one', removed: false },
+            { id: 's-one', bindingId: 'one', removed: false },
+            { id: 's-removed', bindingId: 'one', removed: true },
+            { id: 's-other-product', bindingId: 'other-product', removed: false },
+            { id: 's-other-store', bindingId: 'other-store', removed: false },
+          ]
+        : [{ id: 's-two', bindingId: 'two', removed: false }],
+  }))
+  const pipeline = vi.fn(async () => ({ estimateId: 'estimate' }))
+  const controller = useKnowledgeProductLearning({
+    client: () => ({ query, pipeline }) as never,
+    storeId: ref('a'),
+    notice: ref(''),
+    refresh: async () => {},
+    selectBinding: () => {},
+  })
+  await controller.learnProducts(bindings)
+  expect(pipeline).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'estimate',
+      bindingIds: ['one', 'two'],
+      sourceIds: ['s-one', 's-two'],
+    }),
+  )
+})
+
 it('does not publish a learning estimate after the shop changes during detail loading', async () => {
   let resolve!: (value: { sources: KnowledgeSource[]; bindings: ProductBinding[] }) => void
   const detail = new Promise<{ sources: KnowledgeSource[]; bindings: ProductBinding[] }>((done) => {

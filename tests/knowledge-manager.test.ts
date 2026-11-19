@@ -249,7 +249,7 @@ function productCard(id: string, title: string): KnowledgeProductCard {
     sourceSummary: { count: 0, kinds: [], thumbnailAssetId: null },
   }
 }
-it('keeps product selection and batch learning visible before choosing cards', async () => {
+it('shows batch learning only after a product is selected and keeps every card checkbox', async () => {
   const { wrapper } = await setup(false, false, () => {
     const original = fake.query.getMockImplementation()!
     fake.query.mockImplementation(async (input) =>
@@ -264,7 +264,7 @@ it('keeps product selection and batch learning visible before choosing cards', a
   })
   const cardCheckboxes = () => wrapper.findAll('.knowledge-card > input[type="checkbox"]')
   expect(cardCheckboxes()).toHaveLength(2)
-  expect(wrapper.find('.knowledge-selection').exists()).toBe(true)
+  expect(wrapper.find('.knowledge-selection').exists()).toBe(false)
   await cardCheckboxes()[0]!.setValue(true)
   await flushPromises()
   const bar = wrapper.get('.knowledge-selection')
@@ -279,7 +279,7 @@ it('keeps product selection and batch learning visible before choosing cards', a
   expect(cardCheckboxes()).toHaveLength(2)
   await cardCheckboxes()[0]!.setValue(false)
   await flushPromises()
-  expect(wrapper.find('.knowledge-selection').exists()).toBe(true)
+  expect(wrapper.find('.knowledge-selection').exists()).toBe(false)
   expect(cardCheckboxes()).toHaveLength(2)
   wrapper.unmount()
 })
@@ -329,6 +329,29 @@ it('discards a batch preview when search changes during detail loading', async (
   manager!.search.value = 'changed'
   late.resolve({ sources: [], bindings: [] })
   await expect(pending).rejects.toThrow('筛选范围已变化')
+  expect(manager!.estimate.value).toBeUndefined()
+  expect(fake.pipeline).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'estimate' }))
+  wrapper.unmount()
+})
+it('discards a batch preview when the selected product set changes during detail loading', async () => {
+  const late = deferred<{ sources: []; bindings: [] }>()
+  const rows = [productCard('p1', '商品一'), productCard('p2', '商品二')]
+  const { wrapper, manager } = await setup(true, true, () => {
+    const original = fake.query.getMockImplementation()!
+    fake.query.mockImplementation(async (input) =>
+      input.type === 'products'
+        ? { items: rows, total: rows.length, revision: 1 }
+        : input.type === 'detail'
+          ? late.promise
+          : original(input),
+    )
+  })
+  manager!.select('p1', true)
+  const pending = manager!.learnSelected()
+  await flushPromises()
+  manager!.select('p2', true)
+  late.resolve({ sources: [], bindings: [] })
+  await expect(pending).rejects.toThrow('所选商品已变化')
   expect(manager!.estimate.value).toBeUndefined()
   expect(fake.pipeline).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'estimate' }))
   wrapper.unmount()
