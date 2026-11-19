@@ -528,9 +528,9 @@
     {
       "path": "translations.json",
       "upstreamPath": "managed-server/translations.json",
-      "sha256": "6d809a0cda893be1586248e003d268032cc4c52d0b35d2c18a0762414398cfcf",
+      "sha256": "24033f388c6779c167c13a803e9eff3d9cda920f278b5bede24ef6117ea33658",
       "upstreamSha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main.; 2026-11-17: add stable daily/monthly amount, historical current-rate, cache-detail and report-estimate translation keys. 2026-11-17: add hosted context policy editor, validation and conflict messages"
+      "localPatch": "2026-11-19: opt-in managed learning policy and explicit 1-40 call budget; default 20 remains, no production deployment."
     },
     {
       "path": "upstream.lock.json",
@@ -575,8 +575,8 @@
     },
     {
       "path": "overlay/lingtuhost/billing_test.go",
-      "sha256": "fd4f920e93e74a1c2537f193e85685b4e220f8de8bc2844859fbfcdeda2c09d7",
-      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
+      "sha256": "5937e8210c1a0feef034d918172bf5c82bde87f2c747b3319a217ce2e8ff95dd",
+      "localPatch": "2026-11-19: opt-in managed learning policy and explicit 1-40 call budget; default 20 remains, no production deployment."
     },
     {
       "path": "overlay/lingtuhost/billing_config_test.go",
@@ -595,8 +595,8 @@
     },
     {
       "path": "overlay/lingtuhost/billing_config.go",
-      "sha256": "4b4a6fe1b20f74bf2c81ee401ce441d2ffbcebe74cfa34aa1ca78df46fca6390",
-      "localPatch": "2026-11-19: preserve service capabilities and identify support-tier/trial-expiry release."
+      "sha256": "7c599278952536eba36c4689c03a7a0acd05bf3d94ebbe0a9c66c9b472259831",
+      "localPatch": "2026-11-19: prepare opt-in managed-learning policy and explicit call budget; no production deployment."
     }
   ]
 }

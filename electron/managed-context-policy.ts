@@ -3,7 +3,7 @@ import { z } from 'zod'
 /** The server's context policy bounds, mirrored so a malformed projection cannot widen local behavior. */
 const retrievalBudget = z.number().int().min(256).max(4096)
 const learningOutputTokens = z.number().int().min(512).max(4096)
-const callsPerProduct = z.number().int().min(1).max(20)
+const callsPerProduct = z.number().int().min(1).max(40)
 
 const retrievalOrder = z
   .array(z.enum(['binding', 'store', 'canonical', 'template']))

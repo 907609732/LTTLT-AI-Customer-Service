@@ -422,6 +422,8 @@
   "Product detail images": "商品详情图片",
   "Calls per product (1-20)": "单商品调用上限（1–20）",
   "Calls per product must be between 1 and 20.": "单商品调用上限须在 1 至 20 之间。",
+  "Calls per product (1-40)": "单商品调用上限（1–40）",
+  "Calls per product must be between 1 and 40.": "单商品调用上限须在 1 至 40 之间。",
   "Learning output tokens (512-4096)": "学习输出上限（512–4096）",
   "Learning output must be between 512 and 4096 tokens.": "学习输出上限须在 512 至 4096 Token 之间。",
   "Human review required (read-only)": "必须人工审核（只读）",

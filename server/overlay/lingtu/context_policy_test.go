@@ -141,6 +141,27 @@ func TestLingtuContextPolicyCAS(t *testing.T) {
 	}
 }
 
+func TestLingtuContextPolicyExplicitCallBudget(t *testing.T) {
+	db := contextPolicyDB(t)
+	candidate := DefaultContextPolicyInput()
+	candidate.Learning.MaxCallsPerProduct = 37
+	saved, err := SaveContextPolicy(db, 0, candidate)
+	if err != nil {
+		t.Fatalf("explicit budget for a complete 37-call product rejected: %v", err)
+	}
+	if saved.Learning.MaxCallsPerProduct != 37 || saved.Learning.Enabled || saved.RuntimeContext.Enabled {
+		t.Fatalf("saving a budget must not enable learning or change reception: %+v", saved)
+	}
+	candidate.Learning.MaxCallsPerProduct = 40
+	if err := candidate.Validate(); err != nil {
+		t.Fatalf("upper explicit budget rejected: %v", err)
+	}
+	candidate.Learning.MaxCallsPerProduct = 41
+	if err := candidate.Validate(); !errors.Is(err, ErrInvalidContextPolicy) {
+		t.Fatalf("out-of-range budget accepted: %v", err)
+	}
+}
+
 func TestLingtuContextPolicyVisionCapability(t *testing.T) {
 	db := contextPolicyDB(t)
 	input := DefaultContextPolicyInput()
@@ -219,7 +240,7 @@ func TestLingtuContextPolicyValidation(t *testing.T) {
 		{"review disabled", func(p *ContextPolicyInput) { p.Learning.RequiresReview = false }},
 		{"video enabled", func(p *ContextPolicyInput) { p.Learning.VideoMode = "enabled" }},
 		{"asr enabled", func(p *ContextPolicyInput) { p.Learning.ASRMode = "enabled" }},
-		{"too many calls", func(p *ContextPolicyInput) { p.Learning.MaxCallsPerProduct = 21 }},
+		{"too many calls", func(p *ContextPolicyInput) { p.Learning.MaxCallsPerProduct = 41 }},
 		{"enabled without sources", func(p *ContextPolicyInput) { p.Learning.Enabled = true; p.Learning.AllowedSources = nil }},
 	}
 	for _, test := range tests {

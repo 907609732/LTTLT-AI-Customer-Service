@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import i18next from 'i18next'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -32,12 +38,36 @@ const policy: ManagedContextPolicy = {
   },
 }
 
-function show(props: {
-  policy?: ManagedContextPolicy | null
-  busy?: boolean
-  save?: ContextPolicySave
-  refresh?: () => Promise<ManagedContextPolicy | undefined>
-} = {}) {
+it('saves an explicit 37-call budget without enabling learning', async () => {
+  const save = vi.fn(async (_payload: ContextPolicyPayload) => ({
+    saved: true as const,
+    context_policy: {
+      ...policy,
+      revision: 5,
+      learning: { ...policy.learning, max_calls_per_product: 37 },
+    },
+  }))
+  show({ save })
+  fireEvent.change(screen.getByLabelText('Calls per product (1-40)'), {
+    target: { value: '37' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save context policy' }))
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+  expect(save.mock.calls[0]?.[0].context_policy.learning).toMatchObject({
+    max_calls_per_product: 37,
+    enabled: false,
+    requires_review: true,
+  })
+})
+
+function show(
+  props: {
+    policy?: ManagedContextPolicy | null
+    busy?: boolean
+    save?: ContextPolicySave
+    refresh?: () => Promise<ManagedContextPolicy | undefined>
+  } = {}
+) {
   const save =
     props.save ??
     (vi.fn(async () => ({
@@ -108,10 +138,12 @@ it('displays the Go defaults for a new hosted context policy', () => {
     )
   ).toBeTruthy()
   expect(
-    (screen.getByLabelText('Retrieval budget (tokens)') as HTMLInputElement).value
+    (screen.getByLabelText('Retrieval budget (tokens)') as HTMLInputElement)
+      .value
   ).toBe('3000')
   expect(
-    (screen.getByLabelText('Calls per product (1-20)') as HTMLInputElement).value
+    (screen.getByLabelText('Calls per product (1-40)') as HTMLInputElement)
+      .value
   ).toBe('20')
   expect(
     (
@@ -192,19 +224,14 @@ it('shows fixed review, video and speech constraints and saves the exact nested 
   fireEvent.change(screen.getByLabelText('Retrieval order after binding'), {
     target: { value: 'canonical-store' },
   })
-  fireEvent.click(
-    screen.getByRole('switch', { name: 'Detail-page learning' })
-  )
-  fireEvent.change(screen.getByLabelText('Calls per product (1-20)'), {
+  fireEvent.click(screen.getByRole('switch', { name: 'Detail-page learning' }))
+  fireEvent.change(screen.getByLabelText('Calls per product (1-40)'), {
     target: { value: '12' },
   })
-  fireEvent.change(
-    screen.getByLabelText('Learning output tokens (512-4096)'),
-    { target: { value: '2048' } }
-  )
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Save context policy' })
-  )
+  fireEvent.change(screen.getByLabelText('Learning output tokens (512-4096)'), {
+    target: { value: '2048' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save context policy' }))
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
   expect(save).toHaveBeenCalledWith({
     section: 'context_policy',
@@ -257,36 +284,32 @@ it('blocks saving an overlong UTF-8 prompt and out-of-range learning values', ()
   fireEvent.change(screen.getByLabelText('Retrieval budget (tokens)'), {
     target: { value: '255' },
   })
-  fireEvent.change(screen.getByLabelText('Calls per product (1-20)'), {
-    target: { value: '21' },
+  fireEvent.change(screen.getByLabelText('Calls per product (1-40)'), {
+    target: { value: '41' },
   })
-  fireEvent.change(
-    screen.getByLabelText('Learning output tokens (512-4096)'),
-    { target: { value: '511' } }
-  )
+  fireEvent.change(screen.getByLabelText('Learning output tokens (512-4096)'), {
+    target: { value: '511' },
+  })
   expect(
     screen.getByText('Retrieval budget must be between 256 and 4096 tokens.')
   ).toBeTruthy()
   expect(
-    screen.getByText('Calls per product must be between 1 and 20.')
+    screen.getByText('Calls per product must be between 1 and 40.')
   ).toBeTruthy()
   expect(
-    screen.getByText(
-      'Learning output must be between 512 and 4096 tokens.'
-    )
+    screen.getByText('Learning output must be between 512 and 4096 tokens.')
   ).toBeTruthy()
   expect(saveButton.disabled).toBe(true)
   expect(save).not.toHaveBeenCalled()
   fireEvent.change(screen.getByLabelText('Retrieval budget (tokens)'), {
     target: { value: '256' },
   })
-  fireEvent.change(screen.getByLabelText('Calls per product (1-20)'), {
+  fireEvent.change(screen.getByLabelText('Calls per product (1-40)'), {
     target: { value: '1' },
   })
-  fireEvent.change(
-    screen.getByLabelText('Learning output tokens (512-4096)'),
-    { target: { value: '512' } }
-  )
+  fireEvent.change(screen.getByLabelText('Learning output tokens (512-4096)'), {
+    target: { value: '512' },
+  })
   expect(saveButton.disabled).toBe(false)
 })
 
@@ -311,9 +334,7 @@ it('refuses to save a loaded policy that violates fixed review, video or speech 
     screen.getByText('Human review is required and cannot be disabled.')
   ).toBeTruthy()
   expect(screen.getByText('Video learning is not available.')).toBeTruthy()
-  expect(
-    screen.getByText('Speech recognition is not available.')
-  ).toBeTruthy()
+  expect(screen.getByText('Speech recognition is not available.')).toBeTruthy()
   expect(
     (
       screen.getByRole('button', {
@@ -357,9 +378,7 @@ it('preserves a dirty draft across a query refresh and resets it only after the 
     />
   )
   expect(prompt.value).toBe('Unsaved draft prompt')
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Save context policy' })
-  )
+  fireEvent.click(screen.getByRole('button', { name: 'Save context policy' }))
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
   expect(save).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -403,12 +422,18 @@ it('preserves the draft when an explicit conflict refresh rejects', async () => 
     throw new Error('fixture offline')
   })
   show({ save: save as unknown as ContextPolicySave, refresh })
-  const prompt = screen.getByLabelText('Hidden system prompt') as HTMLTextAreaElement
+  const prompt = screen.getByLabelText(
+    'Hidden system prompt'
+  ) as HTMLTextAreaElement
   fireEvent.change(prompt, { target: { value: 'Keep this draft' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save context policy' }))
   await screen.findByText('The configuration has changed. Latest revision 5.')
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh latest configuration' }))
-  await screen.findByText('The latest configuration could not be loaded. Your draft is preserved.')
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Refresh latest configuration' })
+  )
+  await screen.findByText(
+    'The latest configuration could not be loaded. Your draft is preserved.'
+  )
   expect(prompt.value).toBe('Keep this draft')
   expect(screen.getByText('Revision: 4')).toBeTruthy()
   expect(refresh).toHaveBeenCalledTimes(1)
@@ -427,7 +452,7 @@ it('disables every control while busy and reports an unavailable policy without 
     'Hidden system prompt',
     'Retrieval budget (tokens)',
     'Retrieval order after binding',
-    'Calls per product (1-20)',
+    'Calls per product (1-40)',
     'Learning output tokens (512-4096)',
   ]) {
     expect((screen.getByLabelText(label) as HTMLInputElement).disabled).toBe(

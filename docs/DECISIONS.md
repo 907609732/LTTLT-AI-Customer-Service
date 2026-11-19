@@ -1,5 +1,11 @@
 # 架构决策
 
+## 2026-11-19：托管学习须明确协议、来源和预算，并在真实队列边界记提交
+
+商品学习的 `candidates` 与客服正文具有不同响应契约，使用已有 typed `purpose=learning` 付费 chat、当前策略 revision 与受限 PDD 来源。旧服务缺少学习策略投影时在提交前报错；不包装成普通 reply、不走免费 summary、不伪造策略开启。只有在原 managed queue 取得执行机会、暂停/账号/来源/预算均有效时才写 submitted；已知计费前拒绝与未知结果分别记录，未知结果继续保留明确重试/跳过门。
+
+预算按真实 `storeId + productId` 聚合根商品、SKU、文字段和图片分块，完整计划超限时先拒绝，不静默截断。当前实际单品需 25/37 次，因此将可配置范围扩至 40，默认仍 20，学习仍默认关闭；实际提高策略由管理员明确保存，任务开始仍经过估算确认。生产升级、真实模型样例与旧任务重试分别按用户授权执行，不将本机 mock 或候选构建当作线上恢复。
+
 ## 2026-11-19：尺码终态只校验不重写；本机视觉独立但托管旁路
 
 尺码问题在 vendor 禁用词/店铺长度处理之后只能做终态校验：以 guard 生成时 canonical 为基准，只在内存中用占位保护 eligible 标签并调用真实 vendor 过滤器，实际 final 必须等于期望或为其长度前缀。任意标签替换（含 2XL/3XL/加大码/中文自定义码）拒绝；普通非标签删除和店铺截断允许；不重写 final text、不重插禁词、占位不进入真实消息。canonical 由守卫在 `enforceSizeReply` 之后用 guarded 结果自身的真实 traceId 回调候选 guard（vendor 早于守卫的 raw result 不捕获）；训练在 AsyncLocalStorage owner 内取。valid selection 缺 canonical 直接闭锁，不再用旧正则兜底。正式欢迎前缀仅在当前 welcome 版本与提案版本一致时，按可信 greeting + 换行精确剥离，不猜任意第一行。知识库试问也走同一尺码证据和版本复核，但保留原 resolution/租约/预算且不发送。候选按 reply trace 有界保存 `evidence|null`：明确无尺码记为 null 并保持普通回复，unknown/被淘汰的 AI trace 闭锁；训练/试问 trace 不占正式回复候选。

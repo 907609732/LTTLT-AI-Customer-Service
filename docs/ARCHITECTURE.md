@@ -1,5 +1,7 @@
 # 架构导航
 
+2026-11-19 托管商品学习：`knowledge-pipeline-assembly → knowledge-runtime 动态 prepareLearning → createManagedLearningPort → 原 vendor managed queue/chat` 贯通来源/策略预检。`electron/managed-learning.ts` 只从当前店铺真实 PDD 采集来源派生学习用途、策略版本及文字/图片类型；managed 学习使用 basePort，提交钩子由原队列内 `isCurrent` 触发，先复核暂停、账号、来源版本及商品预算，再持久化 submitted。估算在预检后通过同一事务复读并原子消费；本机 Key 不暴露托管预检，保留旧计划与独立视觉路径。候选单品预算可配置 1–40，默认 20、学习默认关闭，配置、任务估算确认与人工审核分别保留。实现、部署与实际模型边界见 [托管接线](MANAGED_SERVICE.md) 和 [修复回执](parallel/MANAGED_LEARNING_FIX_20261119.md)。
+
 2026-11-19 本机视觉与尺码：`local-runtime → createVisionModelAssembly → VisionModelSettingsStore/Runtime → onKnowledgeModel → knowledge.setModel` 形成独立知识图片端口。`visionAssembly` 在 store 损坏时返回仅关闭图片的端口，managed 模式直接使用原托管端口；`capabilities.visionModel` 只投影安全六字段，`get/save/probe/verify/clear-vision-key` 走现有 business 命令，`LoginDialog` 经 settings 模块服务挂载组件。知识库 trial 在 `knowledge-runtime` 的原预算/租约链中注入尺码证据并在模型返回后复核规则版本；正式接待 beforeSend 只校验 vendor 过滤后的最终文本，不做重写。尺码候选按生成 trace 有界记录，淘汰证据用 tombstone 闭锁，普通无尺码证据不受影响。
 
 自定义模型目录沿 `LoginDialog → list-custom-models 业务命令 → local-runtime → electron/list-custom-models.ts → 用户提供的 /models` 查询；Bearer Key 仅由主进程临时使用，不记录日志或持久化，组件不直接联网。模型返回只接受 `data[].id` 或 `models[].id`，去重并限制最多 5000 项；用户仍可手动输入模型名。查询失败不更改已保存的模型配置。该能力面向兼容 OpenAI Models API 的服务，不保证所有自定义 API 都提供相同目录端点。

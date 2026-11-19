@@ -56,12 +56,12 @@ func TestBillingRegisteredRoutesExposeVersionAndDenyAnonymousCustomersAndAdmins(
 		BillingProtocol int      `json:"billing_protocol"`
 		Capabilities    []string `json:"capabilities"`
 	}
-	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version != "2026.11.19-support.1" || info.BillingProtocol != 2 {
+	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version != "2026.11.19-learning.1" || info.BillingProtocol != 2 {
 		t.Fatalf("missing deployed capability/version: %+v status %d", info, response.StatusCode)
 	}
 	// Production native payment, reconciliation, quota and free summary must stay
 	// advertised while the merged cost estimate becomes discoverable.
-	for _, required := range []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates"} {
+	for _, required := range []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates", "trial-expiry-extends-on-recharge", "managed-learning-policy"} {
 		found := false
 		for _, capability := range info.Capabilities {
 			found = found || capability == required

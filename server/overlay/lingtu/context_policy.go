@@ -22,7 +22,7 @@ const (
 	ContextPolicyBudgetMax            = 4096
 	ContextPolicyLearningOutputMin    = 512
 	ContextPolicyLearningOutputMax    = 4096
-	ContextPolicyMaxCallsPerProduct   = 20
+	ContextPolicyMaxCallsPerProduct   = 40
 	ContextPolicyDefaultRetrievalSize = 3000
 )
 
@@ -105,7 +105,7 @@ func DefaultContextPolicyInput() ContextPolicyInput {
 			Enabled:            false,
 			VisionEnabled:      true,
 			AllowedSources:     []string{"pdd_detail_text", "pdd_detail_image"},
-			MaxCallsPerProduct: ContextPolicyMaxCallsPerProduct,
+			MaxCallsPerProduct: 20,
 			MaxOutputTokens:    ContextPolicyLearningOutputMax,
 			RequiresReview:     true,
 			VideoMode:          "disabled",

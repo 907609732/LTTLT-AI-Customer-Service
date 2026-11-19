@@ -91,7 +91,7 @@ const PROMPT_MAX_BYTES = 8192
 const BUDGET_MIN = 256
 const BUDGET_MAX = 4096
 const CALLS_MIN = 1
-const CALLS_MAX = 20
+const CALLS_MAX = 40
 const OUTPUT_MIN = 512
 const OUTPUT_MAX = 4096
 const LEARNING_SOURCES = ['pdd_detail_text', 'pdd_detail_image'] as const
@@ -154,11 +154,7 @@ function integerInRange(value: number, min: number, max: number): boolean {
 }
 
 function validRetrievalOrder(order: string[]): boolean {
-  if (
-    order.length !== 4 ||
-    order[0] !== 'binding' ||
-    order[3] !== 'template'
-  ) {
+  if (order.length !== 4 || order[0] !== 'binding' || order[3] !== 'template') {
     return false
   }
   const middle = order.slice(1, 3)
@@ -179,9 +175,7 @@ function validatePolicy(policy: ManagedContextPolicy): string[] {
   if (
     promptByteLength(policy.runtime_context.system_prompt) > PROMPT_MAX_BYTES
   ) {
-    errors.push(
-      'The hidden prompt must not exceed 8192 UTF-8 bytes.'
-    )
+    errors.push('The hidden prompt must not exceed 8192 UTF-8 bytes.')
   }
   if (
     !integerInRange(
@@ -190,9 +184,7 @@ function validatePolicy(policy: ManagedContextPolicy): string[] {
       BUDGET_MAX
     )
   ) {
-    errors.push(
-      'Retrieval budget must be between 256 and 4096 tokens.'
-    )
+    errors.push('Retrieval budget must be between 256 and 4096 tokens.')
   }
   if (!validRetrievalOrder(policy.runtime_context.retrieval_order)) {
     errors.push(
@@ -200,20 +192,12 @@ function validatePolicy(policy: ManagedContextPolicy): string[] {
     )
   }
   if (
-    !integerInRange(
-      policy.learning.max_calls_per_product,
-      CALLS_MIN,
-      CALLS_MAX
-    )
+    !integerInRange(policy.learning.max_calls_per_product, CALLS_MIN, CALLS_MAX)
   ) {
-    errors.push('Calls per product must be between 1 and 20.')
+    errors.push('Calls per product must be between 1 and 40.')
   }
   if (
-    !integerInRange(
-      policy.learning.max_output_tokens,
-      OUTPUT_MIN,
-      OUTPUT_MAX
-    )
+    !integerInRange(policy.learning.max_output_tokens, OUTPUT_MIN, OUTPUT_MAX)
   ) {
     errors.push('Learning output must be between 512 and 4096 tokens.')
   }
@@ -227,7 +211,9 @@ function validatePolicy(policy: ManagedContextPolicy): string[] {
     errors.push('Speech recognition is not available.')
   }
   for (const source of policy.learning.allowed_sources) {
-    if (!LEARNING_SOURCES.includes(source as (typeof LEARNING_SOURCES)[number])) {
+    if (
+      !LEARNING_SOURCES.includes(source as (typeof LEARNING_SOURCES)[number])
+    ) {
       errors.push(
         'Only product detail text and images can be used for learning.'
       )
@@ -469,9 +455,12 @@ export function AdminContextPolicy(props: AdminContextPolicyProps) {
             className='space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900'
           >
             <p>
-              {t('The configuration has changed. Latest revision {{revision}}.', {
-                revision: conflictRevision,
-              })}
+              {t(
+                'The configuration has changed. Latest revision {{revision}}.',
+                {
+                  revision: conflictRevision,
+                }
+              )}
             </p>
             <p>
               {t(
@@ -560,8 +549,12 @@ export function AdminContextPolicy(props: AdminContextPolicyProps) {
             onChange={(event) => setMiddleOrder(event.target.value)}
             className='border-input bg-background h-10 w-full rounded-lg border px-3 text-sm'
           >
-            <option value='store-canonical'>{t('Store, then canonical')}</option>
-            <option value='canonical-store'>{t('Canonical, then store')}</option>
+            <option value='store-canonical'>
+              {t('Store, then canonical')}
+            </option>
+            <option value='canonical-store'>
+              {t('Canonical, then store')}
+            </option>
           </select>
           <p className='text-xs text-slate-500'>
             {t('Binding is always first and template is always last.')}
@@ -625,7 +618,7 @@ export function AdminContextPolicy(props: AdminContextPolicyProps) {
           </fieldset>
           <div className='space-y-2'>
             <Label htmlFor='context-calls'>
-              {t('Calls per product (1-20)')}
+              {t('Calls per product (1-40)')}
             </Label>
             <Input
               id='context-calls'
@@ -654,10 +647,7 @@ export function AdminContextPolicy(props: AdminContextPolicyProps) {
               disabled={disabled}
               value={String(draft.learning.max_output_tokens)}
               onChange={(event) =>
-                editLearning(
-                  'max_output_tokens',
-                  Number(event.target.value)
-                )
+                editLearning('max_output_tokens', Number(event.target.value))
               }
             />
           </div>
@@ -698,11 +688,7 @@ export function AdminContextPolicy(props: AdminContextPolicyProps) {
             </div>
           </div>
         </div>
-        <Button
-          type='button'
-          disabled={!canSave}
-          onClick={() => void submit()}
-        >
+        <Button type='button' disabled={!canSave} onClick={() => void submit()}>
           {t('Save context policy')}
         </Button>
       </CardContent>
