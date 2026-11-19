@@ -316,13 +316,6 @@ function goAddStore() {
 
     <section v-if="!simStores.length" class="runtime-card sim-empty">
       <h2>还没有本机模拟店铺</h2>
-      <p>
-        请先到店铺管理里点「添加店铺」，平台选择「{{ SIM_PLATFORM_LABEL }}」并起一个名字；
-        之后回到这里打开店铺，就能接收模拟顾客消息。
-      </p>
-      <div class="runtime-actions">
-        <el-button type="primary" @click="goAddStore">去添加本机模拟店铺</el-button>
-      </div>
     </section>
 
     <template v-else>
@@ -480,7 +473,6 @@ function goAddStore() {
           <section class="runtime-card">
             <h2>本机模拟怎么用</h2>
             <ol class="sim-steps">
-              <li>「添加店铺」里选「{{ SIM_PLATFORM_LABEL }}」，并起一个能区分的名字。</li>
               <li>回到本页点「打开店铺」，再点「打开模拟顾客页」。</li>
               <li>在系统浏览器里以顾客身份发消息。</li>
               <li>消息进入左侧会话列表后，在这里人工回复。</li>

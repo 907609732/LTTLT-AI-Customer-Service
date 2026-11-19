@@ -703,11 +703,12 @@ export function createLocalRuntime(options: {
           store,
           getWebContents: () => vendorManager?.webContentsOf?.(store.id) ?? null,
           logger: (deps as { logger?: unknown } | undefined)?.logger,
-          // 商家在内嵌页扫码后，重跑一次厂商健康检查，把在线/登录状态写回快照。
+          // 扫码后走完整打开流程，包含店名/卖家身份回填和登录状态通知；
+          // 直接调用厂商 manager 会绕过外层身份同步，留下临时店名。
           onAuthenticated: () => {
-            const manager = vendorManager
-            if (!manager?.open) return
-            Promise.resolve(manager.open(store.id)).catch(() => undefined)
+            const current = backendRef.current
+            if (!current || closed) return
+            void current.execute({ action: 'open-store', storeId: store.id }).catch(() => undefined)
           },
         })
         xianyuAdapters.set(store.id, xianyu)
@@ -1515,7 +1516,7 @@ export function createLocalRuntime(options: {
       if (!stores.length)
         return {
           ok: false,
-          message: '还没有本机模拟店铺，请先在“添加店铺”里选择“本机模拟店铺”。',
+          message: '还没有本机模拟店铺。',
         }
       const target = stores.find((store) => simHub.isOpen(store.storeId)) ?? stores[0]!
       if (!simHub.isOpen(target.storeId)) {

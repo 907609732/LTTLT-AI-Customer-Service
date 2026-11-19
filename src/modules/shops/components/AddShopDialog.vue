@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { SIM_PLATFORM_ID, SIM_PLATFORM_LABEL } from '@/shared/contracts/simulation'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useShopSetupStore } from '../setup-store'
 import { useTask } from '@/shared/ui/use-task'
@@ -22,9 +21,7 @@ const runtime = useRuntimeStore(),
   task = useTask(),
   router = useRouter()
 const setup = useShopSetupStore()
-const name = ref(''),
-  platform = ref(''),
-  simulation = ref(false),
+const platform = ref(''),
   createdId = ref('')
 const catalog = [
   { id: 'pdd-web', label: '多多店铺', mode: '网页', icon: pddWeb },
@@ -47,27 +44,17 @@ const platforms = computed(() =>
       runtime.snapshot.capabilities.platforms.some((p) => p.id === item.id),
   })),
 )
-const simulatorAvailable = computed(() =>
-  runtime.snapshot.capabilities.platforms.some((p) => p.id === SIM_PLATFORM_ID),
-)
-const isSim = computed(() => simulation.value && platform.value === SIM_PLATFORM_ID)
 const selected = computed(() => platforms.value.find((item) => item.id === platform.value))
-// 上游只允许拼多多不带店名；闲鱼必须由用户给一个可区分的名称。
-const needsStoreName = computed(() => !simulation.value && platform.value === 'xianyu')
 const canSubmit = computed(
   () =>
     runtime.available &&
     Boolean(runtime.snapshot.workspaceId) &&
-    (!needsStoreName.value || Boolean(name.value.trim())) &&
-    ((isSim.value && simulatorAvailable.value) || Boolean(selected.value?.available)),
+    Boolean(selected.value?.available),
 )
-const simNote = `${SIM_PLATFORM_LABEL}只在本机运行：没有真实平台登录、没有真实买家，消息只写在本机记录里，适合先演练回复流程。`
 let draftVersion = 0
 function reset() {
   draftVersion++
-  name.value = ''
   platform.value = ''
-  simulation.value = false
   createdId.value = ''
   task.error.value = ''
 }
@@ -85,14 +72,7 @@ function choose(id: string) {
     !platforms.value.some((item) => item.id === id && item.available)
   )
     return
-  simulation.value = false
   platform.value = id
-  task.error.value = ''
-}
-function toggleSimulation() {
-  if (task.pending.value || createdId.value) return
-  simulation.value = !simulation.value
-  platform.value = simulation.value ? SIM_PLATFORM_ID : ''
   task.error.value = ''
 }
 function close() {
@@ -101,21 +81,16 @@ function close() {
 async function save() {
   if (!canSubmit.value || task.pending.value) return
   const version = draftVersion,
-    workspace = runtime.snapshot.workspaceId,
-    simulated = isSim.value,
-    requiresName = simulated || needsStoreName.value
+    workspace = runtime.snapshot.workspaceId
   const current = () => version === draftVersion && workspace === runtime.snapshot.workspaceId
   const ok = await task.run(async () => {
-    if (simulated && !name.value.trim())
-      throw new Error('本机模拟店铺需要一个名字，方便在会话列表里区分')
-    if (needsStoreName.value && !name.value.trim())
-      throw new Error('请填写闲鱼店铺名称，方便在店铺列表里区分')
     if (!createdId.value) {
       const result = await runtime.run({
         action: 'add-store',
         values: {
           platform: platform.value,
-          ...(requiresName ? { storeName: name.value.trim() } : {}),
+          // 注册表要求闲鱼有非空名称；登录后由身份同步替换该占位名。
+          ...(platform.value === 'xianyu' ? { storeName: '闲鱼店铺' } : {}),
         },
       })
       if (!current()) throw new Error('工作区已切换，请重新选择平台')
@@ -125,27 +100,22 @@ async function save() {
       createdId.value = result.data.id
     }
     runtime.selectedStoreId = createdId.value
-    if (!simulated) {
-      try {
-        await runtime.run({ action: 'open-store', storeId: createdId.value })
-      } catch (error) {
-        throw new Error(
-          `店铺已添加，登录界面打开失败：${error instanceof Error ? error.message : String(error)}。可重试或从左侧店铺继续打开。`,
-        )
-      }
-      if (!current()) throw new Error('工作区已切换，请在当前工作区重新打开店铺')
-      await router.push('/')
-      if (!current()) return
-      // 先收起弹窗，再让主布局的呈现监听器显示平台，避免登录页覆盖弹窗。
-      emit('update:modelValue', false)
-      runtime.platformStoreId = createdId.value
+    try {
+      await runtime.run({ action: 'open-store', storeId: createdId.value })
+    } catch (error) {
+      throw new Error(
+        `店铺已添加，登录界面打开失败：${error instanceof Error ? error.message : String(error)}。可重试或从左侧店铺继续打开。`,
+      )
     }
+    if (!current()) throw new Error('工作区已切换，请在当前工作区重新打开店铺')
+    await router.push('/')
+    if (!current()) return
+    // 先收起弹窗，再让主布局的呈现监听器显示平台，避免登录页覆盖弹窗。
+    emit('update:modelValue', false)
+    runtime.platformStoreId = createdId.value
   })
   if (ok && current()) {
-    if (simulated) {
-      emit('update:modelValue', false)
-      setup.open(createdId.value)
-    } else setup.queueAfterLogin(createdId.value)
+    setup.queueAfterLogin(createdId.value)
   }
 }
 </script>
@@ -178,8 +148,8 @@ async function save() {
             :key="item.id"
             type="button"
             :data-platform="item.id"
-            :class="['add-platform-card', { selected: !simulation && platform === item.id }]"
-            :aria-pressed="!simulation && platform === item.id"
+            :class="['add-platform-card', { selected: platform === item.id }]"
+            :aria-pressed="platform === item.id"
             :disabled="!item.available || task.pending.value || Boolean(createdId)"
             @click="choose(item.id)"
           >
@@ -199,47 +169,6 @@ async function save() {
         <p v-if="platform === 'doudian-client'" class="add-platform-hint">
           将在抖店客户端完成登录；需已安装客户端并连接本机桥接，打开不代表已登录。
         </p>
-        <p v-else-if="platform === 'xianyu'" class="add-platform-hint">
-          将在主窗口内嵌闲鱼网页版（goofish.com/im）；请在该页面扫码登录，打开不代表已登录。
-        </p>
-        <div v-if="needsStoreName" class="runtime-form add-platform-nameform">
-          <label
-            >店铺名称<el-input
-              v-model="name"
-              aria-label="店铺名称"
-              maxlength="60"
-              placeholder="必填，例如：我的闲鱼店"
-              :disabled="task.pending.value || Boolean(createdId)"
-          /></label>
-        </div>
-        <button
-          v-if="simulatorAvailable"
-          type="button"
-          class="add-platform-simulator"
-          aria-label="本机模拟店铺入口"
-          :disabled="task.pending.value || Boolean(createdId)"
-          @click="toggleSimulation"
-        >
-          {{ simulation ? '返回平台选择' : '本机模拟店铺（仅供演练）' }}
-        </button>
-        <div v-if="simulation" class="runtime-form add-platform-simform">
-          <label
-            >平台<el-select
-              v-model="platform"
-              aria-label="店铺平台"
-              :disabled="task.pending.value || Boolean(createdId)"
-              ><el-option :value="SIM_PLATFORM_ID" :label="SIM_PLATFORM_LABEL" /></el-select
-          ></label>
-          <label
-            >店铺名称<el-input
-              v-model="name"
-              aria-label="店铺名称"
-              maxlength="60"
-              placeholder="必填，例如：本机演练店"
-              :disabled="task.pending.value"
-          /></label>
-          <p>{{ simNote }}</p>
-        </div>
       </div>
       <div class="add-platform-bottom">
         <el-alert
@@ -250,11 +179,7 @@ async function save() {
         />
         <div class="add-platform-actions">
           <span class="add-platform-selection">{{
-            isSim
-              ? SIM_PLATFORM_LABEL
-              : selected
-                ? `${selected.label} · ${selected.mode}`
-                : '请选择一个平台'
+            selected ? `${selected.label} · ${selected.mode}` : '请选择一个平台'
           }}</span
           ><span class="add-platform-count">启动数 1</span
           ><el-button aria-label="取消添加店铺" :disabled="task.pending.value" @click="close"
@@ -264,7 +189,7 @@ async function save() {
             native-type="submit"
             :loading="task.pending.value"
             :disabled="!canSubmit"
-            >{{ createdId && !isSim ? '重试打开' : '添加店铺' }}</el-button
+            >{{ createdId ? '重试打开' : '添加店铺' }}</el-button
           >
         </div>
       </div>

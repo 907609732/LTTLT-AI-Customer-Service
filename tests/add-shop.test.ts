@@ -60,22 +60,21 @@ it('真实平台按实际能力展示状态，默认未选且未接入不可添�
   expect(run).not.toHaveBeenCalled()
   wrapper.unmount()
 })
-it('闲鱼店铺必须填写名称并随添加提交', async () => {
+it('闲鱼无需填写店名，以待识别占位名添加并打开登录', async () => {
   const { wrapper, run, runtime } = await fixture()
   runtime.snapshot.capabilities.platforms.push({ id: 'xianyu', label: '闲鱼' })
   await flushPromises()
   await wrapper.find('[data-platform="xianyu"]').trigger('click')
   await flushPromises()
-  const input = wrapper.find('input[aria-label="店铺名称"]')
-  expect(input.exists()).toBe(true)
-  expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
-  await input.setValue('我的闲鱼店')
+  expect(wrapper.find('input[aria-label="店铺名称"]').exists()).toBe(false)
+  expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
   await wrapper.find('form').trigger('submit')
   await flushPromises()
   expect(run).toHaveBeenCalledWith({
     action: 'add-store',
-    values: { platform: 'xianyu', storeName: '我的闲鱼店' },
+    values: { platform: 'xianyu', storeName: '闲鱼店铺' },
   })
+  expect(run.mock.calls.map(([command]) => command.action)).toEqual(['add-store', 'open-store'])
   wrapper.unmount()
 })
 it('添加后直接打开登录，失败重试只打开已建记录', async () => {
@@ -119,21 +118,14 @@ it('等待期间不可重复提交或取消', async () => {
   await flushPromises()
   wrapper.unmount()
 })
-it('本机模拟保留独立入口、名称校验且不打开真实平台', async () => {
-  const { wrapper, run } = await fixture()
-  await wrapper.find('[aria-label="本机模拟店铺入口"]').trigger('click')
-  await wrapper.find('form').trigger('submit')
+it('普通添加弹窗不展示内嵌机制说明或模拟店铺入口', async () => {
+  const { wrapper, runtime } = await fixture()
+  runtime.snapshot.capabilities.platforms.push({ id: 'xianyu', label: '闲鱼' })
   await flushPromises()
-  expect(run).not.toHaveBeenCalled()
-  expect(wrapper.text()).toContain('需要一个名字')
-  await wrapper.find('input[aria-label="店铺名称"]').setValue('演练店')
-  await wrapper.find('form').trigger('submit')
-  await flushPromises()
-  expect(run).toHaveBeenCalledTimes(1)
-  expect(run).toHaveBeenCalledWith({
-    action: 'add-store',
-    values: { platform: 'sim-local', storeName: '演练店' },
-  })
+  await wrapper.find('[data-platform="xianyu"]').trigger('click')
+  expect(wrapper.text()).not.toContain('goofish.com')
+  expect(wrapper.text()).not.toContain('内嵌')
+  expect(wrapper.find('[aria-label="本机模拟店铺入口"]').exists()).toBe(false)
   wrapper.unmount()
 })
 it('创建过程中切工作区不打开旧工作区店铺', async () => {
