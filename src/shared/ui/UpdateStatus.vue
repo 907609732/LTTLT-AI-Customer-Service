@@ -79,7 +79,9 @@ onMounted(() => {
 <style scoped>
 .app-update {
   position: relative;
-  flex-basis: 100%;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
   padding: 0 12px;
 }
 .app-update-check {
