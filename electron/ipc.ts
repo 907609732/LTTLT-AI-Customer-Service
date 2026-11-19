@@ -1,7 +1,9 @@
 import {
   BrowserWindow,
+  app,
   clipboard,
   ipcMain,
+  net,
   shell,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -13,6 +15,7 @@ import { loadRenderer } from './windows'
 import type { AssistWindowManager } from './assist-window'
 import type { LocalRuntime } from './local-runtime'
 import { z } from 'zod'
+import { createAppUpdateChecker } from './app-update'
 import {
   assistOpenTargetSchema,
   assistPreferencesPatchSchema,
@@ -32,6 +35,9 @@ export function registerDesktopIpc(
   } = {},
 ): () => void {
   const moves = new Map<number, { dx: number; dy: number }>()
+  const checkForUpdates = createAppUpdateChecker(app.getVersion(), (input, init) =>
+    net.fetch(input instanceof URL ? input.href : input, init),
+  )
   const openConversation = createAssistConversationNavigator({
     runtime: () => options.runtime?.(),
     primary: () => options.primary?.(),
@@ -58,6 +64,10 @@ export function registerDesktopIpc(
     return win
   }
   const handlers = {
+    'app:check-updates': (event: IpcMainInvokeEvent, manual: unknown) => {
+      sourceWindow(event)
+      return checkForUpdates(z.boolean().parse(manual))
+    },
     'assist:open-conversation': (event: IpcMainInvokeEvent, input: unknown) => {
       sourceWindow(event)
       return openConversation(input)

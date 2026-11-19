@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/shared/ui/BrandMark.vue'
 import AppVersion from '@/shared/ui/AppVersion.vue'
+import UpdateStatus from '@/shared/ui/UpdateStatus.vue'
 import IconHomeFilled from '@/shared/icons/IconHomeFilled.vue'
 import IconShop from '@/shared/icons/IconShop.vue'
 import IconMonitor from '@/shared/icons/IconMonitor.vue'
@@ -378,6 +379,7 @@ async function navigate(path: string) {
               待确认</span
             >
           </button>
+          <UpdateStatus />
           <AppVersion />
         </footer>
       </aside>

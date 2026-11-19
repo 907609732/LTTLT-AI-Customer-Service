@@ -5,8 +5,9 @@
 }
 
 .workbench-shell .top-brand-block {
-  width: 146px;
-  padding-right: 0;
+  width: auto;
+  flex: 0 0 auto;
+  padding-right: 24px;
 }
 
 .workbench-shell .top-brand-block .brand-mark {

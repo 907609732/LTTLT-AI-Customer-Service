@@ -28,6 +28,7 @@ export interface ScreenPoint {
 }
 
 export interface DesktopApi extends Partial<ReceptionBridge> {
+  checkForUpdates?(manual: boolean): Promise<import('./app-update').AppUpdateResult>
   managedBusinessRequest?(input: ManagedBusinessRequest): Promise<ManagedServiceResponse>
   platformLearning?: PlatformLearningTransport
   platformOrderRequest?(input: PlatformOrderRequest): Promise<PlatformOrderSnapshot>

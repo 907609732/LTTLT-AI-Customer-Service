@@ -10,6 +10,7 @@ import { openKnowledgeManager } from '@/modules/knowledge'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useRoute, useRouter } from 'vue-router'
 import AppVersion from '@/shared/ui/AppVersion.vue'
+import UpdateStatus from '@/shared/ui/UpdateStatus.vue'
 import { useTask } from '@/shared/ui/use-task'
 import {
   navGroups,
@@ -176,6 +177,7 @@ async function openMonitor() {
               {{ task.error.value }}
             </p>
           </div>
+          <UpdateStatus />
           <AppVersion />
         </aside>
 

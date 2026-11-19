@@ -204,3 +204,9 @@ knowledge runtime 的既有 backup/restore-preview 请求新增可选 storeId，
 厂商 `backend.cjs` 只新增可选 `resolveKeywordSafety` 注入点，ReplyEngine 每次读取配置时仅替换生效的 handoff/manual 数组；本店自定义人工词仍优先于全局开关，客服接管开关只停止卖家侧匹配。复用向导的 handoff 仍由向导最后统一保存，关键词设置自身独立自动保存；来源和哈希记录在 vendor PROVENANCE/source-files。
 
 配置中心（2026-11-19）：/shop/manage 是 MainLayout 的子路由，复用工作台顶栏；ShopManageView 只负责下方功能导航和面板。配置时隐藏店铺侧栏，原生平台视图沿 route.path watcher 隐藏，回首页恢复。旧路由与 query 契约保持。
+
+## 桌面版本检查（2026-11-19）
+
+`electron/app-update.ts` 查询固定官方 GitHub 仓库的最新正式 Release；`app:check-updates` 经桌面可信主 frame 校验后调用，不接受任意 URL。使用 Electron 网络栈、15 秒超时及 256 KiB 响应上限，不发送账户凭据。每进程自动查询一次（失败同样缓存），用户可手动重试，并发请求共用查询。只有合法三段版本、非草稿/预发布且包含对应 Windows 安装包的较新版本才提示。
+
+主工作台左下的 `UpdateStatus` 提供检查入口和可关闭的小提示；仅在用户点击后经已有 `openExternal` 打开固定官方版本下载页，不自动下载或执行安装器。此功能不等于静默升级或代码签名。无正式 Release、网络失败与已是最新版本分别处理。浏览器仅预览界面，不进行启动检查。

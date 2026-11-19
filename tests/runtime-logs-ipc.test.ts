@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   },
 }))
 vi.mock('electron', () => ({
+  app: { getVersion: () => '1.0.74' },
   BrowserWindow: { fromWebContents: () => state.win },
   clipboard: {},
   shell: {},
@@ -66,5 +67,18 @@ it('rejects pin requests from platform frames or untrusted senders', () => {
       ...event,
       senderFrame: { url: 'file:///other' },
     } as unknown as Electron.IpcMainInvokeEvent),
+  ).toThrow('不可信')
+})
+it('update checks reject platform frames and invalid manual flags before any network access', () => {
+  const check = state.handlers.get('app:check-updates')!
+  expect(() => check(event, 'true')).toThrow()
+  state.trusted = false
+  expect(() => check(event, true)).toThrow('不可信')
+  state.trusted = true
+  expect(() =>
+    check(
+      { ...event, senderFrame: { url: 'file:///other' } } as unknown as Electron.IpcMainInvokeEvent,
+      false,
+    ),
   ).toThrow('不可信')
 })

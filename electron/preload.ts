@@ -6,6 +6,7 @@ import { createDeveloperDebugBridge } from './developer-debug/preload'
 import { developerDebugChannels } from '../src/shared/contracts/developer-debug'
 
 const api: DesktopApi = {
+  checkForUpdates: (manual) => ipcRenderer.invoke('app:check-updates', manual),
   isElectron: true,
   knowledge: Object.freeze<import('../src/shared/contracts/knowledge-client').KnowledgeBridge>({
     request: (input) => ipcRenderer.invoke('knowledge:request', input),
