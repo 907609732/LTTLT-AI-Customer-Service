@@ -831,15 +831,59 @@ export async function businessChecks(options: {
         assert.ok(targetPrompt.includes('浙江'))
         assert.ok(targetPrompt.includes('24小时内'))
         assert.ok(after.stores.every((store) => !store.aiEnabled))
+        const actionLabels = await win.webContents.executeJavaScript(
+          `(() => { const footer=document.querySelector('.finish-actions'); footer.scrollIntoView({block:'end',behavior:'instant'}); return Array.from(footer.querySelectorAll('button')).map(button=>button.textContent.trim()) })()`,
+        )
+        assert.deepEqual(actionLabels, ['重新修改', '完成并返回', '继续知识库配置'])
+        await new Promise((resolve) => setTimeout(resolve, 100))
         fs.mkdirSync(path.resolve('artifacts/desktop'), { recursive: true })
         fs.writeFileSync(
           path.resolve('artifacts/desktop/shop-setup-reuse.png'),
           (await win.webContents.capturePage()).toPNG(),
         )
+        await clickText('.finish-actions button', '继续知识库配置')
+        await wait(`!document.querySelector('.shop-setup-page')`)
+        const context = (await win.webContents.executeJavaScript(
+          `window.yunduoDesktop.knowledge.context()`,
+        )) as import('../src/shared/contracts/knowledge-client').KnowledgeWindowContext
+        assert.equal(context.storeId, target)
+        assert.equal(context.tab, 'products')
+        // The isolated harness retains the supported standalone knowledge adapter.
+        let knowledgePage: BrowserWindow | undefined
+        for (let attempt = 0; attempt < 80; attempt++) {
+          knowledgePage = BrowserWindow.getAllWindows().find((window) =>
+            window.webContents.getURL().includes('#/knowledge'),
+          )
+          if (
+            knowledgePage &&
+            (await knowledgePage.webContents.executeJavaScript(
+              `document.body.innerText.includes('复用目标测试店') && !document.body.innerText.includes('正在读取当前店铺')`,
+            ))
+          )
+            break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        assert.ok(knowledgePage)
+        assert.ok(
+          await knowledgePage.webContents.executeJavaScript(
+            `document.body.innerText.includes('复用目标测试店') && !document.body.innerText.includes('正在读取当前店铺')`,
+          ),
+        )
+        const knowledgeAfter = await snapshot()
+        assert.equal(knowledgeAfter.selection.storeId, target)
+        assert.deepEqual(knowledgeAfter.welcomeByStore[target], after.welcomeByStore[target])
+        assert.ok(knowledgeAfter.stores.every((store) => !store.aiEnabled))
+        fs.writeFileSync(
+          path.resolve('artifacts/desktop/shop-setup-continue-knowledge.png'),
+          (await knowledgePage.webContents.capturePage()).toPNG(),
+        )
       } finally {
         await win.webContents.executeJavaScript(
           `document.querySelector('.shop-setup-page [data-dismiss]')?.click()`,
         )
+        for (const window of BrowserWindow.getAllWindows())
+          if (window !== win && window.webContents.getURL().includes('#/knowledge'))
+            window.destroy()
         for (const storeId of created)
           await execute({ action: 'remove-store', storeId, values: { confirmed: true } })
         const after = await snapshot()

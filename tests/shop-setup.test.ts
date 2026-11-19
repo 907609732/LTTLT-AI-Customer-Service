@@ -162,6 +162,19 @@ it('商品知识进入真实配置页，AI训练打开知识库训练场且移�
   await flushPromises()
   expect(knowledge.open).toHaveBeenCalledWith('shop-a', { tab: 'training' })
   expect(router.currentRoute.value.query.panel).not.toBe('training')
+  setup.resume()
+  setup.step = 5
+  setup.saved = true
+  await flushPromises()
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '继续知识库配置')!
+    .trigger('click')
+  await flushPromises()
+  expect(knowledge.open).toHaveBeenLastCalledWith('shop-a', { tab: 'products' })
+  expect(setup.visible).toBe(false)
+  expect(setup.saved).toBe(true)
+  expect(runtime.snapshot.stores[0]?.aiEnabled).toBe(false)
   wrapper.unmount()
 })
 

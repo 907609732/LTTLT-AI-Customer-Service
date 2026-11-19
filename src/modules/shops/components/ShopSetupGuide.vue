@@ -274,8 +274,8 @@ async function configure(panel: string) {
   const target = setup.storeId
   setup.pauseForConfiguration()
   try {
-    if (panel === 'training') {
-      await openKnowledgeManager(target, { tab: 'training' })
+    if (panel === 'training' || panel === 'knowledge') {
+      await openKnowledgeManager(target, { tab: panel === 'training' ? 'training' : 'products' })
       return
     }
     await router.push({ path: '/shop/manage', query: { panel } })
@@ -798,6 +798,7 @@ const afterSales = [
             <footer class="finish-actions">
               <el-button @click="editAgain">重新修改</el-button
               ><el-button type="primary" @click="setup.finish()">完成并返回</el-button>
+              <el-button @click="configure('knowledge')">继续知识库配置</el-button>
             </footer>
           </template>
         </fieldset>
@@ -1461,6 +1462,7 @@ const afterSales = [
   padding-top: 28px;
   margin-top: 28px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 18px;
 }
