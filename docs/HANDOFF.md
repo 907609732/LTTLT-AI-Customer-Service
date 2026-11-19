@@ -1,6 +1,6 @@
 ## 2026-11-19 后台宽屏布局（1.0.85 源码）
 
-后台 admin-workspace 移除 1600px 上限，工作区随可用宽度伸展。浏览器局部样式预览在 2560px 屏幕下宽约 2326px，390px 窄屏保持无横向溢出；原样式的小屏断点及卡片布局沿用。已检查实际截图，原生后台网页 Bun 1.4.4 / Rsbuild 构建成功。预览截图位于 artifacts/deepseek-unified/admin-wide-preview.png 与 admin-narrow-preview.png。本轮线上排版部署等待用户确认，浏览器中的预览样式刷新后会恢复为当前线上样式。
+后台 admin-workspace 移除 1600px 上限，工作区随可用宽度伸展。浏览器局部样式预览在 2560px 屏幕下宽约 2326px，390px 窄屏保持无横向溢出；原样式的小屏断点及卡片布局沿用。已检查实际截图，原生后台网页 Bun 1.4.4 / Rsbuild 构建成功。预览截图位于 artifacts/deepseek-unified/admin-wide-preview.png 与 admin-narrow-preview.png。用户明确确认后，已上线到现有账号后台。保留原 JS 与 Go 程序，以独立内容哈希 CSS 和原子替换 HTML 引用部署等价规则；备份在 /opt/lingtu-kefu/backups/20261119-admin-wide。刷新真实页面后临时预览样式不存在，线上样式已加载，实际内容宽 2314px，等于 main 宽度，横向溢出为零。HTML/CSS 均 200，原服务程序 SHA256 已核对一致。部署与实机截图见 artifacts/admin-wide-20261119/，1.0.85 桌面源码已打开，原账号和两店恢复。
 
 同次复核线上托管策略已保存，model_scope=selected、allowed_models 只勾选 deepseek-flash、default_model 和 vision_model 均为 deepseek-flash。现有 DeepSeek 连接的固定合成图片验证通过；后台保存成功及已保存选择已从管理界面核对。该事实属于用户明确授权的线上模型配置操作，没有部署永久额度候选，也没有重试学习任务。
 
