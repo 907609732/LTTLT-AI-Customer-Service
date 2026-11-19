@@ -128,6 +128,7 @@ export function useKnowledgeManager() {
     estimate,
     ocrPreview,
     learnProduct,
+    learnProducts,
     recognizeProduct,
     startLearn,
     learnStore,
@@ -997,6 +998,31 @@ export function useKnowledgeManager() {
     selection.value = ids
     allScope.value = true
   }
+  function clearSelection() {
+    selection.value = []
+    allScope.value = false
+  }
+  async function learnSelected() {
+    const scope = listingScope(),
+      service = client(),
+      selected = new Set(selection.value)
+    if (scope.view !== 'library' || scope.tab !== 'products' || !selected.size)
+      throw Error('请先选择商品')
+    const bindings: ProductBinding[] = []
+    let revision: number | undefined
+    for (let offset = 0; offset < scope.total; offset += 100) {
+      const result = await listingPage(service, scope, offset, 100)
+      assertListing(scope)
+      if (revision !== undefined && revision !== result.revision)
+        throw Error('商品范围已变化，请重新选择')
+      revision = result.revision
+      for (const item of result.items)
+        if ('binding' in item && selected.has(item.binding.id)) bindings.push(item.binding)
+    }
+    assertListing(scope)
+    if (bindings.length !== selected.size) throw Error('所选商品已变化，请重新选择')
+    await learnProducts(bindings, () => assertListing(scope))
+  }
   function select(id: string, checked: boolean) {
     selection.value = checked
       ? [...new Set([...selection.value, id])]
@@ -1397,6 +1423,8 @@ export function useKnowledgeManager() {
     confirmPublish,
     bulkReview,
     selectAll,
+    clearSelection,
+    learnSelected,
     select,
     removeBinding,
     bindShared,

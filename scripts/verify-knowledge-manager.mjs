@@ -67,6 +67,7 @@ try {
     path.join(output, 'dist-electron/knowledge-manager-check.cjs'),
     ...(process.argv.includes('--inline-progress-only') ? ['--inline-progress-only'] : []),
     ...(process.argv.includes('--misses-only') ? ['--misses-only'] : []),
+    ...(process.argv.includes('--batch-learning-only') ? ['--batch-learning-only'] : []),
   ])
 } catch (error) {
   failure = error

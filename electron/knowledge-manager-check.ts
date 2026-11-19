@@ -231,6 +231,35 @@ app
     await until(`document.querySelectorAll('.knowledge-card').length===8`)
     checks.push('real route/preload/trusted IPC/SQLite cards loaded')
 
+    if (process.argv.includes('--batch-learning-only')) {
+      const modelCallsBefore = calls.length
+      await until(`!!document.querySelector('.knowledge-selection')`)
+      assert(
+        (
+          await evaluate<string>('document.querySelector(".knowledge-selection").innerText')
+        ).includes('已选 0 项'),
+      )
+      await click('全选当前筛选 8 项')
+      await until(`document.querySelector('.knowledge-selection').innerText.includes('已选 8 项')`)
+      await click('学习选中的 8 件商品')
+      await until(`document.body.innerText.includes('确认开始学习')`)
+      await screenshot('batch-learning-preview.png')
+      await click('取消')
+      await click('全不选')
+      await until(`document.querySelector('.knowledge-selection').innerText.includes('已选 0 项')`)
+      await screenshot('batch-learning-toolbar.png')
+      assert.equal(calls.length, modelCallsBefore)
+      checks.push(
+        'batch toolbar visible without selection; select all 8, preview, cancel, clear all; no model call',
+      )
+      fs.writeFileSync(
+        path.join(output, 'batch-learning-report.json'),
+        JSON.stringify({ checks, modelRequests: calls.length - modelCallsBefore }, null, 2),
+      )
+      manager.dispose()
+      return
+    }
+
     if (process.argv.includes('--misses-only')) {
       const miss = repo.recordMiss({ storeId: a, question: '隔离验收：售后如何处理？' })
       const ignored = repo.recordMiss({ storeId: a, question: '隔离验收：已忽略的问题' })

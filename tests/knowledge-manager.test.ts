@@ -249,7 +249,7 @@ function productCard(id: string, title: string): KnowledgeProductCard {
     sourceSummary: { count: 0, kinds: [], thumbnailAssetId: null },
   }
 }
-it('shows the bulk bar only while a selection exists and keeps every card checkbox', async () => {
+it('keeps product selection and batch learning visible before choosing cards', async () => {
   const { wrapper } = await setup(false, false, () => {
     const original = fake.query.getMockImplementation()!
     fake.query.mockImplementation(async (input) =>
@@ -264,21 +264,100 @@ it('shows the bulk bar only while a selection exists and keeps every card checkb
   })
   const cardCheckboxes = () => wrapper.findAll('.knowledge-card > input[type="checkbox"]')
   expect(cardCheckboxes()).toHaveLength(2)
-  expect(wrapper.find('.knowledge-selection').exists()).toBe(false)
+  expect(wrapper.find('.knowledge-selection').exists()).toBe(true)
   await cardCheckboxes()[0]!.setValue(true)
   await flushPromises()
   const bar = wrapper.get('.knowledge-selection')
   expect(bar.text()).toContain('已选 1 项')
   expect(bar.text()).toContain('全选本页')
   expect(bar.text()).toContain('全选当前筛选')
+  expect(bar.text()).toContain('全不选')
+  expect(bar.text()).toContain('学习选中的 1 件商品')
   expect(bar.text()).toContain('审核所选草稿')
   expect(bar.text()).not.toContain('店铺：')
   expect(bar.text()).not.toContain('筛选：')
   expect(cardCheckboxes()).toHaveLength(2)
   await cardCheckboxes()[0]!.setValue(false)
   await flushPromises()
-  expect(wrapper.find('.knowledge-selection').exists()).toBe(false)
+  expect(wrapper.find('.knowledge-selection').exists()).toBe(true)
   expect(cardCheckboxes()).toHaveLength(2)
+  wrapper.unmount()
+})
+it('previews only selected products for batch learning and keeps single-product learning independent', async () => {
+  const rows = [productCard('p1', '商品一'), productCard('p2', '商品二')]
+  const { wrapper, manager } = await setup(true, true, () => {
+    const original = fake.query.getMockImplementation()!
+    fake.query.mockImplementation(async (input) =>
+      input.type === 'products'
+        ? { items: rows, total: rows.length, revision: 1 }
+        : input.type === 'detail'
+          ? { sources: [], bindings: rows.map((row) => row.binding) }
+          : original(input),
+    )
+  })
+  fake.pipeline.mockResolvedValue({ estimateId: 'batch' })
+  await manager!.selectAll()
+  await manager!.learnSelected()
+  expect(fake.pipeline).toHaveBeenLastCalledWith(
+    expect.objectContaining({ action: 'estimate', bindingIds: ['p1', 'p2'] }),
+  )
+  await manager!.learnProduct(rows[1]!.binding)
+  await manager!.startLearn()
+  expect(fake.pipeline).toHaveBeenCalledWith(
+    expect.objectContaining({ action: 'start', bindingIds: ['p2'] }),
+  )
+  manager!.clearSelection()
+  expect(manager!.selection.value).toEqual([])
+  expect(manager!.allScope.value).toBe(false)
+  wrapper.unmount()
+})
+it('discards a batch preview when search changes during detail loading', async () => {
+  const late = deferred<{ sources: []; bindings: [] }>()
+  const { wrapper, manager } = await setup(true, true, () => {
+    const original = fake.query.getMockImplementation()!
+    fake.query.mockImplementation(async (input) =>
+      input.type === 'products'
+        ? { items: [productCard('p1', '商品一')], total: 1, revision: 1 }
+        : input.type === 'detail'
+          ? late.promise
+          : original(input),
+    )
+  })
+  manager!.select('p1', true)
+  const pending = manager!.learnSelected()
+  await flushPromises()
+  manager!.search.value = 'changed'
+  late.resolve({ sources: [], bindings: [] })
+  await expect(pending).rejects.toThrow('筛选范围已变化')
+  expect(manager!.estimate.value).toBeUndefined()
+  expect(fake.pipeline).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'estimate' }))
+  wrapper.unmount()
+})
+it('selects and previews products across pages without adding unselected products', async () => {
+  const rows = Array.from({ length: 101 }, (_, i) => productCard(`p${i}`, `商品${i}`))
+  const { wrapper, manager } = await setup(true, true, () => {
+    const original = fake.query.getMockImplementation()!
+    fake.query.mockImplementation(async (input) =>
+      input.type === 'products'
+        ? {
+            items: rows.slice(input.page.offset, input.page.offset + input.page.limit),
+            total: rows.length,
+            revision: 1,
+          }
+        : input.type === 'detail'
+          ? { sources: [], bindings: [] }
+          : original(input),
+    )
+  })
+  fake.pipeline.mockResolvedValue({ estimateId: 'cross-page' })
+  await manager!.selectAll()
+  expect(manager!.selection.value).toHaveLength(101)
+  manager!.select('p50', false)
+  await manager!.learnSelected()
+  const estimateCall = fake.pipeline.mock.calls.find(([input]) => input.action === 'estimate')![0]
+  expect(estimateCall.bindingIds).toHaveLength(100)
+  expect(estimateCall.bindingIds).toContain('p100')
+  expect(estimateCall.bindingIds).not.toContain('p50')
   wrapper.unmount()
 })
 it('has two main tabs and switching knowledge shops never changes reception selection', async () => {

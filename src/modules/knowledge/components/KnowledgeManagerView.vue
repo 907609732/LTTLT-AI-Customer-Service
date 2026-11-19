@@ -119,6 +119,8 @@ const {
   confirmPublish,
   bulkReview,
   selectAll,
+  clearSelection,
+  learnSelected,
   select,
   removeBinding,
   bindShared,
@@ -311,14 +313,21 @@ const missFilters = [
     </div>
     <div
       v-if="
-        ((view === 'library' && tab !== 'training') || view === 'review') && selection.length > 0
+        (view === 'library' && tab === 'products') ||
+        (((view === 'library' && tab !== 'training') || view === 'review') && selection.length > 0)
       "
       class="knowledge-selection"
     >
       <label
         ><input
           type="checkbox"
-          :checked="selection.length > 0"
+          :disabled="busy || loading"
+          :checked="
+            (tab === 'products' && view === 'library' ? products : entries).length > 0 &&
+            (tab === 'products' && view === 'library'
+              ? products.every((p) => selection.includes(p.binding.id))
+              : entries.every((e) => selection.includes(e.id)))
+          "
           @change="
             selection = ($event.target as HTMLInputElement).checked
               ? tab === 'products' && view === 'library'
@@ -328,8 +337,19 @@ const missFilters = [
           "
         />
         全选本页</label
-      ><button @click="run(selectAll)">全选当前筛选 {{ total }} 项</button
+      ><button :disabled="busy || loading || !total" @click="run(selectAll)">
+        全选当前筛选 {{ total }} 项</button
+      ><button :disabled="busy || !selection.length" @click="clearSelection">全不选</button
       ><span>已选 {{ selection.length }} 项{{ allScope ? '（跨页）' : '' }}</span
+      ><button
+        v-if="view === 'library' && tab === 'products'"
+        class="primary"
+        :disabled="
+          busy || loading || !selection.length || summary?.readOnly || !capabilities?.learn
+        "
+        @click="run(learnSelected)"
+      >
+        学习选中的 {{ selection.length }} 件商品</button
       ><button :disabled="!selection.length" @click="run(bulkReview)">审核所选草稿</button>
     </div>
     <section

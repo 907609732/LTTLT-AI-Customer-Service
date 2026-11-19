@@ -18,33 +18,59 @@ export function useKnowledgeProductLearning(options: {
   const learningSelection = ref<{ bindingIds: string[]; sourceIds: string[] }>()
   const ocrPreview = ref<KnowledgeOcrPreview>()
 
-  async function learnProduct(binding: ProductBinding) {
-    const detail = await options.client().query({
-      type: 'detail',
-      canonicalId: binding.canonicalId,
-      storeId: binding.storeId,
-    })
-    learningSelection.value = {
-      bindingIds: [binding.id],
-      sourceIds: detail.sources
-        .filter(
-          (source) =>
-            !source.removed &&
-            (source.bindingId === binding.id ||
-              detail.bindings.some(
-                (row) => row.id === source.bindingId && row.productId === binding.productId,
-              )),
-        )
-        .map((source) => source.id),
+  let generation = 0
+  async function learnProducts(bindings: ProductBinding[], assertScope: () => void = () => {}) {
+    const owner = ++generation
+    const shop = options.storeId.value
+    estimate.value = undefined
+    learningSelection.value = undefined
+    if (!bindings.length) throw Error('请先选择商品')
+    if (bindings.some((binding) => binding.storeId !== shop))
+      throw Error('商品范围已变化，请重新选择')
+    const service = options.client()
+    const sourceIds = new Set<string>()
+    let firstSources: KnowledgeSource[] = []
+    const assertCurrent = () => {
+      assertScope()
+      if (owner !== generation || shop !== options.storeId.value)
+        throw Error('学习范围已变化，请重新选择')
     }
-    estimate.value = await options.client().pipeline({
-      action: 'estimate',
-      storeId: binding.storeId,
-      ...learningSelection.value,
-    })
-    options.selectBinding(binding, detail.sources)
+    for (const binding of bindings) {
+      const detail = await service.query({
+        type: 'detail',
+        canonicalId: binding.canonicalId,
+        storeId: shop,
+      })
+      assertCurrent()
+      if (binding === bindings[0]) firstSources = detail.sources
+      for (const source of detail.sources) {
+        if (
+          !source.removed &&
+          (source.bindingId === binding.id ||
+            detail.bindings.some(
+              (row) =>
+                row.id === source.bindingId &&
+                row.storeId === shop &&
+                row.productId === binding.productId,
+            ))
+        )
+          sourceIds.add(source.id)
+      }
+    }
+    const selected = {
+      bindingIds: [...new Set(bindings.map((binding) => binding.id))],
+      sourceIds: [...sourceIds],
+    }
+    const result = await service.pipeline({ action: 'estimate', storeId: shop, ...selected })
+    assertCurrent()
+    learningSelection.value = selected
+    estimate.value = result
+    if (bindings.length === 1) options.selectBinding(bindings[0]!, firstSources)
   }
 
+  async function learnProduct(binding: ProductBinding) {
+    await learnProducts([binding])
+  }
   async function recognizeProduct(binding: ProductBinding) {
     const detail = await options.client().query({
       type: 'detail',
@@ -104,6 +130,7 @@ export function useKnowledgeProductLearning(options: {
 
   /** 店铺切换或工作区切换时清掉估算、选择与识图预览。 */
   function reset() {
+    generation++
     estimate.value = undefined
     learningSelection.value = undefined
     ocrPreview.value = undefined
@@ -114,6 +141,7 @@ export function useKnowledgeProductLearning(options: {
     learningSelection,
     ocrPreview,
     learnProduct,
+    learnProducts,
     recognizeProduct,
     startLearn,
     learnStore,
