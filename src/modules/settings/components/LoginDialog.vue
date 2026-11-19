@@ -8,7 +8,6 @@ import { Refresh } from '@element-plus/icons-vue'
 import ModelSourceSettings from './ModelSourceSettings.vue'
 import VisionModelSettings from './VisionModelSettings.vue'
 import { createVisionModelService } from '../services/vision-model-client'
-import { AccountBillingDetails } from '@/modules/billing'
 const visible = defineModel<boolean>({ default: false })
 const runtime = useRuntimeStore(),
   task = useTask(),
@@ -30,30 +29,10 @@ const visionMountKey = computed(
   () =>
     `${runtime.snapshot.workspaceId}:${managed.value.active.mode}:${managed.value.active.apiOrigin}`,
 )
-const billingSection = ref<'orders' | 'usage' | null>(null)
-const canViewBilling = computed(
-  () =>
-    managed.value.active.mode === 'managed' &&
-    !managed.value.restartRequired &&
-    session.value.status === 'signed_in' &&
-    Boolean(session.value.account),
-)
 const quotaExpiry = computed(() => {
   const expires = session.value.account?.trial.expiresAt
   return expires ? new Date(expires * 1000).toLocaleString('zh-CN') : '未提供'
 })
-watch(
-  [
-    () => visible.value,
-    () => canViewBilling.value,
-    () => runtime.snapshot.workspaceId,
-    () => managed.value.active.apiOrigin,
-    () => session.value.account?.userId,
-  ],
-  () => {
-    billingSection.value = null
-  },
-)
 watch(provider, () => {
   apiKey.value = ''
   customModel.value = ''
@@ -182,9 +161,7 @@ async function login() {
   if (!success) awaitingLogin.value = false
   else await finishLogin()
 }
-async function accountAction(
-  action: 'managed-cancel-login' | 'managed-logout' | 'managed-refresh',
-) {
+async function accountAction(action: 'managed-cancel-login' | 'managed-logout') {
   awaitingLogin.value = false
   await task.run(async () => {
     await runtime.run({ action })
@@ -311,20 +288,6 @@ async function recharge() {
             <dt>到期时间</dt>
             <dd>{{ quotaExpiry }}</dd>
           </dl>
-          <div class="billing-links">
-            <el-button
-              data-account-billing="orders"
-              :disabled="!canViewBilling || task.pending.value"
-              @click="billingSection = 'orders'"
-              >我的订单</el-button
-            >
-            <el-button
-              data-account-billing="usage"
-              :disabled="!canViewBilling || task.pending.value"
-              @click="billingSection = 'usage'"
-              >算力消耗</el-button
-            >
-          </div>
           <div class="account-actions">
             <el-button
               v-if="managed.active.mode !== 'managed' || managed.restartRequired"
@@ -333,14 +296,8 @@ async function recharge() {
               @click="enterAccount"
               >进入账号</el-button
             >
-            <el-button :disabled="task.pending.value" @click="login">切换账号</el-button
-            ><el-button :disabled="task.pending.value" @click="accountAction('managed-logout')"
+            <el-button :disabled="task.pending.value" @click="accountAction('managed-logout')"
               >退出登录</el-button
-            ><el-button
-              link
-              :disabled="task.pending.value"
-              @click="accountAction('managed-refresh')"
-              >刷新额度</el-button
             >
           </div>
         </template>
@@ -365,19 +322,11 @@ async function recharge() {
         </template>
       </section>
     </div>
-    <VisionModelSettings v-if="visible" :key="visionMountKey" :service="visionService" />
-  </el-dialog>
-  <el-dialog
-    v-if="billingSection && visible && canViewBilling"
-    :model-value="true"
-    :title="billingSection === 'orders' ? '我的订单' : '算力消耗'"
-    width="860px"
-    append-to-body
-    destroy-on-close
-    :close-on-click-modal="false"
-    @close="billingSection = null"
-  >
-    <AccountBillingDetails :key="billingSection" :section="billingSection" compact />
+    <VisionModelSettings
+      v-if="visible && managed.active.mode === 'local'"
+      :key="visionMountKey"
+      :service="visionService"
+    />
   </el-dialog>
 </template>
 <style scoped>
@@ -453,15 +402,6 @@ async function recharge() {
   margin: 0;
   text-align: right;
   overflow-wrap: anywhere;
-}
-.billing-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 18px;
-}
-.billing-links .el-button {
-  margin-left: 0;
 }
 .account-actions .el-button {
   margin-left: 0;

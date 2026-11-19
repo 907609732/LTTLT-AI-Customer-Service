@@ -31,10 +31,11 @@ it('间隔控件不再包含高级模型配置或账号入口', () => {
   wrapper.unmount()
 })
 import LoginDialog from '../src/modules/settings/components/LoginDialog.vue'
-function loginFixture() {
+function loginFixture(mode: 'local' | 'managed' = 'local') {
   setActivePinia(createPinia())
   const runtime = useRuntimeStore()
   runtime.available = true
+  runtime.snapshot.managed.active.mode = mode
   const run = vi.spyOn(runtime, 'run').mockImplementation(async (command) => {
     if (command.action === 'get-vision-model-settings')
       return {
@@ -55,7 +56,7 @@ function loginFixture() {
     props: { modelValue: true },
     global: {
       plugins: [ElementPlus, router],
-      stubs: { ElDialog: { template: '<div><slot /></div>' }, BillingDashboard: true },
+      stubs: { ElDialog: { template: '<div><slot /></div>' } },
     },
   })
   return { runtime, run, wrapper, router }
@@ -71,9 +72,8 @@ it('充值从服务端登录区域打开原充值页，不创建支付或切换�
   )
   wrapper.unmount()
 })
-it('服务端账号展示真实总额度、剩余额度和额度到期时间，并提供订单与消耗入口', async () => {
-  const { runtime, wrapper, run } = loginFixture()
-  runtime.snapshot.managed.active.mode = 'managed'
+it('服务端账号保留额度和充值，隐藏本地图片配置与多余操作', async () => {
+  const { runtime, wrapper, run } = loginFixture('managed')
   runtime.snapshot.managed.session.status = 'signed_in'
   runtime.snapshot.managed.session.account = {
     userId: 'billing-user',
@@ -87,27 +87,24 @@ it('服务端账号展示真实总额度、剩余额度和额度到期时间，�
   expect(wrapper.text()).toContain('77 次')
   expect(wrapper.text()).toContain('到期时间')
   expect(wrapper.text()).toContain(new Date(1800000000 * 1000).toLocaleString('zh-CN'))
-  expect(wrapper.get('[data-account-billing="orders"]').text()).toBe('我的订单')
-  expect(wrapper.get('[data-account-billing="usage"]').text()).toBe('算力消耗')
-  expect(run.mock.calls.every(([command]) => command.action === 'get-vision-model-settings')).toBe(
-    true,
-  )
-  await wrapper.get('[data-account-billing="orders"]').trigger('click')
-  expect(wrapper.get('billing-dashboard-stub').attributes('section')).toBe('orders')
-  runtime.snapshot = {
-    ...runtime.snapshot,
-    managed: { ...runtime.snapshot.managed, session: { ...runtime.snapshot.managed.session } },
-  }
-  await flushPromises()
-  expect(wrapper.find('billing-dashboard-stub').exists()).toBe(true)
-  await wrapper.get('[data-account-billing="usage"]').trigger('click')
-  expect(wrapper.get('billing-dashboard-stub').attributes('section')).toBe('usage')
-  runtime.snapshot.managed.session.account!.userId = 'another-user'
-  await flushPromises()
-  expect(wrapper.find('billing-dashboard-stub').exists()).toBe(false)
+  for (const label of ['我的订单', '算力消耗', '切换账号', '刷新额度', '图片识别模型'])
+    expect(wrapper.text()).not.toContain(label)
+  expect(wrapper.get('[data-account-recharge]').text()).toBe('充值')
+  expect(wrapper.text()).toContain('退出登录')
+  expect(run).not.toHaveBeenCalled()
   runtime.snapshot.managed.session.account!.trial.expiresAt = 0
   await flushPromises()
   expect(wrapper.text()).toContain('未提供')
+  wrapper.unmount()
+})
+it('只在本地 Key 模式载入图片识别配置，切回托管时移除', async () => {
+  const { runtime, run, wrapper } = loginFixture()
+  await flushPromises()
+  expect(wrapper.find('[aria-label="图片识别模型"]').exists()).toBe(true)
+  expect(run).toHaveBeenCalledWith(expect.objectContaining({ action: 'get-vision-model-settings' }))
+  runtime.snapshot.managed.active.mode = 'managed'
+  await flushPromises()
+  expect(wrapper.find('[aria-label="图片识别模型"]').exists()).toBe(false)
   wrapper.unmount()
 })
 it('Key连接失败保留输入，成功才关闭且必须验证连接', async () => {

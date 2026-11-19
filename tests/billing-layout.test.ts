@@ -113,20 +113,25 @@ describe('简化充值页', () => {
     expect(document.querySelector('.billing-cashier-dialog')?.textContent).toContain('共创支持包')
     expect(request.mock.calls.filter((call) => call[0] === 'POST')).toHaveLength(1)
   })
-  it('默认收起明细与已完成记录，仅保留统一刷新，并展示支持开源文案', async () => {
+  it('进入充值页自动展示额度与已完成订单，仅收起额度明细', async () => {
     const { wrapper, request, run } = setup()
     wrappers.push(wrapper)
     await flushPromises()
     expect(wrapper.get('.quota-remaining').text()).toContain('158')
     expect(wrapper.get('.quota-details').isVisible()).toBe(false)
-    expect(wrapper.get('.orders-content').isVisible()).toBe(false)
+    expect(wrapper.get('.orders-content').isVisible()).toBe(true)
+    expect(wrapper.find('[aria-controls="billing-orders-content"]').exists()).toBe(false)
+    expect(wrapper.get('.orders-content').text()).toContain(plan.name)
+    expect(request.mock.calls.map((call) => call[1])).toEqual([
+      '/api/client/billing',
+      '/api/client/billing/orders',
+    ])
+    expect(run).toHaveBeenCalledOnce()
     expect(wrapper.text()).toContain('帮助灵兔开源项目加快开发与完善')
     const buttons = wrapper.findAll('button')
     expect(buttons.filter((b) => b.text().includes('刷新'))).toHaveLength(1)
     await wrapper.get('[aria-controls="billing-quota-details"]').trigger('click')
     expect(wrapper.get('.quota-details').isVisible()).toBe(true)
-    await wrapper.get('[aria-controls="billing-orders-content"]').trigger('click')
-    expect(wrapper.get('.orders-content').isVisible()).toBe(true)
     request.mockClear()
     run.mockClear()
     await buttons.find((b) => b.text() === '刷新')!.trigger('click')
@@ -141,7 +146,7 @@ describe('简化充值页', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('额度可能未更新')
   })
-  it.each(['pending', 'reconciling'])('自动展开%s订单，切账号时重置明细', async (state) => {
+  it.each(['pending', 'reconciling'])('默认显示%s订单，切账号时重置明细', async (state) => {
     const { wrapper, runtime } = setup(state)
     wrappers.push(wrapper)
     await flushPromises()
@@ -152,7 +157,7 @@ describe('简化充值页', () => {
     await flushPromises()
     expect(wrapper.get('.quota-details').isVisible()).toBe(false)
   })
-  it('账户弹窗直接显示订单且不出现套餐或支付操作', async () => {
+  it('紧凑订单视图直接显示订单且不出现套餐或支付操作', async () => {
     const { wrapper, request } = setup('pending', true)
     wrappers.push(wrapper)
     await flushPromises()

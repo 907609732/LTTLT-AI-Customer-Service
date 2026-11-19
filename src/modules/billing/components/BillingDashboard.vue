@@ -44,11 +44,6 @@ const channels = computed(() =>
 /** 只有服务端明确 ready 的官方扫码渠道才能进入收银台。 */
 const nativeReady = computed(() => channels.value.some((channel) => channel.ready))
 const quotaExpanded = ref(false)
-const ordersExpanded = ref(false)
-watch(orders, (rows) => {
-  if (rows.some((order) => ['pending', 'reconciling'].includes(order.state)))
-    ordersExpanded.value = true
-})
 const cashierOpen = ref(false)
 const existingOrderNotice = ref('')
 const selectedPlan = ref<BillingPlan | null>(null)
@@ -140,7 +135,6 @@ watch(
     cashierOpen.value = false
     existingOrderNotice.value = ''
     quotaExpanded.value = false
-    ordersExpanded.value = false
     selectedPlan.value = null
     qrImage.value = ''
     qrError.value = ''
@@ -453,24 +447,10 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
     <section v-if="section !== 'usage'" class="card orders-card">
       <div class="section-head orders-head">
         <h2>最近充值订单</h2>
-        <button
-          v-if="!compact && section !== 'orders'"
-          type="button"
-          class="details-toggle"
-          :aria-expanded="ordersExpanded"
-          aria-controls="billing-orders-content"
-          @click="ordersExpanded = !ordersExpanded"
-        >
-          {{ ordersExpanded ? '收起记录' : '查看记录' }}
-        </button>
       </div>
       <el-alert v-if="ordersError" type="error" :closable="false" :title="ordersError" />
       <p v-if="ordersError && ordersLoaded">下方为上次成功读取的充值订单，本次状态尚未核实。</p>
-      <div
-        id="billing-orders-content"
-        class="orders-content"
-        v-show="compact || section === 'orders' || ordersExpanded"
-      >
+      <div class="orders-content">
         <div class="orders-table">
           <el-table v-if="ordersLoaded" :data="orders" empty-text="暂无可核实的充值订单记录">
             <el-table-column prop="id" label="订单号" min-width="200" />
@@ -792,7 +772,6 @@ p {
   margin-bottom: 0;
   align-items: flex-start;
 }
-.orders-head .el-button,
 .page-head .el-button,
 .section-head > .el-button {
   flex-shrink: 0;

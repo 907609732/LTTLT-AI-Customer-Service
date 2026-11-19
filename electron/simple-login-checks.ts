@@ -33,6 +33,7 @@ export async function simpleLoginChecks(options: {
     assert.match(result.text, /服务端登录/)
     assert.match(result.text, /推荐/)
     assert.match(result.text, /保存并使用/)
+    assert.match(result.text, /图片识别模型/)
     assert.doesNotMatch(result.text, /托管 API 服务地址|账号网站|模型接口地址|AI 回复间隔/)
     assert.equal(result.legacy, 0)
     assert.equal(result.columns.split(' ').length, 2)

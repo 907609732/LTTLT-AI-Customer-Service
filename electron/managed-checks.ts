@@ -82,6 +82,8 @@ export async function managedChecks(options: {
         },
         capabilities: { model: 'managed-fixture', vision: false, max_images: 4 },
       }
+    else if (endpoint === '/api/client/billing' && request.method === 'GET')
+      result = { ready: false, reason: '', plans: [] }
     else if (endpoint === '/api/client/billing/orders' && request.method === 'GET')
       result = { orders: [] }
     else if (endpoint === '/api/client/chat/completions') {
@@ -212,8 +214,15 @@ export async function managedChecks(options: {
       const quotaText = (await win.webContents.executeJavaScript(
         `document.querySelector('.service-option').innerText`,
       )) as string
-      for (const label of ['总额度', '剩余额度', '到期时间', '我的订单', '算力消耗'])
+      for (const label of ['总额度', '剩余额度', '到期时间', '充值', '退出登录'])
         assert.ok(quotaText.includes(label))
+      assert.doesNotMatch(quotaText, /我的订单|算力消耗|切换账号|刷新额度/)
+      assert.equal(
+        await win.webContents.executeJavaScript(
+          `Boolean(document.querySelector('.simple-login-dialog [aria-label="图片识别模型"]'))`,
+        ),
+        false,
+      )
       assert.ok(quotaText.includes(new Date(expires * 1000).toLocaleString('zh-CN')))
       await win.webContents.executeJavaScript(
         `document.querySelector('.service-option').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`,
@@ -233,77 +242,23 @@ export async function managedChecks(options: {
         path.join(options.outputDir, 'managed-account-settings.png'),
         screenshot.toPNG(),
       )
-      for (const section of ['usage', 'orders']) {
-        await win.webContents.executeJavaScript(
-          `document.querySelector('[data-account-billing="${section}"]').click()`,
+      await win.webContents.executeJavaScript(
+        `document.querySelector('.service-option [data-account-recharge]').click()`,
+      )
+      for (let attempt = 0; attempt < 80; attempt++) {
+        const ready = await win.webContents.executeJavaScript(
+          `document.querySelector('.orders-content')?.innerText.includes('暂无可核实的充值订单记录')`,
         )
-        for (let i = 0; i < 80; i++) {
-          if (
-            await win.webContents.executeJavaScript(
-              `Boolean(document.querySelector('.billing-dashboard.compact'))`,
-            )
-          )
-            break
-          await new Promise((resolve) => setTimeout(resolve, 50))
-        }
-        assert.ok(
-          await win.webContents.executeJavaScript(
-            `Boolean(document.querySelector('.billing-dashboard.compact'))`,
-          ),
-        )
-        if (section === 'usage') {
-          assert.equal(
-            await win.webContents.executeJavaScript(
-              `Boolean(document.querySelector('.billing-dashboard.compact [aria-controls="billing-quota-details"]'))`,
-            ),
-            true,
-          )
-          await win.webContents.executeJavaScript(
-            `(() => {const button=document.querySelector('.billing-dashboard.compact [aria-controls="billing-quota-details"]'); if(button.getAttribute('aria-expanded')!=='true') button.click();})()`,
-          )
-        }
-        for (let i = 0; i < 80; i++) {
-          const ready = await win.webContents.executeJavaScript(
-            section === 'orders'
-              ? `document.querySelector('.billing-dashboard.compact')?.innerText.includes('暂无可核实的充值订单记录')`
-              : `document.querySelector('.billing-dashboard.compact [aria-controls="billing-quota-details"]')?.getAttribute('aria-expanded')==='true'&&document.querySelector('.billing-dashboard.compact')?.innerText.includes('已结算')`,
-          )
-          if (ready) break
-          await new Promise((resolve) => setTimeout(resolve, 50))
-        }
-        const detailText = (await win.webContents.executeJavaScript(
-          `document.querySelector('.billing-dashboard.compact')?.innerText`,
-        )) as string
-        assert.ok(
-          detailText?.includes(section === 'orders' ? '暂无可核实的充值订单记录' : '已结算'),
-        )
-        assert.equal(
-          await win.webContents.executeJavaScript(
-            `Boolean(document.querySelector('.billing-dashboard.compact .plans-section'))`,
-          ),
-          false,
-        )
-        assert.equal(
-          await win.webContents.executeJavaScript(
-            `Array.from(document.querySelectorAll('.billing-dashboard.compact button')).some(button=>button.textContent.includes('支持我们'))`,
-          ),
-          false,
-        )
-        if (section === 'usage') assert.ok(detailText.includes('已结算'))
-        if (section === 'orders') assert.ok(detailText.includes('暂无可核实的充值订单记录'))
-        await win.webContents.executeJavaScript(
-          `Array.from(document.querySelectorAll('.el-dialog__headerbtn')).at(-1).click()`,
-        )
-        for (let i = 0; i < 80; i++) {
-          if (
-            !(await win.webContents.executeJavaScript(
-              `Boolean(document.querySelector('.billing-dashboard.compact'))`,
-            ))
-          )
-            break
-          await new Promise((resolve) => setTimeout(resolve, 50))
-        }
+        if (ready) break
+        await new Promise((resolve) => setTimeout(resolve, 50))
       }
+      const billingText = (await win.webContents.executeJavaScript(
+        `document.querySelector('.billing-dashboard')?.innerText`,
+      )) as string
+      assert.match(billingText, /可用额度\s+19 次/)
+      assert.match(billingText, /最近充值订单/)
+      assert.match(billingText, /暂无可核实的充值订单记录/)
+      assert.doesNotMatch(billingText, /查看记录/)
     })
     await check(
       'managed:uncertain-request-stops-retry-until-explicit-review',
