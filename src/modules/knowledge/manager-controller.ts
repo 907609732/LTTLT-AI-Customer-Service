@@ -310,12 +310,10 @@ export function useKnowledgeManager() {
         guard(service.reassociate(input)),
       productProfile: (storeId: string, bindingId: string) =>
         guard(service.productProfile(storeId, bindingId)),
-      stageProductImages: (input: Parameters<typeof service.stageProductImages>[0]) =>
-        guard(service.stageProductImages(input)),
-      discardProductImages: (tokens: string[]) => guard(service.discardProductImages(tokens)),
-      // Staging cleanup must survive a stale store/generation after the native picker closes.
-      // It still goes through IPC workspace validation and opaque-token ownership.
-      discardStagedProductImages: (tokens: string[]) => service.discardStagedProductImages(tokens),
+      // The profile controller discards any tokens returned after its editor lease ends.
+      // The main process validates the workspace and product on every staging request.
+      stageProductImages: service.stageProductImages,
+      discardProductImages: service.discardProductImages,
       saveProductProfile: (input: Parameters<typeof service.saveProductProfile>[0]) =>
         guard(service.saveProductProfile(input)),
       context: () => guard(Promise.resolve(service.context())),
@@ -667,10 +665,8 @@ export function useKnowledgeManager() {
     productProfile.reset()
   }
   function profileInteractionLocked() {
-    if (!productProfile.saving.value && !productProfile.staging.value) return false
-    error.value = productProfile.saving.value
-      ? '正在保存商品资料，请稍候再切换'
-      : '正在选择商品图片，请稍候再切换'
+    if (!productProfile.saving.value) return false
+    productProfile.setError('正在保存商品资料，请稍候再切换')
     return true
   }
   async function changeStore(next: string) {
@@ -762,7 +758,7 @@ export function useKnowledgeManager() {
     productProfileFocus.value = trigger
     await run(async () => {
       await closeEditor()
-      await productProfile.open(row, trigger)
+      await productProfile.open(row)
     })
   }
   async function openProductPanel(panel: KnowledgeProductProfilePanel, create = false) {

@@ -43,7 +43,6 @@ const fake = vi.hoisted(() => ({
   productProfile: vi.fn(),
   stageProductImages: vi.fn(),
   discardProductImages: vi.fn(),
-  discardStagedProductImages: vi.fn(),
   saveProductProfile: vi.fn(),
 }))
 it('shows the saved shop product code on the knowledge card', () => {
@@ -178,7 +177,6 @@ async function setup(controller = false, canLearn = false, prepare?: () => void)
   fake.productProfile.mockReset()
   fake.stageProductImages.mockReset().mockResolvedValue([])
   fake.discardProductImages.mockReset().mockResolvedValue({ discarded: 0 })
-  fake.discardStagedProductImages.mockReset().mockResolvedValue({ discarded: 0 })
   fake.saveProductProfile.mockReset()
   fake.context.mockResolvedValue({ workspaceId: 'w', storeId: 'a', revision: 1 })
   fake.onContext.mockReturnValue(() => {})
@@ -2122,7 +2120,7 @@ it('guards unsaved product edits on route leave and discards staged images on ca
     copy: '',
   })
   expect(await manager.prepareLeave()).toBe(false)
-  expect(manager.error.value).toContain('未保存')
+  expect(manager.productProfileError.value).toContain('未保存')
   const token = 'f1b0e5e8-5c5c-4e77-8e2f-b11ad5f2aa10'
   fake.stageProductImages.mockResolvedValue([
     {
@@ -2170,8 +2168,8 @@ it('guards unsaved product edits on route leave and discards staged images on ca
     },
   ])
   await late
-  expect(fake.discardStagedProductImages).toHaveBeenCalledWith([token])
-  expect(fake.discardStagedProductImages).toHaveBeenCalledWith([lateToken])
+  expect(fake.discardProductImages).toHaveBeenCalledWith([token])
+  expect(fake.discardProductImages).toHaveBeenCalledWith([lateToken])
   expect(manager.productProfileStaged.value).toHaveLength(0)
   expect(manager.productProfile.value).toBeUndefined()
   expect(fake.saveProductProfile).toHaveBeenCalledTimes(1)

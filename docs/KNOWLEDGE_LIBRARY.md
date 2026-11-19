@@ -10,7 +10,7 @@
 
 手工字段保存为现有 source/asset/版本机制中的专用 `kind='manual'`、标签 `商品手工资料`、`lingtu-product-profile-v1` JSON（标题可选以兼容旧来源）；因此无需DB迁移，原始版本历史、附件和同款/单店备份恢复沿用原闭包。详情图集按手工、平台、其他已登记图片顺序合并（上限16张），尊重 removed/cleared-source。该来源不会被 `resolve` 用于接待，商品学习/OCR过滤它，知识 pipeline 也会拒绝把它当学习来源。首次写入和并发保存都核对 workspace/store、活跃根 binding revision、手工 source ID/revision；binding/canonical 与标题原值保持不变。失败保留表单，成功后才消费暂存并刷新列表、把焦点还给触发按钮。
 
-图片选择在主进程通过原生 file picker，仅接受按字节确认并由既有 `@napi-rs/canvas` 实际解码的 PNG/JPEG/GIF/WebP（含像素尺寸/总量上限），单图≤10MB、单次≤8张、合计≤50MB、图集≤8张。选图只写入有界内存 staging（2分钟TTL、最多16项、单用途不透明 token、绑定工作区/店铺/根 binding/双 revision），不写业务DB；取消、切店、关闭或迟到结果丢弃，保存成功才与手工来源同事务提交附件。事务失败仅清理本次新建且此前不存在的 content-addressed 文件，不删除已有或共享 digest；token 在 COMMIT 后才消费。渲染层不接收路径或任意文件句柄。
+图片选择在主进程通过原生 file picker，仅接受按字节确认并由既有 `@napi-rs/canvas` 实际解码的 PNG/JPEG/GIF/WebP（含像素尺寸/总量上限），单图≤10MB、单次≤8张、合计≤50MB、每件商品最多保存8张手工图片。选图只写入有界内存 staging（2分钟TTL、最多16项、单用途不透明 token、绑定工作区/店铺/根 binding/双 revision），不写业务DB；取消、切店、关闭或迟到结果丢弃，保存成功才与手工来源同事务提交附件。事务失败仅清理本次新建且此前不存在的 content-addressed 文件，不删除已有或共享 digest；token 在 COMMIT 后才消费。渲染层不接收路径或任意文件句柄。
 
 验证入口：`npx vitest run tests/knowledge-product-profile.test.ts tests/knowledge-product-editor.test.ts tests/knowledge-manager.test.ts`；实际隔离 Electron 主窗口/窄屏为 `LINGTU_DESKTOP_CHECKS=business:knowledge-product-editor node scripts/run-desktop.mjs`（临时 userData、合成商品与图片、无平台或模型访问）。
 

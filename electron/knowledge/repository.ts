@@ -826,7 +826,7 @@ export class KnowledgeRepository {
   listProducts(input: KnowledgePageInput & { storeId: string }) {
     const page = knowledgePageSchema.parse(input)
     const search = page.search?.toLowerCase() ?? ''
-    const visibleManual = `s2.binding_id=b.id AND COALESCE(json_extract(s2.body,'$.removed'),0)=0 AND json_extract(s2.body,'$.label')='${KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL}' AND NOT EXISTS(SELECT 1 FROM metadata m WHERE m.key='cleared-source:'||s2.id AND m.value='1')`
+    const visibleManual = `s2.binding_id=b.id AND json_extract(s2.body,'$.kind')='manual' AND COALESCE(json_extract(s2.body,'$.removed'),0)=0 AND json_extract(s2.body,'$.label')='${KNOWLEDGE_PRODUCT_PROFILE_SOURCE_LABEL}' AND NOT EXISTS(SELECT 1 FROM metadata m WHERE m.key='cleared-source:'||s2.id AND m.value='1')`
     const manualTitle = `COALESCE((SELECT CASE WHEN json_valid(json_extract(s2.body,'$.text')) THEN json_extract(json_extract(s2.body,'$.text'),'$.title') END FROM sources s2 WHERE ${visibleManual} LIMIT 1),'')`
     const where = `b.store_id=? AND b.active=1 AND b.sku_id='' AND (?='' OR instr(lower(json_extract(c.body,'$.title')||' '||json_extract(c.body,'$.code')||' '||b.product_id||' '||json_extract(b.body,'$.title')||' '||${manualTitle}),?)>0)`
     const total = (

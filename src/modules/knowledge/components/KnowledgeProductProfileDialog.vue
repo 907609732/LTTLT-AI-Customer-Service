@@ -312,10 +312,10 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </section>
-        <p v-if="error" class="knowledge-product-profile-error" role="alert">{{ error }}</p>
       </div>
       <footer class="knowledge-product-profile-footer">
-        <span v-if="saving">正在保存商品资料…</span>
+        <p v-if="error" class="knowledge-product-profile-error" role="alert">{{ error }}</p>
+        <span v-else-if="saving">正在保存商品资料…</span>
         <span v-else-if="staging">正在读取图片…</span>
         <button type="button" :disabled="saving" @click="requestClose">取消</button>
         <button type="button" class="primary" :disabled="saving || staging" @click="emit('save')">
@@ -608,8 +608,10 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .knowledge-product-profile-error {
-  margin: 12px 0 0;
-  padding: 9px 11px;
+  flex: 1;
+  min-width: 0;
+  margin: 0 auto 0 0;
+  padding: 6px 9px;
   color: #fecaca;
   background: #3b1f1f;
   border: 1px solid #6b2e2e;

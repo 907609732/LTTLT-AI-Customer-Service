@@ -14,11 +14,7 @@ import type { createKnowledgeClient } from './manager-service'
 export function useKnowledgeProductProfile(options: {
   client: () => Pick<
     ReturnType<typeof createKnowledgeClient>,
-    | 'productProfile'
-    | 'stageProductImages'
-    | 'discardProductImages'
-    | 'discardStagedProductImages'
-    | 'saveProductProfile'
+    'productProfile' | 'stageProductImages' | 'discardProductImages' | 'saveProductProfile'
   >
   storeId: Ref<string>
   refresh(): Promise<void>
@@ -33,24 +29,21 @@ export function useKnowledgeProductProfile(options: {
     staging = ref(false),
     profileError = ref('')
   let generation = 0,
-    baseline = '',
-    returnFocus: HTMLElement | undefined
+    baseline = ''
   const reason = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
   const dirty = computed(
     () => Boolean(form.value && JSON.stringify(form.value) !== baseline) || staged.value.length > 0,
   )
-  async function discardTokens(tokens: string[]) {
+  const discard = async (tokens: string[], client = options.client()) => {
     if (!tokens.length) return
     try {
-      // The staging-cleanup bridge is intentionally not wrapped in the renderer lease guard:
-      // a late native picker result still needs cleanup, while main IPC rechecks the workspace.
-      await options.client().discardStagedProductImages(tokens)
+      await client.discardProductImages(tokens)
     } catch {
       // Expired/workspace-changed staging is also bounded and reclaimed by the main-process TTL.
     }
   }
-  async function close(discard = true) {
-    if (saving.value) return false
+  async function close(discardStaging = true, contextChanged = false) {
+    if (saving.value && !contextChanged) return false
     generation++
     const tokens = staged.value.map((image) => image.token)
     staged.value = []
@@ -60,16 +53,16 @@ export function useKnowledgeProductProfile(options: {
     profileError.value = ''
     loading.value = false
     staging.value = false
-    if (discard) await discardTokens(tokens)
+    saving.value = false
+    if (discardStaging) await discard(tokens)
     return true
   }
-  async function open(row: KnowledgeProductCard, trigger?: HTMLElement) {
+  async function open(row: KnowledgeProductCard) {
     if (saving.value) return
     const owner = ++generation,
       shop = options.storeId.value
     loading.value = true
     profileError.value = ''
-    returnFocus = trigger
     try {
       const next = await options.client().productProfile(shop, row.binding.id)
       if (owner !== generation || shop !== options.storeId.value) return
@@ -85,13 +78,13 @@ export function useKnowledgeProductProfile(options: {
       baseline = JSON.stringify(form.value)
       staged.value = []
     } catch (cause) {
-      if (owner === generation) profileError.value = reason(cause)
+      if (owner === generation) options.error.value = reason(cause)
     } finally {
       if (owner === generation) loading.value = false
     }
   }
   function updateForm(next: KnowledgeProductProfileForm) {
-    if (profile.value) form.value = { ...next }
+    if (profile.value && !saving.value) form.value = { ...next }
   }
   async function addImages() {
     if (!profile.value || saving.value || staging.value) return
@@ -114,7 +107,10 @@ export function useKnowledgeProductProfile(options: {
         shop !== options.storeId.value ||
         profile.value?.binding.id !== current.binding.id
       ) {
-        await service.discardStagedProductImages(images.map((image) => image.token)).catch(() => {})
+        await discard(
+          images.map((image) => image.token),
+          service,
+        )
         return
       }
       staged.value = [...staged.value, ...images]
@@ -125,11 +121,12 @@ export function useKnowledgeProductProfile(options: {
     }
   }
   async function removeStaged(token: string) {
+    if (saving.value) return
     staged.value = staged.value.filter((image) => image.token !== token)
-    await discardTokens([token])
+    await discard([token])
   }
   async function save() {
-    if (!profile.value || !form.value || saving.value) return false
+    if (!profile.value || !form.value || saving.value || staging.value) return false
     const owner = generation,
       shop = options.storeId.value,
       current = profile.value,
@@ -155,14 +152,13 @@ export function useKnowledgeProductProfile(options: {
         imageTokens: staged.value.map((image) => image.token),
       })
     } catch (cause) {
-      if (owner === generation) profileError.value = reason(cause)
-      saving.value = false
+      if (owner === generation) {
+        profileError.value = reason(cause)
+        saving.value = false
+      }
       return false
     }
-    if (owner !== generation || shop !== options.storeId.value) {
-      saving.value = false
-      return false
-    }
+    if (owner !== generation || shop !== options.storeId.value) return false
     // The write is committed. Closing/refreshing is presentation-only and must never be
     // reported as a write failure or leave a re-submittable form.
     staged.value = []
@@ -179,28 +175,19 @@ export function useKnowledgeProductProfile(options: {
     return true
   }
   async function prepareLeave() {
-    if (!profile.value) return true
-    if (saving.value) {
-      options.error.value = '正在保存商品资料，请稍候再切换'
+    if (saving.value || dirty.value) {
+      profileError.value = saving.value
+        ? '正在保存商品资料，请稍候再切换'
+        : '商品资料有未保存修改，请先保存或取消'
       return false
     }
-    if (staging.value) {
-      options.error.value = '正在选择商品图片，请稍候再切换'
-      return false
-    }
-    if (dirty.value) {
-      options.error.value = '商品资料有未保存修改，请先保存或取消商品编辑'
-      return false
-    }
-    await close(false)
-    return true
+    return close()
   }
   function setError(message: string) {
     profileError.value = message
   }
   function reset() {
-    void close()
-    returnFocus = undefined
+    void close(true, true)
   }
   return {
     profile,
@@ -211,7 +198,6 @@ export function useKnowledgeProductProfile(options: {
     staging,
     error: profileError,
     dirty,
-    returnFocus: () => returnFocus,
     open,
     close,
     updateForm,
