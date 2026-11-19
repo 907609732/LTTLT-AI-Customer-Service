@@ -54,7 +54,13 @@ describe('闲鱼消息映射', () => {
       [
         { body: '在吗', side: 'left', ts: '14:56#1' },
         { body: '在的', side: 'right', ts: '14:56#2' },
-        { body: '', side: 'left', isImage: true, ts: '14:57#3' },
+        {
+          body: '',
+          side: 'left',
+          isImage: true,
+          imageSrc: 'https://images.example.com/buyer-photo.png?signature=temp',
+          ts: '14:57#3',
+        },
         { body: '', side: 'left', isProduct: true, productTitle: '门锁', ts: '14:57#4' },
       ],
       NOW,
@@ -66,6 +72,11 @@ describe('闲鱼消息映射', () => {
       'xy:买家A:14:57#4',
     ])
     expect(messages.map((message) => message.type)).toEqual(['text', 'text', 'image', 'card'])
+    expect(messages[2]).toMatchObject({
+      type: 'image',
+      content: '[图片]',
+      imageUrl: 'https://images.example.com/buyer-photo.png?signature=temp',
+    })
     expect(messages[3]?.content).toBe('[商品] 门锁')
   })
 

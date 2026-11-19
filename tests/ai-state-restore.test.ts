@@ -30,7 +30,12 @@ function fixture() {
   let verifier = async (): Promise<typeof identity | undefined> => ({ ...identity })
   let allowed = true,
     issue = false
-  const calls: { action: string; storeId?: string; values?: Record<string, unknown> }[] = []
+  const calls: {
+    action: string
+    storeId?: string
+    conversationId?: string
+    values?: Record<string, unknown>
+  }[] = []
   let effect: ((command: (typeof calls)[number]) => Promise<unknown>) | undefined
   const restore = new AiStateRestore({
     preferences,
@@ -106,6 +111,179 @@ it('records only successful actual explicit enables; batch partial outcomes do n
   await f.restore.userExecute({ action: 'batch', values: { operation: 'enable' } })
   expect(f.preferences.read('store-a')).toEqual(identity)
   expect(f.preferences.read('store-b')).toBeUndefined()
+})
+it('a terminal skipped reply decision disables store AI and clears remembered enablement', async () => {
+  for (const code of [
+    'message_expired',
+    'recover_expired',
+    'manual_replied',
+    'handoff_keyword',
+    'manual_keyword',
+    'already_replied',
+  ]) {
+    const f = fixture()
+    f.stores[0]!.aiEnabled = true
+    f.preferences.enable('store-a', identity)
+    await f.restore.event({
+      type: 'reply:decision',
+      storeId: 'store-a',
+      uid: 'buyer',
+      stage: 'skipped',
+      code,
+    })
+    expect(f.stores[0]!.aiEnabled, code).toBe(false)
+    expect(f.preferences.read('store-a'), code).toBeUndefined()
+    expect(f.calls.at(-1)).toMatchObject({
+      action: 'set-ai',
+      storeId: 'store-a',
+      values: { enabled: false },
+    })
+  }
+})
+it('reopening a store through set-ai resumes only the conversations stopped by terminal skips', async () => {
+  const f = fixture()
+  f.stores[0]!.aiEnabled = true
+  f.preferences.enable('store-a', identity)
+  await f.restore.event({
+    type: 'reply:decision',
+    storeId: 'store-a',
+    uid: 'buyer-a',
+    stage: 'skipped',
+    code: 'message_expired',
+  })
+  expect(f.stores[0]!.aiEnabled).toBe(false)
+  expect(f.preferences.read('store-a')).toBeUndefined()
+  await f.restore.userExecute({ action: 'set-ai', storeId: 'store-a', values: { enabled: true } })
+  expect(f.stores[0]!.aiEnabled).toBe(true)
+  expect(f.preferences.read('store-a')).toEqual(identity)
+  expect(f.calls.find((command) => command.action === 'resume-conversation')).toMatchObject({
+    action: 'resume-conversation',
+    storeId: 'store-a',
+    conversationId: 'buyer-a',
+  })
+})
+it('reports session-resume failures after the store AI has successfully opened', async () => {
+  const f = fixture()
+  f.stores[0]!.aiEnabled = true
+  f.preferences.enable('store-a', identity)
+  await f.restore.event({
+    type: 'reply:decision',
+    storeId: 'store-a',
+    uid: 'buyer-a',
+    stage: 'skipped',
+    code: 'message_expired',
+  })
+  f.effect(async (command) => {
+    if (command.action === 'set-ai') f.stores[0]!.aiEnabled = command.values?.enabled === true
+    if (command.action === 'resume-conversation') throw Error('resume failed')
+    return { status: 'ok', data: {} }
+  })
+  await f.restore.userExecute({ action: 'set-ai', storeId: 'store-a', values: { enabled: true } })
+  expect(f.stores[0]!.aiEnabled).toBe(true)
+  expect(f.restore.state('store-a')?.message).toContain('部分会话未恢复')
+})
+it('late terminal decisions for an automatically stopped store are resumed after reopening', async () => {
+  const f = fixture()
+  f.stores[0]!.aiEnabled = true
+  f.preferences.enable('store-a', identity)
+  await f.restore.event({
+    type: 'reply:decision',
+    storeId: 'store-a',
+    uid: 'buyer-a',
+    stage: 'skipped',
+    code: 'message_expired',
+  })
+  await f.restore.event({
+    type: 'reply:decision',
+    storeId: 'store-a',
+    uid: 'buyer-b',
+    stage: 'skipped',
+    code: 'recover_expired',
+  })
+  expect(f.calls.filter((command) => command.action === 'set-ai')).toHaveLength(1)
+  await f.restore.userExecute({ action: 'set-ai', storeId: 'store-a', values: { enabled: true } })
+  expect(
+    f.calls
+      .filter((command) => command.action === 'resume-conversation')
+      .map((command) => command.conversationId),
+  ).toEqual(['buyer-a', 'buyer-b'])
+})
+it('a skipped decision only turns off the matching store', async () => {
+  const f = fixture()
+  f.stores[0]!.aiEnabled = true
+  f.stores.push({ ...f.stores[0]!, id: 'store-b', aiEnabled: true })
+  f.preferences.enable('store-a', identity)
+  f.preferences.enable('store-b', identity)
+  await f.restore.event({
+    type: 'reply:decision',
+    storeId: 'store-a',
+    uid: 'buyer',
+    stage: 'skipped',
+    code: 'message_expired',
+  })
+  expect(f.stores[0]!.aiEnabled).toBe(false)
+  expect(f.stores[1]!.aiEnabled).toBe(true)
+  expect(f.preferences.read('store-a')).toBeUndefined()
+  expect(f.preferences.read('store-b')).toEqual(identity)
+})
+it('keeps the AI enabled and publishes a warning if automatic shutdown fails', async () => {
+  const f = fixture()
+  f.stores[0]!.aiEnabled = true
+  f.preferences.enable('store-a', identity)
+  f.effect(async () => {
+    throw Error('stop failed')
+  })
+  await f.restore.event({
+    type: 'reply:decision',
+    storeId: 'store-a',
+    uid: 'buyer',
+    stage: 'skipped',
+    code: 'message_expired',
+  })
+  expect(f.stores[0]!.aiEnabled).toBe(true)
+  expect(f.restore.state('store-a')?.message).toContain('自动关闭 AI 失败')
+})
+it('duplicate terminal decisions stop one store only once', async () => {
+  const f = fixture()
+  f.stores[0]!.aiEnabled = true
+  f.preferences.enable('store-a', identity)
+  let finish!: () => void
+  f.effect(async (command) => {
+    await new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    f.stores[0]!.aiEnabled = command.values?.enabled === true
+    return { status: 'ok', data: {} }
+  })
+  const decision = {
+    type: 'reply:decision',
+    storeId: 'store-a',
+    uid: 'buyer',
+    stage: 'skipped',
+    code: 'message_expired',
+  }
+  const first = f.restore.event(decision)
+  await Promise.resolve()
+  await f.restore.event(decision)
+  expect(f.calls).toHaveLength(1)
+  finish()
+  await first
+  expect(f.stores[0]!.aiEnabled).toBe(false)
+})
+it('waiting reply decisions do not turn off a store whose queue can resume', async () => {
+  const f = fixture()
+  f.stores[0]!.aiEnabled = true
+  f.preferences.enable('store-a', identity)
+  await f.restore.event({
+    type: 'reply:decision',
+    storeId: 'store-a',
+    uid: 'buyer',
+    stage: 'waiting',
+    code: 'uid_interval',
+  })
+  expect(f.stores[0]!.aiEnabled).toBe(true)
+  expect(f.preferences.read('store-a')).toEqual(identity)
+  expect(f.calls).toHaveLength(0)
 })
 it('opens remembered stores only, waits for verified same identity login and restores once through set-ai', async () => {
   const f = fixture()

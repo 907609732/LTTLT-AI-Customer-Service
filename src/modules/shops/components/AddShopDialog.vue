@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { SIM_PLATFORM_ID, SIM_PLATFORM_LABEL } from '@/shared/contracts/simulation'
+import { qianniuAccountsSchema, type QianniuAccount } from '@/shared/contracts/qianniu'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useShopSetupStore } from '../setup-store'
 import { useTask } from '@/shared/ui/use-task'
@@ -26,6 +27,9 @@ const name = ref(''),
   platform = ref(''),
   simulation = ref(false),
   createdId = ref('')
+const qianniuAccounts = ref<QianniuAccount[]>([])
+const qianniuServiceId = ref('')
+const qianniuMessage = ref('')
 const catalog = [
   { id: 'pdd-web', label: '多多店铺', mode: '网页', icon: pddWeb },
   { id: 'pdd-client', label: '多多店铺', mode: '客户端', icon: pddClient },
@@ -43,7 +47,7 @@ const platforms = computed(() =>
   catalog.map((item) => ({
     ...item,
     available:
-      ['pdd-web', 'doudian-client', 'xianyu'].includes(item.id) &&
+      ['pdd-web', 'doudian-client', 'xianyu', 'qianniu'].includes(item.id) &&
       runtime.snapshot.capabilities.platforms.some((p) => p.id === item.id),
   })),
 )
@@ -59,6 +63,10 @@ const canSubmit = computed(
     runtime.available &&
     Boolean(runtime.snapshot.workspaceId) &&
     (!needsStoreName.value || Boolean(name.value.trim())) &&
+    (platform.value !== 'qianniu' ||
+      qianniuAccounts.value.some(
+        (row) => row.serviceId === qianniuServiceId.value && row.online && row.nativeReady,
+      )) &&
     ((isSim.value && simulatorAvailable.value) || Boolean(selected.value?.available)),
 )
 const simNote = `${SIM_PLATFORM_LABEL}只在本机运行：没有真实平台登录、没有真实买家，消息只写在本机记录里，适合先演练回复流程。`
@@ -70,6 +78,9 @@ function reset() {
   simulation.value = false
   createdId.value = ''
   task.error.value = ''
+  qianniuAccounts.value = []
+  qianniuServiceId.value = ''
+  qianniuMessage.value = ''
 }
 watch(
   () => props.modelValue,
@@ -98,6 +109,18 @@ function toggleSimulation() {
 function close() {
   if (!task.pending.value) emit('update:modelValue', false)
 }
+async function connectQianniu() {
+  const workspaceId = runtime.snapshot.workspaceId
+  const version = draftVersion
+  await task.run(async () => {
+    const result = await runtime.run({ action: 'connect-qianniu' })
+    if (workspaceId !== runtime.snapshot.workspaceId || version !== draftVersion) return
+    qianniuAccounts.value = qianniuAccountsSchema.parse(result.data.accounts)
+    qianniuMessage.value = result.message
+    qianniuServiceId.value =
+      qianniuAccounts.value.find((row) => row.online && row.nativeReady)?.serviceId || ''
+  })
+}
 async function save() {
   if (!canSubmit.value || task.pending.value) return
   const version = draftVersion,
@@ -116,6 +139,7 @@ async function save() {
         values: {
           platform: platform.value,
           ...(requiresName ? { storeName: name.value.trim() } : {}),
+          ...(platform.value === 'qianniu' ? { serviceId: qianniuServiceId.value } : {}),
         },
       })
       if (!current()) throw new Error('工作区已切换，请重新选择平台')
@@ -190,7 +214,7 @@ async function save() {
             <span
               :class="[
                 'add-platform-status',
-                { available: item.available, developing: item.id === 'qianniu' },
+                { available: item.available, developing: item.id === 'qianniu' && !item.available },
               ]"
               >{{ item.available ? '已开通' : item.id === 'qianniu' ? '开发中' : '未开通' }}</span
             >
@@ -202,6 +226,33 @@ async function save() {
         <p v-else-if="platform === 'xianyu'" class="add-platform-hint">
           将在主窗口内嵌闲鱼网页版（goofish.com/im）；请在该页面扫码登录，打开不代表已登录。
         </p>
+        <div v-else-if="platform === 'qianniu'" class="runtime-form add-platform-nameform">
+          <p>
+            在千牛登录并打开接待中心后，读取客服账号。默认审核发送，添加后可右键店铺切换自动发送。
+          </p>
+          <el-button
+            :loading="task.pending.value"
+            :disabled="Boolean(createdId)"
+            @click="connectQianniu"
+          >
+            {{ qianniuAccounts.length ? '刷新千牛账号' : '连接千牛客户端' }}
+          </el-button>
+          <p v-if="qianniuMessage">{{ qianniuMessage }}</p>
+          <label
+            >客服账号<el-select
+              v-model="qianniuServiceId"
+              aria-label="千牛客服账号"
+              :disabled="task.pending.value || Boolean(createdId)"
+            >
+              <el-option
+                v-for="account in qianniuAccounts"
+                :key="account.serviceId"
+                :label="account.serviceId"
+                :value="account.serviceId"
+                :disabled="!account.online || !account.nativeReady"
+              /> </el-select
+          ></label>
+        </div>
         <div v-if="needsStoreName" class="runtime-form add-platform-nameform">
           <label
             >店铺名称<el-input

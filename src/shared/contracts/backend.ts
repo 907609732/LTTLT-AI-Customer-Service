@@ -17,6 +17,7 @@ export const actions = [
   'open-managed-admin',
   'acknowledge-model-issue',
   'add-store',
+  'connect-qianniu',
   'open-runtime-logs',
   'clear-runtime-logs',
   'open-reply-monitor',

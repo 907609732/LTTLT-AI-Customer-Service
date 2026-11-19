@@ -14,3 +14,20 @@ server/bin/
 !.env.example
 *.log
 .superpowers/
+
+# 此测试分支不发布客户端接入核心和外部运行材料。
+vendor/lingtu-runtime/**
+!vendor/lingtu-runtime/LICENSE
+!vendor/lingtu-runtime/LICENSING.md
+!vendor/lingtu-runtime/THIRD_PARTY_NOTICES.md
+electron/qianniu/**
+!electron/qianniu/index.ts
+qianniu-delivery/
+qianniu-re/
+qnpy-service/
+qn.exe
+qnpy-service.exe
+*.dll
+*.exe
+*.pyc
+*.pyd

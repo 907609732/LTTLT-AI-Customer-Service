@@ -1,11 +1,11 @@
 # 主项目目录与文件边界
 
-当前实际主项目根目录为 E:\~1awucheng\Plastic SCM\AI电商客服软件\client。所有相对路径和npm命令均从这里计算，package.json与.github位于仓库根。当前基线与任务结果见HANDOFF.md。
+当前实际主项目根目录为 `F:\Setupgod\yunduo-ui`。所有相对路径和 npm 命令均从这里计算，package.json 与 .github 位于仓库根。不要将上级目录 `F:\Setupgod` 当作仓库根，也不要把兄弟项目移动或复制进本仓库。当前基线与任务结果见 HANDOFF.md。
 
 ## 源码与维护文件
 
 ```text
-client/
+yunduo-ui/
 ├─ .github/                 云端工作流与构建说明
 ├─ config/                  TypeScript、ESLint、Prettier 与 electron-builder 配置
 ├─ src/                     Vue 页面、模块、共享契约、样式

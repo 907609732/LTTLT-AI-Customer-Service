@@ -6,7 +6,7 @@
 
 界面入口：LoginView、ShopForgotPasswordView、AccountLoginPanel、AccountSettingsDialog、TeamPanel、CookieLoginDialog。
 
-当前业务状态：本机模式无需软件账号；显式托管模式复用设备授权。TeamPanel 提供已有账号定向邀请/本人接受、角色管理、团队店铺登记与成员授权、操作审计，通过可注入 TeamService 调用独立服务端团队领域；未装配或本机模式明确不可用。平台账号密码自动填写未接入，不伪造平台登录。
+当前业务状态：本机模式无需软件账号；显式托管模式复用设备授权。LoginView（`/login`、`/shop/login`）和工作台顶部登录弹窗共用托管授权运行时；登录完成后进入工作台，主进程通过系统安全存储加密保存刷新凭据，并在下次桌面启动时自动恢复。浏览器仅预览、不授权或保存凭据；旧手机号/密码与独立“自动登录”演示控件已移除，不伪造尚未接入的认证。TeamPanel 提供已有账号定向邀请/本人接受、角色管理、团队店铺登记与成员授权、操作审计，通过可注入 TeamService 调用独立服务端团队领域；未装配或本机模式明确不可用。平台账号密码自动填写未接入，不伪造平台登录。
 
 团队契约和服务从 index.ts 导出；quality 通过公开 useTeamWorkspace 使用同一接口。服务端按团队和店铺校验最终权限，UI 权限只控制可操作状态。公共注册及 IPC 接入、测试与边界见 docs/parallel/team-handoff.md（不并发修改公共 HANDOFF）。
 

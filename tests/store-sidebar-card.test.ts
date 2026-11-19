@@ -153,6 +153,17 @@ it('发送模式仅由明确菜单点击发出，当前模式由真实快照展�
   expect(wrapper.emitted('sendMode')).toEqual([['auto'], ['review']])
 })
 
+it('已开启时侧栏 AI 开关提供关闭动作，实际状态由父级快照更新', async () => {
+  const wrapper = fixture()
+  await wrapper.setProps({ shop: { ...shop, aiEnabled: true } })
+  const toggle = wrapper.get('[role="switch"]')
+  expect(toggle.attributes('aria-checked')).toBe('true')
+  expect(toggle.attributes('aria-label')).toBe('关闭测试店铺 AI')
+  await toggle.trigger('click')
+  expect(wrapper.emitted('toggleAi')).toHaveLength(1)
+  expect(toggle.attributes('aria-checked')).toBe('true')
+})
+
 it('等待恢复仅显示状态与悬停说明，开关仍为实际关闭且可取消', async () => {
   const wrapper = fixture()
   await wrapper.setProps({

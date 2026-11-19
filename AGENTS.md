@@ -1,5 +1,7 @@
 # AI 开发入口
 
+本分支推送约束优先：主要算法未推送。不得加入客户端注入、修改、载荷、运行时启动或其核心实现；当前为审核回复测试快照，自动回复、稳定性、防风性和算法未验收。见 docs/PUSH_NOTES.md。下方历史功能和本机启动记录不代表本分支包含对应运行时。
+
 Windows本机构建环境：主目录曾因可执行文件继承Low完整性标签，导致esbuild无法删除正常TEMP文件、Electron无法正常启动。已恢复本项目主目录的可继承Medium标签并验证直接build/start。写入型DeepSeek任务使用独立Git worktree，避免再次污染日常主目录；诊断及修复证据见docs/WINDOWS_BUILD.md。
 
 ## 版本识别（用户于2026-11-15指定）
@@ -12,7 +14,7 @@ Windows本机构建环境：主目录曾因可执行文件继承Low完整性标�
 
 产品名称为“灵兔AI电商客服”，名称与数据兼容规则先读 docs/BRANDING.md。本机品牌改名已获用户授权，包含界面、图片、打包、后台和文档；主目录不移动，既有 userData、安装 appId、登录分区与 IPC 标识按兼容规则保留。本轮提交、推送与 main 合并按最新授权执行，公开发布仍未授权。
 
-当前工作区的实际独立项目根为 `E:\~1awucheng\Plastic SCM\AI电商客服软件\client`；先读 `docs/PROJECT_LAYOUT.md`。`.github`、package.json、src、electron、server、vendor 属于同一个独立工程。不要再将整个 F:\Setupgod 或旧 React 仓库当作本工程，也不要把主工程嵌到旧推送工作区。本轮允许本机维护、品牌改名及已授权的独立根目录交付；后续其他仓库、生产部署和公开发布仍须另行指令。兄弟目录保持原样。
+当前工作区的实际独立项目根为 `F:\Setupgod\yunduo-ui`；先读 `docs/PROJECT_LAYOUT.md`。`.github`、package.json、src、electron、server、vendor 属于同一个独立工程。不要再将整个 F:\Setupgod 或旧 React 仓库当作本工程，也不要把主工程嵌到旧推送工作区。本轮允许本机维护、品牌改名及已授权的独立根目录交付；后续其他仓库、生产部署和公开发布仍须另行指令。兄弟目录保持原样。
 
 修改前依次阅读 `docs/CONSTRAINTS.md`、`docs/ARCHITECTURE.md`、`docs/HANDOFF.md`、`docs/LOCAL_INTEGRATION.md` 和相关模块 README；搜索已有实现，检查工作区改动。桌面支持默认本机 Key 和显式托管模式，本机与所有托管账号共用 `local-runtime` 业务目录和 `yunduo-local` 平台分区；托管改动先读 MANAGED_SERVICE.md，server 导入例外与原生检查见该目录 AGENTS/CONSTRAINTS。浏览器保持业务只读预览。
 
@@ -36,3 +38,5 @@ Windows本机构建环境：主目录曾因可执行文件继承Low完整性标�
 正常软件启动/账号登录后，按共用本机业务目录（所有模式与账号同一 `local-runtime` 目录）内保存的每店AI开关恢复；仅对有明确开启记录且当前平台登录身份重新验证一致的店铺启用，其他保持关闭。上次审核/自动发送模式沿用原规则，旧批准/候选不恢复。主动关闭/全部关闭取消恢复；退出、断线等临时停机不覆盖用户意愿。知识库清除/恢复维护重建不自动恢复AI。本条替代旧的正常新会话一律关闭AI约束，细节见docs/AI_STATE_RESTORE.md。
 
 2026-11-17 共用工作区整合：按用户新要求，本机/托管模式和账号共用本机 local-runtime 业务目录与 yunduo-local 平台分区，AI 开关记忆也随该本机目录保存。账号改变仍停止当前 AI 并要求重启；恢复仍核对当前平台身份，旧候选/批准不恢复。旧 managed-workspaces 保留、不自动合并。此条更新早先按账号/来源分别保存业务目录的描述；托管认证、计费和团队资格仍由当前账号校验。
+
+千牛真实接入使用用户提供的 SDK 与本机 qnpy 运行时，接线和本机目录见 [QIANNIU.md](docs/QIANNIU.md)。默认审核发送；用户于2026-11-19要求支持按店显式自动发送，复用统一复核门和模式版本租约，不追认旧审核候选。禁止运行时自测发送或以 HTTP 受理代替送达；离线验证仍作为独立回归，不能当作实店验收。

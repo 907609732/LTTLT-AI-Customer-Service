@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ReviewConsole, type SendProposal } from '../electron/review-console'
 import { emptySnapshot } from '../src/shared/contracts/backend'
+import { SIM_PLATFORM_ID } from '../src/shared/contracts/simulation'
 
 const consoles: ReviewConsole[] = []
 function setup(options: ConstructorParameters<typeof ReviewConsole>[3] = {}) {
@@ -53,6 +54,18 @@ afterEach(() => {
   for (const console of consoles.splice(0)) console.dispose()
 })
 describe('AI 回复人工确认', () => {
+  it.each([
+    [true, 'sent', '本机模拟已收到回复，未向真实买家发送。'],
+    [false, 'failed', '模拟发送失败或结果不确定，请核对本机模拟记录，不自动重发。'],
+  ])('本机模拟的发送结果不冒充实店回执（%s）', async (ok, status, reason) => {
+    const { console, proposal, snap } = setup()
+    snap.stores[0]!.platform = SIM_PLATFORM_ID
+    const pending = console.propose(proposal)
+    await console.decide({ id: console.snapshot().replies[0]!.id, approve: true })
+    expect(await pending).toBe(true)
+    console.event({ type: 'reply:review-result', storeId: 'shop', uid: 'buyer', ok })
+    expect(console.snapshot().replies[0]).toMatchObject({ status, reason })
+  })
   it('显式自动模式复用历史复核，平台回执前只标记发送中', async () => {
     const { console, proposal } = setup({ readMode: () => ({ mode: 'auto', revision: 1 }) })
     const history = vi.fn(proposal.getHistory)
@@ -134,6 +147,43 @@ describe('AI 回复人工确认', () => {
       expect(await console.propose(proposal)).toBe(false)
       expect(console.snapshot().replies[0].status).toBe('expired')
     }
+  })
+  it('请求提交前失败仍保留上下文诊断并明确标记未提交', () => {
+    const { console, snap } = setup()
+    console.sync()
+    const context = { storeId: 'shop', uid: 'buyer', buyers: snap.conversations[0].messages }
+    const id = console.trace({
+      type: 'started',
+      reviewContext: context,
+      thread: [{ from: 'buyer', type: 'image', content: '[图片]' }],
+      model: 'fixture-vision',
+    })
+    expect(
+      console.trace({
+        type: 'prepared',
+        traceId: id,
+        reviewContext: context,
+        messages: [{ role: 'user', content: 'fixture' }],
+        thread: [{ from: 'buyer', type: 'image', content: '[图片]' }],
+      }),
+    ).toBe(id)
+    console.trace({
+      type: 'error',
+      traceId: id,
+      reviewContext: context,
+      error: 'vision_unavailable',
+    })
+    const trace = console.snapshot().traces[0]
+    const buyer = console.snapshot().logs.find((log) => log.kind === '买家消息')
+    expect(trace.error).toBe('vision_unavailable')
+    expect(trace).not.toHaveProperty('submittedAt')
+    expect(trace.thread).toContain('[图片]')
+    expect(buyer?.ai).toMatchObject({
+      stage: 'failed',
+      code: 'model_failed',
+      submitted: false,
+      traceId: id,
+    })
   })
   it('买家卡片区分构造请求与实际提交，并跟踪生成、确认及发送', async () => {
     const { console, snap, proposal } = setup()

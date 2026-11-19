@@ -4,6 +4,10 @@ import path from 'node:path'
 import { createConversationThread } from '../electron/conversation-context'
 import type { Conversation } from '../src/shared/contracts/backend'
 
+const { imageInputs } = createRequire(import.meta.url)(
+  path.resolve('vendor/lingtu-runtime/shared/multimodal.cjs'),
+) as { imageInputs(thread: unknown[]): string[] }
+
 const message = (content: string, ts: number, from = 'buyer', msgId = content) => ({
   content,
   ts,
@@ -57,7 +61,7 @@ describe('本机完整已采集上下文', () => {
       expect(body).toContain('买家：想买 M8 螺丝')
       expect(body).toContain('客服：需要多长？')
       expect(body).toContain('买家：刚才那款')
-      expect(traces.find((t) => t.type === 'request')?.messages).toEqual(calls[0].messages)
+      expect(traces.find((t) => t.type === 'prepared')?.messages).toEqual(calls[0].messages)
     } finally {
       client.dispose()
     }
@@ -77,6 +81,29 @@ describe('本机完整已采集上下文', () => {
     expect(result[0].content).toBe('需要 M8 螺丝')
     expect(result[1].from).toBe('seller')
     expect(result.at(-1)?.content).toBe('刚才询问的商品')
+  })
+
+  it('保留当前买家图片的短期模型 URL，但归档图片不包含 URL', () => {
+    const imageUrl = 'https://images.example.com/photo.png?signature=temporary'
+    const resolve = createConversationThread(() => [
+      archive('s', 'buyer', [{ ...message('[图片]', 100, 'buyer', 'image-1'), type: 'image' }]),
+    ])
+    const result = resolve({
+      storeId: 's',
+      uid: 'buyer',
+      history: [],
+      rowMessages: [{ ...message('[图片]', 100, 'buyer', 'image-1'), type: 'image', imageUrl }],
+    })
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ content: '[图片]', imageUrl })
+    expect(
+      resolve({ storeId: 's', uid: 'buyer', history: [], rowMessages: [] })[0],
+    ).not.toHaveProperty('imageUrl')
+    expect(imageInputs(result)).toEqual([imageUrl])
+    expect(() =>
+      imageInputs([{ ...result[0], imageUrl: 'http://images.example.com/photo.png' }]),
+    ).toThrow()
+    expect(resolve({ storeId: 's', uid: 'other', history: [], rowMessages: [] })).toEqual([])
   })
 
   it('同时按店铺和买家隔离，并在每次调用读取最新归档', () => {

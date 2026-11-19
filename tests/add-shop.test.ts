@@ -78,6 +78,40 @@ it('闲鱼店铺必须填写名称并随添加提交', async () => {
   })
   wrapper.unmount()
 })
+it('千牛从本机服务读取账号，未连接不能添加，绑定精确客服身份', async () => {
+  const { wrapper, run, runtime } = await fixture()
+  runtime.snapshot.capabilities.platforms.push({ id: 'qianniu', label: '千牛客户端' })
+  await flushPromises()
+  await wrapper.find('[data-platform="qianniu"]').trigger('click')
+  expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+  run.mockResolvedValueOnce({
+    status: 'ok',
+    message: '已连接',
+    data: {
+      accounts: [
+        {
+          serviceId: '测试店:客服甲',
+          name: '测试店',
+          mallId: '12345',
+          nativeReady: true,
+          online: true,
+        },
+      ],
+    },
+  })
+  const connect = wrapper.findAll('button').find((button) => button.text() === '连接千牛客户端')
+  expect(connect).toBeDefined()
+  await connect!.trigger('click')
+  await flushPromises()
+  await wrapper.find('form').trigger('submit')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({ action: 'connect-qianniu' })
+  expect(run).toHaveBeenCalledWith({
+    action: 'add-store',
+    values: { platform: 'qianniu', serviceId: '测试店:客服甲' },
+  })
+  wrapper.unmount()
+})
 it('添加后直接打开登录，失败重试只打开已建记录', async () => {
   const { wrapper, run, runtime, added } = await fixture()
   run.mockImplementationOnce(async () => added()).mockRejectedValueOnce(new Error('客户端未启动'))

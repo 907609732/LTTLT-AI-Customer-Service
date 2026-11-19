@@ -67,6 +67,8 @@ import { SimHub } from './sim-hub'
 import { emptyReview } from '../src/shared/contracts/review'
 import { createSimAdapter } from './sim-adapter'
 import { createSimManagerFactory } from './sim-manager'
+import { QianniuIntegration } from './qianniu'
+import { QIANNIU_PLATFORM_ID, qianniuAccountsSchema } from '../src/shared/contracts/qianniu'
 import {
   createXianyuPlatformAdapter,
   XIANYU_PLATFORM_ID,
@@ -158,6 +160,8 @@ export function createLocalRuntime(options: {
   managedTransport?: ManagedTransport
   /** Native acceptance can supply a recognizer without requiring OS language packs. */
   recognizeKnowledgeImage?: KnowledgeImageRecognizer
+  /** Keeps SDK fixtures on the native test entry; production uses the normal local simulator. */
+  createSimulationAdapter?: typeof createSimAdapter
 }) {
   const workspaceId = randomUUID()
   const listeners = new Set<(event: BackendEvent) => void>()
@@ -417,7 +421,7 @@ export function createLocalRuntime(options: {
   })
   const traceWithKnowledge = (event: unknown) => {
     const id = review.trace(event)
-    if (id && event && typeof event === 'object' && Reflect.get(event, 'type') === 'request')
+    if (id && event && typeof event === 'object' && Reflect.get(event, 'type') === 'prepared')
       knowledge.captureTrace(id, Reflect.get(event, 'knowledge'))
     return id
   }
@@ -463,6 +467,7 @@ export function createLocalRuntime(options: {
   }
   // 本机模拟店铺的数据只落在本地数据目录：主进程独占读写，渲染层只经业务快照看到结果。
   const simHub = new SimHub({ file: path.join(dataDir, 'simulator-stores.json') })
+  const qianniu = new QianniuIntegration(app.getAppPath(), dataDir)
   const simStores = () => {
     if (closed) return []
     return read()
@@ -488,7 +493,7 @@ export function createLocalRuntime(options: {
   ).createPlatformHost({
     dataDir,
     partitionNamespace: managed.partitionNamespace,
-    allowExternalClient: true,
+    allowExternalClient: !options.createSimulationAdapter,
     getWindow: options.getWindow,
   })
   const platformAdapters = new Map<string, unknown>()
@@ -515,14 +520,19 @@ export function createLocalRuntime(options: {
     extraPlatforms: [
       { id: SIM_PLATFORM_ID, label: SIM_PLATFORM_LABEL },
       { id: XIANYU_PLATFORM_ID, label: XIANYU_PLATFORM_NAME },
+      ...(!options.createSimulationAdapter && qianniu.service.available()
+        ? [{ id: QIANNIU_PLATFORM_ID, label: '千牛客户端' }]
+        : []),
     ],
     adapterFactory: (
-      store: { id: string; storeName?: string; platform: string },
+      store: { id: string; storeName?: string; platform: string; customerServiceId?: string },
       deps: unknown,
     ) => {
       let adapter: unknown
       if (store.platform === SIM_PLATFORM_ID) {
-        adapter = createSimAdapter(store, simHub)
+        adapter = (options.createSimulationAdapter ?? createSimAdapter)(store, simHub)
+      } else if (store.platform === QIANNIU_PLATFORM_ID) {
+        adapter = qianniu.adapter(store)
       } else if (store.platform === XIANYU_PLATFORM_ID) {
         // 闲鱼页面由厂商 ShopWindowManager 按 desk-v1 的 entryUrl 建好；
         // 适配器只拿同一店铺的 WebContents 注入桥，不另开窗口。
@@ -556,19 +566,23 @@ export function createLocalRuntime(options: {
       }
       return adapter
     },
-    managerFactory: createSimManagerFactory(
-      (deps) => {
-        vendorManager = createVendorManager(deps)
-        return vendorManager
-      },
-      simHub,
-      {
-        // 闲鱼适配器的 readiness 结果是登录态的唯一来源；未检查过时保持 null。
-        authenticatedFor: (storeId) => xianyuAdapters.get(storeId)?.authenticated() ?? null,
-        // 打开店铺后从 cookie 读登录名回填店名；页面聊天区昵称可能被打码。
-        identityFor: async (storeId) => (await xianyuAdapters.get(storeId)?.identity()) ?? null,
-      },
-    ),
+    managerFactory: (deps: Record<string, unknown>) =>
+      qianniu.wrap(
+        createSimManagerFactory(
+          (deps) => {
+            vendorManager = createVendorManager(deps)
+            return vendorManager
+          },
+          simHub,
+          {
+            // 闲鱼适配器的 readiness 结果是登录态的唯一来源；未检查过时保持 null。
+            authenticatedFor: (storeId) => xianyuAdapters.get(storeId)?.authenticated() ?? null,
+            // 打开店铺后从 cookie 读登录名回填店名；页面聊天区昵称可能被打码。
+            identityFor: async (storeId) => (await xianyuAdapters.get(storeId)?.identity()) ?? null,
+          },
+        )(deps),
+        deps,
+      ),
     safeStorage,
     // 每次等待按买家当前模式抽取一次间隔；厂商侧缓存同一次等待的值。
     resolveUidIntervalMs: createUidIntervalResolver(() => replyPacing.snapshot()),
@@ -626,10 +640,12 @@ export function createLocalRuntime(options: {
         const approved = await review.propose(proposal)
         return approved ? welcomeDelayGate(proposal, true) : false
       }
-      const decision =
-        read().stores.find((store) => store.id === proposal.storeId)?.platform === 'pdd-web'
-          ? sendAuthorizations.authorize(proposal, decide)
-          : decide()
+      // 千牛同样需要把模式版本保留到异步账号/会话复核后的实际发送边界。
+      const decision = ['pdd-web', QIANNIU_PLATFORM_ID].includes(
+        read().stores.find((store) => store.id === proposal.storeId)?.platform ?? '',
+      )
+        ? sendAuthorizations.authorize(proposal, decide)
+        : decide()
       // 新候选只显示不抢焦点的小监控窗，批准及自动模式均由统一发送门复核。
       void replyMonitor.open().catch(() => notifyReview())
       return decision
@@ -649,7 +665,7 @@ export function createLocalRuntime(options: {
         if (type === 'reply:error') void replyMonitor.open().catch(() => notifyReview())
       }
     },
-    allowExternalClient: true,
+    allowExternalClient: !options.createSimulationAdapter,
     onEvent(event: unknown) {
       if (closed || !event || typeof event !== 'object') return
       const type = Reflect.get(event, 'type')
@@ -922,6 +938,7 @@ export function createLocalRuntime(options: {
     () => simServer.dispose(),
     () => knowledge.dispose(),
     () => localBackend.dispose(),
+    () => qianniu.dispose(),
     () => knowledgeRepository.dispose(),
     () => host.close(),
   ])
@@ -1000,6 +1017,37 @@ export function createLocalRuntime(options: {
         }
       }
       if (command.workspaceId !== workspaceId) throw new Error('本地服务已重启，请刷新后重试')
+      if (command.action === 'connect-qianniu') {
+        const accounts = await qianniu.service.connect()
+        if (closed) throw Error('本地服务已关闭')
+        return {
+          status: 'ok',
+          message: accounts.length
+            ? '已读取千牛客服账号，请选择要接入的账号'
+            : '千牛已打开，请登录并打开接待中心，再刷新账号',
+          data: { accounts },
+        }
+      }
+      if (command.action === 'add-store' && command.values.platform === QIANNIU_PLATFORM_ID) {
+        const accounts = qianniuAccountsSchema.parse(await qianniu.service.accounts())
+        if (closed) throw Error('本地服务已关闭')
+        const account = accounts.find((row) => row.serviceId === command.values.serviceId)
+        if (!account?.nativeReady || !account.online)
+          throw Error('请先登录千牛并等待接待中心连接就绪')
+        if (qianniu.isBound(account.serviceId)) throw Error('该千牛客服账号已经添加')
+        const result = resultSchema.parse(
+          await localBackend.execute({
+            action: 'add-store',
+            values: {
+              platform: QIANNIU_PLATFORM_ID,
+              storeName: account.name.slice(0, 60) || account.serviceId.slice(0, 60),
+            },
+          }),
+        )
+        if (typeof result.data.id !== 'string') throw Error('未返回千牛店铺编号')
+        qianniu.bind(result.data.id, account)
+        return result
+      }
       if (command.action === 'save-config' && command.screenId === 'REPLY_PACING') {
         // 只写本机随机节奏文件：不碰店铺、账号、Key、AI 开关、发送审批或旧固定间隔。
         const saved = replyPacing.save({

@@ -101,6 +101,7 @@ export interface XianyuLocalMessage {
   type: 'text' | 'image' | 'card'
   content: string
   ts: number
+  imageUrl?: string
 }
 
 export interface XianyuMessageEvent {
@@ -247,13 +248,18 @@ export function toLocalMessages(uid: string, raw: unknown, now: number): XianyuL
     const tag = typeof message.ts === 'string' ? message.ts.trim() : ''
     const { type, content } = contentOf(message)
     if (!content) return
-    out.push({
+    const localMessage: XianyuLocalMessage = {
       msgId: `xy:${uid}:${tag || `#${index}`}`,
       from: side,
       type,
       content,
       ts: xianyuTimestamp(tag, now),
-    })
+    }
+    if (type === 'image' && typeof message.imageSrc === 'string' && message.imageSrc) {
+      // Signed image URLs are needed only by this live model thread, never event or archive JSON.
+      Object.defineProperty(localMessage, 'imageUrl', { value: message.imageSrc })
+    }
+    out.push(localMessage)
   })
   return out.sort((left, right) => left.ts - right.ts)
 }

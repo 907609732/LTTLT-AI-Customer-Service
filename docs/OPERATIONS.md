@@ -1,6 +1,6 @@
 # 本地运行与运维
 
-主项目根为 E:\~1awucheng\Plastic SCM\AI电商客服软件\client。所有命令从这里运行，目录与保留范围见 PROJECT_LAYOUT.md；不要进入 \_github 或旧推送工作区维护本项目。用户已授权本轮分支推送与 main 合并，范围见 HANDOFF.md；公开发布和生产部署另行授权。
+主项目根为 `F:\Setupgod\yunduo-ui`。所有命令从这里运行，目录与保留范围见 PROJECT_LAYOUT.md；不要进入 `F:\Setupgod\_github` 或旧推送工作区维护本项目。用户已授权分支推送与 main 合并的范围见 HANDOFF.md；公开发布和生产部署另行授权。
 
 实时调试窗口：工作台标题栏“日志”。消息和 AI 请求调试只保留本次运行的有界内存，不新增上下文日志文件。重启前按需人工核对，不能将调试窗当永久审计。AI 回复现在逐条确认，启用 AI 不等于自动发送；操作和故障状态见 RUNTIME_LOGS.md。候选发送不确定先核对平台，不要盲目重发。
 

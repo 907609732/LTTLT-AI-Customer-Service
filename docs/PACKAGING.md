@@ -10,7 +10,7 @@
 
 版本与产物均须以最终Actions源码提交、成品报告和SHA256清单为准；打包成功不等于真实平台或模型语义质量验收。安装包当前无代码签名。
 
-主工程为 E:\~1awucheng\Plastic SCM\AI电商客服软件\client，其内容已作为独立仓库根，package.json、.github、src、electron同级。目录边界见PROJECT_LAYOUT.md，当前基线和结果见HANDOFF.md。server单独构建，不随桌面安装包分发；公开发布和生产部署另行授权。
+主工程为 `F:\Setupgod\yunduo-ui`，该目录是独立仓库根，package.json、.github、src、electron 同级。目录边界见 PROJECT_LAYOUT.md，当前基线和结果见 HANDOFF.md。server 单独构建，不随桌面安装包分发；公开发布和生产部署另行授权。
 
 ## 构建
 

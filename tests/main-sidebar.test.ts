@@ -154,6 +154,30 @@ it('店铺导入知识携带点击店铺打开独立知识库，不切换接待'
   expect(runtime.selectedStoreId).toBe(selected)
 })
 
+it('点击已开启的店铺 AI 开关会通过现有命令关闭整店 AI', async () => {
+  const { wrapper, runtime, run } = await fixture()
+  runtime.snapshot.stores[0]!.aiEnabled = true
+  await flushPromises()
+  wrapper.findComponent(StoreSidebarCard).vm.$emit('toggleAi')
+  await flushPromises()
+  expect(run).toHaveBeenLastCalledWith({
+    action: 'set-ai',
+    storeId: 'shop-a',
+    values: { enabled: false },
+  })
+})
+
+it('店铺 AI 关闭后点击侧栏开关会调用原 set-ai 命令重新开启', async () => {
+  const { wrapper, run } = await fixture()
+  wrapper.findComponent(StoreSidebarCard).vm.$emit('toggleAi')
+  await flushPromises()
+  expect(run).toHaveBeenLastCalledWith({
+    action: 'set-ai',
+    storeId: 'shop-a',
+    values: { enabled: true },
+  })
+})
+
 it('待恢复店铺点击实际关闭的 AI 开关会取消恢复而非另发开启', async () => {
   const { wrapper, runtime, run } = await fixture()
   runtime.snapshot.stores[0]!.aiRestore = {

@@ -20,6 +20,7 @@ export interface AiRestoreState {
 interface Command {
   action: string
   storeId?: string
+  conversationId?: string
   values?: Record<string, unknown>
 }
 interface Session {
@@ -32,6 +33,8 @@ interface Session {
 export class AiStateRestore {
   private sessions = new Map<string, Session>()
   private states = new Map<string, AiRestoreState>()
+  private autoStopping = new Set<string>()
+  private autoStoppedConversations = new Map<string, Set<string>>()
   private closed = false
   private started = false
   private suppressed = false
@@ -165,6 +168,46 @@ export class AiStateRestore {
     if (this.closed || !event || typeof event !== 'object') return
     const id: unknown = Reflect.get(event, 'storeId'),
       type: unknown = Reflect.get(event, 'type')
+    if (
+      type === 'reply:decision' &&
+      Reflect.get(event, 'stage') === 'skipped' &&
+      typeof Reflect.get(event, 'uid') === 'string' &&
+      Reflect.get(event, 'uid')
+    ) {
+      const uid = Reflect.get(event, 'uid') as string
+      if (typeof id !== 'string') return
+      const store = this.ports.stores().find((row) => row.id === id)
+      const conversations = this.autoStoppedConversations.get(id)
+      if (conversations?.has(uid)) return
+      if (this.autoStopping.has(id) || (conversations && !store?.aiEnabled)) {
+        conversations?.add(uid)
+        return
+      }
+      if (!store?.aiEnabled) return
+      const stoppedConversations = new Set<string>([uid])
+      this.autoStoppedConversations.set(id, stoppedConversations)
+      this.autoStopping.add(id)
+      try {
+        await this.userExecute({ action: 'set-ai', storeId: id, values: { enabled: false } })
+        if (!this.closed)
+          this.publish(id, 'failed', '消息未交给 AI；本店 AI 已自动关闭，请核对后手动开启')
+      } catch {
+        if (!this.closed) {
+          const stopped = !this.ports.stores().find((row) => row.id === id)?.aiEnabled
+          if (!stopped) this.autoStoppedConversations.delete(id)
+          this.publish(
+            id,
+            'failed',
+            stopped
+              ? '消息未交给 AI；本店 AI 已关闭，但关闭记忆保存失败，请检查后重启前核对'
+              : '消息未交给 AI；自动关闭 AI 失败，请立即手动关闭并核对',
+          )
+        }
+      } finally {
+        this.autoStopping.delete(id)
+      }
+      return
+    }
     if (typeof id !== 'string' || typeof type !== 'string') return
     if (
       [
@@ -266,6 +309,7 @@ export class AiStateRestore {
     let persistenceFailed = false
     if (off)
       for (const id of ids) {
+        if (!this.autoStopping.has(id)) this.autoStoppedConversations.delete(id)
         try {
           this.cancel(id, true)
         } catch {
@@ -345,7 +389,44 @@ export class AiStateRestore {
           this.denied.delete(id)
           this.session(id).loggedIn = true
           this.session(id).attempted = true
-          this.publish(id, 'restored', '已记住本店 AI 开启设置')
+          const conversations = this.autoStoppedConversations.get(id)
+          let resumeFailed = false
+          if (conversations) {
+            for (const conversationId of conversations) {
+              if (
+                this.closed ||
+                !this.ports.allowed() ||
+                this.session(id).generation !== generations.get(id)
+              )
+                return result
+              try {
+                await this.ports.execute({
+                  action: 'resume-conversation',
+                  storeId: id,
+                  conversationId,
+                })
+                conversations.delete(conversationId)
+              } catch {
+                resumeFailed = true
+              }
+            }
+            if (!conversations.size) this.autoStoppedConversations.delete(id)
+          }
+          if (
+            this.closed ||
+            !this.ports.allowed() ||
+            this.session(id).generation !== generations.get(id)
+          )
+            return result
+          this.publish(
+            id,
+            resumeFailed ? 'failed' : 'restored',
+            resumeFailed
+              ? '本店 AI 已开启，但部分会话未恢复；请在日志中逐个核对并恢复'
+              : conversations
+                ? '已记住本店 AI 开启设置，并恢复关联会话'
+                : '已记住本店 AI 开启设置',
+          )
         }
       }
     }

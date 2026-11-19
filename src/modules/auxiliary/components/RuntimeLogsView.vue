@@ -230,7 +230,7 @@ async function resume(storeId: string, uid: string) {
             这里显示实际发给模型的
             messages：系统规则、输出协议、检索到的知识、时间排序的最近对话和图片输入。未记录请求头和密钥。候选区展示经禁用词过滤及欢迎语处理后的最终正文。
           </p>
-          <p v-if="!traces.length">暂无模型请求。</p>
+          <p v-if="!traces.length">暂无 AI 上下文调试记录。</p>
           <article
             v-for="row in traces"
             :key="row.id"
@@ -244,7 +244,14 @@ async function resume(storeId: string, uid: string) {
               ><span>{{ time(row.startedAt ?? row.at) }} · 用户 {{ row.uid || '训练' }}</span>
             </div>
             <p class="trace-timing">
-              {{ row.purpose === 'compression' ? '摘要耗时' : 'AI 回复耗时' }}：{{
+              {{
+                row.submittedAt !== undefined
+                  ? '模型请求已提交'
+                  : row.error
+                    ? '模型请求未提交'
+                    : '模型请求尚未提交'
+              }}
+              · {{ row.purpose === 'compression' ? '摘要耗时' : 'AI 回复耗时' }}：{{
                 row.durationMs !== undefined
                   ? duration(row.durationMs)
                   : row.error

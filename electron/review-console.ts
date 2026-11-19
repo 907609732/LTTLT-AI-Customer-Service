@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { BackendSnapshot } from '../src/shared/contracts/backend'
+import { SIM_PLATFORM_ID } from '../src/shared/contracts/simulation'
 import { pageReviewFingerprint, pageReviewSchema } from './conversation-review'
 import { MessageDiagnostics, aiState, type WorkerObservation } from './message-diagnostics'
 import {
@@ -118,6 +119,11 @@ export class ReviewConsole {
         '训练/测试',
     }
   }
+  private isSimulationStore(storeId: string) {
+    return this.read().stores.some(
+      (store) => store.id === storeId && store.platform === SIM_PLATFORM_ID,
+    )
+  }
   private fingerprint(storeId: string, uid: string) {
     return JSON.stringify(
       (
@@ -201,9 +207,15 @@ export class ReviewConsole {
       if (row) {
         const success = type === 'reply:sent' || event.ok === true || event.sent === true
         row.status = success ? 'sent' : 'failed'
-        row.reason = success
-          ? '平台已确认发送'
-          : '发送失败、会话已改变或结果不确定，请在平台核对，不自动重发。'
+        // A local simulation can prove only that its own buyer received the reply.
+        if (this.isSimulationStore(storeId))
+          row.reason = success
+            ? '本机模拟已收到回复，未向真实买家发送。'
+            : '模拟发送失败或结果不确定，请核对本机模拟记录，不自动重发。'
+        else
+          row.reason = success
+            ? '平台已确认发送'
+            : '发送失败、会话已改变或结果不确定，请在平台核对，不自动重发。'
         if (row.traceId)
           this.messageDiagnostics.byTrace(
             row.traceId,
@@ -250,6 +262,58 @@ export class ReviewConsole {
       uid = text(context.uid)
     if (event.type === 'compression-failed') {
       this.log('上下文压缩失败', text(event.reason), storeId, uid)
+      return
+    }
+    if (event.type === 'started') {
+      const id = randomUUID()
+      this.traces.push({
+        id,
+        at: Date.now(),
+        startedAt:
+          typeof event.startedAt === 'number' && Number.isFinite(event.startedAt)
+            ? event.startedAt
+            : Date.now(),
+        ...this.identity(storeId, uid),
+        model: text(event.model),
+        messages: '尚未构造正式模型 messages。',
+        thread: json(event.thread),
+        reply: '',
+        error: '',
+        purpose: 'reply',
+      })
+      this.traces = this.traces.slice(-40)
+      this.traceStarted.set(id, performance.now())
+      this.messageDiagnostics.record(
+        storeId,
+        uid,
+        this.messageDiagnostics.refs(context),
+        aiState(
+          'preparing',
+          'context_preparing',
+          '正在准备上下文，尚未发起正式模型请求。',
+          false,
+          id,
+        ),
+      )
+      this.log('AI 上下文准备', '开始准备本次回复；尚未发起正式模型请求。', storeId, uid)
+      const retained = new Set(this.traces.map((row) => row.id))
+      for (const key of this.traceStarted.keys())
+        if (!retained.has(key)) this.traceStarted.delete(key)
+      return id
+    }
+    if (event.type === 'prepared') {
+      const row = this.traces.find((trace) => trace.id === event.traceId)
+      if (row) {
+        const compression = compressionInfoSchema.safeParse(event.compression)
+        row.messages = json(event.messages)
+        row.thread = json(event.thread)
+        row.model = text(event.model)
+        if (compression.success)
+          row.compression = { ...compression.data, summary: redact(compression.data.summary) }
+        this.log('AI 上下文已准备', '已构造正式模型 messages，尚未发起模型请求。', storeId, uid)
+        this.changed()
+        return row.id
+      }
       return
     }
     if (event.type === 'request') {

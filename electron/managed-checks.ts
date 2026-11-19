@@ -177,6 +177,18 @@ export async function managedChecks(options: {
         )
       },
     )
+    if (!runtime) throw new Error('Fixture runtime not ready')
+    options.bind(runtime)
+    await check('managed:login-route-uses-persisted-session', '/login', async () => {
+      assert.ok(runtime)
+      for (const route of ['/login', '/shop/login']) {
+        await load(route)
+        const text = (await win.webContents.executeJavaScript('document.body.innerText')) as string
+        assert.match(text, /已登录：托管夹具账号/)
+        assert.match(text, /会话凭据已由系统安全存储加密保存/)
+        assert.doesNotMatch(text, /手机号登录|密码登录|自动登录/)
+      }
+    })
     await check('managed:actual-training-trace-and-settings-ui', '/settings', async () => {
       assert.ok(runtime)
       const result = await execute({

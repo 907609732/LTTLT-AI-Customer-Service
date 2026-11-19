@@ -8,14 +8,28 @@ interface ThreadInput {
 }
 
 /** 归档是平台历史接口不可用时的上下文来源；必须同时匹配店铺和买家，不能只按用户 ID 查找。 */
+type ConversationThreadMessage = Conversation['messages'][number] & { imageUrl?: string }
+
 export function createConversationThread(read: () => Conversation[]) {
-  return ({ storeId, uid, rowMessages, history }: ThreadInput) => {
+  return ({ storeId, uid, rowMessages, history }: ThreadInput): ConversationThreadMessage[] => {
     const archived = read().find((c) => c.storeId === storeId && c.uid === String(uid))
-    const output: Conversation['messages'] = []
+    const output: ConversationThreadMessage[] = []
     for (const raw of [...(archived?.messages ?? []), ...history, ...rowMessages]) {
       const parsed = messageSchema.safeParse(raw)
       if (!parsed.success || !['buyer', 'seller'].includes(parsed.data.from)) continue
-      const message = { ...parsed.data, type: parsed.data.type || 'text' }
+      const rawImageUrl =
+        raw && typeof raw === 'object' && !Array.isArray(raw)
+          ? Reflect.get(raw, 'imageUrl')
+          : undefined
+      const message: ConversationThreadMessage = {
+        ...parsed.data,
+        type: parsed.data.type || 'text',
+        ...(parsed.data.type === 'image' &&
+        parsed.data.from === 'buyer' &&
+        typeof rawImageUrl === 'string'
+          ? { imageUrl: rawImageUrl }
+          : {}),
+      }
       const realId = (id?: string) => !!id && !/^(dom:|st:|ts:)/.test(id)
       const previous = output.find((m) => {
         if (m.from !== message.from) return false
@@ -29,6 +43,8 @@ export function createConversationThread(read: () => Conversation[]) {
       })
       if (previous) {
         if (!realId(previous.msgId) && realId(message.msgId)) previous.msgId = message.msgId
+        if (previous.type === 'image' && !previous.imageUrl && message.imageUrl)
+          previous.imageUrl = message.imageUrl
       } else output.push({ ...message })
     }
     // 不在这里截成最近 20 条；全部已保留原文交给统一的 16K/8K 压缩器计量。

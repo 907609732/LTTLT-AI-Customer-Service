@@ -24,7 +24,7 @@
 
 `set-store-send-mode`、`open-reply-monitor` 使用原有受信、工作区绑定业务命令，无新 IPC 通道。StoreSendModes 在 managed.dataDir 下原子保存模式，快照装配时附加店铺 sendMode。审核与显式自动模式共用 ReviewConsole，自动候选绑定运行期模式版本；旧审核候选不会因后来开启自动而获批。网页适配器在模型前等待有效消息基线，不修改 vendor。发送与取消检查延续至逐字输入和最终点击，详见 RUNTIME_LOGS.md。
 
-E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独立项目根，完整目录与文件边界见 PROJECT_LAYOUT.md。所有工具从此根执行；.github/workflows/lingtu-ai-desktop.yml 也从仓库根运行 npm，不再设置外层 yunduo-ui 工作目录。客户端实际运行依赖本工程 vendor，独立服务端保存在本工程 server，不引用兄弟工作区。
+`F:\Setupgod\yunduo-ui` 是当前工作区的独立项目根，完整目录与文件边界见 PROJECT_LAYOUT.md。所有工具从此根执行；.github/workflows/lingtu-ai-desktop.yml 也从仓库根运行 npm，不再设置外层 yunduo-ui 工作目录。客户端实际运行依赖本工程 vendor，独立服务端保存在本工程 server，不引用兄弟工作区。
 
 ## 启动链路
 
@@ -90,7 +90,7 @@ message-diagnostics.ts 将采集消息与引擎 decision、正式请求 submitte
 
 共享 review 契约增加可选 startedAt/completedAt/durationMs，兼容旧记录。正式回复时长由 AiClient.reply 入口和正文完成点的单调时钟差提供，trace 接收时不重新计算发送阶段耗时；摘要回合在 ReviewConsole 中独立计量，计时 Map 随最多 40 条 trace 淘汰及退出清理。正常 reply:throttled 在用户日志入口过滤，不修改引擎节流。
 
-上下文在 AiClient 完整组装 messages 后交给注入的 electron/context-compression.ts：16K 估算触发，原系统及近期消息保护，使用当前模型摘要旧资料，正式请求目标 8K。摘要与正式请求各自 trace，review 契约携带计量与摘要元数据；待发送候选只关联正式回复 trace。全程不新增 IPC 或跨会话摘要缓存。细节见 CONTEXT_COMPRESSION.md。
+上下文在 AiClient 完整组装 messages 后交给注入的 electron/context-compression.ts：16K 估算触发，原系统及近期消息保护，使用当前模型摘要旧资料，正式请求目标 8K。正式回复 trace 从生成入口开始，先记录安全对话摘要；上下文构造完成后更新为脱敏 messages，模型接口实际提交后才标记 submitted，准备阶段失败也保留错误 trace。摘要与正式回复各自 trace，review 契约携带计量与摘要元数据；待发送候选只关联正式回复 trace。全程不新增 IPC 或跨会话摘要缓存。细节见 CONTEXT_COMPRESSION.md。
 
 桌面由 electron/local-runtime.ts 装配固定运行时，默认 local，可按公开来源配置显式选择 managed。managed-controller 复用受限设备会话协议；本机与所有托管账号共用同一本机 `local-runtime` 业务目录和 `yunduo-local` 平台分区，登录只决定托管 AI、团队与计费资格，模式/账号切换需停 AI 并重启。旧 `managed-workspaces` 目录保留但不读取、不自动合并。server/ 独立保留 Go 与原生管理网页，不替换 Vue。business-ipc 继续提供白名单 snapshot/execute/event，契约过滤凭据；见 MANAGED_SERVICE.md。
 
@@ -101,6 +101,8 @@ app/services.ts 兼容原有页面查询及浏览器预览，新增真实业务�
 local 模式资料与服务商密钥留在本机独立目录，模型请求交给用户配置的服务商；managed 模式使用显式配置的账号/额度服务，只加密保存受限会话。业务资料本机与托管共用同一 `local-runtime` 目录，不向托管账号复制、迁移或额外上传本机原始资料；调用所需上下文发往选定托管服务，不额外上传调试快照。完整能力和步骤见 LOCAL_INTEGRATION.md、MANAGED_SERVICE.md。
 
 ## 平台采集、订单与操作审批
+
+千牛本机接线为 `local-runtime → qianniu/index → service/manager/adapter → 用户提供的 SDK → qnpy 服务 → 千牛`；精确客服身份绑定及逐条人工批准见 [QIANNIU.md](QIANNIU.md)。[离线验收](QIANNIU_OFFLINE.md)保留独立回归，不替代实店采集和回显验收。
 
 `local-runtime.ts` 为当前账号装配平台学习、订单和接待服务，`platform-feature-ipc.ts` 只提供固定操作并验证应用主 frame、workspace 和输出契约。`workspace-runtime.ts` 在账号切换后拒绝旧请求和迟到结果。资源清理由 `RuntimeResourceDisposer` 逐项执行，磁盘错误不会跳过凭据、平台及后端关闭，失败项可重试。
 
@@ -146,7 +148,7 @@ electron/dom-text-adapter.ts 负责本工程拼多多文字发送策略，在 ad
 
 - `vendor/xianyu-bridge/bridge.js` 是从用户提供的 kb-port 原样复制的桥接脚本（版本 v59，来源与哈希见同目录 PROVENANCE），只向 goofish 页面注入；不修改 `vendor/lingtu-runtime` 的哈希清单。
 - `electron/xianyu/bridge-client.ts` 提供 Electron 传输层：给页面补 `window.ipc.postMessage` 最小 shim，请求与回包按 id 配对，事件（如商品清单捕获）经有界收件箱交给宿主；页面导航后重新注入，非 goofish 页面拒绝注入。
-- `electron/xianyu/adapter.ts` 实现适配器契约 v2：readiness 登录/验证判断、待回复会话发现、会话切换、历史读取、文字/图片发送与重读核对、当前会话事件采样。闲鱼没有平台 msgId 与绝对时间，消息身份用「时间标签 + 组内序号」合成，按 HH:MM 换算当天时间仅用于排序；不碰 WebSocket，也不自行实现 MTop 签名。
+- `electron/xianyu/adapter.ts` 实现适配器契约 v2：readiness 登录/验证判断、待回复会话发现、会话切换、历史读取、文字/图片发送与重读核对、当前会话事件采样。闲鱼没有平台 msgId 与绝对时间，消息身份用「时间标签 + 组内序号」合成，按 HH:MM 换算当天时间仅用于排序；买家图片保留桥接读取的 imageSrc 作为本轮模型线程的非枚举临时字段，正文/事件/持久化归档仍为 `[图片]`；不碰 WebSocket，也不自行实现 MTop 签名。
 - “待回复”以会话里最后一条是我方消息之后的新买家消息为准；`discard` 按 msgId 记住已处理批次，避免同一批消息重复生成。同名「买家 × 商品」多会话由页面 `activateChat` 按未读/当前项挑选，判不定就报 ambiguous，不猜。
 - 登录态只来自页面 readiness：未登录、验证滑块、连接断开分别返回 `hook_not_ready` 并保留内嵌页面；未检查时为 `null`，不显示为已登录。登录完成后需要重新点开店铺触发一次健康检查。
 - 诚实边界：商品采集/学习、视频发送、未打开会话的全局消息监听尚未接入；`drainEvents` 只采样当前打开的会话，AI 轮询 `popPending` 时会顺带激活待回复会话。

@@ -1,6 +1,6 @@
 {
   "name": "lingtu-ai",
-  "version": "1.0.57",
+  "version": "1.0.61",
   "private": true,
   "description": "灵兔AI电商客服 · 本机模型 Key 与可选托管服务的电商客服桌面端",
   "main": "dist-electron/main.cjs",
@@ -19,6 +19,7 @@
     "test:desktop": "npm run build && node scripts/run-desktop.mjs",
     "test:packaged": "node scripts/package-smoke.ts",
     "verify:cdp": "npm run build:desktop && node scripts/cdp-verify.mjs",
+    "verify:qianniu-offline": "node scripts/verify-qianniu-offline.ts",
     "build": "vite build && npm run build:desktop",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run check:vendor && npm test && npm run test:upstream && npm run build",
     "start": "npm run build && electron .",
