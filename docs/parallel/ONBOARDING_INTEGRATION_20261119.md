@@ -16,6 +16,8 @@ Codex 检查了两项提交的源码差异、功能交接、既有独立审查�
 
 整合证据：`artifacts/onboarding-integration-20261119/`。执行者证据：独立工作树 `billing-support-20261119/client/artifacts/onboarding-20261119/`。
 
+合入后实际 Electron 的添加弹窗已通过现有 Vite 热更新显示简化布局。Codex 只打开弹窗、滚动并选择闲鱼，确认没有名称输入、闲鱼内嵌机制说明和普通模拟入口，随后取消，未点击添加。截图为 `add-store-simplified-live.png`。主窗口及 MCP 仍显示 1.0.86，workspaceId 未变，未重启桌面；该查看不验证扫码身份回填或新的八步原生流程。
+
 ## 运行状态与待验收
 
 未构建前端或主进程、未打包、未推送、未部署，未主动重启当前桌面。当前 Electron 主进程为已启动的 1.0.86，继续使用原认证和业务目录；1.0.87 是待编译源码版本。源代码热更新不代表新主进程/preload 已经生效。
