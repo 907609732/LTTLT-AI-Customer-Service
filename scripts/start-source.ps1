@@ -1,4 +1,6 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿param([switch]$NoBuild)
+
+$ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
 try {
@@ -59,6 +61,12 @@ public static class SourceConsoleLifetime {
     $electron = Join-Path (Get-Location).Path 'node_modules\electron\dist\electron.exe'
     $existing = Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $electron }
     if ($existing) { throw '源码版已在运行，请先退出现有源码版，再双击此脚本。' }
+
+    if ($NoBuild) {
+        . (Join-Path $PSScriptRoot 'start-source-live.ps1')
+        Invoke-SourceWithoutBuild -ProjectRoot (Get-Location).Path -NodePath (Get-Command node.exe).Source -ElectronPath $electron
+        exit 0
+    }
 
     if (-not (Test-Path 'node_modules\vite\bin\vite.js') -or -not (Test-Path $electron)) {
         Write-Host '[1/4] 正在安装项目依赖…'

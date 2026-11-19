@@ -48,6 +48,8 @@ server 内的 overlay、patches.json、upstream.lock.json、scripts、tests、�
 
 桌面日常数据仍在 app.getPath('userData')/local-runtime；详情见 LOCAL_INTEGRATION.md。整理目录不迁移、重置或覆盖这些数据。
 
+根目录 `启动源码（不构建）.bat` 调用 `scripts/start-source.ps1 -NoBuild`，复用原控制台进程树生命周期，并由 `scripts/start-source-live.ps1` 启动回环 Vite 与既有主进程产物。缺失依赖/产物或端口冲突直接报错，不安装、不构建、不改 userData 或平台分区。日志位于忽略目录 `artifacts/source-live/`；主进程产物可能早于界面源码，运行与验收时须分别说明。
+
 ## 项目外的目录
 
 F:\Setupgod 下的 \_github、managed-admin-real-ui-20261113、customer-service-phrases、外层 desk-v1 等属于其他仓库、参考资料或历史工作区。当前运行与构建入口引用本工程内的 vendor 和 server，不以这些兄弟目录作为项目源码。它们本轮全部保留原样，不复制进本项目、不删除、不移动。

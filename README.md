@@ -38,7 +38,7 @@
 |                                                                                                                     Logo                                                                                                                     | 项目与用途                                                                                                                                       |
 | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------------------------------------- |
 |                 <a href="https://github.com/907609732/lingtu-recorder"><img src="https://raw.githubusercontent.com/907609732/lingtu-recorder/main/docs/assets/logo.png" width="96" height="96" alt="灵兔拆包智录 Logo"></a>                  | **[灵兔拆包智录](https://github.com/907609732/lingtu-recorder)**<br>物流溯源与过程取证：按单号查拆包/打包录像、照片和异常备注。                  |
-|           <a href="https://github.com/907609732/lingtu-order-export"><img src="https://raw.githubusercontent.com/907609732/lingtu-order-export/master/build/icon.png" width="96" height="96" alt="电商平台采购订单导出 Logo"></a>            | **[电商平台采购订单导出](https://github.com/907609732/lingtu-order-export)**<br>支持淘宝、拼多多、闲鱼、京东等电商平台采购订单导出。     |
+|           <a href="https://github.com/907609732/lingtu-order-export"><img src="https://raw.githubusercontent.com/907609732/lingtu-order-export/master/build/icon.png" width="96" height="96" alt="电商平台采购订单导出 Logo"></a>            | **[电商平台采购订单导出](https://github.com/907609732/lingtu-order-export)**<br>支持淘宝、拼多多、闲鱼、京东等电商平台采购订单导出。             |
 | <a href="https://github.com/907609732/LTTLT-AI-Customer-Service"><img src="https://raw.githubusercontent.com/907609732/LTTLT-AI-Customer-Service/main/src/assets/lingtu-ai-icon.png" width="96" height="96" alt="灵兔 AI 电商客服 Logo"></a> | **[本项目：灵兔 AI 电商客服](https://github.com/907609732/LTTLT-AI-Customer-Service)**<br>售后协同：管理店铺与商品知识，辅助处理咨询和售后回复。 |
 
 各应用独立安装、分别保存数据；可按单号核对采购与包裹记录，目前不自动互传订单、录像或客服数据。
@@ -128,6 +128,8 @@ npm.cmd start
 开发模式使用 `npm.cmd run electron:dev`；浏览器预览使用 `npm.cmd run dev`。日常修改只验证直接影响的流程，Release 打包时执行全量检查和成品验收。
 
 Windows 也可双击根目录的 **一键启动源码.bat**：首次运行自动安装缺失依赖，每次构建当前源码并打开桌面程序。控制台显示启动状态和运行日志，关闭控制台或按 Ctrl+C 会停止本次启动的程序。需要先退出已运行的源码版；此入口只启动桌面端，不启动独立托管服务端。
+
+已准备好依赖和桌面运行文件时，可双击 **启动源码（不构建）.bat**：只启动 Vite 和现有 Electron 运行文件，不安装依赖、不构建、不打包，继续使用原账号和知识数据。界面源码实时加载；主进程修改需要另行构建才能生效。日志保存在 `artifacts/source-live/`，关闭控制台会停止本次程序；已有桌面实例或 5173 端口被占用时会提示先退出。
 
 更多说明见 [当前状态](docs/HANDOFF.md)、[目录说明](docs/PROJECT_LAYOUT.md)、[版本说明](docs/VERSIONING.md)、[架构](docs/ARCHITECTURE.md)、[AI 状态恢复](docs/AI_STATE_RESTORE.md)、[本地接入](docs/LOCAL_INTEGRATION.md)、[托管服务](docs/MANAGED_SERVICE.md)和[云端构建](.github/BUILDING.md)。
 
