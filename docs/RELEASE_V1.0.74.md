@@ -2,6 +2,8 @@
 
 2026-11-19 完成主干整合、云端构建、同次产物本机验收并公开发布。
 
+**后续平台使用确认（2026-11-19）：项目维护者已实店试用，确认拼多多、闲鱼可正常使用，软件内均已开放。** 当前支持范围见 [PLATFORM_STATUS.md](PLATFORM_STATUS.md)。下文隔离资料与模拟模型描述记录的是本次打包的自动化验证范围，不表示两平台尚未开放或当前不可使用。
+
 - [正式版本与下载](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.74)
 - tag 对应源码：`81e9e9b7d261b8708067f92cc649481592d45706`。后续本回执提交仅更新文档，不改变该版本产物来源。
 - [Windows 完整检查与构建 44391089359](https://github.com/907609732/LTTLT-AI-Customer-Service/actions/runs/44391089359)：`npm run check`、1582 项单元测试及上游测试、96/96 Electron 桌面验收、知识库管理/学习检查、NSIS/ZIP 打包和真实打包版检查全部通过。
