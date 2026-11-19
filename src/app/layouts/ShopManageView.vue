@@ -230,9 +230,17 @@ async function openMonitor() {
 .shop-manage .app {
   grid-template-rows: minmax(0, 1fr);
 }
+.shop-manage .sider {
+  /* 菜单独占剩余高度，底部入口按内容占高，避免子组件的 flex-basis 挤掉菜单。 */
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+}
+.sider__nav {
+  min-height: 0;
+}
 
 .sider__monitor {
-  margin-top: auto;
+  margin-top: 0;
   padding: 8px 12px 0;
   border-top: 1px solid #edf0f4;
 }
