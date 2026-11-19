@@ -124,19 +124,51 @@ export function createKnowledgeLearner(options: {
   async function preflight(plan: LearningPlan, signal?: AbortSignal, isCurrent?: () => boolean) {
     if (!options.model.prepareLearning) return
     const checked = new Set<string>()
+    let maxCallsPerProduct = Number.POSITIVE_INFINITY
     for (const call of plan.calls) {
       if (signal?.aborted || isCurrent?.() === false) throw Error('知识任务已取消')
       const key = `${call.sourceId}\n${call.assetIds.length > 0}`
       if (checked.has(key)) continue
       checked.add(key)
-      await options.model.prepareLearning({
+      const approval = await options.model.prepareLearning({
         sourceId: call.sourceId,
         withImages: call.assetIds.length > 0,
         ...(signal ? { signal } : {}),
         ...(isCurrent ? { isCurrent } : {}),
       })
+      if (!Number.isSafeInteger(approval.maxCallsPerProduct) || approval.maxCallsPerProduct < 1)
+        throw Error('托管学习策略返回了无效的单商品调用上限；未发送学习请求')
+      maxCallsPerProduct = Math.min(maxCallsPerProduct, approval.maxCallsPerProduct)
     }
     if (signal?.aborted || isCurrent?.() === false) throw Error('知识任务已取消')
+    assertCallLimit(plan, maxCallsPerProduct)
+  }
+  /**
+   * Count every planned chunk/tile under the real store product. Root, SKU,
+   * canonical and repeated bindings share the same logical product identity.
+   */
+  function assertCallLimit(plan: LearningPlan, maxCallsPerProduct: number) {
+    if (!Number.isFinite(maxCallsPerProduct)) return
+    const counts = new Map<string, { storeId: string; productId: string; count: number }>()
+    for (const call of plan.calls) {
+      const source = repo.getSource(call.sourceId)
+      const binding = source?.bindingId ? repo.getBinding(source.bindingId) : null
+      if (!binding?.active || binding.storeId !== plan.storeId) continue
+      const key = `${binding.storeId}\n${binding.productId}`
+      const row = counts.get(key)
+      if (row) row.count++
+      else
+        counts.set(key, {
+          storeId: binding.storeId,
+          productId: binding.productId,
+          count: 1,
+        })
+    }
+    for (const row of counts.values())
+      if (row.count > maxCallsPerProduct)
+        throw Error(
+          `商品 ${row.storeId}/${row.productId} 计划 ${row.count} 次学习调用，超过当前策略上限 ${maxCallsPerProduct}；未发送学习请求，请缩小资料范围`,
+        )
   }
   function messages(call: LearningCall): ModelMessages {
     const source = repo.getSource(call.sourceId)!
@@ -441,9 +473,13 @@ export function createKnowledgeLearner(options: {
           nextCallAt =
             Date.now() + (Number.isFinite(interval) ? Math.max(0, Math.min(60000, interval)) : 0)
           let submitted = false
-          const markSubmitted = () => {
+          const markSubmitted = (approval: { maxCallsPerProduct: number }) => {
             if (submitted) return
             if (!current()) throw Error('知识任务已取消')
+            // Policy waits may overlap source/binding changes. Revalidate the
+            // exact plan at the final queue boundary before writing submitted.
+            validate(plan)
+            assertCallLimit(plan, approval.maxCallsPerProduct)
             cp = { ...cp, state: 'submitted' }
             job = patch(job, { expectedRevision: job.revision, checkpoint: { ...cp } })
             submitted = true
@@ -457,7 +493,7 @@ export function createKnowledgeLearner(options: {
                 beforeSubmit: markSubmitted,
               }
             : undefined
-          if (!managedLearning) markSubmitted()
+          if (!managedLearning) markSubmitted({ maxCallsPerProduct: Number.POSITIVE_INFINITY })
           const response = await options.model.complete({
             messages: request,
             maxTokens: 4096,
@@ -465,9 +501,14 @@ export function createKnowledgeLearner(options: {
             isCurrent: current,
             ...(managedLearning ? { learning: managedLearning } : {}),
           })
-          // A conforming adapter submits before the paid call. This fallback keeps
-          // the checkpoint truthful for a test/diagnostic port that omits the hook.
-          if (!submitted) markSubmitted()
+          if (!submitted) {
+            // A port that exposes the managed preflight must call the hook before
+            // the paid request. A response already arrived, so record submission
+            // before surfacing the contract failure; never pretend it was free.
+            cp = { ...cp, state: 'submitted' }
+            job = patch(job, { expectedRevision: job.revision, checkpoint: { ...cp } })
+            throw Error('学习适配器未在付费调用前确认提交；请求结果不确定，需要人工核对')
+          }
           if (!current()) return
           cp = { ...cp, state: 'received', response }
           job = patch(job, { expectedRevision: job.revision, checkpoint: { ...cp } })
@@ -611,8 +652,16 @@ export function createKnowledgeLearner(options: {
     // the server lacks the policy contract or the source cannot be typed as PDD.
     await preflight(plan)
     validate(plan)
-    const job = repo.createJob({ kind: 'learn', storeId, payload: { ...plan } })
-    repo.setMetadata(`learning-estimate:${estimateId}`, '')
+    // Re-read and consume the estimate in one transaction. Concurrent starts
+    // may both await policy, but only one can create a job from this estimate.
+    const job = repo.transaction(() => {
+      if (repo.getMetadata(`learning-estimate:${estimateId}`) !== raw)
+        throw Error('估算已被使用或范围已变化，请重新估算')
+      validate(plan)
+      const created = repo.createJob({ kind: 'learn', storeId, payload: { ...plan } })
+      repo.setMetadata(`learning-estimate:${estimateId}`, '')
+      return created
+    })
     schedule(job.id)
     return { jobId: job.id }
   }

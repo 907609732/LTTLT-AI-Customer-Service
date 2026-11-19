@@ -29,6 +29,7 @@ const preAdmissionCodes = new Set([
 export interface ManagedLearningPolicyApproval {
   policyVersion: number
   maxTokens: number
+  maxCallsPerProduct: number
 }
 
 /**
@@ -107,7 +108,9 @@ export function createManagedLearningPort(options: {
       !Number.isSafeInteger(approval.policyVersion) ||
       approval.policyVersion < 0 ||
       !Number.isSafeInteger(approval.maxTokens) ||
-      approval.maxTokens < 1
+      approval.maxTokens < 1 ||
+      !Number.isSafeInteger(approval.maxCallsPerProduct) ||
+      approval.maxCallsPerProduct < 1
     )
       throw Error('托管学习策略返回值无效；未发送学习请求')
     return { learningSource, ...approval }
@@ -116,7 +119,10 @@ export function createManagedLearningPort(options: {
     ...options.base,
     async prepareLearning(input) {
       const approval = await preflight(input)
-      return { maxTokens: approval.maxTokens }
+      return {
+        maxTokens: approval.maxTokens,
+        maxCallsPerProduct: approval.maxCallsPerProduct,
+      }
     },
     async complete(input) {
       const { learning, purpose, policyVersion, learningSource, ...rest } = input
@@ -138,7 +144,10 @@ export function createManagedLearningPort(options: {
       let submitted = false
       const markSubmitted = () => {
         if (submitted) return
-        learning.beforeSubmit()
+        learning.beforeSubmit({
+          maxTokens: approval.maxTokens,
+          maxCallsPerProduct: approval.maxCallsPerProduct,
+        })
         submitted = true
       }
       // The vendor managed transport calls isCurrent only after its account
@@ -147,6 +156,9 @@ export function createManagedLearningPort(options: {
       const current = () => {
         const value = input.signal?.aborted !== true && input.isCurrent?.() !== false
         if (value) {
+          // The vendor calls this only inside its managed queue. Recheck the
+          // owned source and live account/issue state at that exact boundary.
+          resolve(learning.sourceId, learning.withImages)
           options.assertReady?.()
           markSubmitted()
         }
@@ -170,9 +182,9 @@ export function createManagedLearningPort(options: {
           Object.assign(cause as Error, { knowledgeLearningNotCharged: true })
         throw cause
       }
-      // Defensive fallback for an alternate managed port that never queries
-      // current; the real vendor transport has already marked submission.
-      markSubmitted()
+      // A managed port must call current before the paid request. Returning a
+      // result without that hook is handled by the learner as uncertain, not
+      // silently accepted or marked free.
       return result
     },
   }

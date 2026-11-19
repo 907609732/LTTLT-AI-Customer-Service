@@ -20,6 +20,7 @@ export interface KnowledgePipelineOwner {
   setPipeline(port: KnowledgePipelinePort): void
   assertStore(storeId: string): void
   complete: KnowledgeRuntime['complete']
+  prepareLearning?: KnowledgeRuntime['prepareLearning']
   vision: KnowledgeRuntime['vision']
   modelIdentity(): string
   modelMinimumIntervalMs(): number
@@ -37,11 +38,16 @@ type KnowledgePipelineCoordinator = ReturnType<typeof createKnowledgePipelineCoo
 export function createKnowledgeSourceModel(
   knowledge: Pick<
     KnowledgePipelineOwner,
-    'complete' | 'vision' | 'modelIdentity' | 'modelMinimumIntervalMs'
+    'complete' | 'prepareLearning' | 'vision' | 'modelIdentity' | 'modelMinimumIntervalMs'
   >,
 ): KnowledgeModelPort {
   return {
     complete: knowledge.complete,
+    // Never resolve this at assembly time: the runtime's model is installed
+    // asynchronously by the backend and local Key must stay on the legacy path.
+    get prepareLearning() {
+      return knowledge.prepareLearning
+    },
     vision: knowledge.vision,
     identity: knowledge.modelIdentity,
     minimumIntervalMs: knowledge.modelMinimumIntervalMs,

@@ -92,7 +92,9 @@
 ## 2026-11-19 桌面商品详情学习接入
 
 - `electron/knowledge/learning.ts` 不再把学习请求当作普通 reply 发送。托管模式下，`electron/managed-learning.ts` 只接受当前店铺为 `pdd-web`、商品关联有效、并由知识采集器生成的静态/动态详情文字或图片资料；其他平台、普通文档/聊天导入、未知标签、非拼多多 URL 都明确拒绝，不能自行声明为 `pdd_detail_text`/`pdd_detail_image`。
-- 每次学习任务启动前和每个实际调用前都会严格读取 `/api/client/config`：学习不复用接待路径最多 60 秒的策略缓存。只采用返回的当前 `policy_version`、`learning.enabled`、`allowed_sources`、`vision_enabled` 与 `max_output_tokens`；不会在旧服务端上伪造启用、revision 或来源。普通 reply/trial 仍省略新字段。
-- 付费调用继续复用现有托管 `chat` 传输、当前账号、原生请求编号、60 秒超时、取消信号、owner 与错误处理；没有新增 URL、Key、IPC 或摘要绕计费路径。本地预检、策略查询和账号检查全部通过后才写 submitted checkpoint；服务端在额度预留前明确拒绝的已知策略/格式错误会落为 `failed` + ready checkpoint，不会伪称“可能已计费”。未知网络结果仍进入人工 `needs-confirmation`，不自动重试。
-- 旧 submitted/`needs-confirmation` 任务不自动重放，旧版不含本协议的估算也不能被新代码追认；用户必须重新估算。估算、单件/批量、OCR、视觉路由、草稿审核与 uncertain 人工重试门保持不变。
+- 每次学习任务启动前和每个实际调用前都会严格读取 `/api/client/config`：学习不复用接待路径最多 60 秒的策略缓存。只采用返回的当前 `policy_version`、`learning.enabled`、`allowed_sources`、`vision_enabled`、`max_output_tokens` 与 `max_calls_per_product`；不会在旧服务端上伪造启用、revision 或来源。普通 reply/trial 仍省略新字段。
+- `electron/runtime/knowledge-pipeline-assembly.ts` 动态转发 `prepareLearning`：托管模型安装后真实 learner 能获得该能力，local Key 仍没有该属性，不会被误标为托管。
+- 付费调用继续复用现有托管 `chat` 传输、当前账号、原生请求编号、60 秒超时、取消信号、owner 与错误处理；没有新增 URL、Key、IPC 或摘要绕计费路径。submitted checkpoint 只在 vendor managed queue 的 `isCurrent` 边界触发；本地 runtime 在该边界同时检查来源、持久暂停/`modelIssue`、账号和取消。已知计费前拒绝落为 `failed` + ready checkpoint；未知结果仍进入人工 `needs-confirmation`，不自动重试。
+- 启动预估的消费在单个 repo 事务内复读、建任务和清空 estimate；并发启动同一 estimate 只创建一个任务。单商品调用上限按真实 `storeId + productId` 汇总根商品、SKU、文本分段和图片分块，在建任务和提交前拒绝，不截断批次。
+- 旧 submitted/`needs-confirmation` 任务不自动重放；旧 local Key 估算仍可继续，旧托管估算要求重新估算。估算、单件/批量、OCR、视觉路由、草稿审核与 uncertain 人工重试门保持不变。
 - 部署前置：线上托管服务必须提供“2026-11-17 服务端上下文策略执行”一节所述的当前策略投影和学习校验。旧服务端会收到桌面明确的“需要服务端支持、学习请求未发送”错误；本文不表示线上服务已升级或已修复。

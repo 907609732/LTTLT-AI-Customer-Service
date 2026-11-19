@@ -52,7 +52,7 @@ export interface KnowledgeLearningRequest {
    * Called exactly once after all local policy/source checks and immediately
    * before the paid request. A checkpoint must not claim submission earlier.
    */
-  beforeSubmit(): void
+  beforeSubmit(approval: { maxTokens: number; maxCallsPerProduct: number }): void
 }
 
 /** Main-process only. Neither keys, arbitrary URLs nor publication are part of this model port. */
@@ -69,7 +69,7 @@ export interface KnowledgeModelPort {
     withImages: boolean
     signal?: AbortSignal
     isCurrent?: () => boolean
-  }): Promise<{ maxTokens: number }>
+  }): Promise<{ maxTokens: number; maxCallsPerProduct: number }>
   complete(input: {
     messages: ModelMessages
     maxTokens?: number
@@ -340,6 +340,19 @@ export function createKnowledgeRuntime(options: {
       pipeline = port
     },
     complete,
+    /**
+     * Dynamic capability: local Key ports do not expose this property, so the
+     * learner keeps the legacy path and does not require managed metadata.
+     */
+    get prepareLearning(): KnowledgeModelPort['prepareLearning'] {
+      if (!model?.prepareLearning) return undefined
+      return async (input) => {
+        active()
+        const current = model
+        if (!current?.prepareLearning) throw Error('当前模型服务尚未就绪')
+        return current.prepareLearning(input)
+      }
+    },
     vision() {
       active()
       if (!model) throw Error('当前模型服务尚未就绪')

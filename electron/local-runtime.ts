@@ -766,7 +766,10 @@ export function createLocalRuntime(options: {
       knowledge.setModel(
         managed.active.mode === 'managed'
           ? createManagedLearningPort({
-              base: visionPort,
+              // Managed learning bypasses the local vision wrapper so its
+              // pre-base isCurrent check cannot create a submitted checkpoint
+              // before the vendor managed queue runs.
+              base: basePort,
               repository: knowledgeRepository,
               platformForStore: (storeId) =>
                 read().stores.find((store) => store.id === storeId)?.platform,
@@ -774,6 +777,10 @@ export function createLocalRuntime(options: {
               assertReady: () => {
                 if (closed || !managed.canAccessWorkspace() || managed.snapshot().restartRequired)
                   throw Error('当前账号知识库不可用，请切换工作区后重试；学习请求未发送')
+                if ((localBackend.snapshot() as { modelIssue?: unknown }).modelIssue)
+                  throw Error(
+                    '当前托管 AI 存在持久暂停提示，学习请求未发送；请先按现有流程核对原请求，不会自动清除或重试',
+                  )
                 managed.ready()
               },
             })

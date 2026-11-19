@@ -88,11 +88,21 @@ async function settled(repo: ReturnType<typeof createKnowledgeRepository>, id: s
   }
   throw Error('job did not settle')
 }
+function legacyPlan(repo: ReturnType<typeof createKnowledgeRepository>, estimateId: string) {
+  const key = `learning-estimate:${estimateId}`
+  const plan = JSON.parse(repo.getMetadata(key)!) as Record<string, unknown>
+  delete plan.version
+  repo.setMetadata(key, JSON.stringify(plan))
+  return plan
+}
 it('preflights a managed learning call and marks submitted only inside the typed send', async () => {
   let sourceId = ''
   let jobId = ''
   let checkpointAtSubmit = ''
-  const prepareLearning = vi.fn(async () => ({ maxTokens: 2048 }))
+  const prepareLearning = vi.fn(async () => ({
+    maxTokens: 2048,
+    maxCallsPerProduct: 20,
+  }))
   const { repo, b, learner } = setup(
     async (input) => {
       const learning = (
@@ -100,12 +110,12 @@ it('preflights a managed learning call and marks submitted only inside the typed
           learning?: {
             sourceId: string
             withImages: boolean
-            beforeSubmit(): void
+            beforeSubmit(approval: { maxTokens: number; maxCallsPerProduct: number }): void
           }
         }
       ).learning
       expect(learning).toMatchObject({ sourceId, withImages: false })
-      learning!.beforeSubmit()
+      learning!.beforeSubmit({ maxTokens: 2048, maxCallsPerProduct: 20 })
       checkpointAtSubmit = String(repo.getJob(jobId)?.checkpoint.state ?? '')
       return '{"candidates":[]}'
     },
@@ -131,6 +141,72 @@ it('preflights a managed learning call and marks submitted only inside the typed
   )
   expect(checkpointAtSubmit).toBe('submitted')
 })
+it('keeps old local Key estimates startable without the managed plan version', async () => {
+  const { repo, b, learner } = setup(async () => '{"candidates":[]}')
+  const source = repo.saveSource({
+    storeId: 's',
+    bindingId: b.id,
+    kind: 'document',
+    label: '旧本机资料',
+    text: '纯棉',
+  })
+  const estimate = await learner.estimate('s', [b.id], [source.id])
+  legacyPlan(repo, estimate.estimateId)
+  const { jobId } = await learner.start('s', [b.id], [source.id], estimate.estimateId)
+  expect((await settled(repo, jobId)).status).toBe('succeeded')
+})
+
+it('continues an old local paused plan and preserves submitted retry/skip gating', async () => {
+  let calls = 0
+  const { repo, b, learner } = setup(async () => {
+    calls++
+    return '{"candidates":[]}'
+  })
+  const source = repo.saveSource({
+    storeId: 's',
+    bindingId: b.id,
+    kind: 'document',
+    label: '旧本机暂停',
+    text: '纯棉',
+  })
+  const estimate = await learner.estimate('s', [b.id], [source.id])
+  const plan = legacyPlan(repo, estimate.estimateId)
+  const paused = repo.createJob({ kind: 'learn', storeId: 's', payload: plan })
+  repo.updateJob(paused.id, {
+    expectedRevision: paused.revision,
+    status: 'paused',
+    checkpoint: { index: 0, state: 'ready', skipped: 0, entryIds: [] },
+  })
+  await learner.resume('s', paused.id)
+  expect((await settled(repo, paused.id)).status).toBe('succeeded')
+  const received = repo.createJob({ kind: 'learn', storeId: 's', payload: plan })
+  repo.updateJob(received.id, {
+    expectedRevision: received.revision,
+    status: 'failed',
+    checkpoint: {
+      index: 0,
+      state: 'received',
+      response: 'truncated',
+      skipped: 0,
+      entryIds: [],
+    },
+    error: 'truncated',
+  })
+  await learner.retryReceived('s', received.id)
+  expect((await settled(repo, received.id)).status).toBe('succeeded')
+
+  const submitted = repo.createJob({ kind: 'learn', storeId: 's', payload: plan })
+  repo.updateJob(submitted.id, {
+    expectedRevision: submitted.revision,
+    status: 'needs-confirmation',
+    checkpoint: { index: 0, state: 'submitted', skipped: 0, entryIds: [] },
+  })
+  await expect(learner.resume('s', submitted.id)).rejects.toThrow(/不确定/)
+  await learner.resolveUncertain('s', submitted.id, 'skip')
+  expect((await settled(repo, submitted.id)).status).toBe('succeeded')
+  expect(calls).toBe(2)
+})
+
 it('paces requests before submission and cancels an unpaid wait without another model call', async () => {
   vi.useFakeTimers()
   try {
