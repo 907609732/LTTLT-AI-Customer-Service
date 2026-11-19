@@ -64,3 +64,22 @@
   - `scripts/package-smoke.ts` 只读核对：安装包冒烟通过 knowledge IPC `choose-sources`/`preview-import` 直接验证解析，不依赖商品“编辑”弹窗或 `知识编辑与审核` 面板，无需修改其断言。
   - `npx tsc -p config/tsconfig.electron.json`、改动文件 ESLint、Prettier、`git diff --check` 通过（日志 `13-typecheck.log`、`14-eslint.log`、`15-prettier.log`）。
   - 按授权未重跑全量 `npm run check`/`test:desktop`（同代码范围已有通过证据），未打包、未安装、未推送、未调用外部模型或真实业务。
+
+## 第三轮：成品脚本侧栏旧按钮计数修复
+
+提交 `7c13031` 合入主干 `730c667` 后，第三次云端完整源码 check、桌面 97、知识 manager 18 + ingestion 7 全部通过，NSIS/ZIP 打包成功；`test:packaged` 仍因侧栏旧按钮计数失败，产物尚未上传。
+
+- 云端失败日志（只读）：`artifacts/install-1.0.88/cloud-run3-failed.log`。首错：`scripts/package-smoke.ts:309`，`Packaged simplified sidebar, source version or login entry unavailable`。
+- 根因：`src/app/layouts/MainLayout.vue` 的 `.sidebar-footer` 现由“快捷回复”“回复监控”、`UpdateStatus`（`button.app-update-check`，文字随检查状态变化）和 `AppVersion` 组成；旧脚本要求 footer 恰好 2 个按钮，属过时 UI 夹具，不是产品缺陷。成品实测 DOM：`['快捷回复','回复监控','检查失败，点击重试']`，版本 `v1.0.88`，`login-trigger` 存在，`.advanced-model` 不存在。
+- 本机成品复现方式（诊断用，不代替云端同次产物）：
+  - `npm run build` 后执行现有 `npx electron-builder --config config/electron-builder.json --win --dir --x64 --publish never`，仅通过 CLI 覆盖 `--config.electronDist=node_modules/electron/dist`（复用现有 Electron 43.8.9 运行时，不联网下载）与 `--config.directories.output=artifacts/package-1088-validation/local-package`；未改 build/pack 配置，未生成 NSIS/ZIP、未安装。
+  - `LINGTU_PACKAGED_EXE=<local-package>/win-unpacked/LingtuAI.exe node scripts/package-smoke.ts`。
+  - RED：同一 `:309` 错误（日志 `22-packaged-red.log`）；GREEN：全通过（日志 `23-packaged-green.log`，报告 `24-packaged-report.json`，截图 `24-packaged-*.png`）。
+- 修复（仅 `scripts/package-smoke.ts`）：
+  - 不再按按钮个数判定；逐一核对“快捷回复”“回复监控（`aria-label`）”、真实更新按钮 `button.app-update-check`（可见、可用、已停在“检查更新/检查失败，点击重试/已是最新/暂无正式版本/发现新版本”之一）以及版本号、`login-trigger`、无 `.advanced-model`。
+  - 允许更新提示自带的关闭/下载按钮，但出现任何未登记按钮即失败，保留“简化侧栏不得混入调试入口”的原意。
+  - 失败信息与 `report.json` 增加实际侧栏快照（按钮文字、更新文字、禁用状态、版本、登录入口、advanced-model），便于下次核对真实 DOM。
+  - 未删断言、未跳过安全/许可/私密文件检查、未放宽版本或解析断言、未加生产调试 gate。
+- 同一成品脚本剩余 UI 路径复核（本次 GREEN 全部实际走通）：旧设置路由重定向与“店铺与商品”、简单登录弹窗（自备 Key/服务端登录、无托管地址、登录 API Key）、knowledge IPC 选源/预览（扫描 PDF、DOCX 内嵌图、XLSX 多表、PNG；`parsedParts: 8`）、窗口全程不可见、回复监控可打开且无 developer bridge/控件。
+- 其他验证：`npx tsc -p config/tsconfig.tools.json`、改动脚本 ESLint、Prettier、`git diff --check` 通过（日志 `26-typecheck.log`、`27-eslint.log`、`28-prettier.log`）。
+- 按授权未重跑 `npm run check`/`test:desktop`/知识专项（产品未变且云端已通过）；未推送、未发布、未安装、未使用真实账号。

@@ -289,24 +289,54 @@ try {
   }
   if (!settingsReady) throw new Error('Packaged legacy settings redirect unavailable')
   await evaluate(`location.hash = '/'`)
+  interface PackagedSidebar {
+    ok: boolean
+    buttons: string[]
+    updateText: string
+    updateDisabled: boolean
+    version: string
+    loginEntry: boolean
+    advancedModel: boolean
+  }
   let workbenchReady = false
+  let sidebar: PackagedSidebar | undefined
   for (let attempt = 0; attempt < 80; attempt++) {
-    workbenchReady =
-      (await evaluate(
-        `(() => {
-          const footer = document.querySelector('.sidebar-footer');
-          const actions = footer?.querySelectorAll('button');
-          return Boolean(actions?.length === 2 && actions[0].textContent.trim() === '快捷回复' &&
-            actions[1].textContent.trim().startsWith('回复监控') &&
-            footer.querySelector('.app-version')?.textContent.trim() === ${JSON.stringify('v' + expectedVersion)} &&
-            !document.querySelector('.advanced-model') && document.querySelector('.login-trigger'));
-        })()`,
-      )) === true
+    // 更新检查是底部第三项：核对快捷回复、回复监控、真实更新按钮及版本，
+    // 而不是只数按钮个数；出现任何未登记按钮都视为简化侧栏被破坏。
+    sidebar = (await evaluate(`(() => {
+      const footer = document.querySelector('.sidebar-footer');
+      const buttons = footer ? [...footer.querySelectorAll('button')] : [];
+      const quick = buttons.find((node) => node.textContent.trim() === '快捷回复');
+      const monitor = footer?.querySelector('button[aria-label="回复监控"]');
+      const update = footer?.querySelector('button.app-update-check');
+      const visible = (node) => Boolean(node && node.getClientRects().length);
+      // 自动检查完成后停在明确的最终状态；更新提示自带的关闭/下载按钮属于同一流程。
+      const settled = ['检查更新','检查失败，点击重试','已是最新版本 · 再次检查','暂无正式版本 · 再次检查','发现新版本'];
+      const allowed = new Set([quick, monitor, update, ...(footer?.querySelectorAll('.app-update-notice button') || [])]);
+      return {
+        ok: Boolean(footer && visible(quick) && visible(monitor) &&
+          monitor.textContent.trim().startsWith('回复监控') &&
+          visible(update) && !update.disabled && settled.includes(update.textContent.trim()) &&
+          buttons.every((node) => allowed.has(node)) &&
+          footer.querySelector('.app-version')?.textContent.trim() === ${JSON.stringify('v' + expectedVersion)} &&
+          !document.querySelector('.advanced-model') && document.querySelector('.login-trigger')),
+        buttons: buttons.map((node) => node.textContent.trim()),
+        updateText: update?.textContent.trim() || '',
+        updateDisabled: Boolean(update?.disabled),
+        version: footer?.querySelector('.app-version')?.textContent.trim() || '',
+        loginEntry: Boolean(document.querySelector('.login-trigger')),
+        advancedModel: Boolean(document.querySelector('.advanced-model')),
+      };
+    })()`)) as PackagedSidebar
+    workbenchReady = sidebar.ok
     if (workbenchReady) break
     await delay(250)
   }
   if (!workbenchReady)
-    throw new Error('Packaged simplified sidebar, source version or login entry unavailable')
+    throw new Error(
+      'Packaged simplified sidebar, source version or login entry unavailable: ' +
+        JSON.stringify(sidebar),
+    )
   const captureHidden = () =>
     mainEvaluate(`(async () => {
       const win = globalThis.__lingtuPackageWindows.getAllWindows().find(window =>
@@ -422,12 +452,13 @@ try {
       'real packaged window/preload',
       'no developer bridge, source preload or node-pty in packaged application',
       'real business IPC, empty isolated stores and no Key',
-      'legacy settings redirect, lower-left quick replies/reply monitor and matching source version',
+      'legacy settings redirect, lower-left quick replies/reply monitor/real update check and matching source version',
       'packaged reply monitor opens without developer bridge or controls',
       'simple own-Key/server login without server address fields',
       'packaged main parses scan PDF, DOCX embedded image, all XLSX sheets and PNG from ASAR dependencies',
     ],
     mode: state.capabilities.modelMode,
+    sidebar,
     parsedParts: preview.parts,
     visibleWindows: false,
   }
