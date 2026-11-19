@@ -6,6 +6,8 @@
 
 **The customer-service and after-sales workspace of the Lingtu AI E-commerce Traceability Suite.**
 
+**Pinduoduo and Xianyu are available for normal use, as confirmed by the project maintainer through live-store use.**
+
 Manage stores, product knowledge, AI reply drafts and conversation records. Help staff answer product questions, logistics enquiries and after-sales requests. Use it alongside [purchase-order organization](https://github.com/907609732/lingtu-order-export/blob/master/docs/README.en.md) and [parcel video evidence](https://github.com/907609732/lingtu-recorder/blob/main/README.en.md) to review purchases, parcel handling and customer issues.
 
 [简体中文](README.md) · **English**
@@ -48,9 +50,11 @@ Start the app and use the configuration in `%APPDATA%/yunduo-ui-restored/ai-inte
 
 ## Platforms and getting started
 
-- **Pinduoduo:** product, conversation and order workflows are wired; only selected live-store read-only cases have been checked. Live sending, transfers and payment-related actions still need business acceptance.
-- **Xianyu web:** included in v1.0.48. It samples opened/pending conversations, does not collect products or send videos, and text/image sending still needs live-buyer acceptance.
+- **Pinduoduo: supported and available for normal use.** Includes store login, AI customer service, product/conversation knowledge learning and order collection.
+- **Xianyu web: supported and available for normal use.** Includes web customer service and text/image replies. It samples opened/pending conversations; global monitoring of unopened conversations, product collection and video sending are not currently supported.
 - **Local simulations:** exercise model requests and approval flows without sending to real buyers.
+
+**Status update (2026-11-19): the project maintainer has tried Pinduoduo and Xianyu with live stores and confirmed that both work normally.** See the [current platform status](docs/PLATFORM_STATUS.md). Missing refund or timestamp fields remain unknown; received payments are not presented as net revenue. Store settings use the setup guide, and the knowledge-library entry opens product knowledge management.
 
 1. Install the [latest published version](https://github.com/907609732/LTTLT-AI-Customer-Service/releases/latest), or follow the [Chinese source-running instructions](README.md#从源码运行) for current source.
 2. Configure a model/provider or managed account and test the connection.
