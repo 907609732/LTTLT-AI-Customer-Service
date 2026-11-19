@@ -13,3 +13,9 @@
 独立只读审查未发现 P1/P2；核对 NoBuild 在安装/构建前返回、原入口命令保持、两个 PowerShell 脚本有 UTF-8 BOM、新 BAT 无 BOM 且为 CRLF。文档/版本格式及 diff 检查通过。为使用户双击时端口可用，交付前仅结束本聊天先前启动并重新核对过的临时 Vite PID 127600；未结束其他服务，未启动 Electron。两份无关 AGENTS 修改与现有编译产物保留。
 
 未完成：真实双击、界面、日志管道长期运行和控制台关闭验收待用户执行；不把模拟结果当作真实启动成功。托管模型或学习协议问题没有修改，也没有部署、tag 或 Release。
+
+## 随后授权的源码构建
+
+用户要求“先构建一版新的”后，在主目录对 `af95d5b` / 1.0.79 执行 `npm run build`，Vite 前端和 Electron 主进程构建均 exit 0。核对前端及 MCP/CLI 版本、产物完整性、主进程/preload/developer-preload 的 `node --check` 均通过。main/preload 因源代码未变，重建哈希与原产物相同；前端已更新。Electron 桌面版本仍按 app.getVersion 读取当前 package.json，不据静态产物声称已经运行。
+
+构建日志、前后哈希及验收 JSON 在 `artifacts/source-build-1.0.79-20261119/`。本次只构建，未执行安装包或 Release 流程，也未打开软件、发模型请求或操作账号与知识数据。原两份 AGENTS 未提交内容哈希保持不变；同一版本补充构建记录不再次升版本。真实手动启动与模型/实店验收仍未完成。
