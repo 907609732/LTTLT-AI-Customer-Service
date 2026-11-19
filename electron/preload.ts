@@ -9,6 +9,14 @@ const api: DesktopApi = {
   checkForUpdates: (manual) => ipcRenderer.invoke('app:check-updates', manual),
   isElectron: true,
   knowledge: Object.freeze<import('../src/shared/contracts/knowledge-client').KnowledgeBridge>({
+    onNavigate: (listener) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        input: { workspaceId: string; target: 'library' | 'home' },
+      ) => listener(input)
+      ipcRenderer.on('knowledge:navigate', handler)
+      return () => ipcRenderer.removeListener('knowledge:navigate', handler)
+    },
     request: (input) => ipcRenderer.invoke('knowledge:request', input),
     open: (input) => ipcRenderer.invoke('knowledge:open', input),
     context: () => ipcRenderer.invoke('knowledge:context'),

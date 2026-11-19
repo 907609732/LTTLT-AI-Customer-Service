@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { createMemoryHistory, createRouter, onBeforeRouteLeave } from 'vue-router'
+import { h, ref } from 'vue'
 import ElementPlus from 'element-plus'
 import MainLayout from '../src/app/layouts/MainLayout.vue'
 import { routes } from '../src/app/router'
@@ -21,6 +22,7 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 async function fixture() {
+  const blockLeaving = ref(false)
   const pinia = createPinia()
   setActivePinia(pinia)
   const runtime = useRuntimeStore()
@@ -52,6 +54,15 @@ async function fixture() {
             component: { template: '<div>配置内容</div>' },
           },
           { path: 'settings', component: { template: '<div />' } },
+          {
+            path: 'knowledge',
+            component: {
+              setup() {
+                onBeforeRouteLeave(() => !blockLeaving.value)
+                return () => h('div', '知识库编辑器')
+              },
+            },
+          },
         ],
       },
     ],
@@ -74,8 +85,20 @@ async function fixture() {
   wrappers.push(wrapper)
   await wrapper.find('[role="tab"]').trigger('click')
   await flushPromises()
-  return { wrapper, runtime, run, present, router, setup: useShopSetupStore() }
+  return { wrapper, runtime, run, present, router, blockLeaving, setup: useShopSetupStore() }
 }
+it('知识库阻止离开时不执行开店，也不让原生页面覆盖未保存草稿', async () => {
+  const { wrapper, router, blockLeaving, run, present } = await fixture()
+  await router.push('/knowledge')
+  blockLeaving.value = true
+  run.mockClear()
+  await wrapper.findComponent(StoreSidebarCard).vm.$emit('open')
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/knowledge')
+  expect(run).not.toHaveBeenCalled()
+  expect(present).toHaveBeenLastCalledWith('shop-a', false)
+  expect(wrapper.text()).toContain('知识库编辑器')
+})
 it('基础设置隐藏原生页面，关闭引导后恢复，不顺带打开或启用AI', async () => {
   const { wrapper, run, present, setup } = await fixture()
   wrapper.findComponent(StoreSidebarCard).vm.$emit('setup')

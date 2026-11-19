@@ -22,6 +22,8 @@ import {
   missStatusLabel,
 } from '../manager-labels'
 import { useKnowledgeManager } from '../manager-controller'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 const runtime = useRuntimeStore()
 const {
   desktop,
@@ -156,8 +158,15 @@ const {
   importPreview,
   batchResults,
   hide,
+  prepareLeave,
   changed,
 } = useKnowledgeManager()
+const router = props.embedded ? useRouter() : undefined
+if (props.embedded) onBeforeRouteLeave(prepareLeave)
+async function closeView() {
+  if (router) await router.push('/')
+  else await hide()
+}
 const missFilters = [
   { value: 'open', label: '待处理' },
   { value: 'resolved', label: '已解决' },
@@ -166,7 +175,7 @@ const missFilters = [
 </script>
 
 <template>
-  <main class="knowledge-manager">
+  <main class="knowledge-manager" :class="{ 'knowledge-manager--embedded': embedded }">
     <KnowledgeOcrPreview
       v-if="ocrPreview"
       :preview="ocrPreview"
@@ -199,7 +208,7 @@ const missFilters = [
       :results="batchResults"
       @close="batchResults = []"
     />
-    <header class="knowledge-top" data-window-drag>
+    <header class="knowledge-top" :data-window-drag="embedded ? undefined : ''">
       <div>
         <h1>知识库</h1>
       </div>
@@ -215,9 +224,12 @@ const missFilters = [
               {{ shop.storeName || shop.id }}
             </option>
           </select></label
-        ><button aria-label="最小化" @click="desktop.minimize()">—</button
-        ><button aria-label="最大化" @click="desktop.toggleMaximize()">□</button
-        ><button aria-label="关闭知识库" @click="hide">×</button>
+        ><template v-if="!embedded"
+          ><button aria-label="最小化" @click="desktop.minimize()">—</button
+          ><button aria-label="最大化" @click="desktop.toggleMaximize()">□</button></template
+        ><button :aria-label="embedded ? '返回工作台' : '关闭知识库'" @click="closeView">
+          {{ embedded ? '返回工作台' : '×' }}
+        </button>
       </div>
     </header>
     <nav class="knowledge-tabs">

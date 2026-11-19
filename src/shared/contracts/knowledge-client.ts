@@ -243,6 +243,10 @@ export interface KnowledgeTrial {
   resolution: KnowledgeResolution
 }
 export interface KnowledgeBridge {
+  /** 主进程仅向主工作台发送固定内容区导航，不接受任意页面地址。 */
+  onNavigate?(
+    listener: (input: { workspaceId: string; target: 'library' | 'home' }) => void,
+  ): () => void
   request(input: z.input<typeof knowledgeRequestSchema>): Promise<unknown>
   open(input: z.input<typeof knowledgeOpenSchema>): Promise<void>
   hide(workspaceId: string): Promise<void>
