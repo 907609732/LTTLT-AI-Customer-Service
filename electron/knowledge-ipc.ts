@@ -9,6 +9,7 @@ interface IpcPort {
 export function registerKnowledgeIpc(options: {
   ipc: IpcPort
   authorize(event: unknown): void
+  authorizeHide?(event: unknown): void
   resolve(): { workspaceId: string; request(input: unknown): Promise<unknown> }
   window: KnowledgeWindowManager
   clear?(
@@ -61,6 +62,7 @@ export function registerKnowledgeIpc(options: {
   for (const [name, handler] of Object.entries(handlers))
     options.ipc.handle(name, (event, input) => {
       options.authorize(event)
+      if (name === 'knowledge:hide') options.authorizeHide?.(event)
       return handler(input)
     })
   return () => Object.keys(handlers).forEach((name) => options.ipc.removeHandler(name))

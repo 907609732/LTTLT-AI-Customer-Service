@@ -210,3 +210,7 @@ knowledge runtime 的既有 backup/restore-preview 请求新增可选 storeId，
 `electron/app-update.ts` 查询固定官方 GitHub 仓库的最新正式 Release；`app:check-updates` 经桌面可信主 frame 校验后调用，不接受任意 URL。使用 Electron 网络栈、15 秒超时及 256 KiB 响应上限，不发送账户凭据。每进程自动查询一次（失败同样缓存），用户可手动重试，并发请求共用查询。只有合法三段版本、非草稿/预发布且包含对应 Windows 安装包的较新版本才提示。
 
 主工作台左下的 `UpdateStatus` 提供检查入口和可关闭的小提示；仅在用户点击后经已有 `openExternal` 打开固定官方版本下载页，不自动下载或执行安装器。此功能不等于静默升级或代码签名。无正式 Release、网络失败与已是最新版本分别处理。浏览器仅预览界面，不进行启动检查。
+
+## 知识库内容区（2026-11-19）
+
+`/knowledge` 与 `/shop/manage` 同为 MainLayout 子路由，知识库传入 `embedded=true`，复用主顶栏和内容区。`createKnowledgeWindow` 的 embedded 宿主沿用原上下文/账号校验及维护重建契约，不创建额外 BrowserWindow；`knowledge:navigate` 仅向主窗口发送账号和固定 library/home 目的地，由 app 层导航并过滤迟到账号事件。原知识查询/命令 IPC 不变。路由离开由 controller 保存草稿并阻止失败或处理中离开，卸载继续注销事件和轮询；后台任务保持运行。独立窗口宿主保留给历史隔离验收。

@@ -9,6 +9,7 @@ import { installImageFallback } from '@/shared/platform/images'
 import { provideServices } from './services'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { getDesktop } from '@/shared/platform/desktop'
+import { installKnowledgeNavigation } from './knowledge-navigation'
 import { createTeamService, teamServiceKey } from '@/modules/account'
 import { billingTransportKey } from '@/modules/billing'
 import { platformLearningTransportKey } from '@/modules/knowledge'
@@ -25,6 +26,14 @@ app.use(router)
 provideServices(app)
 const runtime = useRuntimeStore()
 const desktop = getDesktop()
+const disposeKnowledgeNavigation = installKnowledgeNavigation(
+  desktop.knowledge,
+  router,
+  runtime,
+  (message) => {
+    runtime.error = message
+  },
+)
 if (desktop.isElectron && desktop.platformLearning)
   app.provide(platformLearningTransportKey, desktop.platformLearning)
 if (desktop.isElectron && desktop.platformOrderRequest)
@@ -78,5 +87,6 @@ if (import.meta.hot)
     disposeDrag()
     disposeImages()
     runtime.dispose()
+    disposeKnowledgeNavigation()
     app.unmount()
   })

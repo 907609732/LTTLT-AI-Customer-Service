@@ -3,6 +3,7 @@ import { createAgentGateway } from './agent/gateway'
 import { createAgentService } from './agent/service'
 import { reportStartupFailure } from './startup-failure'
 import { createKnowledgeWindow } from './knowledge-window'
+import { protectKnowledgeClose } from './knowledge-close'
 import { registerKnowledgeIpc } from './knowledge-ipc'
 import { registerDesktopIpc } from './ipc'
 import { createWindow, loadRenderer } from './windows'
@@ -36,6 +37,7 @@ fs.mkdirSync(userData, { recursive: true })
 app.setPath('userData', userData)
 
 let primaryWindow: BrowserWindow | undefined
+let knowledgeClose: ReturnType<typeof protectKnowledgeClose> | undefined
 let runtime: ReturnType<typeof createWorkspaceRuntime> | undefined
 let assist: AssistWindowManager | undefined
 let shuttingDown = false
@@ -52,6 +54,7 @@ app.on('second-instance', () => {
 function openWindow(): void {
   const win = createWindow({ startMaximized: true })
   primaryWindow = win
+  knowledgeClose = protectKnowledgeClose(win, () => shuttingDown)
   void loadRenderer(win).catch((error) => {
     console.error(error)
     dialog.showErrorBox('启动失败', '无法加载界面，请重新构建或检查开发服务器。')
@@ -70,6 +73,7 @@ app
     })
     app.once('will-quit', dispose)
     primaryWindow = createWindow({ startMaximized: true })
+    knowledgeClose = protectKnowledgeClose(primaryWindow, () => shuttingDown)
     // 独立目录，绝不自动迁移或复用其他客服软件的数据和平台登录态。
     runtime = createWorkspaceRuntime({
       restartAfterKnowledgeClearFailure: () => {
@@ -99,14 +103,29 @@ app
     })
     app.once('will-quit', disposeDeveloperDebug)
     const knowledgeWindow = createKnowledgeWindow({
-      create: () => createWindow({ knowledge: true }),
-      load: async (win) => {
-        if (!(win instanceof BrowserWindow)) throw Error('知识库窗口不受信')
-        await loadRenderer(win, '/knowledge')
+      embedded: {
+        publish: (context) => primaryWindow?.webContents.send('knowledge:context', context),
+        open: (context) => {
+          const win = primaryWindow
+          if (!win || win.isDestroyed()) throw Error('主工作台尚未就绪')
+          win.webContents.send('knowledge:navigate', {
+            workspaceId: context.workspaceId,
+            target: 'library',
+          })
+          if (win.isMinimized()) win.restore()
+          win.show()
+          win.focus()
+        },
+        hide: (context) => {
+          if (knowledgeClose?.acknowledge()) return
+          primaryWindow?.webContents.send('knowledge:navigate', {
+            workspaceId: context.workspaceId,
+            target: 'home',
+          })
+        },
       },
       workspace: () => runtime!.snapshot().workspaceId,
       stores: () => runtime!.snapshot().stores.map((s) => s.id),
-      workArea: () => screen.getDisplayMatching(primaryWindow!.getBounds()).workArea,
     })
     const disposeKnowledge = registerKnowledgeIpc({
       ipc: {
@@ -114,6 +133,10 @@ app
         removeHandler: (name) => ipcMain.removeHandler(name),
       },
       authorize: (event) => requireAppFrame(event as Electron.IpcMainInvokeEvent),
+      authorizeHide: (event) => {
+        if ((event as Electron.IpcMainInvokeEvent).sender !== primaryWindow?.webContents)
+          throw Error('只能由主工作台关闭内嵌知识库')
+      },
       resolve: () => {
         const current = runtime!
         return {

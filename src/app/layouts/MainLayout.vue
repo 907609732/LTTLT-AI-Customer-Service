@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { isNavigationFailure, useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/shared/ui/BrandMark.vue'
 import AppVersion from '@/shared/ui/AppVersion.vue'
 import UpdateStatus from '@/shared/ui/UpdateStatus.vue'
@@ -121,6 +121,10 @@ async function openShop(shop: LocalStore) {
   if (setup.visible || (setup.storeId && setup.storeId !== shop.id)) setup.dismiss()
   const workspace = runtime.snapshot.workspaceId
   await task.run(async () => {
+    // 知识库可能因草稿未保存而阻止离开；取消导航时不能打开原生店铺页覆盖编辑器。
+    const navigation = await router.push('/')
+    if (isNavigationFailure(navigation) && route.path !== '/') return
+    if (route.path !== '/' || workspace !== runtime.snapshot.workspaceId) return
     runtime.selectedStoreId = shop.id
     await runtime.run({ action: 'open-store', storeId: shop.id })
     if (
@@ -129,7 +133,10 @@ async function openShop(shop: LocalStore) {
       !runtime.snapshot.stores.some((item) => item.id === shop.id)
     )
       return
-    await router.push('/')
+    if (route.path !== '/') {
+      await runtime.presentStore(shop.id, false)
+      return
+    }
     if (workspace !== runtime.snapshot.workspaceId || runtime.selectedStoreId !== shop.id) return
     runtime.platformStoreId = shop.id
     await runtime.presentStore(

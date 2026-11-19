@@ -12,14 +12,26 @@ interface KnowledgeWindow {
   on(event: 'close', listener: (event: { preventDefault(): void }) => void): unknown
   webContents: { send(channel: string, ...args: unknown[]): void }
 }
-/** Independent local selection. No backend selection command is ever issued by this controller. */
-export function createKnowledgeWindow(options: {
-  create(): KnowledgeWindow
-  load(window: KnowledgeWindow): Promise<void>
-  workArea(): { x: number; y: number; width: number; height: number }
+type KnowledgeHostOptions = {
   workspace(): string
   stores(): string[]
-}) {
+} & (
+  | {
+      embedded: {
+        publish(context: KnowledgeWindowContext): void
+        open(context: KnowledgeWindowContext): void
+        hide(context: KnowledgeWindowContext): void
+      }
+    }
+  | {
+      embedded?: undefined
+      create(): KnowledgeWindow
+      load(window: KnowledgeWindow): Promise<void>
+      workArea(): { x: number; y: number; width: number; height: number }
+    }
+)
+/** 店铺选择不改变接待状态；正式入口内嵌，独立窗口适配保留给既有隔离验收。 */
+export function createKnowledgeWindow(options: KnowledgeHostOptions) {
   let win: KnowledgeWindow | undefined
   let loading: Promise<void> | undefined
   let closed = false
@@ -44,13 +56,19 @@ export function createKnowledgeWindow(options: {
         productId: '',
         revision: context.revision + 1,
       }
-      if (win && !win.isDestroyed()) win.webContents.send('knowledge:context', context)
+      if (options.embedded) options.embedded.publish({ ...context })
+      else if (win && !win.isDestroyed()) win.webContents.send('knowledge:context', context)
     },
     async open(raw: unknown) {
       const input = knowledgeOpenSchema.parse(raw)
       assert(input.workspaceId)
       if (input.storeId && !options.stores().includes(input.storeId)) throw Error('店铺已移除')
       context = { ...input, revision: context.revision + 1 }
+      if (options.embedded) {
+        options.embedded.publish({ ...context })
+        options.embedded.open({ ...context })
+        return
+      }
       if (!win || win.isDestroyed()) {
         win = options.create()
         const area = options.workArea(),
@@ -93,7 +111,8 @@ export function createKnowledgeWindow(options: {
     },
     hide(workspaceId: string) {
       assert(workspaceId)
-      if (win && !win.isDestroyed()) win.hide()
+      if (options.embedded) options.embedded.hide({ ...context })
+      else if (win && !win.isDestroyed()) win.hide()
     },
     dispose() {
       closed = true

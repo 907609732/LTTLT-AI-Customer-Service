@@ -110,6 +110,19 @@ it('renders a catalog table with thumbnail, explicit product ID, actual merchant
 })
 vi.mock('../src/modules/knowledge/manager-service', () => ({ createKnowledgeClient: () => fake }))
 afterEach(() => vi.clearAllMocks())
+it('首次快照未完成就离开时，不再注册已卸载知识库的订阅', async () => {
+  const late = deferred<void>()
+  let refresh: ReturnType<typeof vi.spyOn> | undefined
+  const { wrapper } = await setup(true, false, () => {
+    refresh = vi.spyOn(useRuntimeStore(), 'refresh').mockImplementationOnce(() => late.promise)
+  })
+  wrapper.unmount()
+  late.resolve()
+  await flushPromises()
+  expect(fake.onContext).not.toHaveBeenCalled()
+  expect(fake.onCloseRequest).not.toHaveBeenCalled()
+  refresh?.mockRestore()
+})
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((done) => {
@@ -970,7 +983,7 @@ it.each(['jobs', 'misses'] as const)(
   },
 )
 
-it.each(['close', 'hide'] as const)(
+it.each(['close', 'hide', 'leave'] as const)(
   'persists edits typed while a save is pending before %s',
   async (action) => {
     const { wrapper, manager: state } = await setup(true),
@@ -982,7 +995,12 @@ it.each(['close', 'hide'] as const)(
     manager.changed()
     const first = deferred<KnowledgeVersion>()
     fake.saveDraft.mockImplementationOnce(() => first.promise)
-    const closing = action === 'close' ? manager.closeEditor() : manager.hide()
+    const closing =
+      action === 'close'
+        ? manager.closeEditor()
+        : action === 'hide'
+          ? manager.hide()
+          : manager.prepareLeave()
     await flushPromises()
     const input = fake.saveDraft.mock.calls[0]![0] as KnowledgeDraftInput
     manager.draft.value!.answer = '保存期间继续输入的最新答案'
@@ -996,10 +1014,31 @@ it.each(['close', 'hide'] as const)(
       expectedRevision: 1,
     })
     if (action === 'close') expect(manager.draft.value).toBeUndefined()
-    else expect(fake.hide).toHaveBeenCalledOnce()
+    else if (action === 'hide') expect(fake.hide).toHaveBeenCalledOnce()
+    else {
+      expect(await closing).toBe(true)
+      expect(fake.hide).not.toHaveBeenCalled()
+    }
     wrapper.unmount()
   },
 )
+it('内嵌离开时保存失败保留草稿并阻止导航，处理中的操作同样阻止离开', async () => {
+  const { wrapper, manager: state } = await setup(true)
+  const manager = state!
+  manager.tab.value = 'general'
+  await manager.writeOne()
+  manager.draft.value!.question = '发货问题'
+  manager.draft.value!.answer = '保留编辑'
+  manager.changed()
+  fake.saveDraft.mockRejectedValueOnce(Error('disk unavailable'))
+  expect(await manager.prepareLeave()).toBe(false)
+  expect(manager.draft.value!.answer).toBe('保留编辑')
+  expect(manager.error.value).toContain('草稿未保存')
+  expect(await manager.prepareLeave()).toBe(true)
+  manager.busy.value = true
+  expect(await manager.prepareLeave()).toBe(false)
+  wrapper.unmount()
+})
 
 it.each(['estimate', 'source', 'backup'] as const)(
   'drops late private %s responses after an account change',

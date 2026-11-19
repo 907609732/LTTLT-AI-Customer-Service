@@ -10,12 +10,6 @@ import { PRODUCT_NAME } from '@/shared/brand'
 export const routes: RouteRecordRaw[] = [
   { path: '/store-sync', redirect: '/shop/manage?panel=shops' },
   {
-    path: '/knowledge',
-    name: 'knowledge-manager',
-    component: () => import('@/modules/knowledge').then((m) => m.KnowledgeManagerView),
-    meta: { title: '知识库', float: true },
-  },
-  {
     path: '/reply-monitor',
     name: 'reply-monitor',
     component: () => import('@/modules/auxiliary').then((m) => m.ReplyMonitorView),
@@ -106,6 +100,13 @@ export const routes: RouteRecordRaw[] = [
     path: '/',
     component: () => import('@/app/layouts/MainLayout.vue'),
     children: [
+      {
+        path: 'knowledge',
+        name: 'knowledge-manager',
+        component: () => import('@/modules/knowledge').then((m) => m.KnowledgeManagerView),
+        props: { embedded: true },
+        meta: { title: '知识库' },
+      },
       {
         path: 'shop/manage',
         name: 'shop-manage',

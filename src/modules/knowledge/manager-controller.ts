@@ -1064,6 +1064,7 @@ export function useKnowledgeManager() {
     context.revision <= contextRevision &&
     contextStore(context) === storeId.value
   async function applyContext(context: KnowledgeWindowContext) {
+    if (disposed) return
     if (context.workspaceId !== runtime.snapshot.workspaceId) return
     if (contextAlreadyApplied(context)) return
     maintenance.clearRestorePreview()
@@ -1145,6 +1146,10 @@ export function useKnowledgeManager() {
       throw Error('账号工作区已再次改变，请从目标店铺重新打开知识库')
   }
   async function hide() {
+    if (busy.value) {
+      error.value = '正在处理操作，请完成后再关闭知识库'
+      return
+    }
     await run(async () => {
       do {
         await saveDraft()
@@ -1153,8 +1158,23 @@ export function useKnowledgeManager() {
       await client().hide()
     })
   }
+  async function prepareLeave() {
+    if (busy.value) {
+      error.value = '正在处理操作，请完成后再离开知识库'
+      return false
+    }
+    if (!dirty.value) return true
+    try {
+      await saveDraft()
+      return true
+    } catch (cause) {
+      error.value = `草稿未保存：${reason(cause)}。请重试后再离开`
+      return false
+    }
+  }
   onMounted(async () => {
     await runtime.refresh()
+    if (disposed) return
     workspace.value = runtime.snapshot.workspaceId
     const service = client()
     const mountedRevision = leaseRevision
@@ -1172,13 +1192,14 @@ export function useKnowledgeManager() {
     })
     try {
       const context = await service.context()
+      if (disposed) return
       if (context) await applyContext(context)
       else {
         storeId.value = stores.value[0]?.id || ''
         await refresh()
       }
     } catch (cause) {
-      if (mountedRevision === leaseRevision) error.value = reason(cause)
+      if (!disposed && mountedRevision === leaseRevision) error.value = reason(cause)
     }
   })
   watch(
@@ -1355,6 +1376,7 @@ export function useKnowledgeManager() {
     run,
     refresh,
     saveDraft,
+    prepareLeave,
     discardDraft,
     saveSettings,
     closeEditor,

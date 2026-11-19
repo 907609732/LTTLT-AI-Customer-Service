@@ -20,6 +20,11 @@
 .knowledge-manager * {
   box-sizing: border-box;
 }
+.knowledge-manager--embedded {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+}
 .knowledge-manager h1,
 .knowledge-manager h2,
 .knowledge-manager p {
@@ -112,6 +117,10 @@
 .knowledge-top-actions button {
   width: 34px;
   padding: 2px;
+}
+.knowledge-manager--embedded .knowledge-top-actions button {
+  width: auto;
+  padding: 5px 12px;
 }
 .knowledge-tabs {
   display: flex;
