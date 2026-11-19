@@ -535,8 +535,13 @@ app
           () => view.getBounds().width > 0 && view.getBounds().height > 0,
           '登录视图未铺排',
         )
-        assert.equal(view.getBounds().x, 300)
-        assert.equal(view.getBounds().y, 72)
+        // 新店八步引导在顶栏下方固定预留 144px 步骤条；登录页顶边因此是 216 而不是旧的 72。
+        const [contentWidth, contentHeight] = win.getContentSize()
+        assert.deepEqual(
+          view.getBounds(),
+          { x: 300, y: 216, width: contentWidth - 300, height: contentHeight - 216 },
+          '八步引导应为登录页让出步骤条高度',
+        )
         assert.ok(view.webContents.getURL().startsWith('https://'), '平台入口地址未加载')
         assert.ok(
           (await view.webContents.executeJavaScript('document.body.innerText')).includes(
@@ -545,6 +550,51 @@ app
           '应显示本机拦截的登录内容',
         )
         assert.ok(sessions.size > 0, '必须实际拦截独立店铺分区')
+        const guide = (await win.webContents.executeJavaScript(`(() => {
+          const header = document.querySelector('.new-store-header');
+          if (!header) return null;
+          const rect = header.getBoundingClientRect();
+          const steps = Array.from(header.querySelectorAll('.new-store-steps li'));
+          return {
+            rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
+            steps: steps.map((node) => node.textContent.replace(/[0-9✓—\\s]/g, '')),
+            current: steps.findIndex((node) => node.getAttribute('aria-current') === 'step'),
+            confirm: header.querySelector('.login-confirm')?.textContent || '',
+            setupPage: Boolean(document.querySelector('.shop-setup-page')),
+            sidebarActive: !document.querySelector('.store-sidebar').closest('[inert]'),
+            headerActive: !document.querySelector('.workbench-titlebar').closest('[inert]'),
+          };
+        })()`)) as {
+          rect: { x: number; y: number; width: number; height: number }
+          steps: string[]
+          current: number
+          confirm: string
+          setupPage: boolean
+          sidebarActive: boolean
+          headerActive: boolean
+        }
+        assert.ok(guide, '添加店铺后没有显示八步引导')
+        assert.deepEqual(guide.rect, {
+          x: 300,
+          y: 72,
+          width: contentWidth - 300,
+          height: 144,
+        })
+        assert.deepEqual(guide.steps, [
+          '登录',
+          '导入商品与学习',
+          '客服风格',
+          '物流与发货',
+          '接待设置',
+          '售后政策',
+          '确认信息',
+          '完成',
+        ])
+        assert.equal(guide.current, 0, '登录应为当前步骤')
+        assert.ok(guide.confirm.includes('请在下方完成平台登录'))
+        assert.equal(guide.setupPage, false, '八步引导期间不能显示旧基础设置页')
+        assert.equal(guide.sidebarActive, true, '引导应保留左侧店铺栏')
+        assert.equal(guide.headerActive, true, '引导应保留顶部导航')
         await view.webContents.executeJavaScript(
           `new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
         )
@@ -556,6 +606,34 @@ app
           path.join(output, 'add-store-direct-login.png'),
           (await win.capturePage()).toPNG(),
         )
+        // “稍后继续”只收起引导，必须把原生登录页恢复到普通布局 72 顶边并保留继续入口。
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.new-store-header .new-store-title button').click()`,
+        )
+        await waitFor(
+          async () =>
+            !(await win.webContents.executeJavaScript(
+              `Boolean(document.querySelector('.new-store-header'))`,
+            )),
+          '稍后继续后步骤条未收起',
+        )
+        await waitFor(() => view.getBounds().y === 72, '退出引导后普通布局未恢复')
+        assert.deepEqual(
+          view.getBounds(),
+          { x: 300, y: 72, width: contentWidth - 300, height: contentHeight - 72 },
+          '退出引导后登录页应恢复普通布局',
+        )
+        assert.equal(
+          await win.webContents.executeJavaScript(
+            `document.querySelector('.shop-setup-resume')?.textContent.includes('继续店铺引导') === true`,
+          ),
+          true,
+          '退出引导后应保留继续店铺引导入口',
+        )
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.shop-setup-resume').click()`,
+        )
+        await waitFor(() => view.getBounds().y === 216, '继续引导后八步布局未恢复')
       } finally {
         app.removeListener('session-created', onSession)
         if (!storeId)

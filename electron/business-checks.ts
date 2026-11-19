@@ -157,48 +157,40 @@ export async function businessChecks(options: {
     })
     await check('business:ui-add-store', '/', async () => {
       await load('/')
+      // 用户要求添加弹窗只保留真实平台选择：不再有本机模拟店铺入口，也不手填店名。
       await win.webContents.executeJavaScript(
         `document.querySelector('[aria-label="添加店铺"]').click()`,
       )
-      await wait(`Boolean(document.querySelector('[aria-label="本机模拟店铺入口"]'))`)
+      await wait(`Boolean(document.querySelector('.add-platform-dialog [data-platform]'))`)
+      const dialog = (await win.webContents.executeJavaScript(`(() => {
+        const dialog = document.querySelector('.add-platform-dialog');
+        return {
+          platforms: Array.from(dialog.querySelectorAll('[data-platform]')).map((node) => node.getAttribute('data-platform')),
+          nameInput: Boolean(dialog.querySelector('input[aria-label="店铺名称"]')),
+          simulatedEntry: Boolean(document.querySelector('[aria-label="本机模拟店铺入口"]')),
+          submitDisabled: dialog.querySelector('button[type="submit"]').disabled,
+        };
+      })()`)) as {
+        platforms: (string | null)[]
+        nameInput: boolean
+        simulatedEntry: boolean
+        submitDisabled: boolean
+      }
+      assert.equal(dialog.platforms.length, 11)
+      assert.equal(dialog.platforms.includes('sim-local'), false, '添加店铺不能再提供本机模拟入口')
+      assert.equal(dialog.simulatedEntry, false, '已移除的本机模拟店铺入口不能回到产品界面')
+      assert.equal(dialog.nameInput, false, '登录后识别店名，添加弹窗不再手填名称')
+      assert.equal(dialog.submitDisabled, true, '未选平台不能提交')
       await win.webContents.executeJavaScript(
-        `document.querySelector('[aria-label="本机模拟店铺入口"]').click()`,
-      )
-      await wait(`Boolean(document.querySelector('input[aria-label="店铺名称"]'))`)
-      await setInput('店铺名称', '隔离测试甲店')
-      await win.webContents.executeJavaScript(
-        `document.querySelector('.el-dialog form button[type="submit"]').click()`,
+        `document.querySelector('[aria-label="取消添加店铺"]').click()`,
       )
       await wait(
         `!Array.from(document.querySelectorAll('.add-platform-dialog')).some(el => el.getBoundingClientRect().width && el.getBoundingClientRect().height)`,
       )
-      await wait(`Boolean(document.querySelector('.shop-setup-page'))`)
-      const bounds = await win.webContents.executeJavaScript(`(() => {
-        const rect = document.querySelector('.shop-setup-page').getBoundingClientRect()
-        return {x:rect.x,y:rect.y,right:rect.right,bottom:rect.bottom,width:innerWidth,height:innerHeight,
-          sidebarActive:!document.querySelector('.store-sidebar').closest('[inert]'),
-          headerActive:!document.querySelector('.workbench-titlebar').closest('[inert]')}
-      })()`)
-      assert.equal(bounds.x, 300, '引导应保留左侧店铺栏')
-      assert.equal(bounds.y, 72, '引导应保留顶部导航')
-      assert.equal(bounds.right, bounds.width)
-      assert.equal(bounds.bottom, bounds.height)
-      assert.equal(bounds.sidebarActive, true)
-      assert.equal(bounds.headerActive, true)
-      await win.webContents.executeJavaScript(
-        `document.querySelector('.shop-setup-page [data-dismiss]').click()`,
-      )
-      await wait(`!document.querySelector('.shop-setup-page')`)
+      // 业务用例需要两个互不串店的合成店铺记录；入口已从界面删除，
+      // 因此只经仅测试的 runtime 命令建立离线记录，不打开平台也不访问平台登录页。
       const s = await snapshot()
-      assert.equal(s.stores.length, 1)
-      assert.equal(s.stores[0].platform, 'sim-local')
-      assert.equal(s.stores[0].runtime.open, false)
-      // 界面回归使用本机模拟，真实平台只建记录，不访问平台登录网站。
-      await execute({
-        action: 'remove-store',
-        storeId: s.stores[0].id,
-        values: { confirmed: true },
-      })
+      oldWorkspace = s.workspaceId
       storeA = String(
         (
           await execute({
@@ -207,8 +199,6 @@ export async function businessChecks(options: {
           })
         ).data.id,
       )
-      oldWorkspace = s.workspaceId
-      assert.equal(s.stores[0].aiEnabled, false)
       storeB = String(
         (
           await execute({
@@ -217,6 +207,24 @@ export async function businessChecks(options: {
           })
         ).data.id,
       )
+      const created = await snapshot()
+      assert.equal(created.stores.length, 2, '双店夹具应只包含两个合成店铺')
+      assert.ok(
+        created.stores.every((store) => store.platform === 'pdd-web' && !store.aiEnabled),
+        '合成店铺只建离线记录且不自动开启 AI',
+      )
+      await load('/shop/manage?panel=shops')
+      await wait(`document.querySelectorAll('.shop-card[data-store]').length === 2`)
+      const cards = (await win.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('.shop-card[data-store]')).map((card) => ({ id: card.getAttribute('data-store'), text: card.textContent }))`,
+      )) as { id: string | null; text: string }[]
+      assert.deepEqual(
+        cards.map((card) => card.id).sort(),
+        [storeA, storeB].sort(),
+        '店铺列表应显示两个合成店铺',
+      )
+      assert.ok(cards.some((card) => card.text.includes('隔离测试甲店')))
+      assert.ok(cards.some((card) => card.text.includes('隔离测试乙店')))
     })
     await check('business:ui-product-save', '/shop/manage', async () => {
       assert.ok(storeA)
@@ -1324,6 +1332,16 @@ export async function businessChecks(options: {
       const callsBefore = calls.length
       try {
         await load('/knowledge')
+        // 知识窗口上下文是全局共享的：全量套件前面打开过别的店铺，嵌入页会跟随旧租约。
+        // 用产品自己的店铺下拉切回目标店铺，避免本用例依赖其他用例留下的选择。
+        await wait(`Boolean(document.querySelector('[data-testid="knowledge-store"]'))`)
+        const selectedStore = (await win.webContents.executeJavaScript(
+          `document.querySelector('[data-testid="knowledge-store"]').value`,
+        )) as string
+        if (selectedStore !== shop)
+          await win.webContents.executeJavaScript(
+            `(() => {const select = document.querySelector('[data-testid="knowledge-store"]'); select.value = ${JSON.stringify(shop)}; select.dispatchEvent(new Event('change', { bubbles: true }))})()`,
+          )
         await wait(
           `Array.from(document.querySelectorAll('[data-testid="product-edit"]')).some(button => button.closest('.knowledge-card')?.textContent.includes(${JSON.stringify(productId)}))`,
         )
@@ -1893,6 +1911,10 @@ export async function businessChecks(options: {
       assert.equal((await snapshot()).workOrders[0].notes[0].text, '本机跟进记录')
     })
     await check('business:restart-and-offline-draft', '/', async () => {
+      // 质检文件按严格 schema 读取；合成行必须来自真实存在的店铺，
+      // 否则空 storeId 会被判成“记录损坏”，掩盖真正的重启验证。
+      const fixtureStore = (await snapshot()).stores.find((store) => store.id === storeA)
+      assert.ok(fixtureStore, '重启夹具缺少 business:ui-add-store 建立的有效店铺')
       const storesFile = path.join(dataDir, 'stores.json')
       const stores = JSON.parse(fs.readFileSync(storesFile, 'utf8')) as {
         stores: { aiEnabled: boolean }[]
@@ -1903,7 +1925,7 @@ export async function businessChecks(options: {
         path.join(dataDir, 'conversations.json'),
         JSON.stringify([
           {
-            storeId: storeA,
+            storeId: fixtureStore.id,
             uid: 'fixture-buyer',
             name: '合成顾客',
             status: 'pending',
@@ -1920,11 +1942,11 @@ export async function businessChecks(options: {
           rows: [
             {
               id: recordId,
-              storeId: storeA,
+              storeId: fixtureStore.id,
               uid: 'fixture-buyer',
               name: '合成顾客',
-              storeName: '隔离测试甲店',
-              platform: 'pdd-web',
+              storeName: fixtureStore.storeName,
+              platform: fixtureStore.platform,
               status: 'pending',
               note: '',
               version: 1,

@@ -5,7 +5,6 @@ import path from 'node:path'
 import type { BackendResult, BackendSnapshot, CommandInput } from '../src/shared/contracts/backend'
 import {
   SIM_PLATFORM_ID,
-  SIM_PLATFORM_LABEL,
   type SimulatorActionResult,
   type SimulatorStatus,
 } from '../src/shared/contracts/simulation'
@@ -86,56 +85,32 @@ export async function simChecks(options: {
     assert.equal(before.url, '')
   })
 
-  await check('sim:add-store-from-dialog', '/', async () => {
+  // 用户已从添加弹窗删除本机模拟入口；这里只做“入口仍未回来”的界面回归，
+  // 合成店铺改由仅测试使用的 runtime 命令创建，不恢复被删除的产品界面。
+  await check('sim:add-store-runtime-fixture', '/', async () => {
     await load('/')
     await evaluate(`document.querySelector('[aria-label="添加店铺"]').click()`)
-    await waitFor(
-      `Boolean(document.querySelector('[aria-label="本机模拟店铺入口"]'))`,
-      '平台选择弹窗未出现',
+    await waitFor(`Boolean(document.querySelector('.add-platform-dialog'))`, '平台选择弹窗未出现')
+    assert.equal(
+      await evaluate<boolean>(
+        `Boolean(document.querySelector('.add-platform-dialog [data-platform="sim-local"]')) || Boolean(document.querySelector('[aria-label="本机模拟店铺入口"]'))`,
+      ),
+      false,
+      '添加店铺弹窗不能再出现本机模拟店铺入口',
     )
-    await evaluate(`document.querySelector('[aria-label="本机模拟店铺入口"]').click()`)
-    await waitFor(
-      `Boolean(document.querySelector('.el-dialog input[aria-label="店铺名称"]'))`,
-      '添加店铺弹窗未出现',
-    )
-    await evaluate(`document.querySelector('.el-dialog [aria-label="店铺平台"]').click()`)
-    await waitFor(
-      `Array.from(document.querySelectorAll('.el-select-dropdown__item')).some(item => item.textContent.includes(${JSON.stringify(SIM_PLATFORM_LABEL)}))`,
-      '平台下拉里没有本机模拟店铺',
-    )
-    await evaluate(
-      `(() => {const item = Array.from(document.querySelectorAll('.el-select-dropdown__item')).find(node => node.textContent.includes(${JSON.stringify(SIM_PLATFORM_LABEL)})); if(!item) throw Error('平台选项缺失'); item.click()})()`,
-    )
-    await waitFor(
-      `document.body.innerText.includes('只在本机运行')`,
-      '选择本机模拟店铺后没有出现诚实说明',
-    )
-    await evaluate(
-      `(() => {const input = document.querySelector('.el-dialog input[aria-label="店铺名称"]'); if(!input) throw Error('店铺名称输入框缺失'); input.value='本机演练店'; input.dispatchEvent(new Event('input',{bubbles:true}))})()`,
-    )
-    // 弹窗里选中“本机模拟店铺”的样子要留证据：这是用户新加的入口，不能只在报告里写字符串。
-    // 只截弹窗矩形并等动画结束，避免把工作台悬浮卡片一起截进来当成交付截图。
-    await delay(400)
-    const dialogRect = await evaluate<{ x: number; y: number; width: number; height: number }>(
-      `(() => {const dialog = document.querySelector('.el-dialog'); if(!dialog) throw Error('添加店铺弹窗缺失'); const box = dialog.getBoundingClientRect(); return {x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height)}})()`,
-    )
-    fs.mkdirSync(path.resolve('artifacts', 'desktop'), { recursive: true })
-    fs.writeFileSync(
-      path.resolve('artifacts', 'desktop', 'sim-add-store-dialog.png'),
-      (await win.webContents.capturePage(dialogRect)).toPNG(),
-    )
-    await evaluate(`document.querySelector('.el-dialog form button[type="submit"]').click()`)
-    const added = await until(
-      snapshot,
-      (value) => value.stores.some((store) => store.platform === SIM_PLATFORM_ID),
-      '本机模拟店铺未出现在快照里',
-    )
-    const simStore = added.stores.find((store) => store.platform === SIM_PLATFORM_ID)
-    assert.ok(simStore)
+    await evaluate(`document.querySelector('[aria-label="取消添加店铺"]').click()`)
+    const added = await execute({
+      action: 'add-store',
+      values: { platform: SIM_PLATFORM_ID, storeName: '本机演练店' },
+    })
+    storeId = String(added.data.id)
+    const current = await snapshot()
+    const simStore = current.stores.find((store) => store.id === storeId)
+    assert.ok(simStore, '本机模拟店铺未出现在快照里')
+    assert.equal(simStore.platform, SIM_PLATFORM_ID)
     assert.equal(simStore.storeName, '本机演练店')
     // 添加不等于已打开：模拟店铺也必须显式打开后才有采集。
     assert.equal(simStore.runtime.open, false)
-    storeId = simStore.id
   })
 
   await check('sim:open-page-and-token-gates', '/', async () => {
