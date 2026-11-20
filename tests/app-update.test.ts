@@ -237,6 +237,18 @@ it('限流备用路径缺少精确安装包或下载路径异常时失败，不�
     expect(page, label).toHaveBeenCalledTimes(2)
   }
 })
+it('备用页中文多字节内容按 UTF-8 字节判断超限，不按字符数放过', async () => {
+  const body = assets('1.0.75').body + '中'.repeat(90_000)
+  const page = vi.fn(async (url: string) =>
+    url === latestPage ? redirect('1.0.75') : assets('1.0.75', { body }),
+  )
+  const check = createAppUpdateChecker('1.0.74', async () => limited(), page)
+  await expect(check(false)).rejects.toThrow('更新信息异常，请稍后重试')
+  // 字符数在旧口径内，UTF-8 字节数已超限；用于防止中文内容绕过 256 KiB 契约。
+  expect(body.length).toBeLessThan(256 * 1024)
+  expect(Buffer.byteLength(body, 'utf8')).toBeGreaterThan(256 * 1024)
+  expect(page).toHaveBeenCalledTimes(2)
+})
 it('官方页面本身失败时保持检查失败，不返回 current', async () => {
   for (const error of [Error('network'), new DOMException('aborted', 'AbortError')]) {
     const page = vi.fn(async () => {

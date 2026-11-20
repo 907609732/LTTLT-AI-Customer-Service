@@ -52,6 +52,9 @@ export const requestGithubPage: GithubPageRequest = (url, signal) =>
         method: 'GET',
         url,
         redirect: 'manual',
+        // 独立内存 session 只保证没有现存 Cookie，并不禁止会话认证；显式 omit。
+        credentials: 'omit',
+        useSessionCookies: false,
         // 无 persist 前缀即内存 session：不读取本机登录 Cookie 或磁盘缓存。
         partition: 'lingtu-app-update',
       })

@@ -118,7 +118,8 @@ export function createAppUpdateChecker(
     if (
       assetsPage.status !== 200 ||
       !assetsPage.contentType?.toLowerCase().startsWith('text/html') ||
-      assetsPage.body.length > maxPageBytes
+      // 适配器按字节流截断；纯检查器也按 UTF-8 字节复核，避免中文等多字节内容绕过。
+      Buffer.byteLength(assetsPage.body, 'utf8') > maxPageBytes
     )
       throw Error(invalidMessage)
 

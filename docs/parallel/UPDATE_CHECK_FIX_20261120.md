@@ -60,6 +60,15 @@
 - `npm run build:desktop`：退出 0；`dist-electron/main.cjs` 已包含新适配器（`lingtu-app-update`）。
 - 未运行：全量 `npm run check`、`npm run test:desktop`、打包/安装、发布流程；未重启或操作真实安装版与店铺。
 
+## 复核补强（Codex 复核 b1555e0 后）
+
+- 显式认证边界：`net.request` 增加 `credentials: 'omit'` 与 `useSessionCookies: false`。独立内存 partition 只保证没有现存 Cookie；Electron 类型说明未指定 `credentials` 时会发送 session 认证数据并可能触发 `login`，因此不能仅靠 partition 表达“禁止认证”。仍保持 `redirect: 'manual'` 与拿到 Location 后立即中断。
+- 字节口径统一：检查器对备用页正文改用 `Buffer.byteLength(body, 'utf8')`，与适配器 256 KiB 字节流上限同口径；新增中文多字节超限回归（字符数在旧口径内、UTF-8 字节超限）。
+- 新增 `tests/app-update-page.test.ts`（8 项，事件驱动假 `net.request`，无新依赖、无 `any`）：请求显式 omit 与内存 partition、只发 User-Agent/Accept、无 Cookie/Authorization 头；redirect 只回传 Location 并 abort、从不 followRedirect（含缺参回退响应头）；signal 已取消不建请求；运行中取消 abort+拒绝、迟到事件不改写且移除监听；响应超 256 KiB abort+拒绝、迟到 end/error 不能改成成功；正常响应按 UTF-8 结算并移除监听；请求错误、响应 error/aborted 均失败且迟到 end 不改写。
+- RED（以 `b1555e0` 生产文件跑最终测试）：`2 failed | 25 passed`，失败项正是 credentials 选项与中文 UTF-8 超限；日志 `increment-red.log`。GREEN：4 文件 33/33（app-update 19、app-update-page 8、app-update-ui 3、runtime-logs-ipc 3）；`tsc`、`vue-tsc`、ESLint、Prettier、模块边界均通过；日志 `commands-increment.log`、`related-tests-increment.log`。
+- 更新后原生 e2e 重跑（真实 API + 真实页面）：真实 API 200（remaining 59→58）时正常路径 `1.0.88 current`、`1.0.73 available` 且不访问发布页；注入 API 403 后真实 `/releases/latest` 302 到 `releases/tag/v1.0.74`，`expanded_assets` 200/20648 字节含精确安装器；`1.0.88 current`、`1.0.73 available`；站外下载跳转仍 302 且 body 0；不存在标签 404。新 credentials 选项在真实 Electron 网络栈可用，结果与补强前一致。旧结果保留 `e2e-update-check-before-credentials.json`，新结果 `e2e-update-check.json`，日志 `e2e-run-increment.log`。
+- 本次未改版本、未构建前端、未打包/重启/推送；未重复此前大量 probe 或全量 check/desktop。
+
 ## 已知边界与后续
 
 - 备用路径只接受本项目现有 `v<三段版本>` 标签约定；若未来改为无 `v` 标签，备用链会安全失败（API 正常时不受影响）。
@@ -69,4 +78,4 @@
 
 ## 证据清单（`artifacts/update-check-fix-20261120/`，忽略目录）
 
-`public-api.headers`、`public-api.json`（原始只读复制说明见上）、`api-now.*`、`latest.headers.txt`、`tag-1.0.74.*`、`expanded-assets-1.0.74.*`、`net-fetch-probe.json`、`net-request-debug.json`、`probe-net-fetch.cjs`、`probe-net-request-debug.cjs`、`e2e-update-check.cjs`、`e2e-update-check.json`、`e2e-run.log`、`red-tests.log`、`green-tests.log`、`related-tests.log`、`build-desktop.log`、`diff.patch`、`commands.log`。
+`public-api.headers`、`public-api.json`（原始只读复制说明见上）、`api-now.*`、`latest.headers.txt`、`tag-1.0.74.*`、`expanded-assets-1.0.74.*`、`net-fetch-probe.json`、`net-request-debug.json`、`probe-net-fetch.cjs`、`probe-net-request-debug.cjs`、`e2e-update-check.cjs`、`e2e-update-check.json`、`e2e-update-check-before-credentials.json`、`e2e-run.log`、`e2e-run-increment.log`、`red-tests.log`、`green-tests.log`、`increment-red.log`、`related-tests.log`、`related-tests-increment.log`、`page-adapter-tests.log`、`build-desktop.log`、`diff.patch`、`diff-increment.patch`、`commands.log`、`commands-increment.log`。
