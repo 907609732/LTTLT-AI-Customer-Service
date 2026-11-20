@@ -221,6 +221,8 @@ GitHub 匿名 API 出现真实限流（403 且 `x-ratelimit-remaining: 0`，或 
 
 主工作台左下的 `UpdateStatus` 提供检查入口和可关闭的小提示；仅在用户点击后经已有 `openExternal` 打开固定官方版本下载页，不自动下载或执行安装器。此功能不等于静默升级或代码签名。无正式 Release、网络失败与已是最新版本分别处理。浏览器仅预览界面，不进行启动检查。
 
+1.0.93 起，工作台与配置中心共用 app 层 `SidebarFooter`。`app/sidebar-footer.ts` 只派生现有账号快照额度并通过原平台适配器打开固定官方教程，不新增网络、轮询或 IPC；遗留 `account.trial.remaining` 是包含付费的聚合可用次数。登录、客服和快捷回复由 MainLayout 唯一持有，配置页仅发出声明事件；弹窗纳入原生平台页隐藏条件。`UpdateStatus` footer 变体只改呈现，保留原启动/手动检查与下载白名单，失败状态优先于此前发现的版本，内联提示在有界滚动 footer 内可达。默认 `AppVersion` 显示兼容，footer 通过前缀显示“当前 v实际版本”。
+
 ## 知识库内容区（2026-11-19）
 
 `/knowledge` 与 `/shop/manage` 同为 MainLayout 子路由，知识库传入 `embedded=true`，复用主顶栏和内容区。`createKnowledgeWindow` 的 embedded 宿主沿用原上下文/账号校验及维护重建契约，不创建额外 BrowserWindow；`knowledge:navigate` 仅向主窗口发送账号和固定 library/home 目的地，由 app 层导航并过滤迟到账号事件。原知识查询/命令 IPC 不变。路由离开由 controller 保存草稿并阻止失败或处理中离开，卸载继续注销事件和轮询；后台任务保持运行。独立窗口宿主保留给历史隔离验收。
