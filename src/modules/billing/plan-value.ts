@@ -85,7 +85,7 @@ export function costPerThousand(plan: Pick<PlanValue, 'amount' | 'calls'>): stri
 /**
  * 同等金额按体验包实际单价能买到的调用数，再与当前套餐比较。
  * 只用已发布套餐的 amount，不使用划线原价；基准缺失或没有正收益时返回空串。
- * 百分比向下取一位小数，只有确实取整时才标“约”，避免把 137.6% 说成 138%。
+ * 百分比精确到一位小数；只有截断/近似值才标“约”，避免把约 137.659% 说成 137.7%。
  */
 export function planValueComparison(plan: PlanValue, plans: readonly PlanValue[]): string {
   if (plan.id === EXPERIENCE_PLAN_ID) return ''

@@ -86,6 +86,8 @@ function setup(state = 'paid', compact = false, snapshot: TestOrder = order) {
   }
   const run = vi.spyOn(runtime, 'run').mockResolvedValue({ status: 'ok', message: '', data: {} })
   const request = vi.fn<BillingTransport['request']>(async (method, path, body) => {
+    if (method === 'POST' && path.endsWith('/close'))
+      return { order: { ...snapshot, state: 'closed' }, checkout_url: '' }
     if (method === 'POST') {
       const plan =
         body?.plan_id === 'support_100000'
@@ -94,7 +96,7 @@ function setup(state = 'paid', compact = false, snapshot: TestOrder = order) {
             ? standard
             : experience
       return {
-        order: { ...snapshot, plan, state: 'pending', paid_at: 0 },
+        order: { ...snapshot, id: 'order_new', plan, state: 'pending', paid_at: 0 },
         checkout_url: '',
         qr_code: 'weixin://test',
       }
@@ -110,7 +112,10 @@ function setup(state = 'paid', compact = false, snapshot: TestOrder = order) {
       ready: true,
       reason: '',
       plans: [experience, standard, support],
-      channels: [{ id: 'alipay', ready: true, reason: '' }],
+      channels: [
+        { id: 'alipay', ready: true, reason: '' },
+        { id: 'wechat', ready: true, reason: '' },
+      ],
       quota: { trial: pool, paid: pool, remaining: 158 },
     }
   })
@@ -210,6 +215,49 @@ describe('简化充值页', () => {
     expect(text).not.toContain('300000（三十万）次')
     expect(request.mock.calls.filter((call) => call[0] === 'POST')).toHaveLength(0)
     expect(request).toHaveBeenCalledWith('GET', '/api/client/billing/orders/order_support')
+  })
+  it('创建返回的订单快照优先于点击时的目录价格', async () => {
+    const { wrapper, request } = setup()
+    wrappers.push(wrapper)
+    await flushPromises()
+    // 目录在点击和创建之间变化：响应快照才是二维码对应的真实价格/额度。
+    const changed = { ...standard, amount: 12000, calls: 24000 }
+    request.mockImplementationOnce(async () => ({
+      order: { ...order, id: 'order_changed', plan: changed, state: 'pending', paid_at: 0 },
+      checkout_url: '',
+      qr_code: 'weixin://test',
+    }))
+    await wrapper.findAll('.billing-plan')[1].get('button').trigger('click')
+    await flushPromises()
+    const text = document.querySelector('.billing-cashier-dialog')?.textContent ?? ''
+    expect(text).toContain('24000（两万四千）次')
+    expect(text).toContain('¥120.00')
+    expect(text).not.toContain('20000（两万）次')
+    expect(text).not.toContain('¥100.00')
+  })
+  it('关闭旧单并换渠道创建新单后不残留原订单提示', async () => {
+    const { wrapper, request } = setup('pending', false, legacySupportOrder)
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.get('.billing-plan--premium button').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('.billing-cashier-dialog')?.textContent).toContain('仍按下单时')
+    const wechat = document.querySelector<HTMLInputElement>(
+      '.billing-channels input[value="wechat"]',
+    )!
+    wechat.click()
+    await flushPromises()
+    const switchButton = [
+      ...document.querySelectorAll<HTMLButtonElement>('.billing-cashier-dialog button'),
+    ].find((button) => button.textContent?.includes('关闭原订单并切换支付方式'))!
+    switchButton.click()
+    await flushPromises()
+    const text = document.querySelector('.billing-cashier-dialog')?.textContent ?? ''
+    const posts = request.mock.calls.filter((call) => call[0] === 'POST')
+    expect(posts.some((call) => call[1].endsWith('/close'))).toBe(true)
+    expect(posts.some((call) => call[1] === '/api/client/billing/orders')).toBe(true)
+    expect(text).toContain('300000（三十万）次')
+    expect(text).not.toContain('仍按下单时')
   })
   it('额度括注和比较文案在窄卡片内换行，不顶开额度与按钮', async () => {
     const source = readFileSync('src/modules/billing/components/BillingDashboard.vue', 'utf8')

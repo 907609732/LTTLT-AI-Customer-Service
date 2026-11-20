@@ -48,13 +48,34 @@ const channels = computed(() =>
 const nativeReady = computed(() => channels.value.some((channel) => channel.ready))
 const quotaExpanded = ref(false)
 const cashierOpen = ref(false)
-const existingOrderNotice = ref('')
+const existingOrderNotice = ref<{ orderId: string; text: string } | null>(null)
 const selectedPlan = ref<BillingPlan | null>(null)
 const selectedChannel = ref<BillingChannel>('alipay')
 const qrImage = ref('')
 const qrError = ref('')
-// 优先当前选择/正在恢复的套餐；从订单列表恢复时 selectedPlan 为空，退回订单快照。
-const cashierPlan = computed(() => selectedPlan.value ?? activePayment.value?.order.plan ?? null)
+const NOTICE_OTHER_ORDER = '您有一笔未完成的订单，请先完成支付或关闭原订单。'
+const NOTICE_ORIGINAL_TERMS =
+  '您有一笔未完成的订单，仍按下单时的价格和额度结算；如需购买当前套餐，请先关闭原订单。'
+// 等待创建/恢复时先显示当前选择；收到实际订单后必须让订单快照优先，避免目录变化后错配二维码。
+const cashierIntent = ref<BillingPlan | null>(null)
+const cashierPlan = computed(
+  () => cashierIntent.value ?? activePayment.value?.order.plan ?? selectedPlan.value,
+)
+// 提示只对它所指向的待付订单有效；关闭、换单或新订单形成后不会残留。
+const orderNotice = computed(() => {
+  const notice = existingOrderNotice.value
+  const order = activePayment.value?.order
+  if (!notice || !order || order.id !== notice.orderId) return ''
+  return ['pending', 'reconciling'].includes(order.state) ? notice.text : ''
+})
+// 订单一旦被接收，快照立即优先；仍在等待创建/恢复时保留当前选择。
+watch(
+  activePayment,
+  (payment) => {
+    if (payment) cashierIntent.value = null
+  },
+  { flush: 'sync' },
+)
 const planComparison = (plan: BillingPlan) => planValueComparison(plan, catalog.value?.plans ?? [])
 // 套餐 ID 不随额度改名；同 ID 但下单条款不同时仍必须提示正在恢复旧订单。
 const sameOffer = (current: BillingPlan, next: BillingPlan) =>
@@ -62,6 +83,13 @@ const sameOffer = (current: BillingPlan, next: BillingPlan) =>
   current.calls === next.calls &&
   current.valid_days === next.valid_days &&
   Boolean(current.permanent) === Boolean(next.permanent)
+function noteExistingOrder(order: BillingOrder, selected: BillingPlan) {
+  if (order.plan.id !== selected.id)
+    existingOrderNotice.value = { orderId: order.id, text: NOTICE_OTHER_ORDER }
+  else if (!sameOffer(order.plan, selected))
+    existingOrderNotice.value = { orderId: order.id, text: NOTICE_ORIGINAL_TERMS }
+  else existingOrderNotice.value = null
+}
 const channelReady = (id: BillingChannel) =>
   channels.value.some((channel) => channel.id === id && channel.ready)
 const createLabel = computed(() =>
@@ -77,7 +105,7 @@ function channelReason(channel: { ready: boolean; reason: string }) {
 }
 async function choose(plan: BillingPlan, preferredChannel?: BillingChannel) {
   if (pending.value) return
-  existingOrderNotice.value = ''
+  existingOrderNotice.value = null
   paymentError.value = ''
   selectedPlan.value = plan
   selectedChannel.value =
@@ -93,18 +121,24 @@ async function choose(plan: BillingPlan, preferredChannel?: BillingChannel) {
       : orders.value.find((order) => ['pending', 'reconciling'].includes(order.state))
   // Reopening a cashier must not replace an unpaid order or generate another payment code.
   if (current && ['pending', 'reconciling'].includes(current.state)) {
-    if (current.plan.id !== plan.id)
-      existingOrderNotice.value = '您有一笔未完成的订单，请先完成支付或关闭原订单。'
-    else if (!sameOffer(current.plan, plan))
-      existingOrderNotice.value =
-        '您有一笔未完成的订单，仍按下单时的价格和额度结算；如需购买当前套餐，请先关闭原订单。'
+    noteExistingOrder(current, plan)
     selectedPlan.value = current.plan
     if (current.channel === 'alipay' || current.channel === 'wechat')
       selectedChannel.value = current.channel
-    await billing.resumeOrder(current)
+    cashierIntent.value = current.plan
+    try {
+      await billing.resumeOrder(current)
+    } finally {
+      cashierIntent.value = null
+    }
     return
   }
-  await billing.checkout(plan, selectedChannel.value)
+  cashierIntent.value = plan
+  try {
+    await billing.checkout(plan, selectedChannel.value)
+  } finally {
+    cashierIntent.value = null
+  }
 }
 async function checkoutSelected() {
   const plan = selectedPlan.value
@@ -115,9 +149,14 @@ async function checkoutSelected() {
     current &&
     ['pending', 'reconciling'].includes(current.state) &&
     current.channel !== selectedChannel.value
-  )
-    await billing.checkout(plan, selectedChannel.value)
-  else await choose(plan, selectedChannel.value)
+  ) {
+    cashierIntent.value = plan
+    try {
+      await billing.checkout(plan, selectedChannel.value)
+    } finally {
+      cashierIntent.value = null
+    }
+  } else await choose(plan, selectedChannel.value)
 }
 async function refreshCashierOrders() {
   const identity = billing.identity.value
@@ -131,11 +170,20 @@ async function refreshCashierOrders() {
   )
     await choose(plan)
 }
-function resume(order: BillingOrder) {
+async function resume(order: BillingOrder) {
   cashierOpen.value = true
-  existingOrderNotice.value = ''
-  selectedPlan.value = null
-  void billing.resumeOrder(order)
+  const currentOffer = catalog.value?.plans.find((plan) => plan.id === order.plan.id)
+  existingOrderNotice.value =
+    currentOffer && !sameOffer(order.plan, currentOffer)
+      ? { orderId: order.id, text: NOTICE_ORIGINAL_TERMS }
+      : null
+  selectedPlan.value = order.plan
+  cashierIntent.value = order.plan
+  try {
+    await billing.resumeOrder(order)
+  } finally {
+    cashierIntent.value = null
+  }
 }
 async function refresh() {
   if (!props.compact) return billing.refresh()
@@ -148,7 +196,8 @@ watch(
   billing.identity,
   () => {
     cashierOpen.value = false
-    existingOrderNotice.value = ''
+    existingOrderNotice.value = null
+    cashierIntent.value = null
     quotaExpanded.value = false
     selectedPlan.value = null
     qrImage.value = ''
@@ -409,15 +458,7 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
         >
           刷新订单并重试
         </el-button>
-        <p
-          v-if="
-            existingOrderNotice &&
-            activePayment &&
-            ['pending', 'reconciling'].includes(activePayment.order.state)
-          "
-        >
-          {{ existingOrderNotice }}
-        </p>
+        <p v-if="orderNotice">{{ orderNotice }}</p>
         <template v-if="activePayment && !checkoutPending && !checkoutError">
           <p>
             订单 {{ activePayment.order.id }} · {{ channelName(activePayment.order.channel) }} ·

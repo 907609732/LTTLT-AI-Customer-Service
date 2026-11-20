@@ -8,8 +8,8 @@
 - 已创建订单继续使用不可变套餐快照；待付款恢复、支付回调、重复入账和同请求号幂等仍按下单金额/调用数校验，旧订单与旧额度不追溯。
 - 新增 `server/overlay/lingtuhost/billing_native_test.go` 回归：旧订单目录更新后恢复和入账仍为 10000 次；同请求号换新条款返回 409；新订单取得 20000 次；重复查单不重复入账；旧订单最终保持 10000 次/已入账。
 - 新增 `src/modules/billing/plan-value.ts` 纯展示帮助：中文读数、每千次费用、同金额额度比较。不参与价格、订单、额度或传输，非法输入安全退化。
-- `BillingDashboard.vue`：套餐卡调用数显示 `20000（两万）次` 等中文括注，收银台快照同样使用服务端原值；每张卡增加每千次费用；非体验包按当前已加载体验包的实际 `amount` 动态显示“同等金额，较体验包多 N% 额度”。百分比向下保留一位小数，取整时才省略小数并省略“约”；基准缺失/不可比/非正收益不显示。窄屏下 dd 与比较文案允许换行。
-- 同 ID 但条款不同的旧待付订单：继续恢复原订单，同时明确提示仍按下单时的价格和额度结算、需先关闭原订单才能购买当前套餐；不自动关单、替换或创建第二笔订单。
+- `BillingDashboard.vue`：套餐卡调用数显示 `20000（两万）次` 等中文括注，收银台快照同样使用服务端原值；每张卡增加每千次费用；非体验包按当前已加载体验包的实际 `amount` 动态显示“同等金额，较体验包多 N% 额度”。百分比精确到一位小数时直接显示（如 137.6%），只有截断/近似值才加“约”；基准缺失/不可比/非正收益不显示。窄屏下 dd 与比较文案允许换行。
+- 同 ID 但条款不同的旧待付订单：继续恢复原订单，同时明确提示仍按下单时的价格和额度结算、需先关闭原订单才能购买当前套餐；不自动关单、替换或创建第二笔订单。提示绑定待付订单 ID，关闭/换单或新订单形成后自动隐藏；收银台在创建/恢复等待时显示当前选择，收到实际订单后以订单快照为准。
 - 金色支持卡、登录/商户未配置/错误状态、compact 只读、先恢复旧待付款订单、查单/二维码/支付校验和数据隔离未改。
 
 ## 关键取舍
@@ -17,7 +17,7 @@
 - 中文标注只追加括注，真实数字、DTO 字段和传输保持不变；未给价格、订单号、日期加中文。
 - 每千次费用按 `amount`（分）× 1000 / `calls` 计算，不能整除到分时标注“约”（体验包 ¥9.90、标准包 ¥5.00、共创约 ¥3.33）。
 - 比较基准是已加载的 `usage_1000` 套餐实际 `amount`（9.90），不使用划线原价 10.00；百分比由 `amount/calls` 动态计算，不硬编码 98/197。文案只描述调用额度增幅，不称为费用节省，不承诺回复质量或固定可工作小时。
-- 中文读数只支持 0..99,999,999 的整数；`200000` 读“二十万”，仅“二万/二亿”读“两万/两亿”。百分比非整数时向下取一位小数并标“约”，避免把约 137.659% 说成 137.7%。
+- 中文读数只支持 0..99,999,999 的整数；`200000` 读“二十万”，仅“二万/二亿”读“两万/两亿”。百分比精确到一位小数；只有截断/近似值才标“约”，避免把约 137.659% 说成 137.7%。
 
 ## 实际验证
 
@@ -30,16 +30,16 @@
 
 根目录：
 
-| 命令                                                                                                                                                                                               | 结果                                                                          |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `npx vitest run tests/billing-plan-value.test.ts tests/billing-layout.test.ts tests/billing-cashier-dialog.test.ts`                                                                                | 3 文件 / 40 用例通过（含 21 个纯格式/比较用例、旧订单快照与同 ID 旧订单提示） |
-| `npx vitest run tests/billing.test.ts tests/billing-payments.test.ts tests/billing-retry-compatibility.test.ts`                                                                                    | 3 文件 / 24 用例通过                                                          |
-| `npm run typecheck`                                                                                                                                                                                | 通过（vue-tsc + Electron + server tools + tools）                             |
-| `npx eslint --config config/eslint.config.mjs src/modules/billing/plan-value.ts src/modules/billing/components/BillingDashboard.vue tests/billing-plan-value.test.ts tests/billing-layout.test.ts` | 无输出，退出码 0                                                              |
-| `npx prettier --check ...`（上述 4 个文件）                                                                                                                                                        | All matched files use Prettier code style                                     |
-| `node scripts/check-boundaries.mjs`                                                                                                                                                                | 模块依赖方向与组件环境 API 检查通过                                           |
-| `npm run check:vendor`                                                                                                                                                                             | vendor 80 / server 107 个文件通过                                             |
-| `npm run build`                                                                                                                                                                                    | vite + build:desktop 通过；仅有既有的大 chunk 与 zod 注释警告                 |
+| 命令                                                                                                                                                                                               | 结果                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `npx vitest run tests/billing-plan-value.test.ts tests/billing-layout.test.ts tests/billing-cashier-dialog.test.ts`                                                                                | 3 文件 / 42 用例通过（含 21 个纯格式/比较用例、旧订单快照、同 ID 旧订单提示、响应快照优先和换单后提示清理） |
+| `npx vitest run tests/billing.test.ts tests/billing-payments.test.ts tests/billing-retry-compatibility.test.ts`                                                                                    | 3 文件 / 24 用例通过                                                                                        |
+| `npm run typecheck`                                                                                                                                                                                | 通过（vue-tsc + Electron + server tools + tools）                                                           |
+| `npx eslint --config config/eslint.config.mjs src/modules/billing/plan-value.ts src/modules/billing/components/BillingDashboard.vue tests/billing-plan-value.test.ts tests/billing-layout.test.ts` | 无输出，退出码 0                                                                                            |
+| `npx prettier --check ...`（上述 4 个文件）                                                                                                                                                        | All matched files use Prettier code style                                                                   |
+| `node scripts/check-boundaries.mjs`                                                                                                                                                                | 模块依赖方向与组件环境 API 检查通过                                                                         |
+| `npm run check:vendor`                                                                                                                                                                             | vendor 80 / server 107 个文件通过                                                                           |
+| `npm run build`                                                                                                                                                                                    | vite + build:desktop 通过；仅有既有的大 chunk 与 zod 注释警告                                               |
 
 隔离预览（无头 Chrome + 本地合成 transport，不连托管/数据库/Electron）：
 
