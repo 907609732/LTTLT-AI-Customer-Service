@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { permanentAccountExpiry } from '@/shared/contracts/managed'
 import { useBilling } from '../use-billing'
 import { paymentCodeImage } from '../payment-code'
+import { callCountText, costPerThousand, planValueComparison } from '../plan-value'
 import type { BillingChannel, BillingOrder, BillingPlan } from '../contracts'
 const props = defineProps<{ section?: 'plans' | 'orders' | 'usage'; compact?: boolean }>()
 const billing = useBilling()
@@ -52,6 +53,15 @@ const selectedPlan = ref<BillingPlan | null>(null)
 const selectedChannel = ref<BillingChannel>('alipay')
 const qrImage = ref('')
 const qrError = ref('')
+// 优先当前选择/正在恢复的套餐；从订单列表恢复时 selectedPlan 为空，退回订单快照。
+const cashierPlan = computed(() => selectedPlan.value ?? activePayment.value?.order.plan ?? null)
+const planComparison = (plan: BillingPlan) => planValueComparison(plan, catalog.value?.plans ?? [])
+// 套餐 ID 不随额度改名；同 ID 但下单条款不同时仍必须提示正在恢复旧订单。
+const sameOffer = (current: BillingPlan, next: BillingPlan) =>
+  current.amount === next.amount &&
+  current.calls === next.calls &&
+  current.valid_days === next.valid_days &&
+  Boolean(current.permanent) === Boolean(next.permanent)
 const channelReady = (id: BillingChannel) =>
   channels.value.some((channel) => channel.id === id && channel.ready)
 const createLabel = computed(() =>
@@ -85,6 +95,9 @@ async function choose(plan: BillingPlan, preferredChannel?: BillingChannel) {
   if (current && ['pending', 'reconciling'].includes(current.state)) {
     if (current.plan.id !== plan.id)
       existingOrderNotice.value = '您有一笔未完成的订单，请先完成支付或关闭原订单。'
+    else if (!sameOffer(current.plan, plan))
+      existingOrderNotice.value =
+        '您有一笔未完成的订单，仍按下单时的价格和额度结算；如需购买当前套餐，请先关闭原订单。'
     selectedPlan.value = current.plan
     if (current.channel === 'alipay' || current.channel === 'wechat')
       selectedChannel.value = current.channel
@@ -314,13 +327,18 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
             <dl class="plan-details">
               <div>
                 <dt>调用额度</dt>
-                <dd>{{ plan.calls }} 次</dd>
+                <dd>{{ callCountText(plan.calls) }}</dd>
+              </div>
+              <div v-if="costPerThousand(plan)">
+                <dt>每千次费用</dt>
+                <dd>{{ costPerThousand(plan) }}</dd>
               </div>
               <div>
                 <dt>有效期</dt>
                 <dd>{{ validity(plan) }}</dd>
               </div>
             </dl>
+            <p v-if="planComparison(plan)" class="plan-value">{{ planComparison(plan) }}</p>
             <div v-if="isPremium(plan)" class="premium-benefits">
               <strong>专属一对一客服</strong>
               <span>程序开发者一对一对接</span>
@@ -361,9 +379,9 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
       :close-on-click-modal="false"
     >
       <div class="cashier">
-        <p v-if="selectedPlan">
-          {{ selectedPlan.name }} · {{ money(selectedPlan.amount) }} · {{ selectedPlan.calls }} 次 ·
-          有效期 {{ validity(selectedPlan) }}
+        <p v-if="cashierPlan">
+          {{ cashierPlan.name }} · {{ money(cashierPlan.amount) }} ·
+          {{ callCountText(cashierPlan.calls) }} · 有效期 {{ validity(cashierPlan) }}
         </p>
         <p v-if="selectedPlan && isPremium(selectedPlan)" class="premium-benefits">
           专属一对一客服 · 程序开发者一对一对接
@@ -735,6 +753,17 @@ p {
   color: #40516a;
   font-size: 13px;
   font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.plan-value {
+  margin-top: 12px;
+  color: #5d6c80;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.billing-plan--premium .plan-value {
+  color: #765320;
 }
 .billing-plan > .el-button {
   width: 100%;

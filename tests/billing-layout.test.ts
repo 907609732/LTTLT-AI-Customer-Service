@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ElementPlus from 'element-plus'
@@ -11,16 +12,68 @@ import { createDemoServices } from '../src/app/services'
 import { useRuntimeStore } from '../src/shared/state/runtime'
 
 const pool = { limit: 100, used: 20, reserved: 1, remaining: 79, expires_at: 2000000000 }
-const plan = {
-  id: 'p',
+const experience = {
+  id: 'usage_1000',
   name: '体验包 · 小小心意',
   currency: 'cny',
   amount: 990,
+  list_amount: 1000,
   calls: 1000,
   valid_days: 365,
 }
-const order = { id: 'order_1', plan, state: 'paid', channel: 'alipay', created_at: 1, paid_at: 2 }
-function setup(state = 'paid', compact = false) {
+const standard = {
+  id: 'usage_10000',
+  name: '标准包 · 支持一份',
+  currency: 'cny',
+  amount: 10000,
+  list_amount: 10000,
+  calls: 20000,
+  valid_days: 365,
+}
+const support = {
+  id: 'support_100000',
+  name: '共创支持包',
+  currency: 'cny',
+  amount: 100000,
+  calls: 300000,
+  valid_days: 365,
+  permanent: true,
+}
+// 已创建订单继续使用下单时的快照，不随目录额度更新。
+const legacyStandard = { ...standard, calls: 10000 }
+interface TestOrder {
+  id: string
+  plan: {
+    id: string
+    name: string
+    currency: string
+    amount: number
+    list_amount?: number
+    calls: number
+    valid_days: number
+    permanent?: boolean
+  }
+  state: string
+  channel: string
+  created_at: number
+  paid_at: number
+}
+const order: TestOrder = {
+  id: 'order_1',
+  plan: legacyStandard,
+  state: 'paid',
+  channel: 'alipay',
+  created_at: 1,
+  paid_at: 2,
+}
+// 稳定 ID 不变但额度已调整：旧待付订单仍是 100000 次。
+const legacySupportOrder: TestOrder = {
+  ...order,
+  id: 'order_support',
+  plan: { ...support, calls: 100000 },
+  state: 'pending',
+}
+function setup(state = 'paid', compact = false, snapshot: TestOrder = order) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const runtime = useRuntimeStore()
@@ -33,46 +86,33 @@ function setup(state = 'paid', compact = false) {
   }
   const run = vi.spyOn(runtime, 'run').mockResolvedValue({ status: 'ok', message: '', data: {} })
   const request = vi.fn<BillingTransport['request']>(async (method, path, body) => {
-    if (method === 'POST')
+    if (method === 'POST') {
+      const plan =
+        body?.plan_id === 'support_100000'
+          ? support
+          : body?.plan_id === 'usage_10000'
+            ? standard
+            : experience
       return {
-        order: {
-          ...order,
-          plan:
-            body?.plan_id === 'support_100000'
-              ? {
-                  ...plan,
-                  id: 'support_100000',
-                  name: '共创支持包',
-                  amount: 100000,
-                  calls: 100000,
-                  permanent: true,
-                }
-              : plan,
-          state: 'pending',
-          paid_at: 0,
-        },
+        order: { ...snapshot, plan, state: 'pending', paid_at: 0 },
         checkout_url: '',
         qr_code: 'weixin://test',
       }
-    return path.endsWith('/orders')
-      ? { orders: [{ ...order, state }] }
-      : {
-          ready: true,
-          reason: '',
-          plans: [
-            plan,
-            {
-              ...plan,
-              id: 'support_100000',
-              name: '共创支持包',
-              amount: 100000,
-              calls: 100000,
-              permanent: true,
-            },
-          ],
-          channels: [{ id: 'alipay', ready: true, reason: '' }],
-          quota: { trial: pool, paid: pool, remaining: 158 },
-        }
+    }
+    if (path.endsWith('/orders')) return { orders: [{ ...snapshot, state }] }
+    if (path.includes('/orders/'))
+      return {
+        order: { ...snapshot, state: 'pending' },
+        checkout_url: '',
+        qr_code: 'weixin://test',
+      }
+    return {
+      ready: true,
+      reason: '',
+      plans: [experience, standard, support],
+      channels: [{ id: 'alipay', ready: true, reason: '' }],
+      quota: { trial: pool, paid: pool, remaining: 158 },
+    }
   })
   const wrapper = mount(BillingDashboard, {
     attachTo: document.body,
@@ -115,20 +155,73 @@ describe('简化充值页', () => {
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/shop/recharge')
   })
-  it('千元套餐使用金色卡片，展示一对一服务并进入对应收银台', async () => {
+  it('千元套餐使用金色卡片，展示新额度、中文读数和相对体验包增幅', async () => {
     const { wrapper, request } = setup()
     wrappers.push(wrapper)
     await flushPromises()
-    const card = wrapper.get('.billing-plan--premium')
+    const [experienceCard, standardCard, card] = wrapper.findAll('.billing-plan')
+    expect(card.classes()).toContain('billing-plan--premium')
+    expect(experienceCard.text()).toContain('1000（一千）次')
+    expect(experienceCard.text()).toContain('¥9.90')
+    expect(experienceCard.text()).not.toContain('同等金额')
+    expect(standardCard.text()).toContain('20000（两万）次')
+    expect(standardCard.text()).toContain('¥5.00')
+    expect(standardCard.text()).toContain('同等金额，较体验包多 98% 额度')
+    expect(standardCard.text()).toContain('365 天')
     expect(card.text()).toContain('¥1000.00')
     expect(card.text()).toContain('永久有效')
-    expect(wrapper.get('.billing-plan:not(.billing-plan--premium)').text()).toContain('365 天')
+    expect(card.text()).toContain('300000（三十万）次')
+    expect(card.text()).toContain('约¥3.33')
+    expect(card.text()).toContain('同等金额，较体验包多 197% 额度')
     expect(card.text()).toContain('一对一客服')
     expect(card.text()).toContain('程序开发者一对一对接')
     await card.get('button').trigger('click')
     expect(document.querySelector('.billing-cashier-dialog')?.textContent).toContain('共创支持包')
+    expect(document.querySelector('.billing-cashier-dialog')?.textContent).toContain(
+      '300000（三十万）次',
+    )
     expect(document.querySelector('.billing-cashier-dialog')?.textContent).toContain('永久有效')
     expect(request.mock.calls.filter((call) => call[0] === 'POST')).toHaveLength(1)
+  })
+  it('旧待付订单在收银台保留原额度并加中文括注', async () => {
+    const { wrapper } = setup('pending')
+    wrappers.push(wrapper)
+    await flushPromises()
+    const resume = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('查询 / 继续支付'))!
+    await resume.trigger('click')
+    await flushPromises()
+    const text = document.querySelector('.billing-cashier-dialog')?.textContent ?? ''
+    expect(text).toContain('标准包 · 支持一份')
+    expect(text).toContain('¥100.00')
+    expect(text).toContain('10000（一万）次')
+    expect(text).not.toContain('20000（两万）次')
+  })
+  it('同 ID 旧订单额度较小时提示按原条款结算，不自动换新套餐', async () => {
+    const { wrapper, request } = setup('pending', false, legacySupportOrder)
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.get('.billing-plan--premium button').trigger('click')
+    await flushPromises()
+    const text = document.querySelector('.billing-cashier-dialog')?.textContent ?? ''
+    expect(text).toContain('仍按下单时的价格和额度结算')
+    expect(text).toContain('100000（十万）次')
+    expect(text).not.toContain('300000（三十万）次')
+    expect(request.mock.calls.filter((call) => call[0] === 'POST')).toHaveLength(0)
+    expect(request).toHaveBeenCalledWith('GET', '/api/client/billing/orders/order_support')
+  })
+  it('额度括注和比较文案在窄卡片内换行，不顶开额度与按钮', async () => {
+    const source = readFileSync('src/modules/billing/components/BillingDashboard.vue', 'utf8')
+    expect(source).toMatch(/\.plan-details dd\s*\{[^}]*overflow-wrap: anywhere/)
+    expect(source).toMatch(/\.plan-value\s*\{[^}]*overflow-wrap: anywhere/)
+    const { wrapper } = setup()
+    wrappers.push(wrapper)
+    await flushPromises()
+    const card = wrapper.findAll('.billing-plan')[1]
+    expect(card.get('.plan-value').text()).toBe('同等金额，较体验包多 98% 额度')
+    expect(card.get('.plan-details').text()).toContain('20000（两万）次')
+    expect(card.findAll('button')).toHaveLength(1)
   })
   it('进入充值页自动展示额度与已完成订单，仅收起额度明细', async () => {
     const { wrapper, request, run } = setup()
@@ -138,7 +231,7 @@ describe('简化充值页', () => {
     expect(wrapper.get('.quota-details').isVisible()).toBe(false)
     expect(wrapper.get('.orders-content').isVisible()).toBe(true)
     expect(wrapper.find('[aria-controls="billing-orders-content"]').exists()).toBe(false)
-    expect(wrapper.get('.orders-content').text()).toContain(plan.name)
+    expect(wrapper.get('.orders-content').text()).toContain(order.plan.name)
     expect(request.mock.calls.map((call) => call[1])).toEqual([
       '/api/client/billing',
       '/api/client/billing/orders',

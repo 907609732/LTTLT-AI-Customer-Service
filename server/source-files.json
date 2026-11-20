@@ -566,13 +566,13 @@
     },
     {
       "path": "overlay/lingtuhost/billing_native.go",
-      "sha256": "4aee324c2d740701d279a4e815abc86260ef7bfdd09f8722c106da4789e06c1b",
-      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-19: permanent co-creation support quota and compatibility regression."
+      "sha256": "b281ffeae81e4de912bf0a4ade4fae22bb118cad69030df73134744736114b73",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-19: permanent co-creation support quota and compatibility regression.; 2026-11-20: default standard 20000 and co-creation 300000 calls; stable IDs and order snapshots unchanged."
     },
     {
       "path": "overlay/lingtuhost/billing_native_test.go",
-      "sha256": "5b7cc1e942e4e3391b3bb88f0b7a53360c36b94c2c91f64514ea4e4a25c56db0",
-      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-19: permanent co-creation support quota and compatibility regression."
+      "sha256": "166af6f82ff8790971384560f920dcd3f97430df43c6a03761986ce3c0c06bea",
+      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-19: permanent co-creation support quota and compatibility regression.; 2026-11-20: catalog values and legacy order snapshot/credit regression."
     },
     {
       "path": "overlay/lingtuhost/billing_test.go",

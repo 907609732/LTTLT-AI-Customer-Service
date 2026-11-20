@@ -132,3 +132,11 @@ overlay/lingtuhost/chat.go、vision.go 和 vision_test.go 允许受限 PNG 分�
 `overlay/lingtu/billing.go` 在现有支付验签后的入账事务中延长未过期试用有效期，计数独立、重复回调不延期、过期与历史订单不追溯。`quota.go` 仅更新规则注释；原有接口与表结构保留。`overlay/lingtuhost/billing_native.go` 新增默认共创支持包 `support_100000`（100000 分、100000 次、365 天），仍由服务端发布并校验价格与套餐，未修改商户配置或生产账本。相关回归覆盖延期、边界、回滚、重复入账和套餐目录；目录原有数量断言随新增套餐同步更新。上述文件与相关测试的实际 SHA256 已更新到 `source-files.json`，原来源字段与许可不变。验证结果见 `artifacts/billing-support-20261119/validation.md`；正式上线结果见下方部署补充，真实新付款未验收。
 
 本次计费差异已基于实际cost.3源码归档最小部署为 `2026.11.19-support.1`，保留正式网页与其他功能；未把当前主干未上线的模型策略及注册网页一并部署。实际源码/程序摘要、备份、验证和未做事项见 `DEPLOYMENT-20261119-SUPPORT.md`，不表示真实新付款已验收。
+
+## 2026-11-20 套餐额度调整（本机候选，未部署）
+
+`overlay/lingtuhost/billing_native.go` 的 `defaultBillingPlans` 将标准包 `usage_10000` 的 Calls 调整为 20000、共创支持包 `support_100000` 调整为 300000；体验包 990 分 / 1000 次、各档价格、365 天/永久条款和支付结算规则不变，套餐 ID 保持稳定。服务端自定义套餐配置策略原样保留，不覆盖已有配置。
+
+已创建订单仍保存下单时的套餐快照；待付款恢复、支付回调、重复入账和同请求号幂等继续按下单快照的金额与调用数校验，不追溯旧订单或旧额度。新增 `TestNativeOrdersKeepPlanSnapshotAcrossCatalogUpdate` 覆盖旧订单恢复/入账仍为 10000 次、同请求号换新条款返回冲突、新订单取得 20000 次且重复查单不重复入账。相关 `lingtu`/`lingtuhost` 定向 Go 测试通过。
+
+实际 SHA256：`overlay/lingtuhost/billing_native.go` `b281ffeae81e4de912bf0a4ade4fae22bb118cad69030df73134744736114b73`；`overlay/lingtuhost/billing_native_test.go` `166af6f82ff8790971384560f920dcd3f97430df43c6a03761986ce3c0c06bea`。`source-files.json` 只更新上述实际导入文件摘要并保留固定来源与许可；`npm run check:vendor` 通过 server 107 个文件。未部署生产、未改真实账号/额度/商户配置、未发起真实支付，详见 `../docs/parallel/BILLING_PLAN_VALUE_20261120.md` 与 ignored `artifacts/billing-plan-value-20261120/`。
