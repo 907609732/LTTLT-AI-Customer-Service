@@ -16,6 +16,7 @@ import type { AssistWindowManager } from './assist-window'
 import type { LocalRuntime } from './local-runtime'
 import { z } from 'zod'
 import { createAppUpdateChecker } from './app-update'
+import { requestGithubPage } from './app-update-page'
 import {
   assistOpenTargetSchema,
   assistPreferencesPatchSchema,
@@ -35,8 +36,10 @@ export function registerDesktopIpc(
   } = {},
 ): () => void {
   const moves = new Map<number, { dx: number; dy: number }>()
-  const checkForUpdates = createAppUpdateChecker(app.getVersion(), (input, init) =>
-    net.fetch(input instanceof URL ? input.href : input, init),
+  const checkForUpdates = createAppUpdateChecker(
+    app.getVersion(),
+    (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
+    requestGithubPage,
   )
   const openConversation = createAssistConversationNavigator({
     runtime: () => options.runtime?.(),

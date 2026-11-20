@@ -213,9 +213,11 @@ knowledge runtime 的既有 backup/restore-preview 请求新增可选 storeId，
 
 配置中心（2026-11-19）：/shop/manage 是 MainLayout 的子路由，复用工作台顶栏；ShopManageView 只负责下方功能导航和面板。配置时隐藏店铺侧栏，原生平台视图沿 route.path watcher 隐藏，回首页恢复。旧路由与 query 契约保持。
 
-## 桌面版本检查（2026-11-19）
+## 桌面版本检查（2026-11-19，2026-11-20 限流备用路径）
 
-`electron/app-update.ts` 查询固定官方 GitHub 仓库的最新正式 Release；`app:check-updates` 经桌面可信主 frame 校验后调用，不接受任意 URL。使用 Electron 网络栈、15 秒超时及 256 KiB 响应上限，不发送账户凭据。每进程自动查询一次（失败同样缓存），用户可手动重试，并发请求共用查询。只有合法三段版本、非草稿/预发布且包含对应 Windows 安装包的较新版本才提示。
+`electron/app-update.ts` 查询固定官方 GitHub 仓库的最新正式 Release；`app:check-updates` 经桌面可信主 frame 校验后调用，不接受任意 URL。使用 Electron 网络栈、15 秒总超时及 256 KiB 响应上限，不发送账户凭据。每进程自动查询一次（失败同样缓存），用户可手动重试，并发请求共用查询。只有合法三段版本、非草稿/预发布且包含对应 Windows 安装包的较新版本才提示。
+
+GitHub 匿名 API 出现真实限流（403 且 `x-ratelimit-remaining: 0`，或 429）时，追加一次严格只读的官方发布页查询：`electron/app-update-page.ts` 用独立内存 session 的 `net.request` 读取 `/releases/latest` 的 302 `Location` 后立即中断，不跟随任何跳转；`app-update.ts` 逐字符校验该地址必须是本仓库 `v<三段版本>` 标签，再自行构造固定仓库的 `releases/expanded_assets/v<版本>` 地址，验证精确安装包名与下载路径后才返回结果。其他 403/5xx、API 200 的畸形/草稿/预发布/缺包、页面异常或安装包缺失继续失败，不把限流或网络失败显示为已是最新。备用链与 API 共用同一 15 秒预算，无令牌、无认证头、不下载安装器、不访问站外。
 
 主工作台左下的 `UpdateStatus` 提供检查入口和可关闭的小提示；仅在用户点击后经已有 `openExternal` 打开固定官方版本下载页，不自动下载或执行安装器。此功能不等于静默升级或代码签名。无正式 Release、网络失败与已是最新版本分别处理。浏览器仅预览界面，不进行启动检查。
 
