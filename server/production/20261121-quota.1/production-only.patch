@@ -1,0 +1,1980 @@
+diff --git a/server/PROVENANCE.md b/server/PROVENANCE.md
+index 1dbff9129db38086a184dded397b9e2b00a353c7..5fa155e7cd9f2ba1b69b9b7d932dcd15e3ce5808 100644
+--- a/server/PROVENANCE.md
++++ b/server/PROVENANCE.md
+@@ -1,3 +1,13 @@
++## 2026-11-21 生产候选：套餐额度与账号批量试用调整（未部署）
++
++本候选以实际生产 `2026.11.19-learning.1` 的 `SOURCE.tar.gz`（SHA256 `7f3366d0d0c2f1081d13e1924c788bb31f9707202754fa74fb44d196e86c3f0d`）为基线，仅准备候选、测试和部署脚本；未连接生产数据库、未读取密钥或客户资料、未调用真实支付/模型/发消息，也未切换线上。
++
++- `overlay/lingtuhost/billing_native.go`：默认套餐 ID、售价、`ValidDays` 和渠道不变，仅将 `usage_10000` 调用数从 10000 调为 20000、`support_100000` 从 100000 调为 300000，体验包 `usage_1000` 保持 1000。没有带入当前主干的永久额度模型、表、字段或标记；旧订单继续使用创建时快照，旧额度/已用/待结算不变，新订单才使用新目录。
++- 账号管理最小移植：新增 `overlay/lingtuhost/admin_account_quota.go`、`overlay/lingtu/admin_quota.go`、`overlay/web/src/features/lingtu/admin-account-quota.tsx` 及回归；`overlay/lingtuhost/admin.go` 仅增加 `section=account&action=batch_quota` 分派。复用现有交互会话/管理员鉴权、完整 request body 的 SHA-256 安全证明、`LingtuCriticalRateLimit`、共享 trial 写锁、`expected_limit` CAS、同事务审计和全批回滚。只修改 `lingtu_trial_grants.call_limit`，最多 20 个目标、目标 0..1000000、原因 1..180 字节且不得低于最新 `used+reserved`；模型、原生/托管状态、有效期、付费账本及会话均不变。
++- 前端 `admin-page.tsx` 增加当前页内存多选、全选、三种调整模式和预览；换页/刷新/行失效会丢弃不可调整选择。`admin-light.css` 仅删除已由 2026-11-19 线上宽屏 CSS 修正的旧 `max-width: 1600px` 单行，避免候选回退排版。`translations.json` 仅增加本功能文案，不含永久额度功能。
++- 服务标识为 `2026.11.21-quota.1`，计费协议仍为 2；完整保留生产能力并增加 `admin-batch-trial-quota`。没有 schema 迁移、没有新增依赖、没有修改支付验签/账本唯一键/模型路由/学习策略。
++- 导入文件实际 SHA256 已更新到 `source-files.json`，原 `upstreamPath`/`upstreamSha256` 与许可保留；新增自有文件在清单中以无上游来源的 `localPatch` 条目登记。`production-only.patch` 与完整差异文件清单由候选目录生成，未提交、未推送。
++- 本机仅执行定向 SQLite Go 回归（`./lingtu`、`./lingtuhost` 的 trial/quota、batch HTTP/proof/rollback/CAS/concurrency 和 billing 新目录/旧订单快照）、`admin-page.test.tsx`、原网页 typecheck/lint/格式检查、原生网页构建和 Linux amd64 构建。未运行 MySQL/PostgreSQL 矩阵、全量上游回归或真实付款/模型验收；候选通过不等于生产已部署或真实支付已验收。
+ # 来源与本地适配
+ 
+ ## 2026-11-19 学习协议候选标识（未部署）
+diff --git a/server/overlay/lingtu/admin_quota.go b/server/overlay/lingtu/admin_quota.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..26cfa3df74cd72549b7fa18fd024423b4ed91f0c
+--- /dev/null
++++ b/server/overlay/lingtu/admin_quota.go
+@@ -0,0 +1,11 @@
++package lingtu
++
++import "gorm.io/gorm"
++
++// LockTrialLimits acquires the durable write gate shared by trial reservations,
++// settlements and administrator quota changes. Callers must run inside the same
++// transaction as the ledger write; the gate is how a batch absolute update
++// serializes with Reserve/Settle without losing concurrent counters.
++func LockTrialLimits(tx *gorm.DB) error {
++	return lockTrialLimits(tx)
++}
+diff --git a/server/overlay/lingtuhost/admin.go b/server/overlay/lingtuhost/admin.go
+index 0ce971e2dd3d33fab63087ca0dd8c566668715de..ea8d74eabec30f41f5dae3806893a31319da500c 100644
+--- a/server/overlay/lingtuhost/admin.go
++++ b/server/overlay/lingtuhost/admin.go
+@@ -58,6 +58,7 @@ type configurationRequest struct {
+ 	RequestsPerMinute    *int              `json:"requests_per_minute"`
+ 	GlobalConcurrent     *int              `json:"global_concurrent"`
+ 	UserID               int               `json:"user_id"`
++	Targets              []batchTarget     `json:"targets"`
+ 	ExpiresAt            int64             `json:"expires_at"`
+ 	Status               string            `json:"status"`
+ 	Reason               string            `json:"reason"`
+@@ -232,9 +233,20 @@ func (h *Host) saveConfig(c *gin.Context) {
+ 			clientFailure(c, 400, "invalid_request")
+ 			return
+ 		}
+-		request.Revision = revision
+-		policyInput = input
+-	}
++		request.Revision = revision
++		policyInput = input
++	}
++	// Batch quota writes use an exact field whitelist. The security proof below
++	// still binds the untouched request body, including every target and reason.
++	if request.Section == "account" && request.Action == "batch_quota" {
++		batch, decodeErr := decodeBatchQuotaRequest(body)
++		if decodeErr != nil {
++			clientFailure(c, 400, "invalid_request")
++			return
++		}
++		request.Reason = batch.Reason
++		request.Targets = batch.Targets
++	}
+ 	digest := sha256.Sum256(body)
+ 	context, _ := common.Marshal(service.ManagedConfigurationContext{Section: request.Section, RequestHash: hex.EncodeToString(digest[:])})
+ 	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeManagedConfigure, Context: context}) == nil {
+@@ -259,8 +271,12 @@ func (h *Host) saveConfig(c *gin.Context) {
+ 		err = h.saveModelConnection(c, request)
+ 	case "trial":
+ 		err = h.saveTrialConfiguration(request)
+-	case "account":
+-		err = h.saveAccount(request)
++	case "account":
++		if request.Action == "batch_quota" {
++			err = h.saveBatchQuota(request, c.GetInt("id"))
++		} else {
++			err = h.saveAccount(request)
++		}
+ 	case "reconcile":
+ 		err = h.reconcileUsage(request)
+ 	case "smtp":
+@@ -293,6 +309,17 @@ func (h *Host) saveConfig(c *gin.Context) {
+ 			}
+ 			return
+ 		}
++		if request.Section == "account" && request.Action == "batch_quota" {
++			switch {
++			case errors.Is(err, ErrBatchQuotaConflict):
++				c.JSON(409, gin.H{"saved": false, "error": "batch_quota_conflict"})
++			case errors.Is(err, lingtu.ErrInvalidTrialInput):
++				clientFailure(c, 400, "invalid_request")
++			default:
++				clientFailure(c, 503, "temporarily_unavailable")
++			}
++			return
++		}
+ 		if request.Section == "model_connection" && request.Action == "verify_vision" {
+ 			policy, loadErr := lingtu.LoadTrialPolicy(model.DB)
+ 			if loadErr != nil {
+diff --git a/server/overlay/lingtuhost/admin_account_quota.go b/server/overlay/lingtuhost/admin_account_quota.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..093c04d9b7bee1085910681f285623eb9265a3a4
+--- /dev/null
++++ b/server/overlay/lingtuhost/admin_account_quota.go
+@@ -0,0 +1,189 @@
++package lingtuhost
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/lingtu"
++	"github.com/QuantumNous/new-api/model"
++	"gorm.io/gorm"
++)
++
++const (
++	maxBatchTargets          = 20
++	maxBatchQuotaCalls       = 1000000
++	maxBatchQuotaReasonBytes = 180
++)
++
++// ErrBatchQuotaConflict distinguishes a stale expected_limit from malformed
++// input. The handler returns 409 so the administrator refreshes instead of
++// retrying an absolute target against a ledger that changed underneath.
++var ErrBatchQuotaConflict = errors.New("batch quota conflict")
++
++type batchTarget struct {
++	UserID        int `json:"user_id"`
++	ExpectedLimit int `json:"expected_limit"`
++	TargetCalls   int `json:"target_calls"`
++}
++
++type batchQuotaRequest struct {
++	Reason  string        `json:"reason"`
++	Targets []batchTarget `json:"targets"`
++}
++
++// decodeBatchQuotaRequest applies an exact field whitelist before the security
++// proof is checked. The proof still covers the entire original body, so every
++// target, expected value and reason byte is bound to the administrator action.
++func decodeBatchQuotaRequest(body []byte) (batchQuotaRequest, error) {
++	var request batchQuotaRequest
++	var fields map[string]json.RawMessage
++	if common.Unmarshal(body, &fields) != nil || len(fields) != 4 {
++		return request, lingtu.ErrInvalidTrialInput
++	}
++	for _, key := range []string{"section", "action", "reason", "targets"} {
++		if _, ok := fields[key]; !ok {
++			return request, lingtu.ErrInvalidTrialInput
++		}
++	}
++	var section, action string
++	if common.Unmarshal(fields["section"], &section) != nil || section != "account" ||
++		common.Unmarshal(fields["action"], &action) != nil || action != "batch_quota" {
++		return request, lingtu.ErrInvalidTrialInput
++	}
++	var reason *string
++	if common.Unmarshal(fields["reason"], &reason) != nil || reason == nil {
++		return request, lingtu.ErrInvalidTrialInput
++	}
++	request.Reason = strings.TrimSpace(*reason)
++	if len(request.Reason) < 1 || len(request.Reason) > maxBatchQuotaReasonBytes {
++		return request, lingtu.ErrInvalidTrialInput
++	}
++	var rawTargets []map[string]json.RawMessage
++	if common.Unmarshal(fields["targets"], &rawTargets) != nil ||
++		len(rawTargets) < 1 || len(rawTargets) > maxBatchTargets {
++		return request, lingtu.ErrInvalidTrialInput
++	}
++	seen := make(map[int]struct{}, len(rawTargets))
++	for _, raw := range rawTargets {
++		if len(raw) != 3 {
++			return request, lingtu.ErrInvalidTrialInput
++		}
++		var userID, expectedLimit, targetCalls *int
++		if common.Unmarshal(raw["user_id"], &userID) != nil || userID == nil ||
++			common.Unmarshal(raw["expected_limit"], &expectedLimit) != nil || expectedLimit == nil ||
++			common.Unmarshal(raw["target_calls"], &targetCalls) != nil || targetCalls == nil {
++			return request, lingtu.ErrInvalidTrialInput
++		}
++		if *userID <= 0 || *expectedLimit < 0 || *expectedLimit > maxBatchQuotaCalls ||
++			*targetCalls < 0 || *targetCalls > maxBatchQuotaCalls {
++			return request, lingtu.ErrInvalidTrialInput
++		}
++		if _, duplicate := seen[*userID]; duplicate {
++			return request, lingtu.ErrInvalidTrialInput
++		}
++		seen[*userID] = struct{}{}
++		request.Targets = append(request.Targets, batchTarget{
++			UserID: *userID, ExpectedLimit: *expectedLimit, TargetCalls: *targetCalls,
++		})
++	}
++	return request, nil
++}
++
++func batchQuotaAuditReason(before, after int, reason string) string {
++	prefix := fmt.Sprintf("batch_quota before=%d after=%d; ", before, after)
++	remaining := 256 - len(prefix)
++	if remaining < 0 {
++		remaining = 0
++	}
++	if len(reason) > remaining {
++		reason = reason[:remaining]
++	}
++	return prefix + reason
++}
++
++// saveBatchQuota only changes trial call_limit. It never initializes an account
++// or grant, never touches model/status/expiry/sessions, and never adjusts the paid
++// ledger. The shared limit gate plus absolute-target CAS makes the
++// whole batch atomic and safe against concurrent Reserve/Settle.
++func (h *Host) saveBatchQuota(r configurationRequest, actorID int) error {
++	reason := strings.TrimSpace(r.Reason)
++	if actorID <= 0 || len(r.Targets) < 1 || len(r.Targets) > maxBatchTargets ||
++		len(reason) < 1 || len(reason) > maxBatchQuotaReasonBytes {
++		return lingtu.ErrInvalidTrialInput
++	}
++	return model.DB.Transaction(func(tx *gorm.DB) error {
++		if err := lingtu.LockTrialLimits(tx); err != nil {
++			return err
++		}
++		for _, target := range r.Targets {
++			if target.UserID <= 0 || target.ExpectedLimit < 0 || target.ExpectedLimit > maxBatchQuotaCalls ||
++				target.TargetCalls < 0 || target.TargetCalls > maxBatchQuotaCalls {
++				return lingtu.ErrInvalidTrialInput
++			}
++			var native struct {
++				ID     int
++				Status int
++			}
++			err := tx.Table("users").Select("id", "status").Where("id = ? AND deleted_at IS NULL", target.UserID).Take(&native).Error
++			if errors.Is(err, gorm.ErrRecordNotFound) {
++				return lingtu.ErrInvalidTrialInput
++			}
++			if err != nil {
++				return err
++			}
++			if native.Status != common.UserStatusEnabled {
++				return lingtu.ErrInvalidTrialInput
++			}
++			var account lingtu.ManagedAccount
++			err = tx.First(&account, "user_id = ?", target.UserID).Error
++			if errors.Is(err, gorm.ErrRecordNotFound) {
++				return lingtu.ErrInvalidTrialInput
++			}
++			if err != nil {
++				return err
++			}
++			if account.Status != "enabled" {
++				return lingtu.ErrInvalidTrialInput
++			}
++			var grant lingtu.TrialGrant
++			err = tx.First(&grant, "user_id = ?", target.UserID).Error
++			if errors.Is(err, gorm.ErrRecordNotFound) {
++				return lingtu.ErrInvalidTrialInput
++			}
++			if err != nil {
++				return err
++			}
++			if grant.Limit != target.ExpectedLimit {
++				return ErrBatchQuotaConflict
++			}
++			if target.TargetCalls < grant.Used+grant.Reserved {
++				return lingtu.ErrInvalidTrialInput
++			}
++			before := grant.Limit
++			if target.TargetCalls != before {
++				result := tx.Model(&lingtu.TrialGrant{}).
++					Where("user_id = ? AND call_limit = ? AND used + reserved <= ?", target.UserID, target.ExpectedLimit, target.TargetCalls).
++					UpdateColumn("call_limit", target.TargetCalls)
++				if result.Error != nil {
++					return result.Error
++				}
++				if result.RowsAffected != 1 {
++					return ErrBatchQuotaConflict
++				}
++			}
++			audit := lingtu.ManagedAudit{
++				ActorID: actorID, TargetID: target.UserID, Section: "account",
++				Outcome: "success", Reason: batchQuotaAuditReason(before, target.TargetCalls, reason),
++				CreatedAt: time.Now().Unix(),
++			}
++			if err := tx.Create(&audit).Error; err != nil {
++				return err
++			}
++		}
++		return nil
++	})
++}
+diff --git a/server/overlay/lingtuhost/admin_account_quota_test.go b/server/overlay/lingtuhost/admin_account_quota_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..9728bff7f5a0f53db8539e0fc4b9e2180dcb8441
+--- /dev/null
++++ b/server/overlay/lingtuhost/admin_account_quota_test.go
+@@ -0,0 +1,333 @@
++package lingtuhost
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/lingtu"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"gorm.io/gorm"
++)
++
++func batchQuotaTargetJSON(userID, expected, target int) map[string]any {
++	return map[string]any{"user_id": userID, "expected_limit": expected, "target_calls": target}
++}
++
++func batchQuotaBody(t *testing.T, reason string, targets []map[string]any) string {
++	t.Helper()
++	body, err := common.Marshal(map[string]any{
++		"section": "account", "action": "batch_quota", "reason": reason, "targets": targets,
++	})
++	require.NoError(t, err)
++	return string(body)
++}
++
++func batchQuotaProof(t *testing.T, body string, identity service.AuthIdentity) string {
++	t.Helper()
++	digest := sha256.Sum256([]byte(body))
++	context, err := common.Marshal(service.ManagedConfigurationContext{
++		Section: "account", RequestHash: hex.EncodeToString(digest[:]),
++	})
++	require.NoError(t, err)
++	binding, err := service.BindVerificationOperation(service.VerificationOperation{
++		Scope: service.VerificationScopeManagedConfigure, Context: context,
++	})
++	require.NoError(t, err)
++	proof, _, err := service.IssueSecurityProof(identity, service.VerificationMethodPassword, binding)
++	require.NoError(t, err)
++	return proof
++}
++
++func batchQuotaPost(t *testing.T, body string, identity service.AuthIdentity) *httptest.ResponseRecorder {
++	t.Helper()
++	recorder := httptest.NewRecorder()
++	c, _ := gin.CreateTestContext(recorder)
++	c.Request = httptest.NewRequest("POST", "/api/lingtu/admin/config", strings.NewReader(body))
++	c.Request.Header.Set("X-Security-Proof", batchQuotaProof(t, body, identity))
++	c.Set("auth_identity", identity)
++	c.Set("id", identity.UserID)
++	(&Host{}).saveConfig(c)
++	return recorder
++}
++
++func batchQuotaUser(t *testing.T, db *gorm.DB, id, nativeStatus int) {
++	t.Helper()
++	require.NoError(t, db.Create(&model.User{
++		Id: id, Username: fmt.Sprintf("batch-quota-%d", id), Password: "fixture-hash",
++		Role: common.RoleCommonUser, Status: nativeStatus, AuthVersion: 1, Group: "default",
++		AffCode: fmt.Sprintf("batch-quota-%d", id),
++	}).Error)
++}
++
++func batchQuotaAccount(t *testing.T, db *gorm.DB, id, limit, used, reserved int) {
++	t.Helper()
++	now := time.Now()
++	require.NoError(t, db.Create(&lingtu.ManagedAccount{UserID: id, Status: "enabled", Model: "managed-7"}).Error)
++	require.NoError(t, db.Create(&lingtu.TrialGrant{
++		UserID: id, Limit: limit, Used: used, Reserved: reserved,
++		CreatedAt: now.Unix(), ExpiresAt: now.Add(24 * time.Hour).Unix(),
++	}).Error)
++}
++
++func batchQuotaLimit(t *testing.T, db *gorm.DB, id int) lingtu.TrialGrant {
++	t.Helper()
++	var grant lingtu.TrialGrant
++	require.NoError(t, db.First(&grant, "user_id = ?", id).Error)
++	return grant
++}
++
++func TestLingtuAdminBatchQuotaHTTPAuthProofAndBinding(t *testing.T) {
++	db := contextPolicyTestDB(t)
++	require.NoError(t, db.AutoMigrate(&model.UserAccessToken{}))
++	batchQuotaUser(t, db, 301, common.UserStatusEnabled)
++	batchQuotaAccount(t, db, 301, 100, 4, 1)
++	_, commonToken := contextPolicyIdentity(t, db, 302, common.RoleCommonUser)
++	adminIdentity, adminToken := contextPolicyIdentity(t, db, 303, common.RoleAdminUser)
++	require.NoError(t, db.Create(&model.UserAccessToken{
++		UserId: adminIdentity.UserID, Name: "fixture PAT",
++		TokenHash: model.AccessTokenFingerprint("nap_batch_quota_fixture"),
++		TokenHint: "nap_batc", ExpiresAt: time.Now().Add(time.Hour).Unix(),
++	}).Error)
++
++	router := gin.New()
++	(&Host{}).registerAdmin(router)
++	request := func(body, token, proof string) *httptest.ResponseRecorder {
++		recorder := httptest.NewRecorder()
++		req := httptest.NewRequest("POST", "/api/lingtu/admin/config", strings.NewReader(body))
++		if token != "" {
++			req.Header.Set("Authorization", "Bearer "+token)
++		}
++		if proof != "" {
++			req.Header.Set("X-Security-Proof", proof)
++		}
++		router.ServeHTTP(recorder, req)
++		return recorder
++	}
++	body := batchQuotaBody(t, "batch quota fixture", []map[string]any{batchQuotaTargetJSON(301, 100, 120)})
++	proof := batchQuotaProof(t, body, adminIdentity)
++
++	anonymous := request(body, "", proof)
++	assert.Equal(t, http.StatusUnauthorized, anonymous.Code, anonymous.Body.String())
++	commonRole := request(body, commonToken, proof)
++	assert.Equal(t, http.StatusForbidden, commonRole.Code, commonRole.Body.String())
++	apiKey := request(body, "nap_batch_quota_fixture", "")
++	assert.Equal(t, http.StatusForbidden, apiKey.Code, apiKey.Body.String())
++	noProof := request(body, adminToken, "")
++	assert.Equal(t, http.StatusForbidden, noProof.Code, noProof.Body.String())
++	assert.Equal(t, 100, batchQuotaLimit(t, db, 301).Limit)
++
++	tampered := strings.Replace(body, `"target_calls":120`, `"target_calls":121`, 1)
++	mismatch := request(tampered, adminToken, proof)
++	assert.Equal(t, http.StatusForbidden, mismatch.Code, mismatch.Body.String())
++	assert.Equal(t, 100, batchQuotaLimit(t, db, 301).Limit)
++
++	accepted := request(body, adminToken, proof)
++	require.Equal(t, http.StatusOK, accepted.Code, accepted.Body.String())
++	assert.Equal(t, 120, batchQuotaLimit(t, db, 301).Limit)
++	replay := request(body, adminToken, proof)
++	assert.Equal(t, http.StatusForbidden, replay.Code, replay.Body.String())
++	assert.Equal(t, 120, batchQuotaLimit(t, db, 301).Limit)
++}
++
++func TestLingtuAdminBatchQuotaStrictValidation(t *testing.T) {
++	db := contextPolicyTestDB(t)
++	batchQuotaUser(t, db, 311, common.UserStatusEnabled)
++	batchQuotaAccount(t, db, 311, 100, 4, 2)
++	identity, _ := contextPolicyIdentity(t, db, 312, common.RoleAdminUser)
++	validTarget := batchQuotaTargetJSON(311, 100, 120)
++	cases := []struct {
++		name string
++		body string
++	}{
++		{"unknown top field", `{"section":"account","action":"batch_quota","reason":"x","targets":[{"user_id":311,"expected_limit":100,"target_calls":120}],"extra":1}`},
++		{"missing reason", `{"section":"account","action":"batch_quota","targets":[{"user_id":311,"expected_limit":100,"target_calls":120}]}`},
++		{"blank reason", batchQuotaBody(t, "   ", []map[string]any{validTarget})},
++		{"reason too long", batchQuotaBody(t, strings.Repeat("a", 181), []map[string]any{validTarget})},
++		{"duplicate user", batchQuotaBody(t, "x", []map[string]any{validTarget, validTarget})},
++		{"target too high", batchQuotaBody(t, "x", []map[string]any{batchQuotaTargetJSON(311, 100, 1000001)})},
++		{"negative target", batchQuotaBody(t, "x", []map[string]any{batchQuotaTargetJSON(311, 100, -1)})},
++		{"below used reserved", batchQuotaBody(t, "x", []map[string]any{batchQuotaTargetJSON(311, 100, 5)})},
++		{"unknown target field", `{"section":"account","action":"batch_quota","reason":"x","targets":[{"user_id":311,"expected_limit":100,"target_calls":120,"model":"managed-x"}]}`},
++		{"float target", `{"section":"account","action":"batch_quota","reason":"x","targets":[{"user_id":311,"expected_limit":100,"target_calls":120.5}]}`},
++	}
++	many := make([]map[string]any, 0, 21)
++	for i := range 21 {
++		many = append(many, batchQuotaTargetJSON(1000+i, 0, 1))
++	}
++	cases = append(cases, struct {
++		name string
++		body string
++	}{"more than 20 targets", batchQuotaBody(t, "x", many)})
++
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			recorder := batchQuotaPost(t, tc.body, identity)
++			assert.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
++			assert.Equal(t, 100, batchQuotaLimit(t, db, 311).Limit)
++		})
++	}
++}
++
++func TestLingtuAdminBatchQuotaAtomicRollback(t *testing.T) {
++	db := contextPolicyTestDB(t)
++	batchQuotaUser(t, db, 321, common.UserStatusEnabled)
++	batchQuotaAccount(t, db, 321, 100, 1, 0)
++	batchQuotaUser(t, db, 322, common.UserStatusEnabled)
++	// 322 exists natively but is not authorized and has no trial grant.
++	identity, _ := contextPolicyIdentity(t, db, 323, common.RoleAdminUser)
++
++	body := batchQuotaBody(t, "atomic fixture", []map[string]any{
++		batchQuotaTargetJSON(321, 100, 120),
++		batchQuotaTargetJSON(322, 0, 50),
++	})
++	response := batchQuotaPost(t, body, identity)
++	assert.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
++	assert.Equal(t, 100, batchQuotaLimit(t, db, 321).Limit)
++	var accounts, grants int64
++	require.NoError(t, db.Model(&lingtu.ManagedAccount{}).Where("user_id = ?", 322).Count(&accounts).Error)
++	require.NoError(t, db.Model(&lingtu.TrialGrant{}).Where("user_id = ?", 322).Count(&grants).Error)
++	assert.Zero(t, accounts)
++	assert.Zero(t, grants)
++
++	require.NoError(t, db.Model(&model.User{}).Where("id = ?", 322).Update("status", common.UserStatusDisabled).Error)
++	batchQuotaAccount(t, db, 322, 50, 0, 0)
++	body = batchQuotaBody(t, "atomic fixture", []map[string]any{
++		batchQuotaTargetJSON(321, 100, 120),
++		batchQuotaTargetJSON(322, 50, 60),
++	})
++	response = batchQuotaPost(t, body, identity)
++	assert.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
++	assert.Equal(t, 100, batchQuotaLimit(t, db, 321).Limit)
++	assert.Equal(t, 50, batchQuotaLimit(t, db, 322).Limit)
++}
++
++func TestLingtuAdminBatchQuotaCASConflictRollsBackBatch(t *testing.T) {
++	db := contextPolicyTestDB(t)
++	batchQuotaUser(t, db, 331, common.UserStatusEnabled)
++	batchQuotaAccount(t, db, 331, 100, 1, 0)
++	batchQuotaUser(t, db, 332, common.UserStatusEnabled)
++	batchQuotaAccount(t, db, 332, 80, 2, 0)
++	identity, _ := contextPolicyIdentity(t, db, 333, common.RoleAdminUser)
++
++	body := batchQuotaBody(t, "cas fixture", []map[string]any{
++		batchQuotaTargetJSON(331, 100, 120),
++		batchQuotaTargetJSON(332, 79, 90),
++	})
++	response := batchQuotaPost(t, body, identity)
++	assert.Equal(t, http.StatusConflict, response.Code, response.Body.String())
++	assert.Equal(t, 100, batchQuotaLimit(t, db, 331).Limit)
++	assert.Equal(t, 80, batchQuotaLimit(t, db, 332).Limit)
++}
++
++func TestLingtuAdminBatchQuotaNoChangeAuditAndPreservesOtherLedgers(t *testing.T) {
++	db := contextPolicyTestDB(t)
++	batchQuotaUser(t, db, 341, common.UserStatusEnabled)
++	batchQuotaAccount(t, db, 341, 100, 4, 2)
++	now := time.Now().Unix()
++	require.NoError(t, db.Create(&lingtu.PaidGrant{UserID: 341, Limit: 50, Used: 3, Reserved: 1, ExpiresAt: now + 3600, Epoch: 7}).Error)
++	require.NoError(t, db.Create(&model.UserSession{
++		SID: "batch-quota-user-session", UserID: 341, Version: 1, UserAuthVersion: 1,
++		Status: model.UserSessionStatusActive, RefreshHash: "fixture", LoginMethod: "password",
++		ExpiresAt: now + 3600,
++	}).Error)
++	before := batchQuotaLimit(t, db, 341)
++	identity, _ := contextPolicyIdentity(t, db, 342, common.RoleAdminUser)
++
++	noChange := batchQuotaPost(t, batchQuotaBody(t, "no change fixture", []map[string]any{
++		batchQuotaTargetJSON(341, 100, 100),
++	}), identity)
++	require.Equal(t, http.StatusOK, noChange.Code, noChange.Body.String())
++	assert.Equal(t, before, batchQuotaLimit(t, db, 341))
++
++	var audit lingtu.ManagedAudit
++	require.NoError(t, db.Where("target_id = ? AND section = ?", 341, "account").Order("id DESC").First(&audit).Error)
++	assert.Contains(t, audit.Reason, "before=100")
++	assert.Contains(t, audit.Reason, "after=100")
++	assert.LessOrEqual(t, len(audit.Reason), 256)
++	assert.Equal(t, "success", audit.Outcome)
++
++	changed := batchQuotaPost(t, batchQuotaBody(t, "preserve fixture", []map[string]any{
++		batchQuotaTargetJSON(341, 100, 120),
++	}), identity)
++	require.Equal(t, http.StatusOK, changed.Code, changed.Body.String())
++	after := batchQuotaLimit(t, db, 341)
++	assert.Equal(t, 120, after.Limit)
++	assert.Equal(t, before.Used, after.Used)
++	assert.Equal(t, before.Reserved, after.Reserved)
++	assert.Equal(t, before.ExpiresAt, after.ExpiresAt)
++	var account lingtu.ManagedAccount
++	require.NoError(t, db.First(&account, "user_id = ?", 341).Error)
++	assert.Equal(t, "enabled", account.Status)
++	assert.Equal(t, "managed-7", account.Model)
++	var paid lingtu.PaidGrant
++	require.NoError(t, db.First(&paid, "user_id = ?", 341).Error)
++	assert.Equal(t, lingtu.PaidGrant{UserID: 341, Limit: 50, Used: 3, Reserved: 1, ExpiresAt: now + 3600, Epoch: 7}, paid)
++	var sessions int64
++	require.NoError(t, db.Model(&model.UserSession{}).Where("user_id = ? AND status = ?", 341, model.UserSessionStatusActive).Count(&sessions).Error)
++	assert.EqualValues(t, 1, sessions)
++}
++
++func TestLingtuAdminBatchQuotaAuditFailureRollsBackUpdates(t *testing.T) {
++	db := contextPolicyTestDB(t)
++	if db.Dialector.Name() != "sqlite" {
++		t.Skip("audit failure trigger is SQLite-specific")
++	}
++	batchQuotaUser(t, db, 351, common.UserStatusEnabled)
++	batchQuotaAccount(t, db, 351, 100, 1, 0)
++	identity, _ := contextPolicyIdentity(t, db, 352, common.RoleAdminUser)
++	require.NoError(t, db.Exec(`CREATE TRIGGER batch_quota_audit_failure BEFORE INSERT ON lingtu_audits
++		WHEN NEW.reason LIKE 'batch_quota before=%'
++		BEGIN SELECT RAISE(ABORT, 'audit fixture failure'); END`).Error)
++
++	response := batchQuotaPost(t, batchQuotaBody(t, "audit failure fixture", []map[string]any{
++		batchQuotaTargetJSON(351, 100, 120),
++	}), identity)
++	assert.GreaterOrEqual(t, response.Code, 400)
++	assert.Equal(t, 100, batchQuotaLimit(t, db, 351).Limit)
++}
++
++func TestLingtuAdminBatchQuotaConcurrentReserveDoesNotLoseCount(t *testing.T) {
++	db := contextPolicyTestDB(t)
++	batchQuotaUser(t, db, 361, common.UserStatusEnabled)
++	batchQuotaAccount(t, db, 361, 10, 0, 0)
++	identity, _ := contextPolicyIdentity(t, db, 362, common.RoleAdminUser)
++
++	start := make(chan struct{})
++	var response *httptest.ResponseRecorder
++	var reserveErr error
++	var wg sync.WaitGroup
++	wg.Add(2)
++	go func() {
++		defer wg.Done()
++		<-start
++		response = batchQuotaPost(t, batchQuotaBody(t, "concurrent fixture", []map[string]any{
++			batchQuotaTargetJSON(361, 10, 5),
++		}), identity)
++	}()
++	go func() {
++		defer wg.Done()
++		<-start
++		_, reserveErr = lingtu.NewTrialStore(db).Reserve(361, "batch-quota-concurrent", "digest", time.Now())
++	}()
++	close(start)
++	wg.Wait()
++	require.NoError(t, reserveErr)
++	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
++	grant := batchQuotaLimit(t, db, 361)
++	assert.Equal(t, 5, grant.Limit)
++	assert.Equal(t, 0, grant.Used)
++	assert.Equal(t, 1, grant.Reserved)
++	assert.LessOrEqual(t, grant.Used+grant.Reserved, grant.Limit)
++}
+diff --git a/server/overlay/lingtuhost/billing_config.go b/server/overlay/lingtuhost/billing_config.go
+index 114c8da56262b42ab621e493cd47526ceaa9ec8f..bc3095b3386a11b5b8682eca0a917b6fde2ae35b 100644
+--- a/server/overlay/lingtuhost/billing_config.go
++++ b/server/overlay/lingtuhost/billing_config.go
+@@ -32,7 +32,7 @@ type billingServiceInfo struct {
+ func billingServiceVersion() billingServiceInfo {
+ 	// Preserve every capability already serving production, then expose the
+ 	// persisted per-request token cost estimate added on top of the cost base.
+-	return billingServiceInfo{Version: "2026.11.19-learning.1", BillingProtocol: 2, Capabilities: []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates", "trial-expiry-extends-on-recharge", "managed-learning-policy"}}
++	return billingServiceInfo{Version: "2026.11.21-quota.1", BillingProtocol: 2, Capabilities: []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates", "trial-expiry-extends-on-recharge", "managed-learning-policy", "admin-batch-trial-quota"}}
+ }
+ 
+ // Stored only inside ManagedSetting's authenticated encryption serializer.
+diff --git a/server/overlay/lingtuhost/billing_native.go b/server/overlay/lingtuhost/billing_native.go
+index 46c1cf167c6788f82dc5806fdd82b18d87a744d0..89c7f020616c1653c307cda22f4ae1536a04bcf7 100644
+--- a/server/overlay/lingtuhost/billing_native.go
++++ b/server/overlay/lingtuhost/billing_native.go
+@@ -36,8 +36,8 @@ type nativeProvider interface {
+ func defaultBillingPlans() []lingtu.BillingPlan {
+ 	return []lingtu.BillingPlan{
+ 		{ID: "usage_1000", Name: "体验包 · 小小心意", Currency: "cny", Amount: 990, ListAmount: 1000, Calls: 1000, ValidDays: 365},
+-		{ID: "usage_10000", Name: "标准包 · 支持一份", Currency: "cny", Amount: 10000, ListAmount: 10000, Calls: 10000, ValidDays: 365},
+-		{ID: "support_100000", Name: "共创支持包", Currency: "cny", Amount: 100000, Calls: 100000, ValidDays: 365},
++		{ID: "usage_10000", Name: "标准包 · 支持一份", Currency: "cny", Amount: 10000, ListAmount: 10000, Calls: 20000, ValidDays: 365},
++		{ID: "support_100000", Name: "共创支持包", Currency: "cny", Amount: 100000, Calls: 300000, ValidDays: 365},
+ 	}
+ }
+ func (h *billingHost) nativeChannel(channel string) nativeProvider {
+diff --git a/server/overlay/lingtuhost/billing_native_test.go b/server/overlay/lingtuhost/billing_native_test.go
+index 474e0c10347e836228e7a0d9789cfda8467388e2..6656649bfec3710e581b57a7474f9262b47aca67 100644
+--- a/server/overlay/lingtuhost/billing_native_test.go
++++ b/server/overlay/lingtuhost/billing_native_test.go
+@@ -1,7 +1,9 @@
+ package lingtuhost
+ 
+ import (
++	"encoding/json"
+ 	"github.com/QuantumNous/new-api/lingtu"
++	"net/http/httptest"
+ 	"testing"
+ 	"time"
+ )
+@@ -19,7 +21,7 @@ func TestNativeSupportPlanCheckoutAndCredit(t *testing.T) {
+ 		t.Fatalf("checkout duplicated: %+v %v", orders, err)
+ 	}
+ 	order := orders[0]
+-	if order.Plan.Amount != 100000 || order.Plan.Calls != 100000 || order.Plan.ValidDays != 365 {
++	if order.Plan.Amount != 100000 || order.Plan.Calls != 300000 || order.Plan.ValidDays != 365 {
+ 		t.Fatalf("wrong support tier: %+v", order.Plan)
+ 	}
+ 	provider.result.State = "paid"
+@@ -31,7 +33,7 @@ func TestNativeSupportPlanCheckoutAndCredit(t *testing.T) {
+ 		}
+ 	}
+ 	quota, err := h.store.Quota(42, time.Now())
+-	if err != nil || quota.Paid.Remaining != 100000 || quota.Trial.Remaining != 2 || quota.Trial.ExpiresAt != quota.Paid.ExpiresAt {
++	if err != nil || quota.Paid.Remaining != 300000 || quota.Trial.Remaining != 2 || quota.Trial.ExpiresAt != quota.Paid.ExpiresAt {
+ 		t.Fatalf("incorrect support entitlement: %+v %v", quota, err)
+ 	}
+ }
+@@ -41,16 +43,86 @@ func TestNativeCatalogDefaultPlansAndChannelIsolation(t *testing.T) {
+ 	t.Setenv("LINGTU_BILLING_ALIPAY_APP_ID", "")
+ 	t.Setenv("LINGTU_BILLING_WECHAT_APP_ID", "")
+ 	c := loadBillingConfig()
+-	if len(c.Plans) != 3 || c.Plans[0].ID != "usage_1000" || c.Plans[0].Amount != 990 || c.Plans[1].Amount != 10000 {
++	if len(c.Plans) != 3 || c.Plans[0].ID != "usage_1000" || c.Plans[0].Amount != 990 || c.Plans[0].Calls != 1000 || c.Plans[1].Amount != 10000 || c.Plans[1].Calls != 20000 {
+ 		t.Fatalf("default plans missing: %+v", c.Plans)
+ 	}
+-	if p := c.Plans[2]; p.ID != "support_100000" || p.Amount != 100000 || p.Calls != 100000 || p.ValidDays != 365 || !p.Valid() {
++	if p := c.Plans[2]; p.ID != "support_100000" || p.Amount != 100000 || p.Calls != 300000 || p.ValidDays != 365 || !p.Valid() {
+ 		t.Fatalf("support plan incorrect: %+v", p)
+ 	}
+ 	if len(c.Channels) != 2 || c.Channels[0].Ready || c.Channels[1].Ready {
+ 		t.Fatal("unconfigured channels must remain separately unavailable")
+ 	}
+ }
++func TestNativeOrdersKeepPlanSnapshotAcrossCatalogUpdate(t *testing.T) {
++	h, provider, router := fixtureNativeHost(t)
++	decodeOrder := func(response *httptest.ResponseRecorder) lingtu.BillingOrder {
++		t.Helper()
++		if response.Code != 200 {
++			t.Fatalf("order: %d %s", response.Code, response.Body.String())
++		}
++		var body struct {
++			Order lingtu.BillingOrder `json:"order"`
++		}
++		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
++			t.Fatal(err)
++		}
++		return body.Order
++	}
++	// The catalog now offers 20000 calls, but this pending order keeps the terms it was created with.
++	legacy := lingtu.BillingPlan{ID: "usage_10000", Name: "标准包 · 支持一份", Currency: "cny", Amount: 10000, ListAmount: 10000, Calls: 10000, ValidDays: 365}
++	old, err := h.store.CreateChannelOrder(42, "legacy-standard", legacy, "wechat", time.Now())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if restored := decodeOrder(fixtureRequest(router, "GET", "/orders/"+old.ID, "")); restored.Plan.Calls != 10000 {
++		t.Fatalf("restored order adopted new catalog calls: %+v", restored.Plan)
++	}
++	// Retrying the same request id under the larger offer must report a conflict, not replace the order.
++	if conflict := fixtureRequest(router, "POST", "/orders", `{"plan_id":"usage_10000","request_id":"legacy-standard","channel":"wechat"}`); conflict.Code != 409 {
++		t.Fatalf("legacy retry replaced snapshot: %d %s", conflict.Code, conflict.Body.String())
++	}
++	provider.result.State = "paid"
++	provider.result.Amount = 10000
++	provider.result.TransactionID = "legacy-txn"
++	for range 2 {
++		decodeOrder(fixtureRequest(router, "GET", "/orders/"+old.ID, ""))
++	}
++	quota, err := h.store.Quota(42, time.Now())
++	if err != nil || quota.Paid.Remaining != 10000 {
++		t.Fatalf("legacy order credited %+v %v", quota, err)
++	}
++	// Orders created after the catalog update take the new offer.
++	for range 2 {
++		if response := fixtureRequest(router, "POST", "/orders", `{"plan_id":"usage_10000","request_id":"new-standard","channel":"wechat"}`); response.Code != 200 {
++			t.Fatalf("new checkout: %d %s", response.Code, response.Body.String())
++		}
++	}
++	orders, err := h.store.Orders(42, 0, 10)
++	if err != nil || len(orders) != 2 {
++		t.Fatalf("orders %+v %v", orders, err)
++	}
++	var current lingtu.BillingOrder
++	for _, order := range orders {
++		if order.RequestID == "new-standard" {
++			current = order
++		}
++	}
++	if current.Plan.Calls != 20000 || provider.creates != 2 {
++		t.Fatalf("new order calls %+v creates %d", current.Plan, provider.creates)
++	}
++	provider.result.TransactionID = "new-txn"
++	for range 2 {
++		decodeOrder(fixtureRequest(router, "GET", "/orders/"+current.ID, ""))
++	}
++	quota, err = h.store.Quota(42, time.Now())
++	if err != nil || quota.Paid.Remaining != 30000 {
++		t.Fatalf("new order credited %+v %v", quota, err)
++	}
++	if kept, err := h.store.Order(42, old.ID); err != nil || kept.Plan.Calls != 10000 || kept.State != "paid" {
++		t.Fatalf("legacy snapshot changed: %+v %v", kept.Plan, err)
++	}
++}
++
+ func TestNativePaymentRejectsIdentityAmountAndStateMismatch(t *testing.T) {
+ 	o := lingtu.BillingOrder{ID: "abc", Channel: "wechat", Plan: lingtu.BillingPlan{Currency: "cny", Amount: 990}}
+ 	good := nativeResult{OrderID: "abc", Channel: "wechat", MerchantID: "merchant", AppID: "app", TransactionID: "txn", Amount: 990, Currency: "CNY", State: "paid"}
+diff --git a/server/overlay/lingtuhost/billing_test.go b/server/overlay/lingtuhost/billing_test.go
+index 72ab433ab75282e37308f12ec49807dfb7dea620..a5b9153dd5e64ce2b1efc1142a46b7c5d61a3c92 100644
+--- a/server/overlay/lingtuhost/billing_test.go
++++ b/server/overlay/lingtuhost/billing_test.go
+@@ -56,12 +56,12 @@ func TestBillingRegisteredRoutesExposeVersionAndDenyAnonymousCustomersAndAdmins(
+ 		BillingProtocol int      `json:"billing_protocol"`
+ 		Capabilities    []string `json:"capabilities"`
+ 	}
+-	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version != "2026.11.19-learning.1" || info.BillingProtocol != 2 {
++	if response.StatusCode != 200 || json.NewDecoder(response.Body).Decode(&info) != nil || info.Version != "2026.11.21-quota.1" || info.BillingProtocol != 2 {
+ 		t.Fatalf("missing deployed capability/version: %+v status %d", info, response.StatusCode)
+ 	}
+ 	// Production native payment, reconciliation, quota and free summary must stay
+ 	// advertised while the merged cost estimate becomes discoverable.
+-	for _, required := range []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates", "trial-expiry-extends-on-recharge", "managed-learning-policy"} {
++	for _, required := range []string{"billing-orders", "stripe-signed-credit", "encrypted-billing-settings", "billing-merchant-check", "native-signed-credit", "billing-order-reconciliation", "trial-paid-quota", "summary-no-call-charge", "token-cny-cost-estimates", "trial-expiry-extends-on-recharge", "managed-learning-policy", "admin-batch-trial-quota"} {
+ 		found := false
+ 		for _, capability := range info.Capabilities {
+ 			found = found || capability == required
+diff --git a/server/overlay/web/src/features/lingtu/admin-account-quota.tsx b/server/overlay/web/src/features/lingtu/admin-account-quota.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..eae9a44d4b8d89dc5a0b3167b35737461761e94c
+--- /dev/null
++++ b/server/overlay/web/src/features/lingtu/admin-account-quota.tsx
+@@ -0,0 +1,292 @@
++import { useMemo, useRef, useState } from 'react'
++import { useTranslation } from 'react-i18next'
++
++import { StaticDataTable } from '@/components/data-table'
++import { Button } from '@/components/ui/button'
++import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
++import { Input } from '@/components/ui/input'
++import { Label } from '@/components/ui/label'
++import { formatNumber } from '@/lib/format'
++
++export interface Account {
++  native_status?: number
++  user_id: number
++  display_name: string
++  status: string
++  model: string
++  limit: number
++  used: number
++  reserved: number
++  expires_at: number
++}
++type BatchSave = (
++  payload: Record<string, unknown> & { section: string }
++) => Promise<boolean>
++type AdjustmentMode = 'add' | 'subtract' | 'set'
++type PreviewRow = {
++  account: Account
++  target: number | null
++  error: string
++  remaining: number
++}
++const maxCalls = 1000000
++const maxReasonBytes = 180
++
++function targetFor(
++  account: Account,
++  mode: AdjustmentMode,
++  amount: number
++): number {
++  if (mode === 'add') return account.limit + amount
++  if (mode === 'subtract') return account.limit - amount
++  return amount
++}
++
++export function AccountBatchQuota(props: {
++  accounts: Account[]
++  save: BatchSave
++  busy: boolean
++  onClear: () => void
++  onSaved: () => void
++}) {
++  const { t } = useTranslation()
++  const [open, setOpen] = useState(false)
++  const [mode, setMode] = useState<AdjustmentMode>('add')
++  const [amount, setAmount] = useState('')
++  const [reason, setReason] = useState('')
++  const submitting = useRef(false)
++
++  const numericAmount =
++    amount.trim() !== '' && Number.isInteger(Number(amount))
++      ? Number(amount)
++      : null
++  const preview = useMemo(() => {
++    return props.accounts.map((account): PreviewRow => {
++      if (numericAmount === null || numericAmount < 0) {
++        return {
++          account,
++          target: null,
++          error: t('Enter a whole number.'),
++          remaining: 0,
++        }
++      }
++      const target = targetFor(account, mode, numericAmount)
++      let error = ''
++      if (target < 0 || target > maxCalls) {
++        error = t('The new total must be between 0 and 1,000,000 calls.')
++      } else if (target < account.used + account.reserved) {
++        error = t('Below used + pending calls')
++      }
++      const remaining =
++        account.expires_at > Date.now() / 1000
++          ? Math.max(0, target - account.used - account.reserved)
++          : 0
++      return { account, target, error, remaining }
++    })
++  }, [mode, numericAmount, props.accounts, t])
++
++  const reasonBytes = new TextEncoder().encode(reason.trim()).length
++  let reasonError = ''
++  if (!reason.trim()) reasonError = t('Reason for change is required.')
++  else if (reasonBytes > maxReasonBytes) {
++    reasonError = t('Reason is too long. Please shorten it.')
++  }
++  const previewInvalid = preview.some(
++    (row) => row.target === null || !!row.error
++  )
++  const canSubmit =
++    !props.busy && props.accounts.length > 0 && !previewInvalid && !reasonError
++
++  function applyAmountLabel(): string {
++    if (mode === 'add') return t('Calls to add')
++    if (mode === 'subtract') return t('Calls to subtract')
++    return t('New total calls')
++  }
++
++  async function submit(): Promise<void> {
++    if (!canSubmit || submitting.current) return
++    submitting.current = true
++    try {
++      const ok = await props.save({
++        section: 'account',
++        action: 'batch_quota',
++        reason: reason.trim(),
++        targets: preview.map((row) => ({
++          user_id: row.account.user_id,
++          expected_limit: row.account.limit,
++          target_calls: row.target,
++        })),
++      })
++      if (ok) props.onSaved()
++    } finally {
++      submitting.current = false
++    }
++  }
++
++  return (
++    <Card className='min-w-0 border border-blue-100 bg-white'>
++      <CardHeader className='min-w-0 gap-3 sm:flex sm:flex-row sm:items-center sm:justify-between'>
++        <CardTitle>{t('Adjust trial quota')}</CardTitle>
++        <div className='flex min-w-0 flex-wrap items-center gap-2'>
++          <p role='status' aria-live='polite' className='text-sm'>
++            {t('{{count}} selected', { count: props.accounts.length })}
++          </p>
++          <Button
++            variant='outline'
++            disabled={props.busy || open}
++            aria-expanded={open}
++            onClick={() => setOpen(true)}
++          >
++            {t('Adjust quota')}
++          </Button>
++          <Button variant='ghost' disabled={props.busy} onClick={props.onClear}>
++            {t('Clear selection')}
++          </Button>
++        </div>
++      </CardHeader>
++      {open && (
++        <CardContent className='min-w-0'>
++          <fieldset
++            className='min-w-0 space-y-4'
++            disabled={props.busy}
++            aria-busy={props.busy}
++          >
++            <p className='text-sm text-slate-500'>
++              {t(
++                'Only trial calls are changed. Expiry, model, account status and paid quota are not changed.'
++              )}
++            </p>
++            <div className='grid gap-4 sm:grid-cols-2'>
++              <div className='space-y-2'>
++                <Label htmlFor='batch-quota-mode'>
++                  {t('Adjustment method')}
++                </Label>
++                <select
++                  id='batch-quota-mode'
++                  className='border-input bg-background h-10 w-full rounded-lg border px-3 text-sm'
++                  value={mode}
++                  onChange={(event) =>
++                    setMode(event.target.value as AdjustmentMode)
++                  }
++                >
++                  <option value='add'>{t('Add calls')}</option>
++                  <option value='subtract'>{t('Subtract calls')}</option>
++                  <option value='set'>{t('Set total calls')}</option>
++                </select>
++              </div>
++              <div className='space-y-2'>
++                <Label htmlFor='batch-quota-amount'>{applyAmountLabel()}</Label>
++                <Input
++                  id='batch-quota-amount'
++                  type='number'
++                  min='0'
++                  max={maxCalls}
++                  step='1'
++                  value={amount}
++                  onChange={(event) => setAmount(event.target.value)}
++                  autoComplete='off'
++                />
++              </div>
++              <div className='space-y-2 sm:col-span-2'>
++                <Label htmlFor='batch-quota-reason'>
++                  {t('Reason for change')}
++                </Label>
++                <Input
++                  id='batch-quota-reason'
++                  value={reason}
++                  onChange={(event) => setReason(event.target.value)}
++                  autoComplete='off'
++                  aria-invalid={!!reasonError}
++                  aria-describedby={
++                    reasonError ? 'batch-quota-reason-error' : undefined
++                  }
++                />
++                {reasonError && (
++                  <p
++                    id='batch-quota-reason-error'
++                    role='alert'
++                    className='text-sm text-red-600'
++                  >
++                    {reasonError}
++                  </p>
++                )}
++              </div>
++            </div>
++            <div className='min-w-0 space-y-2'>
++              <p className='text-sm font-medium'>{t('Preview')}</p>
++              <p className='text-sm text-slate-500'>
++                {t('The expiry date is unchanged.')}
++              </p>
++              {previewInvalid && (
++                <p role='alert' className='text-sm text-red-600'>
++                  {t('Some selected accounts cannot use this adjustment.')}
++                </p>
++              )}
++              <StaticDataTable
++                className='max-w-full min-w-0'
++                data={preview}
++                getRowKey={(row) => row.account.user_id}
++                columns={[
++                  {
++                    id: 'account',
++                    header: t('Account'),
++                    cell: (row) =>
++                      `${row.account.display_name} · ${row.account.user_id}`,
++                  },
++                  {
++                    id: 'current',
++                    header: t('Current total'),
++                    cell: (row) => formatNumber(row.account.limit),
++                  },
++                  {
++                    id: 'used',
++                    header: t('Used / pending'),
++                    cell: (row) =>
++                      `${formatNumber(row.account.used)} / ${formatNumber(row.account.reserved)}`,
++                  },
++                  {
++                    id: 'target',
++                    header: t('New total'),
++                    cell: (row) => (
++                      <div>
++                        <span
++                          className={row.error ? 'text-red-600' : undefined}
++                        >
++                          {row.target === null ? '—' : formatNumber(row.target)}
++                        </span>
++                        {row.error && (
++                          <small className='block text-red-600'>
++                            {row.error}
++                          </small>
++                        )}
++                      </div>
++                    ),
++                  },
++                  {
++                    id: 'remaining',
++                    header: t('Estimated remaining'),
++                    cell: (row) =>
++                      row.error || row.target === null
++                        ? '—'
++                        : formatNumber(row.remaining),
++                  },
++                ]}
++              />
++            </div>
++            <div className='flex flex-wrap gap-2'>
++              <Button
++                disabled={props.busy || !canSubmit}
++                onClick={() => void submit()}
++              >
++                {t('Apply to selected accounts')}
++              </Button>
++              <Button variant='ghost' onClick={() => setOpen(false)}>
++                {t('Cancel')}
++              </Button>
++            </div>
++          </fieldset>
++        </CardContent>
++      )}
++    </Card>
++  )
++}
+diff --git a/server/overlay/web/src/features/lingtu/admin-light.css b/server/overlay/web/src/features/lingtu/admin-light.css
+index b6edc034326f73e0565adf717ff7d28989843d08..975a07eb6a35ff660b81d5b48e0fab229af24f5d 100644
+--- a/server/overlay/web/src/features/lingtu/admin-light.css
++++ b/server/overlay/web/src/features/lingtu/admin-light.css
+@@ -237,7 +237,6 @@
+ }
+ .lingtu-admin-shell .admin-workspace {
+   padding: 28px 36px;
+-  max-width: 1600px;
+   min-width: 0;
+   width: 100%;
+   flex: 1;
+diff --git a/server/overlay/web/src/features/lingtu/admin-page.test.tsx b/server/overlay/web/src/features/lingtu/admin-page.test.tsx
+index 4f397b2aedfae63b81101a8ce7b85a613eac3ffc..b88501740a35f0b8a2f4ce9e4fd7dd7d0ab76ed0 100644
+--- a/server/overlay/web/src/features/lingtu/admin-page.test.tsx
++++ b/server/overlay/web/src/features/lingtu/admin-page.test.tsx
+@@ -2326,3 +2326,516 @@ it('saves RMB rates through the existing exact proof without probing and clears
+     ).value
+   ).toBe('')
+ })
++
++type AccountFixture = {
++  native_status?: number
++  user_id: number
++  display_name: string
++  status: string
++  model: string
++  limit: number
++  used: number
++  reserved: number
++  expires_at: number
++}
++function accountRow(
++  userId: number,
++  overrides: Partial<AccountFixture> = {}
++): AccountFixture {
++  return {
++    user_id: userId,
++    display_name: `客服${userId}`,
++    status: 'enabled',
++    native_status: 1,
++    model: '',
++    limit: 20,
++    used: 0,
++    reserved: 0,
++    expires_at: 1900000000,
++    ...overrides,
++  }
++}
++function installAccounts(
++  pageOne: AccountFixture[],
++  pageTwo: AccountFixture[] = [],
++  posts: Array<{ raw: string; body: Record<string, unknown> }> = []
++) {
++  api.defaults.adapter = async (request) => {
++    if (request.method === 'post') {
++      const raw = String(request.data)
++      posts.push({ raw, body: JSON.parse(raw) as Record<string, unknown> })
++      return {
++        data: { saved: true },
++        status: 200,
++        statusText: 'OK',
++        headers: {},
++        config: request,
++      }
++    }
++    if (request.url?.endsWith('/accounts')) {
++      const page = Number(request.params?.page || 1)
++      return {
++        data: {
++          items: page === 1 ? pageOne : pageTwo,
++          total: 21,
++          page,
++        },
++        status: 200,
++        statusText: 'OK',
++        headers: {},
++        config: request,
++      }
++    }
++    return {
++      data: fixtureData(request.url || '', request.params, config),
++      status: 200,
++      statusText: 'OK',
++      headers: {},
++      config: request,
++    }
++  }
++  return posts
++}
++async function openAccounts() {
++  renderAdmin()
++  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
++  fireEvent.click(screen.getByRole('button', { name: 'English' }))
++  fireEvent.click(
++    await screen.findByRole('tab', { name: 'Account management' })
++  )
++  await screen.findAllByRole('checkbox', { name: /^Select account \d+$/ })
++  await screen.findByRole('checkbox', { name: 'Select all on this page' })
++}
++function checkbox(name: string): HTMLElement {
++  return screen.getByRole('checkbox', { name })
++}
++
++it('selects only eligible accounts on the current page and drops hidden selections', async () => {
++  const pageOne = [
++    accountRow(9, { limit: 20, used: 4, reserved: 1 }),
++    accountRow(10, { limit: 100, used: 90, reserved: 5 }),
++    accountRow(11, { status: 'not_authorized' }),
++    accountRow(12, { native_status: 2 }),
++  ]
++  installAccounts(pageOne, [accountRow(21)])
++  await openAccounts()
++  expect(checkbox('Select account 9')).not.toHaveAttribute(
++    'aria-disabled',
++    'true'
++  )
++  expect(checkbox('Select account 10')).not.toHaveAttribute(
++    'aria-disabled',
++    'true'
++  )
++  expect(checkbox('Select account 11')).toHaveAttribute('aria-disabled', 'true')
++  expect(checkbox('Select account 12')).toHaveAttribute('aria-disabled', 'true')
++
++  fireEvent.click(checkbox('Select account 9'))
++  await screen.findByText('1 selected')
++  expect(screen.getByRole('button', { name: 'Adjust quota' })).toBeTruthy()
++  expect(screen.getByRole('button', { name: 'Clear selection' })).toBeTruthy()
++  fireEvent.click(checkbox('Select all on this page'))
++  await screen.findByText('2 selected')
++  fireEvent.click(checkbox('Select all on this page'))
++  await waitFor(() => expect(screen.queryByText('2 selected')).toBeNull())
++
++  fireEvent.click(checkbox('Select account 9'))
++  await screen.findByText('1 selected')
++  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
++  await screen.findByText('客服21 · 21')
++  await waitFor(() => expect(screen.queryByText('1 selected')).toBeNull())
++  fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
++  expect(
++    await screen.findByRole('checkbox', { name: 'Select account 9' })
++  ).toHaveAttribute('aria-checked', 'false')
++
++  fireEvent.click(checkbox('Select account 9'))
++  await screen.findByText('1 selected')
++  pageOne[0] = accountRow(9, { status: 'disabled' })
++  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
++  await waitFor(() => expect(screen.queryByText('1 selected')).toBeNull())
++  expect(checkbox('Select account 9')).toHaveAttribute('aria-disabled', 'true')
++})
++
++it('previews add, subtract and set modes with boundary checks and submits the exact batch payload', async () => {
++  allowProtectedSave()
++  const posts = installAccounts([
++    accountRow(9, { limit: 20, used: 4, reserved: 1 }),
++    accountRow(10, { limit: 100, used: 90, reserved: 5 }),
++  ])
++  await openAccounts()
++  fireEvent.click(checkbox('Select account 9'))
++  await screen.findByText('1 selected')
++  fireEvent.click(screen.getByRole('button', { name: 'Adjust quota' }))
++  fireEvent.change(screen.getByLabelText('Calls to add'), {
++    target: { value: '5' },
++  })
++  expect(screen.getByText('25')).toBeTruthy()
++  fireEvent.change(screen.getByLabelText('Adjustment method'), {
++    target: { value: 'subtract' },
++  })
++  fireEvent.change(screen.getByLabelText('Calls to subtract'), {
++    target: { value: '16' },
++  })
++  expect(screen.getByText('Below used + pending calls')).toBeTruthy()
++  expect(
++    (
++      screen.getByRole('button', {
++        name: 'Apply to selected accounts',
++      }) as HTMLButtonElement
++    ).disabled
++  ).toBe(true)
++
++  fireEvent.change(screen.getByLabelText('Adjustment method'), {
++    target: { value: 'set' },
++  })
++  fireEvent.change(screen.getByLabelText('New total calls'), {
++    target: { value: '100' },
++  })
++  expect(screen.queryByText('Below used + pending calls')).toBeNull()
++  fireEvent.change(screen.getByLabelText('Reason for change'), {
++    target: { value: 'quota batch reason' },
++  })
++  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
++  fireEvent.click(screen.getByRole('button', { name: 'Adjust quota' }))
++  expect(
++    (screen.getByLabelText('New total calls') as HTMLInputElement).value
++  ).toBe('100')
++  expect(
++    (screen.getByLabelText('Reason for change') as HTMLInputElement).value
++  ).toBe('quota batch reason')
++
++  fireEvent.click(
++    screen.getByRole('button', { name: 'Apply to selected accounts' })
++  )
++  await waitFor(() => expect(posts).toHaveLength(1))
++  expect(posts[0].body).toEqual({
++    section: 'account',
++    action: 'batch_quota',
++    reason: 'quota batch reason',
++    targets: [{ user_id: 9, expected_limit: 20, target_calls: 100 }],
++  })
++  const hash = Buffer.from(
++    await webcrypto.subtle.digest(
++      'SHA-256',
++      new TextEncoder().encode(posts[0].raw)
++    )
++  ).toString('hex')
++  expect(verify).toHaveBeenCalledWith(
++    expect.objectContaining({
++      context: { section: 'account', request_hash: hash },
++    })
++  )
++  await waitFor(() => expect(screen.queryByText('1 selected')).toBeNull())
++})
++
++it('keeps the batch draft when verification is canceled or fails and blocks repeated submits', async () => {
++  allowProtectedSave()
++  const posts = installAccounts([accountRow(9)])
++  await openAccounts()
++  fireEvent.click(checkbox('Select account 9'))
++  await screen.findByText('1 selected')
++  fireEvent.click(screen.getByRole('button', { name: 'Adjust quota' }))
++  fireEvent.change(screen.getByLabelText('Calls to add'), {
++    target: { value: '5' },
++  })
++  fireEvent.change(screen.getByLabelText('Reason for change'), {
++    target: { value: 'keep this reason' },
++  })
++
++  verify.mockResolvedValueOnce(null)
++  fireEvent.click(
++    screen.getByRole('button', { name: 'Apply to selected accounts' })
++  )
++  await waitFor(() => expect(verify).toHaveBeenCalledTimes(1))
++  expect(posts).toHaveLength(0)
++  expect(
++    (screen.getByLabelText('Calls to add') as HTMLInputElement).value
++  ).toBe('5')
++  expect(
++    (screen.getByLabelText('Reason for change') as HTMLInputElement).value
++  ).toBe('keep this reason')
++
++  verify.mockRejectedValueOnce(new Error('canceled'))
++  fireEvent.click(
++    screen.getByRole('button', { name: 'Apply to selected accounts' })
++  )
++  await screen.findByText(/Save could not be confirmed/)
++  expect(posts).toHaveLength(0)
++  expect(
++    (screen.getByLabelText('Reason for change') as HTMLInputElement).value
++  ).toBe('keep this reason')
++
++  const apply = screen.getByRole('button', {
++    name: 'Apply to selected accounts',
++  })
++  await waitFor(() => expect((apply as HTMLButtonElement).disabled).toBe(false))
++  fireEvent.click(apply)
++  fireEvent.click(apply)
++  await waitFor(() => expect(posts).toHaveLength(1))
++  expect(posts).toHaveLength(1)
++})
++
++it('locks batch controls, pagination and refresh through a deferred save and recovers after cancel or failure', async () => {
++  allowProtectedSave()
++  const pageOne = [accountRow(9, { limit: 20, used: 4, reserved: 1 })]
++  const posts: Array<{ raw: string; body: Record<string, unknown> }> = []
++  let releasePost!: (value: { status: number; data: unknown }) => void
++  const postGate = new Promise<{ status: number; data: unknown }>((resolve) => {
++    releasePost = resolve
++  })
++  api.defaults.adapter = async (request) => {
++    if (request.method === 'post') {
++      const raw = String(request.data)
++      posts.push({ raw, body: JSON.parse(raw) as Record<string, unknown> })
++      const result = await postGate
++      if (result.status !== 200) {
++        throw new AxiosError(
++          'conflict',
++          'ERR_BAD_REQUEST',
++          request,
++          undefined,
++          {
++            data: result.data,
++            status: result.status,
++            statusText: 'Conflict',
++            headers: {},
++            config: request,
++          }
++        )
++      }
++      return {
++        data: result.data,
++        status: 200,
++        statusText: 'OK',
++        headers: {},
++        config: request,
++      }
++    }
++    if (request.url?.endsWith('/accounts')) {
++      return {
++        data: {
++          items: pageOne,
++          total: 21,
++          page: Number(request.params?.page || 1),
++        },
++        status: 200,
++        statusText: 'OK',
++        headers: {},
++        config: request,
++      }
++    }
++    return {
++      data: fixtureData(request.url || '', request.params, config),
++      status: 200,
++      statusText: 'OK',
++      headers: {},
++      config: request,
++    }
++  }
++  await openAccounts()
++  fireEvent.click(checkbox('Select account 9'))
++  await screen.findByText('1 selected')
++  fireEvent.click(screen.getByRole('button', { name: 'Adjust quota' }))
++  fireEvent.change(screen.getByLabelText('Adjustment method'), {
++    target: { value: 'set' },
++  })
++  fireEvent.change(screen.getByLabelText('New total calls'), {
++    target: { value: '100' },
++  })
++  fireEvent.change(screen.getByLabelText('Reason for change'), {
++    target: { value: 'a'.repeat(181) },
++  })
++  expect(
++    await screen.findByText('Reason is too long. Please shorten it.')
++  ).toBeTruthy()
++  expect(
++    (
++      screen.getByRole('button', {
++        name: 'Apply to selected accounts',
++      }) as HTMLButtonElement
++    ).disabled
++  ).toBe(true)
++  fireEvent.change(screen.getByLabelText('Reason for change'), {
++    target: { value: 'pending reason' },
++  })
++
++  let releaseProof!: (value: { proof_token: string } | null) => void
++  const proofGate = new Promise<{ proof_token: string } | null>((resolve) => {
++    releaseProof = resolve
++  })
++  verify.mockReturnValueOnce(proofGate)
++  const assertLocked = () => {
++    expect(
++      (screen.getByLabelText('Adjustment method') as HTMLSelectElement).matches(
++        ':disabled'
++      )
++    ).toBe(true)
++    expect(
++      (screen.getByLabelText('New total calls') as HTMLInputElement).matches(
++        ':disabled'
++      )
++    ).toBe(true)
++    expect(
++      (screen.getByLabelText('Reason for change') as HTMLInputElement).matches(
++        ':disabled'
++      )
++    ).toBe(true)
++    expect(
++      (
++        screen.getByRole('button', {
++          name: 'Apply to selected accounts',
++        }) as HTMLButtonElement
++      ).matches(':disabled')
++    ).toBe(true)
++    expect(
++      (
++        screen.getByRole('button', { name: 'Cancel' }) as HTMLButtonElement
++      ).matches(':disabled')
++    ).toBe(true)
++    expect(
++      (
++        screen.getByRole('button', {
++          name: 'Clear selection',
++        }) as HTMLButtonElement
++      ).disabled
++    ).toBe(true)
++    expect(
++      (screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement)
++        .disabled
++    ).toBe(true)
++    expect(
++      (screen.getByRole('button', { name: 'Refresh' }) as HTMLButtonElement)
++        .disabled
++    ).toBe(true)
++    expect(checkbox('Select account 9')).toHaveAttribute(
++      'aria-disabled',
++      'true'
++    )
++  }
++  fireEvent.click(
++    screen.getByRole('button', { name: 'Apply to selected accounts' })
++  )
++  await waitFor(() => expect(verify).toHaveBeenCalledTimes(1))
++  await waitFor(() =>
++    expect(
++      (screen.getByLabelText('Adjustment method') as HTMLSelectElement).matches(
++        ':disabled'
++      )
++    ).toBe(true)
++  )
++  assertLocked()
++  fireEvent.click(
++    screen.getByRole('button', { name: 'Apply to selected accounts' })
++  )
++  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
++  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
++  expect(posts).toHaveLength(0)
++  expect(screen.getByText('1 selected')).toBeTruthy()
++  await act(async () => {
++    releaseProof(null)
++    await Promise.resolve()
++  })
++  await waitFor(() =>
++    expect(
++      (
++        screen.getByRole('button', {
++          name: 'Apply to selected accounts',
++        }) as HTMLButtonElement
++      ).disabled
++    ).toBe(false)
++  )
++  expect(
++    (screen.getByLabelText('Reason for change') as HTMLInputElement).value
++  ).toBe('pending reason')
++  expect(
++    (screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled
++  ).toBe(false)
++  expect(
++    (screen.getByRole('button', { name: 'Refresh' }) as HTMLButtonElement)
++      .disabled
++  ).toBe(false)
++  expect(checkbox('Select account 9')).not.toHaveAttribute(
++    'aria-disabled',
++    'true'
++  )
++  expect(screen.getByText('1 selected')).toBeTruthy()
++  expect(posts).toHaveLength(0)
++
++  fireEvent.click(
++    screen.getByRole('button', { name: 'Apply to selected accounts' })
++  )
++  await waitFor(() => expect(posts).toHaveLength(1))
++  await waitFor(() =>
++    expect(
++      (screen.getByLabelText('New total calls') as HTMLInputElement).matches(
++        ':disabled'
++      )
++    ).toBe(true)
++  )
++  assertLocked()
++  fireEvent.click(
++    screen.getByRole('button', { name: 'Apply to selected accounts' })
++  )
++  expect(posts).toHaveLength(1)
++  await act(async () => {
++    releasePost({
++      status: 409,
++      data: { saved: false, error: 'batch_quota_conflict' },
++    })
++    await Promise.resolve()
++  })
++  await screen.findByText(/Save could not be confirmed/)
++  await waitFor(() =>
++    expect(
++      (screen.getByLabelText('Reason for change') as HTMLInputElement).matches(
++        ':disabled'
++      )
++    ).toBe(false)
++  )
++  expect(
++    (screen.getByLabelText('Reason for change') as HTMLInputElement).value
++  ).toBe('pending reason')
++  expect(
++    (screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled
++  ).toBe(false)
++  expect(
++    (screen.getByRole('button', { name: 'Refresh' }) as HTMLButtonElement)
++      .disabled
++  ).toBe(false)
++  expect(checkbox('Select account 9')).not.toHaveAttribute(
++    'aria-disabled',
++    'true'
++  )
++  expect(posts).toHaveLength(1)
++  expect(posts[0].body).toEqual({
++    section: 'account',
++    action: 'batch_quota',
++    reason: 'pending reason',
++    targets: [{ user_id: 9, expected_limit: 20, target_calls: 100 }],
++  })
++})
++
++it('keeps the original single-account editor save behavior', async () => {
++  allowProtectedSave()
++  const posts = installAccounts([
++    accountRow(9, { limit: 20, used: 4, reserved: 1 }),
++  ])
++  await openAccounts()
++  fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
++  fireEvent.change(screen.getByLabelText('Total authorized calls'), {
++    target: { value: '25' },
++  })
++  fireEvent.change(screen.getByLabelText('Reason for change'), {
++    target: { value: 'manual adjustment' },
++  })
++  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
++  await waitFor(() => expect(posts).toHaveLength(1))
++  expect(posts[0].body).toMatchObject({
++    section: 'account',
++    user_id: 9,
++    calls: 25,
++    reason: 'manual adjustment',
++  })
++  expect(posts[0].body.action).toBeUndefined()
++})
+diff --git a/server/overlay/web/src/features/lingtu/admin-page.tsx b/server/overlay/web/src/features/lingtu/admin-page.tsx
+index a5735717e2affb926fa8ecf5ec4665e131905b4d..67488d13c90ee7a9d5c50c2c82949ec3e6146064 100644
+--- a/server/overlay/web/src/features/lingtu/admin-page.tsx
++++ b/server/overlay/web/src/features/lingtu/admin-page.tsx
+@@ -20,6 +20,7 @@ import { CopyButton } from '@/components/copy-button'
+ import { StaticDataTable } from '@/components/data-table'
+ import { Button } from '@/components/ui/button'
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
++import { Checkbox } from '@/components/ui/checkbox'
+ import { Input } from '@/components/ui/input'
+ import { Label } from '@/components/ui/label'
+ import { Switch } from '@/components/ui/switch'
+@@ -35,6 +36,7 @@ import {
+   formatTimestampForInput,
+ } from '@/lib/format'
+ 
++import { AccountBatchQuota, type Account } from './admin-account-quota'
+ import { AdminBilling } from './admin-billing'
+ import {
+   AdminContextPolicy,
+@@ -93,17 +95,6 @@ interface Config {
+   }
+ }
+ const ModelConnectionsContext = createContext<ModelConnection[]>([])
+-interface Account {
+-  native_status?: number
+-  user_id: number
+-  display_name: string
+-  status: string
+-  model: string
+-  limit: number
+-  used: number
+-  reserved: number
+-  expires_at: number
+-}
+ type Save = (payload: Payload) => Promise<boolean>
+ // Context policy saves need the new revision and an explicit conflict shape.
+ // Keep this local so the shared model-connection contract stays unchanged.
+@@ -119,6 +110,9 @@ function modelName(model: string) {
+   if (model === 'qwen3-vl-plus') return 'Qwen3-VL · Image understanding'
+   return model
+ }
++function batchQuotaEligible(account: Account): boolean {
++  return account.status === 'enabled' && account.native_status !== 2
++}
+ function loginStatus(configured: boolean, enabled: boolean) {
+   if (enabled && configured) return 'Enabled'
+   return configured ? 'Configured but disabled' : 'Not configured'
+@@ -757,6 +751,7 @@ function Accounts(props: {
+   const connections = useContext(ModelConnectionsContext)
+   const [page, setPage] = useState(1)
+   const [selected, setSelected] = useState<Account | null>(null)
++  const [selectedIds, setSelectedIds] = useState<number[]>([])
+   const query = useQuery({
+     queryKey: ['lingtu', 'accounts', page],
+     queryFn: async () =>
+@@ -769,6 +764,48 @@ function Accounts(props: {
+         )
+       ).data,
+   })
++  const currentAccounts = query.data?.items
++  // Selection is intentionally page-local. Refetches and failed responses may
++  // change eligibility; drop hidden or no-longer-adjustable IDs.
++  useEffect(() => {
++    const visible = new Set(
++      (currentAccounts || [])
++        .filter(batchQuotaEligible)
++        .map((account) => account.user_id)
++    )
++    setSelectedIds((previous) => {
++      const next = previous.filter((userId) => visible.has(userId))
++      return next.length === previous.length ? previous : next
++    })
++  }, [currentAccounts])
++  const accounts = currentAccounts || []
++  const eligibleRows = accounts.filter(batchQuotaEligible)
++  const selectedAccounts = eligibleRows.filter((account) =>
++    selectedIds.includes(account.user_id)
++  )
++  const allSelected =
++    eligibleRows.length > 0 &&
++    eligibleRows.every((account) => selectedIds.includes(account.user_id))
++  const someSelected = selectedAccounts.length > 0
++  function toggleAll(checked: boolean): void {
++    const ids = eligibleRows.map((account) => account.user_id)
++    setSelectedIds((previous) =>
++      checked
++        ? [...new Set([...previous, ...ids])]
++        : previous.filter((userId) => !ids.includes(userId))
++    )
++  }
++  function toggleAccount(userId: number, checked: boolean): void {
++    setSelectedIds((previous) => {
++      if (!checked) return previous.filter((id) => id !== userId)
++      if (previous.includes(userId)) return previous
++      return [...previous, userId]
++    })
++  }
++  function changePage(next: number): void {
++    setSelectedIds([])
++    setPage(next)
++  }
+   return (
+     <div className='space-y-4'>
+       {selected && (
+@@ -780,11 +817,51 @@ function Accounts(props: {
+           close={() => setSelected(null)}
+         />
+       )}
++      {selectedAccounts.length > 0 && (
++        <AccountBatchQuota
++          accounts={selectedAccounts}
++          save={props.save}
++          busy={props.busy}
++          onClear={() => setSelectedIds([])}
++          onSaved={() => setSelectedIds([])}
++        />
++      )}
+       {query.isError && <p role='alert'>{t('Unable to load accounts')}</p>}
+       <StaticDataTable
+-        data={query.data?.items || []}
++        data={accounts}
+         getRowKey={(row) => row.user_id}
++        getRowClassName={(row) =>
++          selectedIds.includes(row.user_id) ? 'bg-blue-50' : undefined
++        }
+         columns={[
++          {
++            id: 'select',
++            header: (
++              <Checkbox
++                aria-label={t('Select all on this page')}
++                checked={allSelected}
++                indeterminate={someSelected && !allSelected}
++                disabled={props.busy || eligibleRows.length === 0}
++                onCheckedChange={(checked) => toggleAll(!!checked)}
++              />
++            ),
++            className: 'w-10',
++            cell: (row) => {
++              const eligible = batchQuotaEligible(row)
++              return (
++                <Checkbox
++                  aria-label={t('Select account {{id}}', {
++                    id: row.user_id,
++                  })}
++                  checked={selectedIds.includes(row.user_id)}
++                  disabled={props.busy || !eligible}
++                  onCheckedChange={(checked) =>
++                    toggleAccount(row.user_id, !!checked)
++                  }
++                />
++              )
++            },
++          },
+           {
+             id: 'id',
+             header: t('Account'),
+@@ -863,16 +940,20 @@ function Accounts(props: {
+       <div className='flex justify-end gap-3'>
+         <Button
+           variant='outline'
+-          disabled={page === 1 || query.isFetching}
+-          onClick={() => setPage(page - 1)}
++          disabled={props.busy || page === 1 || query.isFetching}
++          onClick={() => changePage(page - 1)}
+         >
+           {t('Previous')}
+         </Button>
+         <span>{formatNumber(page)}</span>
+         <Button
+           variant='outline'
+-          disabled={query.isFetching || page * 20 >= (query.data?.total || 0)}
+-          onClick={() => setPage(page + 1)}
++          disabled={
++            props.busy ||
++            query.isFetching ||
++            page * 20 >= (query.data?.total || 0)
++          }
++          onClick={() => changePage(page + 1)}
+         >
+           {t('Next')}
+         </Button>
+@@ -1665,7 +1746,7 @@ export function AdminPage() {
+                 {languageControl}
+                 <Button
+                   variant='outline'
+-                  disabled={query.isFetching}
++                  disabled={busy || query.isFetching}
+                   onClick={() =>
+                     void queryClient.invalidateQueries({ queryKey: ['lingtu'] })
+                   }
+diff --git a/server/source-files.json b/server/source-files.json
+index 29166b3df5e008a6264e8280138ad5735f9a12b1..9a9b20b65ed4fc6ecebd266548e48557efb996ff 100644
+--- a/server/source-files.json
++++ b/server/source-files.json
+@@ -189,9 +189,9 @@
+     {
+       "path": "overlay/lingtuhost/admin.go",
+       "upstreamPath": "managed-server/overlay/lingtuhost/admin.go",
+-      "sha256": "e9bf80625a4b957680c419e3e7f2df44d08183705aecee407f4ac30757af92d4",
++      "sha256": "c4c6957e9f4ff7d28cead9fca06e0f22ce2d08aa857e137851b2d62074268536",
+       "upstreamSha256": "2fe0a91291e4b657105d3f052f01a7f41015c240e000acb8e2a4f20966e245ab",
+-      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials. Add the AdminAuth context_policy read and revision-checked save with a strict top-level/nested whitelist, exact request-hash proof, audit and no prompt logging."
++      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials. Add the AdminAuth context_policy read and revision-checked save with a strict top-level/nested whitelist, exact request-hash proof, audit and no prompt logging.; 2026-11-21: dispatch account batch_quota with strict body decoding, exact proof binding and 400/409/503 mapping."
+     },
+     {
+       "path": "overlay/lingtuhost/admin_connections_review_test.go",
+@@ -390,7 +390,8 @@
+     {
+       "path": "overlay/web/src/features/lingtu/admin-light.css",
+       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-light.css",
+-      "sha256": "11c6f13fdbd728be7725ad5d26a4b8b165f873932b4078862a236e4c20a9415f"
++      "sha256": "ed0aa79f1b95dac7411a19f73f6528c83e7c9cb69ffa500f3400fc6227a3bb73",
++      "localPatch": "2026-11-21: remove legacy 1600px admin workspace cap to retain deployed widescreen layout."
+     },
+     {
+       "path": "overlay/web/src/features/lingtu/admin-login-hint.test.tsx",
+@@ -419,16 +420,16 @@
+     {
+       "path": "overlay/web/src/features/lingtu/admin-page.test.tsx",
+       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.test.tsx",
+-      "sha256": "a6e349ce9483b31026bc8147df1c95ade90e2cc1aa0dc1b2e4a875106c706f20",
++      "sha256": "5d3c69f2fccd10fae32e7606015629dd93165b61167492996917371d8c83482d",
+       "upstreamSha256": "31faaa4b3b87915c7a18bf03df0114717110648dd169606c741b749785c0aabf",
+-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, exact proof/POST and 409 draft-preservation tests"
++      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, exact proof/POST and 409 draft-preservation tests; 2026-11-21: UI regression for current-page selection, preview, exact batch payload, busy lock and single-account save."
+     },
+     {
+       "path": "overlay/web/src/features/lingtu/admin-page.tsx",
+       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.tsx",
+-      "sha256": "f847d9182362d56837a428c9599b553a93f40c52c09c71da9026d39bff17b6f2",
++      "sha256": "62eb29813eae3ef5c9b7f2887b4cc07fa3adfe354813fbdfb6654493efe82401",
+       "upstreamSha256": "47c9d379bc0749edd50d6dd598452074525a69308d3f9702eb65b3d16837111a",
+-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, typed 409 conflict and secure-save integration without changing model-connection behavior"
++      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, typed 409 conflict and secure-save integration without changing model-connection behavior; 2026-11-21: add eligible current-page selection and batch trial quota integration using the existing secure save."
+     },
+     {
+       "path": "overlay/web/src/features/lingtu/admin-usage.tsx",
+@@ -528,9 +529,9 @@
+     {
+       "path": "translations.json",
+       "upstreamPath": "managed-server/translations.json",
+-      "sha256": "24033f388c6779c167c13a803e9eff3d9cda920f278b5bede24ef6117ea33658",
++      "sha256": "baa1228ef9f31b8298cddc48b2121fa7b51e3609ce16e7cf6cc80d8f00b9d199",
+       "upstreamSha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149",
+-      "localPatch": "2026-11-19: opt-in managed learning policy and explicit 1-40 call budget; default 20 remains, no production deployment."
++      "localPatch": "2026-11-19: opt-in managed learning policy and explicit 1-40 call budget; default 20 remains, no production deployment.; 2026-11-21: labels for admin batch trial quota; paid quota only, no permanent quota feature."
+     },
+     {
+       "path": "upstream.lock.json",
+@@ -565,18 +566,18 @@
+     },
+     {
+       "path": "overlay/lingtuhost/billing_native.go",
+-      "sha256": "b67b2b1ade7f08913578aa685fc59accd041d5645a6afcbaf6cb9e219307f639",
+-      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
++      "sha256": "60354eafc883af4efa71d46fffac388d64436aa029431a91d7829ac26713f7d9",
++      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-21: default usage_10000 calls 20000 and support_100000 calls 300000; IDs, prices, validity and channels unchanged; no permanent quota."
+     },
+     {
+       "path": "overlay/lingtuhost/billing_native_test.go",
+-      "sha256": "9472d7237f35884cf3e8c1e1f01d559e9e5e85f1262dfcf465c53c0b750c33d1",
+-      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained."
++      "sha256": "b39a630d042d94173f6df33e8f99d550055174ab19f76897eb99bf21dba2b168",
++      "localPatch": "2026-11-19: active trial expiry extension and support tier; maintained local billing overlay, existing license retained.; 2026-11-21: new-plan billing and existing-order snapshot regression; no permanent quota."
+     },
+     {
+       "path": "overlay/lingtuhost/billing_test.go",
+-      "sha256": "5937e8210c1a0feef034d918172bf5c82bde87f2c747b3319a217ce2e8ff95dd",
+-      "localPatch": "2026-11-19: opt-in managed learning policy and explicit 1-40 call budget; default 20 remains, no production deployment."
++      "sha256": "33c9f7e8bafd4020c6ee49782ffd55803fd8d44a1112961e5294a90b0e188be2",
++      "localPatch": "2026-11-19: opt-in managed learning policy and explicit 1-40 call budget; default 20 remains, no production deployment.; 2026-11-21: assert candidate version and admin batch capability while preserving deployed capabilities."
+     },
+     {
+       "path": "overlay/lingtuhost/billing_config_test.go",
+@@ -595,8 +596,28 @@
+     },
+     {
+       "path": "overlay/lingtuhost/billing_config.go",
+-      "sha256": "7c599278952536eba36c4689c03a7a0acd05bf3d94ebbe0a9c66c9b472259831",
+-      "localPatch": "2026-11-19: prepare opt-in managed-learning policy and explicit call budget; no production deployment."
++      "sha256": "a3885d11ced82fc14150887de7db20a0410103be838803851902210567909b09",
++      "localPatch": "2026-11-19: prepare opt-in managed-learning policy and explicit call budget; no production deployment.; 2026-11-21: candidate service version 2026.11.21-quota.1; preserve capabilities and add admin-batch-trial-quota."
++    },
++    {
++      "path": "overlay/lingtu/admin_quota.go",
++      "sha256": "915d1c623cb68827141640d93c6d65d1419f9f1d76c67b347160dbc100ff6132",
++      "localPatch": "2026-11-21: expose the existing shared trial limit gate for the admin batch quota transaction."
++    },
++    {
++      "path": "overlay/lingtuhost/admin_account_quota.go",
++      "sha256": "376c19f919027076ce4a5b7e39df09c049be569558d3bcd9e845eae30e044054",
++      "localPatch": "2026-11-21: admin batch trial call_limit only; max 20 targets, 0..1000000 calls, shared trial lock, expected-limit CAS, atomic audit and rollback."
++    },
++    {
++      "path": "overlay/lingtuhost/admin_account_quota_test.go",
++      "sha256": "313a23c9df0c3fbb261aa1c8409ed3dd96ed69b2c6d81477392b95a98ef12e51",
++      "localPatch": "2026-11-21: SQLite coverage for batch quota auth/proof, strict validation, rollback, CAS, audit failure and concurrent reserve."
++    },
++    {
++      "path": "overlay/web/src/features/lingtu/admin-account-quota.tsx",
++      "sha256": "896da1234cea15d30f0d34e8e26a349725000ed4361cef1cbeea20dd566c128a",
++      "localPatch": "2026-11-21: page-local multi-select batch trial quota editor; only call_limit changes; no permanent quota."
+     }
+   ]
+ }
+diff --git a/server/translations.json b/server/translations.json
+index 6b3dcee2d46ab8b71f29e2c66fb649542470aa91..b7ea21098fc2d8a2d998458409d4d53d9eef5169 100644
+--- a/server/translations.json
++++ b/server/translations.json
+@@ -458,5 +458,30 @@
+   "Image verification failed. The saved text connection was not changed.": "图片验证失败，已保存的文字连接没有被修改。",
+   "The API changed during image verification. Reload it and verify again.": "图片验证期间 API 已变化。请重新加载后再验证。",
+   "The saved image route is no longer authorized or image-verified. Requests with images will be rejected until an authorized, ready, verified route is selected.": "已保存的图片路由不再获授权或图片验证已失效。在选择已授权、就绪且验证有效的路由前，含图片请求会被拒绝。",
+-  "Only authorized, ready APIs with a successful fixed-image verification can be selected. Clients cannot choose another image upstream.": "只能选择已授权、就绪且通过固定图片验证的 API。客户端不能另选图片来源上游。"
++  "Only authorized, ready APIs with a successful fixed-image verification can be selected. Clients cannot choose another image upstream.": "只能选择已授权、就绪且通过固定图片验证的 API。客户端不能另选图片来源上游。",
++  "{{count}} selected": "已选择 {{count}} 个账号",
++  "Adjust trial quota": "批量调整试用次数",
++  "Adjust quota": "调整额度",
++  "Adjustment method": "调整方式",
++  "Add calls": "增加次数",
++  "Subtract calls": "扣减次数",
++  "Set total calls": "设定总次数",
++  "Calls to add": "增加次数",
++  "Calls to subtract": "扣减次数",
++  "New total calls": "设定总次数",
++  "Current total": "当前总额",
++  "Used / pending": "已用 / 待确认",
++  "New total": "调整后总额",
++  "Estimated remaining": "预计剩余",
++  "The expiry date is unchanged.": "有效期不变。",
++  "Some selected accounts cannot use this adjustment.": "部分所选账号不能使用本次调整。",
++  "Below used + pending calls": "不能低于已用与待确认次数之和",
++  "The new total must be between 0 and 1,000,000 calls.": "调整后总额必须在 0 到 1,000,000 次之间。",
++  "Enter a whole number.": "请输入整数。",
++  "Reason for change is required.": "请填写调整原因。",
++  "Apply to selected accounts": "应用到所选账号",
++  "Select all on this page": "全选当前页",
++  "Select account {{id}}": "选择账号 {{id}}",
++  "Reason is too long. Please shorten it.": "调整原因过长，请缩短。",
++  "Only trial calls are changed. Expiry, model, account status and paid quota are not changed.": "仅调整试用次数，不改变有效期、模型、账号状态或付费额度。"
+ }

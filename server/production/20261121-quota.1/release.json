@@ -1,0 +1,86 @@
+{
+  "version": "2026.11.21-quota.1",
+  "release_name": "20261121-quota.1",
+  "production_release": "2026.11.19-learning.1",
+  "production_binary_sha256": "a6cbb15bf6c4d7fa4b23bcdf7797c6da6b26548f7ec43fd4fe99a7def22c606c",
+  "production_source_sha256": "7f3366d0d0c2f1081d13e1924c788bb31f9707202754fa74fb44d196e86c3f0d",
+  "baseline_source_sha256": "7f3366d0d0c2f1081d13e1924c788bb31f9707202754fa74fb44d196e86c3f0d",
+  "binary_sha256": "f1bb582b57ca06e6f3cc9d8f32f90bc05de13c01743b22345370ad3f6676b79c",
+  "binary_bytes": 138997920,
+  "source_sha256": "785ecaa29ffa0e525c57adf9e0f5335442077aa493291bea0a3701df2fa14b6c",
+  "source_bytes": 7510838,
+  "patch_sha256": "9ae63c08a847297f77abc4b4009cf7920f217d10b8f40b2902178aa882a74d9d",
+  "web_index_sha256": "b245144e92b6affabf106d4e3f982b4849bc81ece3958cd998e8b7ddfa5884b4",
+  "web_tree_sha256": "91596e8a1bb0cfcc25fd0e33c0bcfb7199bd99eee6e436f5264f9b36dc0181a5",
+  "web_files": 1846,
+  "web_bytes": 68332950,
+  "billing_protocol": 2,
+  "capabilities": [
+    "billing-orders",
+    "stripe-signed-credit",
+    "encrypted-billing-settings",
+    "billing-merchant-check",
+    "native-signed-credit",
+    "billing-order-reconciliation",
+    "trial-paid-quota",
+    "summary-no-call-charge",
+    "token-cny-cost-estimates",
+    "trial-expiry-extends-on-recharge",
+    "managed-learning-policy",
+    "admin-batch-trial-quota"
+  ],
+  "api_origin": "https://api-kefu.lttlt.top",
+  "schema_migration": false,
+  "permanent_quota_feature": false,
+  "changed_files": 15,
+  "source_manifest_files": 111,
+  "build_flags": [
+    "-trimpath",
+    "-ldflags=-s -w",
+    "GOOS=linux",
+    "GOARCH=amd64",
+    "CGO_ENABLED=0"
+  ],
+  "local_verification": {
+    "status": "passed",
+    "go_lingtuhost": {
+      "exit": 0,
+      "seconds": 17.157,
+      "command": "go test ./lingtuhost -run 'Test(LingtuAdminBatchQuota|NativeSupportPlanCheckoutAndCredit|NativeCatalogDefaultPlansAndChannelIsolation|NativeOrdersKeepPlanSnapshotAcrossCatalogUpdate)' -count=1 -timeout=300s"
+    },
+    "go_lingtu": {
+      "exit": 0,
+      "seconds": 2.416,
+      "command": "go test ./lingtu -run 'Test(Trial|Concurrent|Settlement|Quota)' -count=1 -timeout=300s"
+    },
+    "admin_ui": {
+      "exit": 0,
+      "tests": "38/38",
+      "seconds": 49.17,
+      "command": "bun run test src/features/lingtu/admin-page.test.tsx --maxWorkers=2"
+    },
+    "typecheck": {
+      "exit": 0,
+      "files": 1440
+    },
+    "lint_format": {
+      "exit": 0
+    },
+    "web_build": {
+      "exit": 0,
+      "total_kb": 68293.1
+    },
+    "linux_build": {
+      "exit": 0,
+      "bytes": 138997920
+    }
+  },
+  "not_run": [
+    "MySQL/PostgreSQL matrix",
+    "full upstream regression",
+    "real payment",
+    "real model calls",
+    "production deployment"
+  ],
+  "promotion_requires": "Codex acceptance and accepted-validation.json bound to candidate source, binary, patch and independent deploy-script review; no online switch before that."
+}

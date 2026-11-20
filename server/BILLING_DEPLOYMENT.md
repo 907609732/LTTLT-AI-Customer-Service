@@ -1,5 +1,9 @@
 # 计费服务部署与核对
 
+## 2026-11-21 新套餐与账号批量调整已上线
+
+正式服务为 `2026.11.21-quota.1`，仅在实际 `2026.11.19-learning.1` 基底上线 ¥100 / 20000 次、¥1000 / 300000 次及后台批量试用额度调整，保留旧账号、订单、账本和原有效期。没有顺带上线下方永久额度候选。精确来源、验证和服务器内备份见 [本次部署记录](DEPLOYMENT-20261121-QUOTA.md)；下方候选和部署段落均为各自时间点的历史状态。
+
 ## 共创支持包永久额度候选
 
 `2026.11.19-permanent.1` 只对新共创支持包订单启用永久条款。既有订单和试用、普通付费池由原规则结算。上线前验证新增订单列和永久额度表的迁移，检查订单快照和消费来源，再以隔离渠道回执验证一次入账及跨年余量。已有永久额度入账后，回退方案必须保留永久额度、已扣次数和待结算请求的解释能力。回退前须先停止新增订单及付费请求，并核对新增账目。旧服务不能结算 `permanent` 来源的请求。
@@ -52,15 +56,15 @@ Native 支付沿用现有环境入口（密钥只放服务器受限环境文件�
 
 通过已有 SSH 通道连接后，先核对运行中的 systemd、Nginx、current、数据库与密钥路径，再部署。实际布局如下，不是直接套用示例：
 
-| 项目 | 实际结果 |
-| --- | --- |
-| 服务 | `lingtu-kefu`，回环 `127.0.0.1:3211`，systemd 用户/组 `lingtu-kefu` |
-| 当前 release | `/opt/lingtu-kefu/releases/20261114T130358Z-billing.2` |
-| 保留的原 release | `/opt/lingtu-kefu/releases/223e923b73fb-web` |
-| 生产数据库 | `/opt/lingtu-kefu/shared/managed.db`，SQLite WAL，完整性检查通过 |
-| 服务器内备份 | `/opt/lingtu-kefu/backups/20261114T130358Z-billing.2` |
-| 最终一致数据库备份 | 上述目录的 `managed-final-before-cutover.db`；停旧服务后、切换前创建 |
-| 原代理配置 | `/etc/nginx/conf.d/lingtu-kefu.conf`，原内容备份为 `lingtu-kefu.nginx.conf` |
+| 项目               | 实际结果                                                                    |
+| ------------------ | --------------------------------------------------------------------------- |
+| 服务               | `lingtu-kefu`，回环 `127.0.0.1:3211`，systemd 用户/组 `lingtu-kefu`         |
+| 当前 release       | `/opt/lingtu-kefu/releases/20261114T130358Z-billing.2`                      |
+| 保留的原 release   | `/opt/lingtu-kefu/releases/223e923b73fb-web`                                |
+| 生产数据库         | `/opt/lingtu-kefu/shared/managed.db`，SQLite WAL，完整性检查通过            |
+| 服务器内备份       | `/opt/lingtu-kefu/backups/20261114T130358Z-billing.2`                       |
+| 最终一致数据库备份 | 上述目录的 `managed-final-before-cutover.db`；停旧服务后、切换前创建        |
+| 原代理配置         | `/etc/nginx/conf.d/lingtu-kefu.conf`，原内容备份为 `lingtu-kefu.nginx.conf` |
 
 备份同时保留原环境文件、主密钥、systemd unit 和在线数据库快照；目录权限 700、数据库/凭据备份权限 600，仅留服务器，没有下载业务数据或密钥。候选包先限速上传，服务器复核包 SHA256：`91d054526f2f1b676a9a0eed3efba8f9f7f0fc6465eb2ecf68e0f1c2157fc442`，随后校验清单 1851 个文件。
 
