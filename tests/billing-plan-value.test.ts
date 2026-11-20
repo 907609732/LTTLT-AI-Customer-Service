@@ -4,6 +4,7 @@ import {
   chineseNumeral,
   costPerThousand,
   planValueComparison,
+  planValueGain,
   type PlanValue,
 } from '../src/modules/billing/plan-value'
 
@@ -114,5 +115,36 @@ describe('套餐同金额额度比较', () => {
     expect(planValueComparison(standard, [{ ...experience, amount: 0 }])).toBe('')
     expect(planValueComparison({ ...standard, calls: 9000 }, catalog)).toBe('')
     expect(planValueComparison({ id: 'other', amount: 990, calls: 1000 }, catalog)).toBe('')
+  })
+})
+
+describe('套餐增幅结构化展示', () => {
+  it('拆分百分比与近似标记，同时保持旧文案不变', () => {
+    expect(planValueGain(standard, catalog)).toEqual({ percent: '98', approximate: false })
+    expect(planValueGain(support, catalog)).toEqual({ percent: '197', approximate: false })
+    expect(planValueComparison(standard, catalog)).toBe('同等金额，较体验包多 98% 额度')
+    expect(planValueComparison(support, catalog)).toBe('同等金额，较体验包多 197% 额度')
+  })
+
+  it('保留一位小数并在截断时标记约多', () => {
+    expect(planValueGain({ ...standard, calls: 24000 }, catalog)).toEqual({
+      percent: '137.6',
+      approximate: false,
+    })
+    expect(planValueGain({ ...standard, calls: 24001 }, catalog)).toEqual({
+      percent: '137.6',
+      approximate: true,
+    })
+    expect(planValueComparison({ ...standard, calls: 24001 }, catalog)).toBe(
+      '同等金额，较体验包约多 137.6% 额度',
+    )
+  })
+
+  it('体验包、缺少基准或没有正收益时返回空，界面可整块隐藏', () => {
+    expect(planValueGain(experience, catalog)).toBeNull()
+    expect(planValueGain(standard, [standard, support])).toBeNull()
+    expect(planValueGain(standard, [{ ...experience, calls: 0 }])).toBeNull()
+    expect(planValueGain(standard, [{ ...experience, amount: 0 }])).toBeNull()
+    expect(planValueGain({ ...standard, calls: 9000 }, catalog)).toBeNull()
   })
 })

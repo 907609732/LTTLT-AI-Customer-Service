@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { permanentAccountExpiry } from '@/shared/contracts/managed'
 import { useBilling } from '../use-billing'
 import { paymentCodeImage } from '../payment-code'
-import { callCountText, costPerThousand, planValueComparison } from '../plan-value'
+import { callCountText, costPerThousand, planValueGain } from '../plan-value'
 import type { BillingChannel, BillingOrder, BillingPlan } from '../contracts'
 const props = defineProps<{ section?: 'plans' | 'orders' | 'usage'; compact?: boolean }>()
 const billing = useBilling()
@@ -76,7 +76,8 @@ watch(
   },
   { flush: 'sync' },
 )
-const planComparison = (plan: BillingPlan) => planValueComparison(plan, catalog.value?.plans ?? [])
+const planGain = (plan: BillingPlan) =>
+  planValueGain(plan, catalog.value?.plans ?? []) ?? { percent: '', approximate: false }
 // 套餐 ID 不随额度改名；同 ID 但下单条款不同时仍必须提示正在恢复旧订单。
 const sameOffer = (current: BillingPlan, next: BillingPlan) =>
   current.amount === next.amount &&
@@ -373,6 +374,14 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
                 money(plan.list_amount)
               }}</del>
             </div>
+            <div v-if="planGain(plan).percent" class="plan-value">
+              <span class="plan-value-basis">同等金额对比体验包</span>
+              <div class="plan-value-gain">
+                <span>{{ planGain(plan).approximate ? '约多' : '多' }}</span>
+                <strong>{{ planGain(plan).percent }}%</strong>
+                <span>额度</span>
+              </div>
+            </div>
             <dl class="plan-details">
               <div>
                 <dt>调用额度</dt>
@@ -387,7 +396,6 @@ const stateName = (state: string) => stateNames[state] ?? '待对账'
                 <dd>{{ validity(plan) }}</dd>
               </div>
             </dl>
-            <p v-if="planComparison(plan)" class="plan-value">{{ planComparison(plan) }}</p>
             <div v-if="isPremium(plan)" class="premium-benefits">
               <strong>专属一对一客服</strong>
               <span>程序开发者一对一对接</span>
@@ -797,13 +805,46 @@ p {
   overflow-wrap: anywhere;
 }
 .plan-value {
-  margin-top: 12px;
-  color: #5d6c80;
-  font-size: 12px;
-  line-height: 1.5;
+  box-sizing: border-box;
+  min-height: 88px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #d7e5ff;
+  border-radius: 10px;
+  background: #edf4ff;
+  color: #215bc4;
   overflow-wrap: anywhere;
 }
+.plan-value-basis {
+  display: block;
+  color: #526f9e;
+  font-size: 12px;
+  line-height: 18px;
+}
+.plan-value-gain {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 5px;
+  margin-top: 4px;
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+.plan-value-gain strong {
+  font-size: 34px;
+  line-height: 38px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .billing-plan--premium .plan-value {
+  border-color: #c18c3352;
+  background: #fffcf0b8;
+  color: #68420d;
+}
+.billing-plan--premium .plan-value-basis {
   color: #765320;
 }
 .billing-plan > .el-button {
@@ -958,6 +999,10 @@ p {
   .plans-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 14px;
+  }
+  .plan-value-gain strong {
+    font-size: 30px;
+    line-height: 34px;
   }
   .card {
     padding: 20px;

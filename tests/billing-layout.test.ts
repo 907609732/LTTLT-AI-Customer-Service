@@ -73,7 +73,13 @@ const legacySupportOrder: TestOrder = {
   plan: { ...support, calls: 100000 },
   state: 'pending',
 }
-function setup(state = 'paid', compact = false, snapshot: TestOrder = order) {
+const defaultPlans = [experience, standard, support]
+function setup(
+  state = 'paid',
+  compact = false,
+  snapshot: TestOrder = order,
+  availablePlans = defaultPlans,
+) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const runtime = useRuntimeStore()
@@ -111,7 +117,7 @@ function setup(state = 'paid', compact = false, snapshot: TestOrder = order) {
     return {
       ready: true,
       reason: '',
-      plans: [experience, standard, support],
+      plans: availablePlans,
       channels: [
         { id: 'alipay', ready: true, reason: '' },
         { id: 'wechat', ready: true, reason: '' },
@@ -171,13 +177,15 @@ describe('简化充值页', () => {
     expect(experienceCard.text()).not.toContain('同等金额')
     expect(standardCard.text()).toContain('20000（两万）次')
     expect(standardCard.text()).toContain('¥5.00')
-    expect(standardCard.text()).toContain('同等金额，较体验包多 98% 额度')
+    expect(standardCard.get('.plan-value-basis').text()).toBe('同等金额对比体验包')
+    expect(standardCard.get('.plan-value-gain').text()).toContain('多')
+    expect(standardCard.get('.plan-value strong').text()).toBe('98%')
     expect(standardCard.text()).toContain('365 天')
     expect(card.text()).toContain('¥1000.00')
     expect(card.text()).toContain('永久有效')
     expect(card.text()).toContain('300000（三十万）次')
     expect(card.text()).toContain('约¥3.33')
-    expect(card.text()).toContain('同等金额，较体验包多 197% 额度')
+    expect(card.get('.plan-value strong').text()).toBe('197%')
     expect(card.text()).toContain('一对一客服')
     expect(card.text()).toContain('程序开发者一对一对接')
     await card.get('button').trigger('click')
@@ -267,9 +275,33 @@ describe('简化充值页', () => {
     wrappers.push(wrapper)
     await flushPromises()
     const card = wrapper.findAll('.billing-plan')[1]
-    expect(card.get('.plan-value').text()).toBe('同等金额，较体验包多 98% 额度')
+    expect(card.get('.plan-value-basis').text()).toBe('同等金额对比体验包')
+    expect(card.get('.plan-value-gain').text()).toContain('多')
+    expect(card.get('.plan-value strong').text()).toBe('98%')
+    expect(card.get('.plan-value').text()).toContain('额度')
+    expect(
+      card.get('.plan-price').element.compareDocumentPosition(card.get('.plan-value').element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      card.get('.plan-value').element.compareDocumentPosition(card.get('.plan-details').element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
     expect(card.get('.plan-details').text()).toContain('20000（两万）次')
     expect(card.findAll('button')).toHaveLength(1)
+  })
+  it('近似增幅显示约多与小数，体验包或无正收益套餐不补空白框', async () => {
+    const near = { ...standard, calls: 24001 }
+    const noGain = { ...support, calls: 1100 }
+    const { wrapper } = setup('paid', false, order, [experience, near, noGain])
+    wrappers.push(wrapper)
+    await flushPromises()
+    const [experienceCard, nearCard, noGainCard] = wrapper.findAll('.billing-plan')
+    expect(experienceCard.find('.plan-value').exists()).toBe(false)
+    expect(nearCard.get('.plan-value-gain').text()).toContain('约多')
+    expect(nearCard.get('.plan-value strong').text()).toBe('137.6%')
+    expect(noGainCard.find('.plan-value').exists()).toBe(false)
+    expect(noGainCard.get('.plan-details').text()).toContain('1100（一千一百）次')
   })
   it('进入充值页自动展示额度与已完成订单，仅收起额度明细', async () => {
     const { wrapper, request, run } = setup()

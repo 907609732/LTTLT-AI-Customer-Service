@@ -82,23 +82,37 @@ export function costPerThousand(plan: Pick<PlanValue, 'amount' | 'calls'>): stri
   return `${exact ? '' : '约'}¥${(cents / 100).toFixed(2)}`
 }
 
+/** 供界面分开排版百分比与说明；percent 不含百分号。 */
+export interface PlanValueGain {
+  percent: string
+  /** 原始比例被截断到一位小数时为 true，界面必须显示“约多”。 */
+  approximate: boolean
+}
+
 /**
  * 同等金额按体验包实际单价能买到的调用数，再与当前套餐比较。
- * 只用已发布套餐的 amount，不使用划线原价；基准缺失或没有正收益时返回空串。
+ * 只用已发布套餐的 amount，不使用划线原价；基准缺失或没有正收益时返回 null。
  * 百分比精确到一位小数；只有截断/近似值才标“约”，避免把约 137.659% 说成 137.7%。
  */
-export function planValueComparison(plan: PlanValue, plans: readonly PlanValue[]): string {
-  if (plan.id === EXPERIENCE_PLAN_ID) return ''
+export function planValueGain(plan: PlanValue, plans: readonly PlanValue[]): PlanValueGain | null {
+  if (plan.id === EXPERIENCE_PLAN_ID) return null
   const base = plans.find((item) => item.id === EXPERIENCE_PLAN_ID)
-  if (!base || !positive(plan.amount) || !positive(plan.calls)) return ''
-  if (!positive(base.amount) || !positive(base.calls)) return ''
+  if (!base || !positive(plan.amount) || !positive(plan.calls)) return null
+  if (!positive(base.amount) || !positive(base.calls)) return null
   const sameMoneyCalls = (base.calls * plan.amount) / base.amount
-  if (!Number.isFinite(sameMoneyCalls) || sameMoneyCalls <= 0) return ''
+  if (!Number.isFinite(sameMoneyCalls) || sameMoneyCalls <= 0) return null
   const percent = (plan.calls / sameMoneyCalls - 1) * 100
-  if (!Number.isFinite(percent) || percent <= 0) return ''
+  if (!Number.isFinite(percent) || percent <= 0) return null
   const tenths = Math.floor(percent * 10 + 1e-9) / 10
-  if (tenths <= 0) return ''
+  if (tenths <= 0) return null
   const exact = Math.abs(tenths - percent) < 1e-9
   const label = Number.isInteger(tenths) ? String(tenths) : tenths.toFixed(1)
-  return `同等金额，较体验包${exact ? '' : '约'}多 ${label}% 额度`
+  return { percent: label, approximate: !exact }
+}
+
+/** 兼容旧调用方的单句文案；与 planValueGain 共用同一份计算。 */
+export function planValueComparison(plan: PlanValue, plans: readonly PlanValue[]): string {
+  const gain = planValueGain(plan, plans)
+  if (!gain) return ''
+  return `同等金额，较体验包${gain.approximate ? '约' : ''}多 ${gain.percent}% 额度`
 }
