@@ -15,9 +15,7 @@
   "section": "account",
   "action": "batch_quota",
   "reason": "管理员填写的原因",
-  "targets": [
-    { "user_id": 9, "expected_limit": 100, "target_calls": 120 }
-  ]
+  "targets": [{ "user_id": 9, "expected_limit": 100, "target_calls": 120 }]
 }
 ```
 
@@ -72,20 +70,20 @@ WHERE user_id = ? AND call_limit = ? AND used + reserved <= ?
 
 ## 验证（本机，2026-11-20）
 
-| 命令 | 结果 |
-| --- | --- |
-| `go test ./lingtuhost -run TestLingtuAdminBatchQuota -count=1 -timeout=180s` | 前轮已执行通过，exit 0（本轮未重复） |
-| `go test ./lingtuhost -run TestLingtu -count=1 -timeout=240s` | 前轮已执行通过，exit 0（146.191s，本轮未重复） |
-| `go test ./lingtu -run 'Test(Lingtu|Trial|Concurrent|Settlement|Quota)' -count=1 -timeout=240s` | 前轮已执行通过，exit 0（2.782s，本轮未重复） |
-| `bun run test src/features/lingtu/admin-page.test.tsx --maxWorkers=2` | 38/38 通过，exit 0（含 deferred busy/取消/失败恢复回归） |
-| `bun run typecheck` | 1,440 文件无类型错误，exit 0 |
-| `bun x oxfmt -c .oxfmtrc.json --check src/features/lingtu/admin-account-quota.tsx` | 新增组件通过，exit 0；导入文件保持原混合行尾，未用格式化器重写整文件 |
-| `bun x oxlint -c .oxlintrc.json src/features/lingtu/admin-page.tsx src/features/lingtu/admin-account-quota.tsx src/features/lingtu/admin-page.test.tsx` | 无 error，exit 0 |
-| `bun run build`（`VITE_MANAGED_API_ORIGIN=https://api-kefu.lttlt.top`） | 通过，exit 0；dist 含生产 API 来源，无 `127.0.0.1:3000` |
-| Linux amd64 `go build -trimpath -o ../bin/lingtu-managed .` | 通过，exit 0（最终二进制 SHA256 `88781d67cdb15d4dbaae9e92b564e91966e68347a1fa26bd548efc9270db793c`） |
-| `node --test server/tests/preparation.test.mjs` | 2/2 通过，exit 0 |
-| `node artifacts/admin-account-quota-20261120/verify-translations.mjs` | 2 个文件、en/zh 各 7,851 条，0 problems，exit 0 |
-| `node scripts/check-vendor.mjs` | server 107 个文件、vendor 80 个文件通过，exit 0 |
+| 命令                                                                                                                                                    | 结果                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------- | ---------- | ------------------------------- | -------------------------------------------- |
+| `go test ./lingtuhost -run TestLingtuAdminBatchQuota -count=1 -timeout=180s`                                                                            | 前轮已执行通过，exit 0（本轮未重复）                                                                 |
+| `go test ./lingtuhost -run TestLingtu -count=1 -timeout=240s`                                                                                           | 前轮已执行通过，exit 0（146.191s，本轮未重复）                                                       |
+| `go test ./lingtu -run 'Test(Lingtu                                                                                                                     | Trial                                                                                                | Concurrent | Settlement | Quota)' -count=1 -timeout=240s` | 前轮已执行通过，exit 0（2.782s，本轮未重复） |
+| `bun run test src/features/lingtu/admin-page.test.tsx --maxWorkers=2`                                                                                   | 38/38 通过，exit 0（含 deferred busy/取消/失败恢复回归）                                             |
+| `bun run typecheck`                                                                                                                                     | 1,440 文件无类型错误，exit 0                                                                         |
+| `bun x oxfmt -c .oxfmtrc.json --check src/features/lingtu/admin-account-quota.tsx`                                                                      | 新增组件通过，exit 0；导入文件保持原混合行尾，未用格式化器重写整文件                                 |
+| `bun x oxlint -c .oxlintrc.json src/features/lingtu/admin-page.tsx src/features/lingtu/admin-account-quota.tsx src/features/lingtu/admin-page.test.tsx` | 无 error，exit 0                                                                                     |
+| `bun run build`（`VITE_MANAGED_API_ORIGIN=https://api-kefu.lttlt.top`）                                                                                 | 通过，exit 0；dist 含生产 API 来源，无 `127.0.0.1:3000`                                              |
+| Linux amd64 `go build -trimpath -o ../bin/lingtu-managed .`                                                                                             | 通过，exit 0（最终二进制 SHA256 `88781d67cdb15d4dbaae9e92b564e91966e68347a1fa26bd548efc9270db793c`） |
+| `node --test server/tests/preparation.test.mjs`                                                                                                         | 2/2 通过，exit 0                                                                                     |
+| `node artifacts/admin-account-quota-20261120/verify-translations.mjs`                                                                                   | 2 个文件、en/zh 各 7,851 条，0 problems，exit 0                                                      |
+| `node scripts/check-vendor.mjs`                                                                                                                         | server 107 个文件、vendor 80 个文件通过，exit 0                                                      |
 
 前轮已执行 Go 覆盖：真实 HTTP 管理员会话 + 完整 body 安全证明、匿名/错误角色/API key 拒绝、stale expected_limit 整批回滚、未授权/原生停用整批回滚、严格白名单/重复 ID/越界/低于 used+reserved、无变化行、审计插入失败回滚、used/reserved/期限/模型/status/paid/permanent/会话保留、Reserve 并发计数。本轮前端覆盖：勾选/全选/清除、换页与刷新隔离、三种模式、边界、预览、取消保留、验证取消/失败、deferred busy 锁定分页/刷新与重复提交、单账号回归。
 
