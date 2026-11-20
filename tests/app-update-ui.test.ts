@@ -55,3 +55,46 @@ it('请求进行时禁用按钮，防止重复请求', async () => {
   expect(wrapper.get('button').attributes('disabled')).toBeDefined()
   expect(wrapper.text()).toContain('正在检查更新')
 })
+it('footer 变体保留原提示与重试，并在按钮上突出具体新版本', async () => {
+  desktop.checkForUpdates.mockResolvedValue({
+    status: 'available',
+    latestVersion: '1.0.92',
+    releaseUrl: 'https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.92',
+  })
+  const wrapper = mount(UpdateStatus, { props: { variant: 'footer' } })
+  wrappers.push(wrapper)
+  await flushPromises()
+  expect(wrapper.get('.app-update').classes()).toContain('app-update--footer')
+  expect(wrapper.get('.app-update-check').text()).toContain('发现新版本 v1.0.92')
+  expect(wrapper.get('[role="status"]').text()).toContain('发现新版本 v1.0.92')
+  expect(wrapper.get('[role="status"]').find('[aria-label="稍后更新"]').exists()).toBe(true)
+  expect(wrapper.get('.app-update-icon path').attributes('d')).toContain('M771.776 794.88')
+  desktop.openExternal.mockRejectedValueOnce(Error('open failed'))
+  await wrapper.get('[data-update-download]').trigger('click')
+  await flushPromises()
+  expect(wrapper.get('[role="alert"]').text()).toContain('无法打开下载页，请重试')
+})
+it('已缓存可用版本后手动检查失败仍显示失败，重试成功再恢复结果', async () => {
+  desktop.checkForUpdates
+    .mockResolvedValueOnce({
+      status: 'available',
+      latestVersion: '1.0.92',
+      releaseUrl: 'https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v1.0.92',
+    })
+    .mockRejectedValueOnce(Error('network down'))
+    .mockResolvedValueOnce({ status: 'current', latestVersion: '1.0.92', releaseUrl: null })
+  const wrapper = mount(UpdateStatus, { props: { variant: 'footer' } })
+  wrappers.push(wrapper)
+  await flushPromises()
+  expect(wrapper.get('.app-update-check').text()).toContain('发现新版本 v1.0.92')
+  await wrapper.get('.app-update-check').trigger('click')
+  await flushPromises()
+  expect(wrapper.get('.app-update-check').text()).toContain('检查失败，点击重试')
+  expect(wrapper.get('.app-update-check').classes()).not.toContain('has-update')
+  expect(wrapper.get('[role="status"]').text()).toContain('发现新版本 v1.0.92')
+  await wrapper.get('.app-update-check').trigger('click')
+  await flushPromises()
+  expect(wrapper.get('.app-update-check').text()).toContain('已是最新版本')
+  expect(wrapper.find('[role="status"]').exists()).toBe(false)
+  expect(desktop.checkForUpdates).toHaveBeenLastCalledWith(true)
+})

@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, onBeforeRouteLeave } from 'vue-route
 import { h, ref } from 'vue'
 import ElementPlus from 'element-plus'
 import MainLayout from '../src/app/layouts/MainLayout.vue'
+import ContactQrDialog from '../src/shared/ui/ContactQrDialog.vue'
 import { routes } from '../src/app/router'
 import StoreSidebarCard from '../src/modules/shops/components/StoreSidebarCard.vue'
 import { useShopSetupStore } from '../src/modules/shops/setup-store'
@@ -40,18 +41,28 @@ async function fixture() {
   runtime.platformStoreId = 'shop-a'
   const run = vi.spyOn(runtime, 'run').mockResolvedValue({ status: 'ok', message: '', data: {} })
   const present = vi.spyOn(runtime, 'presentStore').mockResolvedValue(undefined)
+  const listenerProbe = {
+    template:
+      '<div><span data-listener-probe>{{ Object.keys($attrs).sort().join(",") }}</span><button data-emit-recharge @click="$emit(\'recharge\')">模拟充值</button></div>',
+  }
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
+      {
+        path: '/shop/recharge',
+        name: 'shop-recharge',
+        component: { template: '<div>充值页</div>' },
+      },
       {
         path: '/',
         component: MainLayout,
         children: [
           { path: '', component: { template: '<div>店铺内容</div>' } },
+          { path: 'listener-probe', component: listenerProbe },
           {
             path: 'shop/manage',
             name: 'shop-manage',
-            component: { template: '<div>配置内容</div>' },
+            component: listenerProbe,
           },
           { path: 'settings', component: { template: '<div />' } },
           {
@@ -186,6 +197,40 @@ it('单店模式切换只调用指定命令，主入口打开回复监控', asyn
   expect(run).toHaveBeenLastCalledWith({ action: 'open-reply-monitor' })
   expect(wrapper.find('header [aria-label="回复监控"]').exists()).toBe(false)
   expect(wrapper.find('footer.sidebar-footer [aria-label="回复监控"]').exists()).toBe(true)
+})
+
+it('添加客服复用共享联系方式弹窗，并让原生店铺页避开弹窗', async () => {
+  const { wrapper, present } = await fixture()
+  const contact = wrapper.findAll('button').find((item) => item.text().includes('添加客服'))!
+  await contact.trigger('click')
+  await flushPromises()
+  expect(wrapper.findComponent(ContactQrDialog).props('modelValue')).toBe(true)
+  expect(present).toHaveBeenLastCalledWith('shop-a', false)
+  wrapper.findComponent(ContactQrDialog).vm.$emit('update:modelValue', false)
+  await flushPromises()
+  expect(present).toHaveBeenLastCalledWith('shop-a', true)
+})
+
+it('footer 事件监听只附着配置路由，不影响首页或知识库组件', async () => {
+  const { wrapper, router } = await fixture()
+  await router.push('/listener-probe')
+  await flushPromises()
+  expect(wrapper.get('[data-listener-probe]').text()).toBe('')
+  await router.push('/shop/manage')
+  await flushPromises()
+  const listeners = wrapper.get('[data-listener-probe]').text().split(',')
+  expect(listeners).toEqual(
+    expect.arrayContaining(['onContact', 'onLogin', 'onQuickReply', 'onRecharge']),
+  )
+})
+
+it('配置页 footer 的充值事件回到工作台父层并跳现有充值路由', async () => {
+  const { wrapper, router } = await fixture()
+  await router.push('/shop/manage')
+  await flushPromises()
+  await wrapper.get('[data-emit-recharge]').trigger('click')
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/shop/recharge')
 })
 
 it('店铺导入知识携带点击店铺打开独立知识库，不切换接待', async () => {

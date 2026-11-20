@@ -9,8 +9,8 @@ import { useShopSetupStore } from '@/modules/shops'
 import { openKnowledgeManager } from '@/modules/knowledge'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useRoute, useRouter } from 'vue-router'
-import AppVersion from '@/shared/ui/AppVersion.vue'
-import UpdateStatus from '@/shared/ui/UpdateStatus.vue'
+import SidebarFooter from '@/app/components/SidebarFooter.vue'
+import { useSidebarBalance } from '@/app/sidebar-footer'
 import { useTask } from '@/shared/ui/use-task'
 import {
   navGroups,
@@ -24,6 +24,17 @@ const router = useRouter(),
 const setup = useShopSetupStore()
 const runtime = useRuntimeStore()
 const task = useTask()
+const sidebarBalance = useSidebarBalance()
+const pendingReplyCount = computed(
+  () => runtime.snapshot.review.replies.filter((reply) => reply.status === 'pending').length,
+)
+// 认证、快捷回复和支付仍由工作台父层唯一持有；配置页只转发事件。
+const emit = defineEmits<{
+  login: []
+  recharge: []
+  contact: []
+  'quick-reply': []
+}>()
 // 兼容旧收藏和看板入口，接待配置只保留店铺设置向导。
 watch(
   [() => route.query.panel, () => runtime.selectedStoreId],
@@ -157,28 +168,17 @@ async function openMonitor() {
               </template>
             </template>
           </nav>
-          <div class="sider__monitor">
-            <button
-              type="button"
-              class="sider__monitor-button"
-              aria-label="回复监控"
-              :disabled="task.pending.value"
-              @click="openMonitor"
-            >
-              回复监控<span
-                v-if="runtime.snapshot.review.replies.some((r) => r.status === 'pending')"
-              >
-                ·
-                {{ runtime.snapshot.review.replies.filter((r) => r.status === 'pending').length }}
-                待确认</span
-              >
-            </button>
-            <p v-if="task.error.value" class="sider__monitor-error" role="alert">
-              {{ task.error.value }}
-            </p>
-          </div>
-          <UpdateStatus />
-          <AppVersion />
+          <SidebarFooter
+            :account="sidebarBalance"
+            :pending-count="pendingReplyCount"
+            :monitor-busy="task.pending.value"
+            :monitor-error="task.error.value"
+            @quick-reply="emit('quick-reply')"
+            @reply-monitor="openMonitor"
+            @contact="emit('contact')"
+            @login="emit('login')"
+            @recharge="emit('recharge')"
+          />
         </aside>
 
         <main class="main" data-v-105c9fec="">
@@ -231,37 +231,11 @@ async function openMonitor() {
   grid-template-rows: minmax(0, 1fr);
 }
 .shop-manage .sider {
-  /* 菜单独占剩余高度，底部入口按内容占高，避免子组件的 flex-basis 挤掉菜单。 */
+  /* 菜单独占剩余高度；footer 自身有界滚动，低窗口下不挤压菜单和关键按钮。 */
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 .sider__nav {
   min-height: 0;
-}
-
-.sider__monitor {
-  margin-top: 0;
-  padding: 8px 12px 0;
-  border-top: 1px solid #edf0f4;
-}
-.sider__monitor-button {
-  width: 100%;
-  border: 1px solid #dfe6ef;
-  border-radius: 5px;
-  padding: 6px 8px;
-  background: #fff;
-  color: #56657a;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-.sider__monitor-button:disabled {
-  opacity: 0.5;
-  cursor: wait;
-}
-.sider__monitor-error {
-  margin: 5px 0 0;
-  color: #c65746;
-  font-size: 11px;
 }
 </style>

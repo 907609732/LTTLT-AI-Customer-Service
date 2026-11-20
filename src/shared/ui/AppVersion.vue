@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+const props = withDefaults(defineProps<{ prefix?: string }>(), { prefix: 'v' })
 const version = __APP_VERSION__
+const label = computed(() => `${props.prefix}${version}`)
 </script>
 
 <template>
-  <span class="app-version" :title="`当前软件版本 v${version}`" aria-label="软件版本"
-    >v{{ version }}</span
-  >
+  <span class="app-version" :title="`当前软件版本 v${version}`" aria-label="软件版本">{{
+    label
+  }}</span>
 </template>
 
 <style scoped>

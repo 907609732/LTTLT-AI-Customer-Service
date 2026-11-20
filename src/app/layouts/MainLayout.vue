@@ -2,8 +2,9 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { isNavigationFailure, useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/shared/ui/BrandMark.vue'
-import AppVersion from '@/shared/ui/AppVersion.vue'
-import UpdateStatus from '@/shared/ui/UpdateStatus.vue'
+import ContactQrDialog from '@/shared/ui/ContactQrDialog.vue'
+import SidebarFooter from '@/app/components/SidebarFooter.vue'
+import { useSidebarBalance } from '@/app/sidebar-footer'
 import IconHomeFilled from '@/shared/icons/IconHomeFilled.vue'
 import IconShop from '@/shared/icons/IconShop.vue'
 import IconMonitor from '@/shared/icons/IconMonitor.vue'
@@ -27,7 +28,11 @@ const router = useRouter(),
   desktop = getDesktop(),
   runtime = useRuntimeStore(),
   setup = useShopSetupStore(),
-  task = useTask()
+  task = useTask(),
+  sidebarBalance = useSidebarBalance()
+const pendingReplyCount = computed(
+  () => runtime.snapshot.review.replies.filter((reply) => reply.status === 'pending').length,
+)
 const zoomPercent = ref(100)
 watch(
   () => runtime.platformStoreId,
@@ -69,7 +74,8 @@ const sidebarCollapsed = ref(false),
   shopStatus = ref('offline'),
   addShopVisible = ref(false),
   quickReplyVisible = ref(false),
-  loginVisible = ref(false)
+  loginVisible = ref(false),
+  contactVisible = ref(false)
 const shops = computed(() =>
   runtime.snapshot.stores.filter(
     (shop) =>
@@ -85,6 +91,7 @@ watch(
     addShopVisible,
     quickReplyVisible,
     loginVisible,
+    contactVisible,
     () => setup.visible,
     () => setup.onboardingPhase,
     () => setup.returnAvailable,
@@ -97,6 +104,7 @@ watch(
       !addShopVisible.value &&
       !quickReplyVisible.value &&
       !loginVisible.value &&
+      !contactVisible.value &&
       !setup.visible
     const presentation =
       setup.onboardingPhase === 'login' && !setup.returnAvailable
@@ -180,6 +188,9 @@ async function openLogs() {
   await task.run(async () => {
     await runtime.run({ action: 'open-reply-monitor' })
   })
+}
+async function openRecharge() {
+  await router.push('/shop/recharge')
 }
 async function setSendMode(shop: LocalStore, mode: 'review' | 'auto') {
   await task.run(async () => {
@@ -381,33 +392,40 @@ async function navigate(path: string) {
         >
           {{ sidebarCollapsed ? '›' : '‹' }}
         </button>
-        <footer class="sidebar-footer">
-          <button @click="quickReplyVisible = true">快捷回复</button>
-          <button aria-label="回复监控" @click="openLogs">
-            回复监控<span
-              v-if="runtime.snapshot.review.replies.some((r) => r.status === 'pending')"
-            >
-              ·
-              {{ runtime.snapshot.review.replies.filter((r) => r.status === 'pending').length }}
-              待确认</span
-            >
-          </button>
-          <UpdateStatus />
-          <AppVersion />
-        </footer>
+        <SidebarFooter
+          :account="sidebarBalance"
+          :pending-count="pendingReplyCount"
+          :monitor-busy="task.pending.value"
+          @quick-reply="quickReplyVisible = true"
+          @reply-monitor="openLogs"
+          @contact="contactVisible = true"
+          @login="loginVisible = true"
+          @recharge="openRecharge"
+        />
       </aside>
-      <main class="workbench-main" :inert="setup.visible"><router-view /></main>
+      <main class="workbench-main" :inert="setup.visible">
+        <router-view v-slot="{ Component }">
+          <component
+            v-if="isConfiguration"
+            :is="Component"
+            @quick-reply="quickReplyVisible = true"
+            @contact="contactVisible = true"
+            @login="loginVisible = true"
+            @recharge="openRecharge"
+          />
+          <component :is="Component" v-else />
+        </router-view>
+      </main>
     </div>
     <LoginDialog v-model="loginVisible" />
     <AddShopDialog v-model="addShopVisible" /><QuickReplyDialog v-model="quickReplyVisible" />
+    <ContactQrDialog v-model="contactVisible" />
   </div>
 </template>
 <style scoped>
-.sidebar-footer {
-  flex-wrap: wrap;
-}
-.sidebar-footer :deep(.app-version) {
-  flex-basis: 100%;
+/* 低窗口优先保证店铺列表可滚动，footer 在自身高度内滚动而不是压住列表。 */
+.store-list {
+  min-height: 64px;
 }
 .workbench-main {
   flex: 1;
