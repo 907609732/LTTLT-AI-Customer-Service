@@ -2576,6 +2576,246 @@ it('keeps the batch draft when verification is canceled or fails and blocks repe
   expect(posts).toHaveLength(1)
 })
 
+it('locks batch controls, pagination and refresh through a deferred save and recovers after cancel or failure', async () => {
+  allowProtectedSave()
+  const pageOne = [accountRow(9, { limit: 20, used: 4, reserved: 1 })]
+  const posts: Array<{ raw: string; body: Record<string, unknown> }> = []
+  let releasePost!: (value: { status: number; data: unknown }) => void
+  const postGate = new Promise<{ status: number; data: unknown }>((resolve) => {
+    releasePost = resolve
+  })
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') {
+      const raw = String(request.data)
+      posts.push({ raw, body: JSON.parse(raw) as Record<string, unknown> })
+      const result = await postGate
+      if (result.status !== 200) {
+        throw new AxiosError(
+          'conflict',
+          'ERR_BAD_REQUEST',
+          request,
+          undefined,
+          {
+            data: result.data,
+            status: result.status,
+            statusText: 'Conflict',
+            headers: {},
+            config: request,
+          }
+        )
+      }
+      return {
+        data: result.data,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: request,
+      }
+    }
+    if (request.url?.endsWith('/accounts')) {
+      return {
+        data: {
+          items: pageOne,
+          total: 21,
+          page: Number(request.params?.page || 1),
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: request,
+      }
+    }
+    return {
+      data: fixtureData(request.url || '', request.params, config),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  await openAccounts()
+  fireEvent.click(checkbox('Select account 9'))
+  await screen.findByText('1 selected')
+  fireEvent.click(screen.getByRole('button', { name: 'Adjust quota' }))
+  fireEvent.change(screen.getByLabelText('Adjustment method'), {
+    target: { value: 'set' },
+  })
+  fireEvent.change(screen.getByLabelText('New total calls'), {
+    target: { value: '100' },
+  })
+  fireEvent.change(screen.getByLabelText('Reason for change'), {
+    target: { value: 'a'.repeat(181) },
+  })
+  expect(
+    await screen.findByText('Reason is too long. Please shorten it.')
+  ).toBeTruthy()
+  expect(
+    (
+      screen.getByRole('button', {
+        name: 'Apply to selected accounts',
+      }) as HTMLButtonElement
+    ).disabled
+  ).toBe(true)
+  fireEvent.change(screen.getByLabelText('Reason for change'), {
+    target: { value: 'pending reason' },
+  })
+
+  let releaseProof!: (value: { proof_token: string } | null) => void
+  const proofGate = new Promise<{ proof_token: string } | null>((resolve) => {
+    releaseProof = resolve
+  })
+  verify.mockReturnValueOnce(proofGate)
+  const assertLocked = () => {
+    expect(
+      (screen.getByLabelText('Adjustment method') as HTMLSelectElement).matches(
+        ':disabled'
+      )
+    ).toBe(true)
+    expect(
+      (screen.getByLabelText('New total calls') as HTMLInputElement).matches(
+        ':disabled'
+      )
+    ).toBe(true)
+    expect(
+      (screen.getByLabelText('Reason for change') as HTMLInputElement).matches(
+        ':disabled'
+      )
+    ).toBe(true)
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Apply to selected accounts',
+        }) as HTMLButtonElement
+      ).matches(':disabled')
+    ).toBe(true)
+    expect(
+      (
+        screen.getByRole('button', { name: 'Cancel' }) as HTMLButtonElement
+      ).matches(':disabled')
+    ).toBe(true)
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Clear selection',
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Refresh' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true)
+    expect(checkbox('Select account 9')).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    )
+  }
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Apply to selected accounts' })
+  )
+  await waitFor(() => expect(verify).toHaveBeenCalledTimes(1))
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText('Adjustment method') as HTMLSelectElement).matches(
+        ':disabled'
+      )
+    ).toBe(true)
+  )
+  assertLocked()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Apply to selected accounts' })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  expect(posts).toHaveLength(0)
+  expect(screen.getByText('1 selected')).toBeTruthy()
+  await act(async () => {
+    releaseProof(null)
+    await Promise.resolve()
+  })
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Apply to selected accounts',
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(false)
+  )
+  expect(
+    (screen.getByLabelText('Reason for change') as HTMLInputElement).value
+  ).toBe('pending reason')
+  expect(
+    (screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled
+  ).toBe(false)
+  expect(
+    (screen.getByRole('button', { name: 'Refresh' }) as HTMLButtonElement)
+      .disabled
+  ).toBe(false)
+  expect(checkbox('Select account 9')).not.toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+  expect(screen.getByText('1 selected')).toBeTruthy()
+  expect(posts).toHaveLength(0)
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Apply to selected accounts' })
+  )
+  await waitFor(() => expect(posts).toHaveLength(1))
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText('New total calls') as HTMLInputElement).matches(
+        ':disabled'
+      )
+    ).toBe(true)
+  )
+  assertLocked()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Apply to selected accounts' })
+  )
+  expect(posts).toHaveLength(1)
+  await act(async () => {
+    releasePost({
+      status: 409,
+      data: { saved: false, error: 'batch_quota_conflict' },
+    })
+    await Promise.resolve()
+  })
+  await screen.findByText(/Save could not be confirmed/)
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText('Reason for change') as HTMLInputElement).matches(
+        ':disabled'
+      )
+    ).toBe(false)
+  )
+  expect(
+    (screen.getByLabelText('Reason for change') as HTMLInputElement).value
+  ).toBe('pending reason')
+  expect(
+    (screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled
+  ).toBe(false)
+  expect(
+    (screen.getByRole('button', { name: 'Refresh' }) as HTMLButtonElement)
+      .disabled
+  ).toBe(false)
+  expect(checkbox('Select account 9')).not.toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+  expect(posts).toHaveLength(1)
+  expect(posts[0].body).toEqual({
+    section: 'account',
+    action: 'batch_quota',
+    reason: 'pending reason',
+    targets: [{ user_id: 9, expected_limit: 20, target_calls: 100 }],
+  })
+})
+
 it('keeps the original single-account editor save behavior', async () => {
   allowProtectedSave()
   const posts = installAccounts([

@@ -480,8 +480,8 @@
   "The new total must be between 0 and 1,000,000 calls.": "调整后总额必须在 0 到 1,000,000 次之间。",
   "Enter a whole number.": "请输入整数。",
   "Reason for change is required.": "请填写调整原因。",
-  "Reason is too long (max 180 bytes).": "调整原因过长（最多 180 字节）。",
   "Apply to selected accounts": "应用到所选账号",
   "Select all on this page": "全选当前页",
-  "Select account {{id}}": "选择账号 {{id}}"
+  "Select account {{id}}": "选择账号 {{id}}",
+  "Reason is too long. Please shorten it.": "调整原因过长，请缩短。"
 }

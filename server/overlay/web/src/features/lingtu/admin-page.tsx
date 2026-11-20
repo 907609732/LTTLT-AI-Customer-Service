@@ -940,7 +940,7 @@ function Accounts(props: {
       <div className='flex justify-end gap-3'>
         <Button
           variant='outline'
-          disabled={page === 1 || query.isFetching}
+          disabled={props.busy || page === 1 || query.isFetching}
           onClick={() => changePage(page - 1)}
         >
           {t('Previous')}
@@ -948,7 +948,11 @@ function Accounts(props: {
         <span>{formatNumber(page)}</span>
         <Button
           variant='outline'
-          disabled={query.isFetching || page * 20 >= (query.data?.total || 0)}
+          disabled={
+            props.busy ||
+            query.isFetching ||
+            page * 20 >= (query.data?.total || 0)
+          }
           onClick={() => changePage(page + 1)}
         >
           {t('Next')}
@@ -1742,7 +1746,7 @@ export function AdminPage() {
                 {languageControl}
                 <Button
                   variant='outline'
-                  disabled={query.isFetching}
+                  disabled={busy || query.isFetching}
                   onClick={() =>
                     void queryClient.invalidateQueries({ queryKey: ['lingtu'] })
                   }

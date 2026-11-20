@@ -89,7 +89,7 @@ export function AccountBatchQuota(props: {
   let reasonError = ''
   if (!reason.trim()) reasonError = t('Reason for change is required.')
   else if (reasonBytes > maxReasonBytes) {
-    reasonError = t('Reason is too long (max 180 bytes).')
+    reasonError = t('Reason is too long. Please shorten it.')
   }
   const previewInvalid = preview.some(
     (row) => row.target === null || !!row.error
