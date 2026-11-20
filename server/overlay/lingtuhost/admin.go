@@ -58,6 +58,7 @@ type configurationRequest struct {
 	RequestsPerMinute    *int              `json:"requests_per_minute"`
 	GlobalConcurrent     *int              `json:"global_concurrent"`
 	UserID               int               `json:"user_id"`
+	Targets              []batchTarget     `json:"targets"`
 	ExpiresAt            int64             `json:"expires_at"`
 	Status               string            `json:"status"`
 	Reason               string            `json:"reason"`
@@ -235,6 +236,17 @@ func (h *Host) saveConfig(c *gin.Context) {
 		request.Revision = revision
 		policyInput = input
 	}
+	// Batch quota writes use an exact field whitelist. The security proof below
+	// still binds the untouched request body, including every target and reason.
+	if request.Section == "account" && request.Action == "batch_quota" {
+		batch, decodeErr := decodeBatchQuotaRequest(body)
+		if decodeErr != nil {
+			clientFailure(c, 400, "invalid_request")
+			return
+		}
+		request.Reason = batch.Reason
+		request.Targets = batch.Targets
+	}
 	digest := sha256.Sum256(body)
 	context, _ := common.Marshal(service.ManagedConfigurationContext{Section: request.Section, RequestHash: hex.EncodeToString(digest[:])})
 	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeManagedConfigure, Context: context}) == nil {
@@ -260,7 +272,11 @@ func (h *Host) saveConfig(c *gin.Context) {
 	case "trial":
 		err = h.saveTrialConfiguration(request)
 	case "account":
-		err = h.saveAccount(request)
+		if request.Action == "batch_quota" {
+			err = h.saveBatchQuota(request, c.GetInt("id"))
+		} else {
+			err = h.saveAccount(request)
+		}
 	case "reconcile":
 		err = h.reconcileUsage(request)
 	case "smtp":
@@ -287,6 +303,17 @@ func (h *Host) saveConfig(c *gin.Context) {
 				}
 				c.JSON(409, gin.H{"error": "revision_conflict", "revision": latest.Revision})
 			case errors.Is(err, lingtu.ErrInvalidContextPolicy):
+				clientFailure(c, 400, "invalid_request")
+			default:
+				clientFailure(c, 503, "temporarily_unavailable")
+			}
+			return
+		}
+		if request.Section == "account" && request.Action == "batch_quota" {
+			switch {
+			case errors.Is(err, ErrBatchQuotaConflict):
+				c.JSON(409, gin.H{"saved": false, "error": "batch_quota_conflict"})
+			case errors.Is(err, lingtu.ErrInvalidTrialInput):
 				clientFailure(c, 400, "invalid_request")
 			default:
 				clientFailure(c, 503, "temporarily_unavailable")

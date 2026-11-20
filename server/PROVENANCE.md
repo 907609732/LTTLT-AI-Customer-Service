@@ -1,5 +1,21 @@
 # 来源与本地适配
 
+## 2026-11-20 后台账号批量试用额度（本机实现，未部署）
+
+来源仍为固定提交 `fd45e3832f3cceefefa64f8ff43d05da2cffe5e9`，New API 固定提交 `48a6c87f9e7757fdc58e5be9bcb4f8281ad0dfd0`。未新增依赖、开放路由、数据库表或迁移；批量写复用 `POST /api/lingtu/admin/config` 的 `section=account`、`action=batch_quota`，安全证明仍绑定整个精确请求 body 的 section 与 SHA-256。
+
+- `overlay/lingtuhost/admin.go`：仅追加批量 targets 的严格解码入口、`batch_quota` 分派和 400/409/503 错误映射；原单账号保存行为保留。
+- 新增自有 `overlay/lingtuhost/admin_account_quota.go`：白名单解码最多 20 个无重复账号；事务内获取共享 trial 限额写锁，重读原生用户/授权/TrialGrant，使用 `expected_limit` CAS 和 `used+reserved <= target` 条件只更新 `call_limit`；不创建授权、不延长有效期、不改模型/status/会话/paid/permanent。无变化行跳过更新但仍写审计，避免 MySQL `RowsAffected=0` 误判。每个目标的管理员、原因和前后额度写入同事务 `ManagedAudit`，原因总长控制在既有 varchar(256) 内；外层 pending 审计保留。
+- 新增自有 `overlay/lingtu/admin_quota.go`：只导出既有 `lockTrialLimits` 的受控入口，供管理员账本事务复用，不改变 Reserve/Settle 逻辑。
+- 新增自有 `overlay/web/src/features/lingtu/admin-account-quota.tsx`：当前页多选、全选、清除选择，增加/扣减/设定总次数，逐账号预览当前总额、已用/待确认、调整后总额与预计剩余，原因必填；复用原生 `StaticDataTable`、`Checkbox`、Card/Input/Button 和安全保存回调。
+- `overlay/web/src/features/lingtu/admin-page.tsx`：账号表增加页内选择列和批量编辑器，换页/刷新/失效响应丢弃隐藏或不再可调整的选择；原单账号编辑器保留。
+- `overlay/web/src/features/lingtu/admin-page.test.tsx`：新增选择隔离、三种模式边界、预览、取消保留、验证取消/失败、重复提交和单账号回归。
+- `translations.json`：新增批量额度界面文案；`source-files.json` 只更新上述实际导入文件摘要并保留上游字段。
+
+实际 SHA256：`overlay/lingtu/admin_quota.go` `915d1c623cb68827141640d93c6d65d1419f9f1d76c67b347160dbc100ff6132`；`overlay/lingtuhost/admin_account_quota.go` `8d7d5e160001fb5d4f1199e2e403d40eddbe28c77ee23b224a48d08cbf6bd849`；`overlay/lingtuhost/admin_account_quota_test.go` `940937414d275ee95dab38ee5a5747438f0274ee0f8de7eb02c10c129082afc2`；`overlay/lingtuhost/admin.go` `046ad2e9e96e8beb2fbadb63136cef0fa5291f0b6bca2c40ff56396bd59acf9c`；`overlay/web/src/features/lingtu/admin-account-quota.tsx` `e5f9f40f670e9af5169eb26c349ffb6f8ddc3d70d702c049adb61841c2c46437`；`admin-page.tsx` `6ca95c8996a45efe0a3caa4c642d68b0492fec51eb0ee1ae519f9a635f7205a5`；`admin-page.test.tsx` `e46517cf671a960a2ac3b33caabfb46a5f105597bbfdd6b6973c9df620687959`；`translations.json` `eaf3454f833cde53247b7ff02bd1880b98bedd273ea7eeb3c5502098c7a196a5`；`source-files.json` `3466aa5140a2ec067b5803b784de9df172d6b166bb85486d238a54ee2e8549f5`。
+
+验证范围：`go test ./lingtuhost -run TestLingtuAdminBatchQuota`、`go test ./lingtuhost -run TestLingtu`、`go test ./lingtu -run 'Test(Lingtu|Trial|Concurrent|Settlement|Quota)'`、原生网页 `admin-page.test.tsx`（37 通过）、typecheck、定向 oxlint/oxfmt、`node --test tests/preparation.test.mjs`、`node scripts/check-vendor.mjs` 和本机隔离 SQLite 预览构建。未运行 MySQL/PostgreSQL 矩阵、全量上游测试、Release、桌面打包或生产部署；本机合成账号截图不代表真实账号额度已修改。
+
 ## 2026-11-19 后台宽屏排版
 
 `admin-light.css` 移除工作区的 1600px 宽度上限，保留原页面留边与窄屏断点。浏览器在 2560px 和 390px 宽度核对内容宽度及横向溢出，源码修正只涉及这一条样式。用户确认后，线上以独立哈希样式覆盖部署相同规则，原 HTML 与资产保留备份。刷新后已核对实际宽度、正式样式引用及无临时预览节点，详见 HANDOFF。

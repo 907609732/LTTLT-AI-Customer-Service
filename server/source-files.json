@@ -189,9 +189,9 @@
     {
       "path": "overlay/lingtuhost/admin.go",
       "upstreamPath": "managed-server/overlay/lingtuhost/admin.go",
-      "sha256": "e9bf80625a4b957680c419e3e7f2df44d08183705aecee407f4ac30757af92d4",
+      "sha256": "046ad2e9e96e8beb2fbadb63136cef0fa5291f0b6bca2c40ff56396bd59acf9c",
       "upstreamSha256": "2fe0a91291e4b657105d3f052f01a7f41015c240e000acb8e2a4f20966e245ab",
-      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials. Add the AdminAuth context_policy read and revision-checked save with a strict top-level/nested whitelist, exact request-hash proof, audit and no prompt logging."
+      "localPatch": " Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials. Add the AdminAuth context_policy read and revision-checked save with a strict top-level/nested whitelist, exact request-hash proof, audit and no prompt logging.; 2026-11-20: add strict account batch_quota decoding and atomic trial call_limit updates with expected_limit CAS, shared ledger gate, per-target before/after audit and no implicit authorization."
     },
     {
       "path": "overlay/lingtuhost/admin_connections_review_test.go",
@@ -420,16 +420,16 @@
     {
       "path": "overlay/web/src/features/lingtu/admin-page.test.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.test.tsx",
-      "sha256": "a6e349ce9483b31026bc8147df1c95ade90e2cc1aa0dc1b2e4a875106c706f20",
+      "sha256": "e46517cf671a960a2ac3b33caabfb46a5f105597bbfdd6b6973c9df620687959",
       "upstreamSha256": "31faaa4b3b87915c7a18bf03df0114717110648dd169606c741b749785c0aabf",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, exact proof/POST and 409 draft-preservation tests"
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, exact proof/POST and 409 draft-preservation tests; 2026-11-20: cover batch selection isolation, three adjustment modes, exact payload, canceled/failed verification, busy duplicate submit and single-account regression."
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-page.tsx",
       "upstreamPath": "managed-server/overlay/web/src/features/lingtu/admin-page.tsx",
-      "sha256": "f847d9182362d56837a428c9599b553a93f40c52c09c71da9026d39bff17b6f2",
+      "sha256": "6ca95c8996a45efe0a3caa4c642d68b0492fec51eb0ee1ae519f9a635f7205a5",
       "upstreamSha256": "47c9d379bc0749edd50d6dd598452074525a69308d3f9702eb65b3d16837111a",
-      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, typed 409 conflict and secure-save integration without changing model-connection behavior"
+      "localPatch": "Rename user-facing product to Lingtu AI / 灵兔 AI; preserve protocol identifiers and source license. Add billing sandbox administration, exact proof binding, bilingual UI, service version/capabilities and payment-return proxy; preserve encrypted settings and restricted authorization. Add configured CNY token cost estimates and immutable admission rate snapshots; preserve quota and credentials.; 2026-11-16: integrate persisted micro-CNY costs, cache pricing and isolated database regression fixes on current main; 2026-11-17: add hosted context policy navigation, typed 409 conflict and secure-save integration without changing model-connection behavior; 2026-11-20: add current-page account selection and batch trial quota preview/edit using the existing secure save."
     },
     {
       "path": "overlay/web/src/features/lingtu/admin-usage.tsx",
@@ -529,9 +529,9 @@
     {
       "path": "translations.json",
       "upstreamPath": "managed-server/translations.json",
-      "sha256": "24033f388c6779c167c13a803e9eff3d9cda920f278b5bede24ef6117ea33658",
+      "sha256": "eaf3454f833cde53247b7ff02bd1880b98bedd273ea7eeb3c5502098c7a196a5",
       "upstreamSha256": "bce3e5d32c56765ec57bbaedf662a2276885657857c29e9849fe1fcc446e3149",
-      "localPatch": "2026-11-19: opt-in managed learning policy and explicit 1-40 call budget; default 20 remains, no production deployment."
+      "localPatch": "2026-11-19: opt-in managed learning policy and explicit 1-40 call budget; default 20 remains, no production deployment.; 2026-11-20: administrator batch trial quota labels and validation."
     },
     {
       "path": "upstream.lock.json",

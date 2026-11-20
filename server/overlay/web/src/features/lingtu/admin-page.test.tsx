@@ -2326,3 +2326,276 @@ it('saves RMB rates through the existing exact proof without probing and clears 
     ).value
   ).toBe('')
 })
+
+type AccountFixture = {
+  native_status?: number
+  user_id: number
+  display_name: string
+  status: string
+  model: string
+  limit: number
+  used: number
+  reserved: number
+  expires_at: number
+}
+function accountRow(
+  userId: number,
+  overrides: Partial<AccountFixture> = {}
+): AccountFixture {
+  return {
+    user_id: userId,
+    display_name: `客服${userId}`,
+    status: 'enabled',
+    native_status: 1,
+    model: '',
+    limit: 20,
+    used: 0,
+    reserved: 0,
+    expires_at: 1900000000,
+    ...overrides,
+  }
+}
+function installAccounts(
+  pageOne: AccountFixture[],
+  pageTwo: AccountFixture[] = [],
+  posts: Array<{ raw: string; body: Record<string, unknown> }> = []
+) {
+  api.defaults.adapter = async (request) => {
+    if (request.method === 'post') {
+      const raw = String(request.data)
+      posts.push({ raw, body: JSON.parse(raw) as Record<string, unknown> })
+      return {
+        data: { saved: true },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: request,
+      }
+    }
+    if (request.url?.endsWith('/accounts')) {
+      const page = Number(request.params?.page || 1)
+      return {
+        data: {
+          items: page === 1 ? pageOne : pageTwo,
+          total: 21,
+          page,
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: request,
+      }
+    }
+    return {
+      data: fixtureData(request.url || '', request.params, config),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: request,
+    }
+  }
+  return posts
+}
+async function openAccounts() {
+  renderAdmin()
+  await screen.findByRole('heading', { name: '灵兔 AI 管理后台' })
+  fireEvent.click(screen.getByRole('button', { name: 'English' }))
+  fireEvent.click(
+    await screen.findByRole('tab', { name: 'Account management' })
+  )
+  await screen.findAllByRole('checkbox', { name: /^Select account \d+$/ })
+  await screen.findByRole('checkbox', { name: 'Select all on this page' })
+}
+function checkbox(name: string): HTMLElement {
+  return screen.getByRole('checkbox', { name })
+}
+
+it('selects only eligible accounts on the current page and drops hidden selections', async () => {
+  const pageOne = [
+    accountRow(9, { limit: 20, used: 4, reserved: 1 }),
+    accountRow(10, { limit: 100, used: 90, reserved: 5 }),
+    accountRow(11, { status: 'not_authorized' }),
+    accountRow(12, { native_status: 2 }),
+  ]
+  installAccounts(pageOne, [accountRow(21)])
+  await openAccounts()
+  expect(checkbox('Select account 9')).not.toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+  expect(checkbox('Select account 10')).not.toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+  expect(checkbox('Select account 11')).toHaveAttribute('aria-disabled', 'true')
+  expect(checkbox('Select account 12')).toHaveAttribute('aria-disabled', 'true')
+
+  fireEvent.click(checkbox('Select account 9'))
+  await screen.findByText('1 selected')
+  expect(screen.getByRole('button', { name: 'Adjust quota' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Clear selection' })).toBeTruthy()
+  fireEvent.click(checkbox('Select all on this page'))
+  await screen.findByText('2 selected')
+  fireEvent.click(checkbox('Select all on this page'))
+  await waitFor(() => expect(screen.queryByText('2 selected')).toBeNull())
+
+  fireEvent.click(checkbox('Select account 9'))
+  await screen.findByText('1 selected')
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  await screen.findByText('客服21 · 21')
+  await waitFor(() => expect(screen.queryByText('1 selected')).toBeNull())
+  fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
+  expect(
+    await screen.findByRole('checkbox', { name: 'Select account 9' })
+  ).toHaveAttribute('aria-checked', 'false')
+
+  fireEvent.click(checkbox('Select account 9'))
+  await screen.findByText('1 selected')
+  pageOne[0] = accountRow(9, { status: 'disabled' })
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(screen.queryByText('1 selected')).toBeNull())
+  expect(checkbox('Select account 9')).toHaveAttribute('aria-disabled', 'true')
+})
+
+it('previews add, subtract and set modes with boundary checks and submits the exact batch payload', async () => {
+  allowProtectedSave()
+  const posts = installAccounts([
+    accountRow(9, { limit: 20, used: 4, reserved: 1 }),
+    accountRow(10, { limit: 100, used: 90, reserved: 5 }),
+  ])
+  await openAccounts()
+  fireEvent.click(checkbox('Select account 9'))
+  await screen.findByText('1 selected')
+  fireEvent.click(screen.getByRole('button', { name: 'Adjust quota' }))
+  fireEvent.change(screen.getByLabelText('Calls to add'), {
+    target: { value: '5' },
+  })
+  expect(screen.getByText('25')).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Adjustment method'), {
+    target: { value: 'subtract' },
+  })
+  fireEvent.change(screen.getByLabelText('Calls to subtract'), {
+    target: { value: '16' },
+  })
+  expect(screen.getByText('Below used + pending calls')).toBeTruthy()
+  expect(
+    (
+      screen.getByRole('button', {
+        name: 'Apply to selected accounts',
+      }) as HTMLButtonElement
+    ).disabled
+  ).toBe(true)
+
+  fireEvent.change(screen.getByLabelText('Adjustment method'), {
+    target: { value: 'set' },
+  })
+  fireEvent.change(screen.getByLabelText('New total calls'), {
+    target: { value: '100' },
+  })
+  expect(screen.queryByText('Below used + pending calls')).toBeNull()
+  fireEvent.change(screen.getByLabelText('Reason for change'), {
+    target: { value: 'quota batch reason' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Adjust quota' }))
+  expect(
+    (screen.getByLabelText('New total calls') as HTMLInputElement).value
+  ).toBe('100')
+  expect(
+    (screen.getByLabelText('Reason for change') as HTMLInputElement).value
+  ).toBe('quota batch reason')
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Apply to selected accounts' })
+  )
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts[0].body).toEqual({
+    section: 'account',
+    action: 'batch_quota',
+    reason: 'quota batch reason',
+    targets: [{ user_id: 9, expected_limit: 20, target_calls: 100 }],
+  })
+  const hash = Buffer.from(
+    await webcrypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(posts[0].raw)
+    )
+  ).toString('hex')
+  expect(verify).toHaveBeenCalledWith(
+    expect.objectContaining({
+      context: { section: 'account', request_hash: hash },
+    })
+  )
+  await waitFor(() => expect(screen.queryByText('1 selected')).toBeNull())
+})
+
+it('keeps the batch draft when verification is canceled or fails and blocks repeated submits', async () => {
+  allowProtectedSave()
+  const posts = installAccounts([accountRow(9)])
+  await openAccounts()
+  fireEvent.click(checkbox('Select account 9'))
+  await screen.findByText('1 selected')
+  fireEvent.click(screen.getByRole('button', { name: 'Adjust quota' }))
+  fireEvent.change(screen.getByLabelText('Calls to add'), {
+    target: { value: '5' },
+  })
+  fireEvent.change(screen.getByLabelText('Reason for change'), {
+    target: { value: 'keep this reason' },
+  })
+
+  verify.mockResolvedValueOnce(null)
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Apply to selected accounts' })
+  )
+  await waitFor(() => expect(verify).toHaveBeenCalledTimes(1))
+  expect(posts).toHaveLength(0)
+  expect(
+    (screen.getByLabelText('Calls to add') as HTMLInputElement).value
+  ).toBe('5')
+  expect(
+    (screen.getByLabelText('Reason for change') as HTMLInputElement).value
+  ).toBe('keep this reason')
+
+  verify.mockRejectedValueOnce(new Error('canceled'))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Apply to selected accounts' })
+  )
+  await screen.findByText(/Save could not be confirmed/)
+  expect(posts).toHaveLength(0)
+  expect(
+    (screen.getByLabelText('Reason for change') as HTMLInputElement).value
+  ).toBe('keep this reason')
+
+  const apply = screen.getByRole('button', {
+    name: 'Apply to selected accounts',
+  })
+  await waitFor(() => expect((apply as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(apply)
+  fireEvent.click(apply)
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts).toHaveLength(1)
+})
+
+it('keeps the original single-account editor save behavior', async () => {
+  allowProtectedSave()
+  const posts = installAccounts([
+    accountRow(9, { limit: 20, used: 4, reserved: 1 }),
+  ])
+  await openAccounts()
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+  fireEvent.change(screen.getByLabelText('Total authorized calls'), {
+    target: { value: '25' },
+  })
+  fireEvent.change(screen.getByLabelText('Reason for change'), {
+    target: { value: 'manual adjustment' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts[0].body).toMatchObject({
+    section: 'account',
+    user_id: 9,
+    calls: 25,
+    reason: 'manual adjustment',
+  })
+  expect(posts[0].body.action).toBeUndefined()
+})

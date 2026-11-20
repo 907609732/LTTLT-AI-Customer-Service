@@ -20,6 +20,7 @@ import { CopyButton } from '@/components/copy-button'
 import { StaticDataTable } from '@/components/data-table'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -35,6 +36,7 @@ import {
   formatTimestampForInput,
 } from '@/lib/format'
 
+import { AccountBatchQuota, type Account } from './admin-account-quota'
 import { AdminBilling } from './admin-billing'
 import {
   AdminContextPolicy,
@@ -93,17 +95,6 @@ interface Config {
   }
 }
 const ModelConnectionsContext = createContext<ModelConnection[]>([])
-interface Account {
-  native_status?: number
-  user_id: number
-  display_name: string
-  status: string
-  model: string
-  limit: number
-  used: number
-  reserved: number
-  expires_at: number
-}
 type Save = (payload: Payload) => Promise<boolean>
 // Context policy saves need the new revision and an explicit conflict shape.
 // Keep this local so the shared model-connection contract stays unchanged.
@@ -118,6 +109,9 @@ function modelName(model: string) {
   if (!model || model.startsWith('managed-')) return 'Unknown model'
   if (model === 'qwen3-vl-plus') return 'Qwen3-VL · Image understanding'
   return model
+}
+function batchQuotaEligible(account: Account): boolean {
+  return account.status === 'enabled' && account.native_status !== 2
 }
 function loginStatus(configured: boolean, enabled: boolean) {
   if (enabled && configured) return 'Enabled'
@@ -757,6 +751,7 @@ function Accounts(props: {
   const connections = useContext(ModelConnectionsContext)
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<Account | null>(null)
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
   const query = useQuery({
     queryKey: ['lingtu', 'accounts', page],
     queryFn: async () =>
@@ -769,6 +764,48 @@ function Accounts(props: {
         )
       ).data,
   })
+  const currentAccounts = query.data?.items
+  // Selection is intentionally page-local. Refetches and failed responses may
+  // change eligibility; drop hidden or no-longer-adjustable IDs.
+  useEffect(() => {
+    const visible = new Set(
+      (currentAccounts || [])
+        .filter(batchQuotaEligible)
+        .map((account) => account.user_id)
+    )
+    setSelectedIds((previous) => {
+      const next = previous.filter((userId) => visible.has(userId))
+      return next.length === previous.length ? previous : next
+    })
+  }, [currentAccounts])
+  const accounts = currentAccounts || []
+  const eligibleRows = accounts.filter(batchQuotaEligible)
+  const selectedAccounts = eligibleRows.filter((account) =>
+    selectedIds.includes(account.user_id)
+  )
+  const allSelected =
+    eligibleRows.length > 0 &&
+    eligibleRows.every((account) => selectedIds.includes(account.user_id))
+  const someSelected = selectedAccounts.length > 0
+  function toggleAll(checked: boolean): void {
+    const ids = eligibleRows.map((account) => account.user_id)
+    setSelectedIds((previous) =>
+      checked
+        ? [...new Set([...previous, ...ids])]
+        : previous.filter((userId) => !ids.includes(userId))
+    )
+  }
+  function toggleAccount(userId: number, checked: boolean): void {
+    setSelectedIds((previous) => {
+      if (!checked) return previous.filter((id) => id !== userId)
+      if (previous.includes(userId)) return previous
+      return [...previous, userId]
+    })
+  }
+  function changePage(next: number): void {
+    setSelectedIds([])
+    setPage(next)
+  }
   return (
     <div className='space-y-4'>
       {selected && (
@@ -780,11 +817,51 @@ function Accounts(props: {
           close={() => setSelected(null)}
         />
       )}
+      {selectedAccounts.length > 0 && (
+        <AccountBatchQuota
+          accounts={selectedAccounts}
+          save={props.save}
+          busy={props.busy}
+          onClear={() => setSelectedIds([])}
+          onSaved={() => setSelectedIds([])}
+        />
+      )}
       {query.isError && <p role='alert'>{t('Unable to load accounts')}</p>}
       <StaticDataTable
-        data={query.data?.items || []}
+        data={accounts}
         getRowKey={(row) => row.user_id}
+        getRowClassName={(row) =>
+          selectedIds.includes(row.user_id) ? 'bg-blue-50' : undefined
+        }
         columns={[
+          {
+            id: 'select',
+            header: (
+              <Checkbox
+                aria-label={t('Select all on this page')}
+                checked={allSelected}
+                indeterminate={someSelected && !allSelected}
+                disabled={props.busy || eligibleRows.length === 0}
+                onCheckedChange={(checked) => toggleAll(!!checked)}
+              />
+            ),
+            className: 'w-10',
+            cell: (row) => {
+              const eligible = batchQuotaEligible(row)
+              return (
+                <Checkbox
+                  aria-label={t('Select account {{id}}', {
+                    id: row.user_id,
+                  })}
+                  checked={selectedIds.includes(row.user_id)}
+                  disabled={props.busy || !eligible}
+                  onCheckedChange={(checked) =>
+                    toggleAccount(row.user_id, !!checked)
+                  }
+                />
+              )
+            },
+          },
           {
             id: 'id',
             header: t('Account'),
@@ -864,7 +941,7 @@ function Accounts(props: {
         <Button
           variant='outline'
           disabled={page === 1 || query.isFetching}
-          onClick={() => setPage(page - 1)}
+          onClick={() => changePage(page - 1)}
         >
           {t('Previous')}
         </Button>
@@ -872,7 +949,7 @@ function Accounts(props: {
         <Button
           variant='outline'
           disabled={query.isFetching || page * 20 >= (query.data?.total || 0)}
-          onClick={() => setPage(page + 1)}
+          onClick={() => changePage(page + 1)}
         >
           {t('Next')}
         </Button>
