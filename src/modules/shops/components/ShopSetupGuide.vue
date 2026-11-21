@@ -1001,6 +1001,7 @@ const afterSales = [
   background: #f7f8fa;
   color: #18283d;
   font-size: 14px;
+  container: shop-guide / inline-size;
   display: flex;
   flex-direction: column;
 }
@@ -1172,8 +1173,15 @@ const afterSales = [
   font-size: 12px;
 }
 .intro-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
   margin-top: 60px;
   margin-bottom: 18px;
+}
+.intro-actions :deep(.el-button) {
+  margin-left: 0;
 }
 .intro-description {
   color: #50647f;
@@ -1670,7 +1678,46 @@ const afterSales = [
   display: inline-block;
   margin-right: 14px;
 }
-@media (max-width: 700px) {
+/* Adapt to the wizard's pane, excluding the store sidebar. */
+@container shop-guide (min-width: 1200px) {
+  .shop-setup-page:not(.new-store-settings) .wizard-scroll {
+    padding: 26px clamp(32px, 4cqw, 88px) 56px;
+    font-size: 16px;
+  }
+  .shop-setup-page:not(.new-store-settings) :is(.wizard-steps, .wizard-card) {
+    max-width: clamp(960px, 66cqw, 1360px);
+  }
+  .shop-setup-page:not(.new-store-settings) .wizard-step {
+    font-size: 16px;
+  }
+  .shop-setup-page:not(.new-store-settings) .wizard-card {
+    padding: 32px clamp(28px, 4cqw, 68px);
+  }
+  .shop-setup-page:not(.new-store-settings) .intro-card {
+    padding-block: clamp(48px, 5cqw, 86px);
+  }
+  .shop-setup-page:not(.new-store-settings) .intro-card h1 {
+    font-size: clamp(25px, 1.65cqw, 32px);
+  }
+  .shop-setup-page:not(.new-store-settings) .wizard-card h2 {
+    font-size: 22px;
+  }
+  .shop-setup-page:not(.new-store-settings) .intro-count strong {
+    font-size: clamp(54px, 3.6cqw, 72px);
+  }
+  .shop-setup-page:not(.new-store-settings) .intro-count span {
+    font-size: 18px;
+  }
+  .shop-setup-page:not(.new-store-settings) .intro-actions :deep(.el-button) {
+    min-height: 44px;
+    font-size: 15px;
+  }
+  .shop-setup-page:not(.new-store-settings)
+    :is(.intro-count small, .setup-shortcuts button, .quiet-note) {
+    font-size: 14px;
+  }
+}
+@container shop-guide (max-width: 700px) {
   .wizard-header-content {
     padding: 0 16px;
   }
