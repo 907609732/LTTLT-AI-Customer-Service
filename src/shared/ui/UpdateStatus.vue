@@ -3,8 +3,9 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { getDesktop } from '../platform/desktop'
 import type { AppUpdateResult } from '../contracts/app-update'
 
-const props = withDefaults(defineProps<{ variant?: 'default' | 'footer' }>(), {
+const props = withDefaults(defineProps<{ variant?: 'default' | 'footer'; compact?: boolean }>(), {
   variant: 'default',
+  compact: false,
 })
 const desktop = getDesktop()
 const pending = ref(false)
@@ -21,6 +22,12 @@ const buttonLabel = computed(() => {
   if (result.value?.status === 'available' && result.value.latestVersion)
     return `发现新版本 v${result.value.latestVersion}`
   return message.value
+})
+const compactLabel = computed(() => {
+  if (pending.value) return '检查中'
+  if (lastCheckFailed.value) return '重试更新'
+  if (result.value?.status === 'available') return '有新版本'
+  return '检查更新'
 })
 async function check(manual: boolean) {
   if (pending.value) return
@@ -69,7 +76,12 @@ watch(visible, async (shown) => {
 </script>
 
 <template>
-  <div :class="['app-update', { 'app-update--footer': variant === 'footer' }]">
+  <div
+    :class="[
+      'app-update',
+      { 'app-update--footer': variant === 'footer', 'app-update--compact': compact },
+    ]"
+  >
     <button
       type="button"
       :class="[
@@ -80,6 +92,8 @@ watch(visible, async (shown) => {
         },
       ]"
       :disabled="pending"
+      :title="compact ? buttonLabel : undefined"
+      :aria-label="compact ? buttonLabel : undefined"
       @click="check(true)"
     >
       <span v-if="variant === 'footer'" class="app-update-icon" aria-hidden="true">
@@ -90,7 +104,7 @@ watch(visible, async (shown) => {
           />
         </svg>
       </span>
-      <span>{{ buttonLabel }}</span>
+      <span>{{ compact ? compactLabel : buttonLabel }}</span>
     </button>
     <section
       v-if="visible && result"
@@ -271,5 +285,26 @@ watch(visible, async (shown) => {
   color: #fff;
   font-size: 11px;
   font-weight: 600;
+}
+/* 版本同行入口保持小尺寸；新版详情跨整行显示，避免挤压版本或裁切提示。 */
+.app-update--footer.app-update--compact {
+  display: contents;
+}
+.app-update--compact .app-update-check.is-footer {
+  width: auto;
+  height: 24px;
+  gap: 3px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.app-update--compact .app-update-icon {
+  width: 12px;
+  height: 12px;
+}
+.app-update--compact .app-update-notice {
+  grid-column: 1 / -1;
+  margin-top: 0;
 }
 </style>

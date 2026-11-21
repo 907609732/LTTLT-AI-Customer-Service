@@ -9,6 +9,26 @@ const desktop = vi.hoisted(() => ({
 }))
 vi.mock('../src/shared/platform/desktop', () => ({ getDesktop: () => desktop }))
 const wrappers: ReturnType<typeof mount>[] = []
+it('版本旁小按钮保留检查失败重试和新版详情，长状态通过标题完整显示', async () => {
+  desktop.checkForUpdates.mockRejectedValueOnce(Error('network')).mockResolvedValueOnce({
+    status: 'available',
+    latestVersion: '9.0.0',
+    releaseUrl: 'https://github.com/907609732/LTTLT-AI-Customer-Service/releases/tag/v9.0.0',
+  })
+  const wrapper = mount(UpdateStatus, { props: { variant: 'footer', compact: true } })
+  wrappers.push(wrapper)
+  await flushPromises()
+  const button = wrapper.get('.app-update-check')
+  expect(button.text()).toBe('重试更新')
+  expect(button.attributes('title')).toBe('检查失败，点击重试')
+  await button.trigger('click')
+  await flushPromises()
+  expect(desktop.checkForUpdates).toHaveBeenLastCalledWith(true)
+  expect(button.text()).toBe('有新版本')
+  expect(button.attributes('aria-label')).toBe('发现新版本 v9.0.0')
+  expect(wrapper.get('[role="status"]').text()).toContain('发现新版本 v9.0.0')
+})
+
 afterEach(() => {
   wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
   vi.resetAllMocks()

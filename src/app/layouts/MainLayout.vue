@@ -4,7 +4,6 @@ import { isNavigationFailure, useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/shared/ui/BrandMark.vue'
 import ContactQrDialog from '@/shared/ui/ContactQrDialog.vue'
 import SidebarFooter from '@/app/components/SidebarFooter.vue'
-import { useSidebarBalance } from '@/app/sidebar-footer'
 import IconHomeFilled from '@/shared/icons/IconHomeFilled.vue'
 import IconShop from '@/shared/icons/IconShop.vue'
 import IconMonitor from '@/shared/icons/IconMonitor.vue'
@@ -28,8 +27,7 @@ const router = useRouter(),
   desktop = getDesktop(),
   runtime = useRuntimeStore(),
   setup = useShopSetupStore(),
-  task = useTask(),
-  sidebarBalance = useSidebarBalance()
+  task = useTask()
 const pendingReplyCount = computed(
   () => runtime.snapshot.review.replies.filter((reply) => reply.status === 'pending').length,
 )
@@ -188,9 +186,6 @@ async function openLogs() {
   await task.run(async () => {
     await runtime.run({ action: 'open-reply-monitor' })
   })
-}
-async function openRecharge() {
-  await router.push('/shop/recharge')
 }
 async function setSendMode(shop: LocalStore, mode: 'review' | 'auto') {
   await task.run(async () => {
@@ -393,14 +388,11 @@ async function navigate(path: string) {
           {{ sidebarCollapsed ? '›' : '‹' }}
         </button>
         <SidebarFooter
-          :account="sidebarBalance"
           :pending-count="pendingReplyCount"
           :monitor-busy="task.pending.value"
           @quick-reply="quickReplyVisible = true"
           @reply-monitor="openLogs"
           @contact="contactVisible = true"
-          @login="loginVisible = true"
-          @recharge="openRecharge"
         />
       </aside>
       <main class="workbench-main" :inert="setup.visible">

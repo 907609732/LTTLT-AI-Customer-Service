@@ -6,11 +6,10 @@ import IconChatDotRound from '@/shared/icons/IconChatDotRound.vue'
 import IconDocument from '@/shared/icons/IconDocument.vue'
 import IconMonitor from '@/shared/icons/IconMonitor.vue'
 import IconService from '@/shared/icons/IconService.vue'
-import { openOfficialTutorial, type SidebarBalance } from '../sidebar-footer'
+import { openOfficialTutorial } from '../sidebar-footer'
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
-    account: SidebarBalance
     pendingCount?: number
     monitorBusy?: boolean
     monitorError?: string
@@ -21,16 +20,9 @@ const emit = defineEmits<{
   'quick-reply': []
   'reply-monitor': []
   contact: []
-  login: []
-  recharge: []
 }>()
 const tutorialError = ref('')
 
-function recharge() {
-  // 未登录（含切换账号待重启）时复用顶部登录弹窗，不在 footer 另建认证入口。
-  if (props.account.canRecharge) emit('recharge')
-  else emit('login')
-}
 async function tutorial() {
   tutorialError.value = ''
   try {
@@ -63,26 +55,6 @@ async function tutorial() {
     </div>
     <p v-if="monitorError" class="monitor-error" role="alert">{{ monitorError }}</p>
 
-    <section class="quota-card" aria-label="剩余算力">
-      <div class="quota-heading">
-        <span>剩余算力</span>
-        <span class="quota-dot" aria-hidden="true"></span>
-      </div>
-      <strong
-        :class="['quota-value', { 'is-status': account.balance === null }]"
-        :title="account.detail"
-        >{{ account.label }}</strong
-      >
-      <button
-        type="button"
-        class="recharge-button"
-        :aria-label="account.canRecharge ? '充值算力' : '登录后充值算力'"
-        @click="recharge"
-      >
-        充值
-      </button>
-    </section>
-
     <nav class="footer-actions" aria-label="客服与帮助">
       <button type="button" class="footer-action" @click="emit('contact')">
         <el-icon><IconService /></el-icon><span>添加客服</span>
@@ -90,10 +62,12 @@ async function tutorial() {
       <button type="button" class="footer-action" @click="tutorial">
         <el-icon><IconDocument /></el-icon><span>使用教程</span>
       </button>
-      <UpdateStatus variant="footer" />
     </nav>
     <p v-if="tutorialError" class="monitor-error" role="alert">{{ tutorialError }}</p>
-    <div class="footer-version"><AppVersion prefix="当前 v" /></div>
+    <div class="footer-version">
+      <AppVersion prefix="当前版本 v" />
+      <UpdateStatus variant="footer" compact />
+    </div>
   </footer>
 </template>
 
@@ -177,67 +151,6 @@ async function tutorial() {
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
-.app-sidebar-footer .quota-card {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  box-sizing: border-box;
-  width: 100%;
-  container-type: inline-size;
-  padding: 9px 9px 10px;
-  border: 1px solid #e4e7ed;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: none;
-}
-.app-sidebar-footer .quota-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: #606266;
-  font-size: 12px;
-  line-height: 17px;
-}
-.app-sidebar-footer .quota-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #b7c3d7;
-  opacity: 0.7;
-}
-.app-sidebar-footer .quota-value {
-  display: block;
-  min-height: 38px;
-  padding: 2px 0 4px;
-  color: #2453e8;
-  font-size: clamp(20px, 16cqw, 30px);
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  line-height: 38px;
-  text-align: center;
-  white-space: nowrap;
-}
-.app-sidebar-footer .quota-value.is-status {
-  color: #606266;
-  font-size: 18px;
-  letter-spacing: 0;
-}
-/* workbench-light 的通用 footer button 规则只换文字色；用更高优先级保证充值白字。 */
-.app-sidebar-footer button.recharge-button {
-  height: 29px;
-  border: 0;
-  border-radius: 8px;
-  background: #3366ff;
-  color: #fff;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.app-sidebar-footer button.recharge-button:hover {
-  background: #2453e8;
-}
 .app-sidebar-footer .footer-actions {
   display: flex;
   width: 100%;
@@ -271,13 +184,19 @@ async function tutorial() {
   font-size: 15px;
 }
 .app-sidebar-footer .footer-version {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
   padding-top: 1px;
 }
 .app-sidebar-footer .footer-version :deep(.app-version) {
+  min-width: 0;
   padding: 2px 2px 0;
   color: #909399;
   font-size: 11px;
   line-height: 17px;
+  overflow-wrap: anywhere;
 }
 .app-sidebar-footer button:focus-visible {
   outline: 2px solid #8fabff;
