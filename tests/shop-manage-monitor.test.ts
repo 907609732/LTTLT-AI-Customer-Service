@@ -25,7 +25,13 @@ it('配置中心左下回复监控入口只打开监控，不修改店铺或发�
   })
   await router.push('/shop/manage')
   const wrapper = mount(ShopManageView, {
-    global: { plugins: [pinia, router], stubs: { BrandMark: true, AppVersion: true } },
+    global: {
+      plugins: [pinia, router],
+      stubs: {
+        BrandMark: true,
+        AppVersion: { props: ['prefix'], template: '<span />' },
+      },
+    },
   })
   wrappers.push(wrapper)
   expect(wrapper.find('header').exists()).toBe(false)

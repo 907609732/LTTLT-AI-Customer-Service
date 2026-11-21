@@ -43,7 +43,7 @@ async function fixture() {
   const present = vi.spyOn(runtime, 'presentStore').mockResolvedValue(undefined)
   const listenerProbe = {
     template:
-      '<div><span data-listener-probe>{{ Object.keys($attrs).sort().join(",") }}</span><button data-emit-recharge @click="$emit(\'recharge\')">模拟充值</button></div>',
+      '<div><span data-listener-probe>{{ Object.keys($attrs).sort().join(",") }}</span></div>',
   }
   const router = createRouter({
     history: createMemoryHistory(),
@@ -211,26 +211,14 @@ it('添加客服复用共享联系方式弹窗，并让原生店铺页避开弹�
   expect(present).toHaveBeenLastCalledWith('shop-a', true)
 })
 
-it('footer 事件监听只附着配置路由，不影响首页或知识库组件', async () => {
+it('配置中心与其他路由都不再附加 footer 事件监听', async () => {
   const { wrapper, router } = await fixture()
   await router.push('/listener-probe')
   await flushPromises()
   expect(wrapper.get('[data-listener-probe]').text()).toBe('')
   await router.push('/shop/manage')
   await flushPromises()
-  const listeners = wrapper.get('[data-listener-probe]').text().split(',')
-  expect(listeners).toEqual(
-    expect.arrayContaining(['onContact', 'onLogin', 'onQuickReply', 'onRecharge']),
-  )
-})
-
-it('配置页 footer 的充值事件回到工作台父层并跳现有充值路由', async () => {
-  const { wrapper, router } = await fixture()
-  await router.push('/shop/manage')
-  await flushPromises()
-  await wrapper.get('[data-emit-recharge]').trigger('click')
-  await flushPromises()
-  expect(router.currentRoute.value.path).toBe('/shop/recharge')
+  expect(wrapper.get('[data-listener-probe]').text()).toBe('')
 })
 
 it('店铺导入知识携带点击店铺打开独立知识库，不切换接待', async () => {

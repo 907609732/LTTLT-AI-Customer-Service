@@ -404,17 +404,7 @@ async function navigate(path: string) {
         />
       </aside>
       <main class="workbench-main" :inert="setup.visible">
-        <router-view v-slot="{ Component }">
-          <component
-            v-if="isConfiguration"
-            :is="Component"
-            @quick-reply="quickReplyVisible = true"
-            @contact="contactVisible = true"
-            @login="loginVisible = true"
-            @recharge="openRecharge"
-          />
-          <component :is="Component" v-else />
-        </router-view>
+        <router-view />
       </main>
     </div>
     <LoginDialog v-model="loginVisible" />

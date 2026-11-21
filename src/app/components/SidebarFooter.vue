@@ -98,7 +98,7 @@ async function tutorial() {
 </template>
 
 <style scoped>
-/* 两处布局只共用此 footer；深色区域和圆角卡片按参考图重建，其他蓝白界面不动。 */
+/* 首页 footer 跟随 workbench-light 的蓝白主题；尺寸、滚动和交互保持原布局。 */
 .sidebar-footer.app-sidebar-footer {
   display: flex;
   flex: 0 1 auto;
@@ -112,12 +112,12 @@ async function tutorial() {
   padding: 10px;
   overflow-x: hidden;
   overflow-y: auto;
-  border-top: 1px solid #3c3937;
-  background: #2e2e2e;
-  color: #d7d2ce;
+  border-top: 1px solid #e8e8eb;
+  background: #fff;
+  color: #606266;
   container-type: inline-size;
   scrollbar-width: thin;
-  scrollbar-color: #5d5956 transparent;
+  scrollbar-color: #c5ccd6 transparent;
 }
 .app-sidebar-footer .footer-tools {
   display: grid;
@@ -134,18 +134,19 @@ async function tutorial() {
   justify-content: center;
   gap: 3px;
   padding: 0 3px;
-  border: 1px solid #484442;
+  border: 1px solid #e4e7ed;
   border-radius: 8px;
-  background: #353432;
-  color: #e2ddd8;
+  background: #fff;
+  color: #606266;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
 }
 .app-sidebar-footer .footer-tool:hover {
-  background: #3d3b39;
+  background: #f5f7fa;
+  color: #2453e8;
 }
 .app-sidebar-footer .footer-tool:disabled {
   cursor: wait;
@@ -163,15 +164,15 @@ async function tutorial() {
   place-items: center;
   padding: 0 3px;
   border-radius: 999px;
-  background: #e6ddd5;
-  color: #1b1a19;
+  background: #edf2ff;
+  color: #2453e8;
   font-size: 10px;
   font-weight: 700;
 }
 .app-sidebar-footer .monitor-error {
   margin: 0;
   padding: 0 2px;
-  color: #f0b3a5;
+  color: #c45656;
   font-size: 11px;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -184,16 +185,16 @@ async function tutorial() {
   width: 100%;
   container-type: inline-size;
   padding: 9px 9px 10px;
-  border: 1px solid #171615;
-  border-radius: 11px;
-  background: #050505;
-  box-shadow: inset 0 1px #292724;
+  border: 1px solid #e4e7ed;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: none;
 }
 .app-sidebar-footer .quota-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: #bbb3ad;
+  color: #606266;
   font-size: 12px;
   line-height: 17px;
 }
@@ -201,39 +202,41 @@ async function tutorial() {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #d8cec6;
+  background: #b7c3d7;
   opacity: 0.7;
 }
 .app-sidebar-footer .quota-value {
   display: block;
   min-height: 38px;
   padding: 2px 0 4px;
-  color: #f2eae3;
+  color: #2453e8;
   font-size: clamp(20px, 16cqw, 30px);
   font-variant-numeric: tabular-nums;
-  font-weight: 750;
+  font-weight: 700;
   letter-spacing: 0.4px;
   line-height: 38px;
   text-align: center;
   white-space: nowrap;
 }
 .app-sidebar-footer .quota-value.is-status {
+  color: #606266;
   font-size: 18px;
   letter-spacing: 0;
 }
-.app-sidebar-footer .recharge-button {
+/* workbench-light 的通用 footer button 规则只换文字色；用更高优先级保证充值白字。 */
+.app-sidebar-footer button.recharge-button {
   height: 29px;
   border: 0;
   border-radius: 8px;
-  background: #f4f3f0;
-  color: #151413;
+  background: #3366ff;
+  color: #fff;
   font: inherit;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
 }
-.app-sidebar-footer .recharge-button:hover {
-  background: #fff;
+.app-sidebar-footer button.recharge-button:hover {
+  background: #2453e8;
 }
 .app-sidebar-footer .footer-actions {
   display: flex;
@@ -249,19 +252,19 @@ async function tutorial() {
   justify-content: center;
   gap: 6px;
   box-sizing: border-box;
-  border: 1px solid #484442;
+  border: 1px solid #e4e7ed;
   border-radius: 9px;
-  background: transparent;
-  color: #d9d3ce;
+  background: #fff;
+  color: #606266;
   font: inherit;
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
 }
 .app-sidebar-footer .footer-action:hover {
-  border-color: #6a625c;
-  background: #353331;
-  color: #f0e9e2;
+  border-color: #cbd6ec;
+  background: #f5f7fa;
+  color: #2453e8;
 }
 .app-sidebar-footer .footer-action .el-icon {
   width: 15px;
@@ -272,9 +275,13 @@ async function tutorial() {
 }
 .app-sidebar-footer .footer-version :deep(.app-version) {
   padding: 2px 2px 0;
-  color: #8f8984;
+  color: #909399;
   font-size: 11px;
   line-height: 17px;
+}
+.app-sidebar-footer button:focus-visible {
+  outline: 2px solid #8fabff;
+  outline-offset: 2px;
 }
 /* 150px 级窄栏无法容纳两列工具，改为单列避免文字被截断。 */
 @container (max-width: 170px) {

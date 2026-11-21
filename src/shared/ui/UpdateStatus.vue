@@ -180,7 +180,7 @@ watch(visible, async (shown) => {
   cursor: pointer;
 }
 
-/* footer 变体沿用同一检查/重试逻辑，只把入口对齐参考图中的描边按钮。 */
+/* footer 变体沿用同一检查/重试逻辑，只把入口对齐 footer 的白色描边按钮。 */
 .app-update.app-update--footer {
   padding: 0;
 }
@@ -194,28 +194,32 @@ watch(visible, async (shown) => {
   gap: 6px;
   box-sizing: border-box;
   padding: 0 10px;
-  border: 1px solid #484442;
+  border: 1px solid #e4e7ed;
   border-radius: 9px;
-  background: transparent;
-  color: #d9d3ce;
+  background: #fff;
+  color: #606266;
   font: inherit;
   font-size: 12px;
   line-height: 1;
 }
 .app-update--footer .app-update-check.is-footer:hover {
-  border-color: #6a625c;
-  background: #353331;
-  color: #f0e9e2;
+  border-color: #cbd6ec;
+  background: #f5f7fa;
+  color: #2453e8;
 }
 .app-update--footer .app-update-check.is-footer.has-update {
-  border-color: #dec9b8;
-  background: #3d3732;
-  color: #fff2e7;
-  font-weight: 700;
+  border-color: #cbd9ff;
+  background: #edf2ff;
+  color: #2453e8;
+  font-weight: 600;
 }
 .app-update--footer .app-update-check.is-footer:disabled {
   cursor: wait;
   opacity: 0.65;
+}
+.app-update--footer .app-update-check.is-footer:focus-visible {
+  outline: 2px solid #8fabff;
+  outline-offset: 2px;
 }
 .app-update--footer .app-update-icon {
   display: inline-flex;
@@ -234,31 +238,38 @@ watch(visible, async (shown) => {
   max-width: none;
   margin-top: 8px;
   padding: 12px;
-  border-color: #5b544f;
+  border-color: #dce6f5;
   border-radius: 9px;
-  background: #1b1a19;
+  background: #fff;
   box-shadow: none;
-  color: #e5ded8;
+  color: #303133;
 }
 .app-update--footer .app-update-notice strong {
   padding-right: 26px;
+  color: #303133;
   font-size: 12px;
+  font-weight: 600;
 }
 .app-update--footer .app-update-notice p {
   margin: 7px 0;
-  color: #bdb5ae;
+  color: #606266;
   font-size: 11px;
+  line-height: 1.6;
 }
 .app-update--footer .app-update-dismiss {
   top: 3px;
   right: 6px;
-  color: #a9a19b;
+  color: #909399;
+}
+.app-update--footer .app-update-dismiss:hover {
+  color: #606266;
 }
 .app-update--footer .app-update-notice button.app-update-download {
   padding: 5px 10px;
-  background: #eee9e3;
-  color: #171615;
+  border-radius: 7px;
+  background: #3366ff;
+  color: #fff;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
 }
 </style>
