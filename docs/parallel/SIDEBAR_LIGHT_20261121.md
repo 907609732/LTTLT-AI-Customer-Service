@@ -79,3 +79,11 @@ UI 方案以 `artifacts/sidebar-light-20261121/design/ui-spec.md` 为唯一依�
 - 截图为隔离合成预览，不是真实账号、真实余额或真实主窗口验收；未读取或修改任何真实账号数据。
 - 配置页截图为真实组件 + 合成快照，店铺面板内容仅用于布局；实际窗口和设计师复核仍由 root 整合后执行。
 - 本分支保留 root 的 1.0.94 版本改动；未提交、未推送、未打包、未发布。最终合并、真实窗口启动与交付由 root 处理。
+
+## Codex 整合与实际窗口验收
+
+实现提交 `9487d3e` 已 fast-forward 合入 main；主目录原有 AGENTS.md 与 server/AGENTS.md 的未提交修改及哈希保留。UI 设计师独立查看首页、204px 窄栏、发现更新和配置中心截图，结论通过。Codex 对照差异、真实测试输出和计算样式复核，修正旧监控测试的 AppVersion stub 警告，并再次验证该项和格式/lint。
+
+主目录最终 `npm run build` exit 0，使用既有“启动源码（不构建）.bat”打开真实源码 1.0.94（主 Electron PID 86128；BAT launcher PID 36712 不作为应用 PID）。实际首页为白底细边框、蓝色额度及蓝底白字充值，原次要入口和实际版本可见。配置中心真实窗口没有新额度/帮助/更新卡片，仅原回复监控和 v1.0.94，菜单区域恢复高度；最后返回首页。
+
+原 Root User 托管登录和两家店铺保留；实际进程沿用 yunduo-ui-restored userData，米配匠仍为 6 商品、89 条知识/待审核和 6 任务，迁移状态 not-needed。会话 workspaceId 重启后变化，不将它描述为持久资料目录。未改 AI 开关或审核模式，未触发学习、发送、支付或删除。主目录本机证据：`artifacts/sidebar-light-20261121/native-acceptance.json`、`main-build-94.log`；启动日志 `artifacts/source-live/20261121-211217-980/`。未制作或发布安装包、未部署服务端。
