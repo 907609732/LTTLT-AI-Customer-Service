@@ -290,11 +290,6 @@ async function configure(panel: string) {
     }
   }
 }
-function connect() {
-  void setup.connect(async () => {
-    await router.push('/')
-  })
-}
 const yesNo = (value: boolean | null) => (value === null ? '未填写' : value ? '是' : '否')
 const payerNames = { '': '未填写', merchant: '商家承担', buyer: '买家承担', negotiate: '双方协商' }
 const afterSales = [
@@ -407,7 +402,7 @@ const afterSales = [
           <template v-if="setup.step === 0">
             <div class="intro-count">
               <strong data-product-count>{{ productCount }}</strong
-              ><span>本店已采集商品</span><small>以当前工作区实际商品记录为准</small>
+              ><span>本店已采集商品</span>
             </div>
             <div class="intro-actions">
               <el-button type="primary" data-start :disabled="setup.loading" @click="setup.step = 1"
@@ -421,17 +416,6 @@ const afterSales = [
               ><el-button @click="setup.dismiss()">稍后再说</el-button>
             </div>
             <h1>{{ setup.shop?.storeName }}，完善您的店铺信息</h1>
-            <p class="intro-description">
-              设置客服风格、物流和售后政策，让 AI 根据您确认的信息提供服务。
-            </p>
-            <div class="setup-shortcuts">
-              <button @click="configure('goods')">商品知识</button
-              ><button @click="configure('training')">AI训练场</button
-              ><button :disabled="setup.pending" @click="connect">
-                {{ setup.shop?.runtime.online ? '打开店铺' : '连接店铺' }}
-              </button>
-            </div>
-            <p class="quiet-note">设置不会自动采集商品或开启 AI；正式回复仍需逐条确认。</p>
           </template>
           <template v-else-if="setup.step === 1">
             <h2>AI 客服回复风格设置</h2>
@@ -1149,7 +1133,6 @@ const afterSales = [
   margin: 0 0 14px;
 }
 .intro-card {
-  min-height: 478px;
   text-align: center;
   padding: 46px 28px 30px;
 }
@@ -1168,10 +1151,6 @@ const afterSales = [
 .intro-count span {
   font-size: 16px;
 }
-.intro-count small {
-  color: #8a94a4;
-  font-size: 12px;
-}
 .intro-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1182,10 +1161,6 @@ const afterSales = [
 }
 .intro-actions :deep(.el-button) {
   margin-left: 0;
-}
-.intro-description {
-  color: #50647f;
-  line-height: 1.8;
 }
 .setup-shortcuts {
   display: flex;
@@ -1712,8 +1687,7 @@ const afterSales = [
     min-height: 44px;
     font-size: 15px;
   }
-  .shop-setup-page:not(.new-store-settings)
-    :is(.intro-count small, .setup-shortcuts button, .quiet-note) {
+  .shop-setup-page:not(.new-store-settings) :is(.setup-shortcuts button, .quiet-note) {
     font-size: 14px;
   }
 }

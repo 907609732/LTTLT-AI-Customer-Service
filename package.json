@@ -1,6 +1,6 @@
 {
   "name": "lingtu-ai",
-  "version": "1.0.100",
+  "version": "1.0.101",
   "private": true,
   "description": "灵兔AI电商客服 · 本机模型 Key 与可选托管服务的电商客服桌面端",
   "main": "dist-electron/main.cjs",
