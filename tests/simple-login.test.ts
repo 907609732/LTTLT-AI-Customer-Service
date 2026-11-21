@@ -61,6 +61,12 @@ function loginFixture(mode: 'local' | 'managed' = 'local') {
   })
   return { runtime, run, wrapper, router }
 }
+async function openLocalApi(wrapper: ReturnType<typeof loginFixture>['wrapper']) {
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '自有 API 设置')!
+    .trigger('click')
+}
 it('充值从服务端登录区域打开原充值页，不创建支付或切换账号', async () => {
   const { wrapper, router, run } = loginFixture()
   await wrapper.get('.service-option [data-account-recharge]').trigger('click')
@@ -107,11 +113,17 @@ it('服务端账号保留额度和充值，隐藏本地图片配置与多余操�
     .trigger('click')
   await flushPromises()
   expect(run).toHaveBeenCalledWith({ action: 'managed-logout' })
+  expect(wrapper.text()).toContain('官方登录')
+  expect(wrapper.find('.key-option').exists()).toBe(false)
+  await openLocalApi(wrapper)
   expect(wrapper.get('.key-option').text()).toContain('使用自己的 Key')
   wrapper.unmount()
 })
 it('只在本地 Key 模式载入图片识别配置，切回托管时移除', async () => {
   const { runtime, run, wrapper } = loginFixture()
+  await flushPromises()
+  expect(wrapper.find('[aria-label="图片识别模型"]').exists()).toBe(false)
+  await openLocalApi(wrapper)
   await flushPromises()
   expect(wrapper.find('[aria-label="图片识别模型"]').exists()).toBe(true)
   expect(run).toHaveBeenCalledWith(expect.objectContaining({ action: 'get-vision-model-settings' }))
@@ -122,6 +134,8 @@ it('只在本地 Key 模式载入图片识别配置，切回托管时移除', as
 })
 it('Key连接失败保留输入，成功才关闭且必须验证连接', async () => {
   const { run, wrapper } = loginFixture()
+  await openLocalApi(wrapper)
+  await flushPromises()
   run.mockRejectedValueOnce(new Error('连接失败'))
   await wrapper.find('input[aria-label="登录 API Key"]').setValue('temporary-test-key')
   await wrapper.find('form').trigger('submit')
@@ -142,6 +156,7 @@ it('Key连接失败保留输入，成功才关闭且必须验证连接', async (
 })
 it('自定义 API 收集地址与模型名并用保存命令验证连接', async () => {
   const { run, wrapper } = loginFixture()
+  await openLocalApi(wrapper)
   wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'custom')
   await flushPromises()
   await wrapper.get('[aria-label="自定义 API 地址"]').setValue('https://llm.example.com/v1/')
@@ -163,6 +178,7 @@ it('自定义 API 收集地址与模型名并用保存命令验证连接', async
 })
 it('自定义 API 地址无效时不保存配置', async () => {
   const { run, wrapper } = loginFixture()
+  await openLocalApi(wrapper)
   wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'custom')
   await flushPromises()
   await wrapper.get('[aria-label="自定义 API 地址"]').setValue('not-a-url')
@@ -182,6 +198,7 @@ it('获取模型图标加载可用模型并可选择', async () => {
     message: '模型列表已获取',
     data: { models: ['model-a', 'model-b'] },
   })
+  await openLocalApi(wrapper)
   wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'custom')
   await flushPromises()
   await wrapper.get('[aria-label="自定义 API 地址"]').setValue('https://llm.example.com/v1')
@@ -224,9 +241,15 @@ it('模型列表查询从主进程发起并去重响应中的模型 ID', async (
     }),
   )
 })
-it('关闭清空Key但保留授权，授权完成切工作区后关闭', async () => {
+it('返回官方登录清空 Key，关闭弹窗保留授权', async () => {
   const { runtime, run, wrapper } = loginFixture()
+  await openLocalApi(wrapper)
   await wrapper.find('input[aria-label="登录 API Key"]').setValue('temporary-test-key')
+  const back = () => wrapper.findAll('button').find((button) => button.text() === '返回官方登录')!
+  await back().trigger('click')
+  await openLocalApi(wrapper)
+  expect(wrapper.get<HTMLInputElement>('input[aria-label="登录 API Key"]').element.value).toBe('')
+  await back().trigger('click')
   await wrapper
     .findAll('button')
     .find((b) => b.attributes('aria-label') === '浏览器登录')!
@@ -234,9 +257,7 @@ it('关闭清空Key但保留授权，授权完成切工作区后关闭', async (
   await flushPromises()
   expect(run).toHaveBeenCalledWith({ action: 'managed-login' })
   await wrapper.setProps({ modelValue: false })
-  expect((wrapper.find('input[aria-label="登录 API Key"]').element as HTMLInputElement).value).toBe(
-    '',
-  )
+  expect(wrapper.find('.key-option').exists()).toBe(false)
   expect(run).not.toHaveBeenCalledWith({ action: 'managed-cancel-login' })
   run.mockImplementation(async (command) => {
     if (command.action === 'activate-model-source') runtime.snapshot.managed.active.mode = 'managed'
@@ -252,6 +273,7 @@ it('关闭清空Key但保留授权，授权完成切工作区后关闭', async (
 })
 it('切换厂商清空Key，已有账号可重新进入工作区', async () => {
   const { runtime, wrapper } = loginFixture()
+  await openLocalApi(wrapper)
   await wrapper.find('input[aria-label="登录 API Key"]').setValue('temporary-test-key')
   wrapper.findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 'qwen')
   await flushPromises()
@@ -281,6 +303,7 @@ it.each([false, true])(
       }
       return { status: 'ok', message: '完成', data: {} }
     })
+    await openLocalApi(wrapper)
     await wrapper.find('input[aria-label="登录 API Key"]').setValue('invalid-test-key')
     await wrapper.find('form').trigger('submit')
     await flushPromises()

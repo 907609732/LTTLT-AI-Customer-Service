@@ -24,8 +24,15 @@ const awaitingLogin = ref(false),
 const managed = computed(() => runtime.snapshot.managed)
 const session = computed(() => managed.value.session)
 const showLocalKey = computed(() => session.value.status !== 'signed_in')
+const apiPage = ref(false)
+const showingApi = computed(() => showLocalKey.value && apiPage.value)
+function showOfficialLogin() {
+  apiPage.value = false
+  apiKey.value = ''
+  task.error.value = ''
+}
 watch(showLocalKey, (show) => {
-  if (!show) apiKey.value = ''
+  if (!show) showOfficialLogin()
 })
 const visionService = runtime.available
   ? createVisionModelService((command) => runtime.run(command))
@@ -45,7 +52,7 @@ watch(provider, () => {
   availableModels.value = []
 })
 watch(visible, (open) => {
-  if (!open) apiKey.value = ''
+  if (!open) showOfficialLogin()
 })
 onBeforeUnmount(() => {
   apiKey.value = ''
@@ -183,15 +190,18 @@ async function recharge() {
 <template>
   <el-dialog
     v-model="visible"
-    title="登录"
-    :width="showLocalKey ? '760px' : '420px'"
+    :title="showingApi ? '自有 API 设置' : '登录灵兔'"
+    :width="showingApi ? '520px' : '420px'"
     class="simple-login-dialog"
     :close-on-click-modal="false"
   >
     <el-alert v-if="task.error.value" :title="task.error.value" type="error" :closable="false" />
     <ModelSourceSettings />
-    <div class="login-options" :class="{ 'account-only': !showLocalKey }">
-      <section v-if="showLocalKey" class="login-option key-option">
+    <div class="login-options">
+      <section v-if="showingApi" class="login-option key-option">
+        <el-button text size="small" :disabled="task.pending.value" @click="showOfficialLogin">
+          返回官方登录
+        </el-button>
         <h2>使用自己的 Key</h2>
         <form @submit.prevent="saveKey">
           <label
@@ -264,9 +274,9 @@ async function recharge() {
           >
         </form>
       </section>
-      <section class="login-option service-option">
+      <section v-else class="login-option service-option">
         <div class="service-heading">
-          <h2>服务端登录 <span class="recommended">推荐</span></h2>
+          <h2>官方登录</h2>
           <el-button
             type="primary"
             data-account-recharge
@@ -308,7 +318,7 @@ async function recharge() {
           </div>
         </template>
         <template v-else>
-          <p>使用账号登录，直接开始使用</p>
+          <p class="official-copy">更全面的电商服务，更智能的店铺接待。</p>
           <el-alert
             v-if="session.message"
             :title="session.message"
@@ -319,6 +329,7 @@ async function recharge() {
             type="primary"
             :loading="task.pending.value"
             :disabled="!runtime.available"
+            class="official-login-button"
             aria-label="浏览器登录"
             @click="login"
             >{{
@@ -328,8 +339,13 @@ async function recharge() {
         </template>
       </section>
     </div>
+    <div v-if="showLocalKey && !showingApi && session.status !== 'authorizing'" class="api-entry">
+      <el-button size="small" :disabled="task.pending.value" @click="apiPage = true">
+        自有 API 设置
+      </el-button>
+    </div>
     <VisionModelSettings
-      v-if="visible && showLocalKey && managed.active.mode === 'local'"
+      v-if="visible && showingApi && managed.active.mode === 'local'"
       :key="visionMountKey"
       :service="visionService"
     />
@@ -340,13 +356,7 @@ async function recharge() {
   max-width: calc(100vw - 32px);
 }
 .login-options {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
   color: #25334d;
-}
-.login-options.account-only {
-  grid-template-columns: minmax(0, 1fr);
 }
 .login-option {
   padding: 24px;
@@ -375,8 +385,8 @@ async function recharge() {
   flex: 1;
 }
 .service-option {
-  background: #f3f1ff;
-  border-color: #e8e4ff;
+  background: #f5f8ff;
+  border-color: #e3ebff;
 }
 .service-heading {
   display: flex;
@@ -388,9 +398,31 @@ async function recharge() {
 .service-heading h2 {
   margin: 0;
 }
-.recommended {
-  color: #5b68ed;
-  font-size: 12px;
+.official-copy {
+  color: #53647b;
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+.login-option .official-login-button {
+  width: 100%;
+  height: 44px;
+  margin: 12px 0 0;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  --el-button-bg-color: #3366ff;
+  --el-button-border-color: #3366ff;
+  --el-button-hover-bg-color: #2453e8;
+  --el-button-hover-border-color: #2453e8;
+}
+.api-entry {
+  display: flex;
+  justify-content: center;
+  padding-top: 16px;
+}
+.api-entry .el-button {
+  min-height: 30px;
+  border-radius: 7px;
 }
 .account-actions {
   display: flex;
@@ -414,17 +446,5 @@ async function recharge() {
 }
 .account-actions .el-button {
   margin-left: 0;
-}
-.login-option :deep(.el-button--primary) {
-  --el-button-bg-color: #5b68ed;
-  --el-button-border-color: #5b68ed;
-}
-@media (max-width: 640px) {
-  .login-options {
-    grid-template-columns: 1fr;
-  }
-  .service-option {
-    grid-row: 1;
-  }
 }
 </style>
