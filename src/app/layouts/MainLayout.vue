@@ -182,6 +182,46 @@ async function setAi(shop: LocalStore) {
     task.message.value = r.message
   })
 }
+const aiEnabledCount = computed(
+  () => runtime.snapshot.stores.filter((shop) => shop.aiEnabled).length,
+)
+const canEnableAi = (shop: LocalStore) =>
+  !shop.aiEnabled &&
+  shop.runtime.open &&
+  shop.runtime.online &&
+  shop.runtime.authenticated === true &&
+  !shop.runtime.identityError
+const canEnableAllAi = computed(() => runtime.snapshot.stores.some(canEnableAi))
+
+async function setAllAi(enabled: boolean) {
+  await task.run(async () => {
+    if (!enabled) {
+      const result = await runtime.run({ action: 'batch', values: { operation: 'disable' } })
+      task.message.value = result.message
+      return
+    }
+    const workspace = runtime.snapshot.workspaceId
+    const targets = runtime.snapshot.stores.filter(canEnableAi)
+    let succeeded = 0
+    let firstError = ''
+    for (const { id } of targets) {
+      if (workspace !== runtime.snapshot.workspaceId) return
+      const shop = runtime.snapshot.stores.find((item) => item.id === id)
+      if (!shop || !canEnableAi(shop)) continue
+      try {
+        await runtime.run({ action: 'set-ai', storeId: id, values: { enabled: true } })
+        succeeded++
+      } catch (error) {
+        firstError ||= error instanceof Error ? error.message : String(error)
+      }
+    }
+    if (workspace === runtime.snapshot.workspaceId)
+      task.message.value =
+        succeeded === targets.length
+          ? `已开启 ${succeeded} 家店铺的 AI`
+          : `已开启 ${succeeded}/${targets.length} 家店铺的 AI${firstError ? `：${firstError}` : ''}`
+  })
+}
 async function openLogs() {
   await task.run(async () => {
     await runtime.run({ action: 'open-reply-monitor' })
@@ -243,17 +283,7 @@ async function navigate(path: string) {
                   runtime.snapshot.capabilities.apiKeyConfigured
                 ? '自己的 Key'
                 : '登录'
-          }}</button
-        ><button
-          class="store-control-trigger"
-          :disabled="task.pending.value"
-          @click="
-            task.run(async () => {
-              await runtime.run({ action: 'batch', values: { operation: 'disable' } })
-            })
-          "
-        >
-          全部关闭 AI
+          }}
         </button>
         <label
           v-if="runtime.platformStoreId"
@@ -357,6 +387,30 @@ async function navigate(path: string) {
             }}</span>
           </button>
         </div>
+        <div
+          v-show="!sidebarCollapsed"
+          class="sidebar-ai-controls"
+          role="group"
+          aria-label="店铺 AI 批量操作"
+        >
+          <span role="status">{{ aiEnabledCount }} 家店铺 AI 已开启</span>
+          <button
+            type="button"
+            :disabled="task.pending.value || !canEnableAllAi"
+            title="开启已登录在线店铺的 AI"
+            @click="setAllAi(true)"
+          >
+            全部开启 AI
+          </button>
+          <button
+            type="button"
+            class="stop-ai"
+            :disabled="task.pending.value || !runtime.snapshot.stores.length"
+            @click="setAllAi(false)"
+          >
+            全部关闭 AI
+          </button>
+        </div>
         <div v-show="!sidebarCollapsed" class="store-list">
           <div v-if="!shops.length" class="store-list-empty">
             <p>{{ shopStatus === 'online' ? '暂无在线店铺' : '暂无未登录店铺' }}</p>
@@ -405,6 +459,38 @@ async function navigate(path: string) {
   </div>
 </template>
 <style scoped>
+.sidebar-ai-controls {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #53647b;
+}
+.sidebar-ai-controls span {
+  flex: 1 0 auto;
+}
+.sidebar-ai-controls button {
+  padding: 4px 6px;
+  border: 1px solid #cbd9ff;
+  border-radius: 7px;
+  background: #edf2ff;
+  color: #2453e8;
+  font-size: 11px;
+  cursor: pointer;
+}
+.sidebar-ai-controls .stop-ai {
+  border-color: #e9c5c9;
+  background: #fff6f7;
+  color: #a72c3c;
+}
+.sidebar-ai-controls button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* 低窗口优先保证店铺列表可滚动，footer 在自身高度内滚动而不是压住列表。 */
 .store-list {
   min-height: 64px;

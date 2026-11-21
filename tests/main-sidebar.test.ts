@@ -283,3 +283,28 @@ it('正式配置中心路由归属工作台外壳，保持原有链接地址', (
   expect(configuration.name).toBe('shop-manage')
   expect(configuration.query.panel).toBe('shops')
 })
+
+it('侧栏批量开启只操作已登录的在线店铺，批量关闭仍覆盖全部店铺', async () => {
+  const { wrapper, runtime, run } = await fixture()
+  const shop = runtime.snapshot.stores[0]
+  shop.runtime.authenticated = true
+  runtime.snapshot.stores.push({
+    ...shop,
+    id: 'logged-out',
+    runtime: { open: true, online: true, authenticated: false },
+  })
+  await flushPromises()
+  const controls = wrapper.get('[aria-label="店铺 AI 批量操作"]')
+  expect(wrapper.find('.top-actions .store-control-trigger').exists()).toBe(false)
+  await controls.get('button').trigger('click')
+  await flushPromises()
+  expect(run).toHaveBeenCalledTimes(1)
+  expect(run).toHaveBeenLastCalledWith({
+    action: 'set-ai',
+    storeId: 'shop-a',
+    values: { enabled: true },
+  })
+  await controls.get('.stop-ai').trigger('click')
+  await flushPromises()
+  expect(run).toHaveBeenLastCalledWith({ action: 'batch', values: { operation: 'disable' } })
+})
