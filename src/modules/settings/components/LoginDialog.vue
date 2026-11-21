@@ -23,6 +23,10 @@ const awaitingLogin = ref(false),
   activating = ref(false)
 const managed = computed(() => runtime.snapshot.managed)
 const session = computed(() => managed.value.session)
+const showLocalKey = computed(() => session.value.status !== 'signed_in')
+watch(showLocalKey, (show) => {
+  if (!show) apiKey.value = ''
+})
 const visionService = runtime.available
   ? createVisionModelService((command) => runtime.run(command))
   : undefined
@@ -180,14 +184,14 @@ async function recharge() {
   <el-dialog
     v-model="visible"
     title="登录"
-    width="760px"
+    :width="showLocalKey ? '760px' : '420px'"
     class="simple-login-dialog"
     :close-on-click-modal="false"
   >
     <el-alert v-if="task.error.value" :title="task.error.value" type="error" :closable="false" />
     <ModelSourceSettings />
-    <div class="login-options">
-      <section class="login-option key-option">
+    <div class="login-options" :class="{ 'account-only': !showLocalKey }">
+      <section v-if="showLocalKey" class="login-option key-option">
         <h2>使用自己的 Key</h2>
         <form @submit.prevent="saveKey">
           <label
@@ -325,7 +329,7 @@ async function recharge() {
       </section>
     </div>
     <VisionModelSettings
-      v-if="visible && managed.active.mode === 'local'"
+      v-if="visible && showLocalKey && managed.active.mode === 'local'"
       :key="visionMountKey"
       :service="visionService"
     />
@@ -340,6 +344,9 @@ async function recharge() {
   grid-template-columns: 1fr 1fr;
   gap: 20px;
   color: #25334d;
+}
+.login-options.account-only {
+  grid-template-columns: minmax(0, 1fr);
 }
 .login-option {
   padding: 24px;

@@ -90,11 +90,24 @@ it('服务端账号保留额度和充值，隐藏本地图片配置与多余操�
   for (const label of ['我的订单', '算力消耗', '切换账号', '刷新额度', '图片识别模型'])
     expect(wrapper.text()).not.toContain(label)
   expect(wrapper.get('[data-account-recharge]').text()).toBe('充值')
+  expect(wrapper.find('.key-option').exists()).toBe(false)
   expect(wrapper.text()).toContain('退出登录')
   expect(run).not.toHaveBeenCalled()
   runtime.snapshot.managed.session.account!.trial.expiresAt = 0
   await flushPromises()
   expect(wrapper.text()).toContain('未提供')
+  run.mockImplementationOnce(async () => {
+    runtime.snapshot.managed.session.status = 'signed_out'
+    runtime.snapshot.managed.session.account = null
+    return { status: 'ok', message: '', data: {} }
+  })
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '退出登录')!
+    .trigger('click')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({ action: 'managed-logout' })
+  expect(wrapper.get('.key-option').text()).toContain('使用自己的 Key')
   wrapper.unmount()
 })
 it('只在本地 Key 模式载入图片识别配置，切回托管时移除', async () => {
