@@ -371,10 +371,14 @@ export function createKnowledgeProductProfileService(options: {
           const file = join(repo.directory, 'assets', digest)
           const existed = Boolean(repo.row<KnowledgeAsset>('assets', digest)) || existsSync(file)
           if (!existed) createdFiles.push(file)
-          const asset = repo.addAsset(stage.bytes, {
-            name: stage.name,
-            mimeType: stage.mimeType,
-          })
+          const asset = repo.addAsset(
+            stage.bytes,
+            {
+              name: stage.name,
+              mimeType: stage.mimeType,
+            },
+            value.storeId,
+          )
           if (!assetIds.includes(asset.id)) assetIds.push(asset.id)
         }
         if (assetIds.length > KNOWLEDGE_PRODUCT_PROFILE_MAX_IMAGES)
@@ -417,6 +421,9 @@ export function createKnowledgeProductProfileService(options: {
     for (const { token } of staged) stages.delete(token)
     return result
   }
+  function removeStore(storeId: string) {
+    for (const [token, stage] of stages) if (stage.storeId === storeId) stages.delete(token)
+  }
   function clear() {
     stages.clear()
   }
@@ -425,6 +432,7 @@ export function createKnowledgeProductProfileService(options: {
     stage,
     discard,
     save,
+    removeStore,
     clear,
   }
 }

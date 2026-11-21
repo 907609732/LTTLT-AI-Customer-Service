@@ -11,6 +11,8 @@ export interface KnowledgePipelineHandler {
   ): Promise<KnowledgePipelineResults[keyof KnowledgePipelineResults]>
   capabilities(storeId: string): Promise<Partial<KnowledgePipelineCapabilities>>
   removeStore(storeId: string): void
+  /** Resolve only after aborted workers can no longer write store data. */
+  quiesceStore?(storeId: string): Promise<void>
   dispose(): void
 }
 /** Exactly one runtime registration; source/learning and daily handlers attach behind this dispatcher. */
@@ -61,6 +63,15 @@ export function createKnowledgePipelineCoordinator() {
     },
     removeStore(storeId) {
       cleanup((handler) => handler.removeStore(storeId))
+    },
+    async quiesceStore(storeId) {
+      const results = await Promise.allSettled(
+        handlers.map((handler) => handler.quiesceStore?.(storeId) ?? Promise.resolve()),
+      )
+      const errors = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : [],
+      )
+      if (errors.length) throw new AggregateError(errors, '知识任务未能完全停止')
     },
     dispose() {
       if (closed) return

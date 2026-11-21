@@ -46,6 +46,14 @@ export class ReceptionAutomation {
     if (!row) throw new Error('接待规则不存在')
     this.saveRule({ ...row, enabled })
   }
+  removeStore(storeId: string) {
+    const removed = this.rules.filter((rule) => rule.storeId === storeId)
+    if (!removed.length) return
+    for (const rule of removed) this.options.scheduler.cancelRule(rule.id)
+    const next = this.rules.filter((rule) => rule.storeId !== storeId)
+    this.options.save(next)
+    this.rules = next
+  }
   removeRule(id: string, revision: number) {
     const old = this.rules.find((r) => r.id === id)
     if (!old || old.revision !== revision) throw new Error('接待规则已更新，请载入最新配置')

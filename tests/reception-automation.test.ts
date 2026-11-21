@@ -85,6 +85,18 @@ describe('接待事件只产生有界待确认事项', () => {
     expect(() => automation.observe({ ...visitor, observedAt: now + 10000 })).toThrow(/时间/)
     expect(scheduler.snapshot().runs).toEqual([])
   })
+  it('移除店铺只删除该店接待规则，不删除其他店规则', () => {
+    const { automation } = setup()
+    automation.saveRule({
+      id: 'r-b',
+      storeId: 'b',
+      enabled: true,
+      trigger: 'visitor',
+      actions: [{ kind: 'welcome-text', text: '您好' }],
+    })
+    automation.removeStore('s')
+    expect(automation.snapshot().map((rule) => rule.id)).toEqual(['r-b'])
+  })
   it('跨店事件不触发；已停用规则不触发', () => {
     const { automation } = setup()
     expect(automation.observe({ ...visitor, storeId: 'other' })).toBe(0)

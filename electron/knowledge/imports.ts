@@ -46,7 +46,8 @@ export function createKnowledgeImporter(options: {
   changed(): void
 }) {
   const repo = options.repository
-  const workers = new Map<string, AbortController>()
+  const workers = new Map<string, AbortController>(),
+    runs = new Map<string, Promise<void>>()
   let closed = false
   const membership = (storeId: string) =>
     JSON.stringify(
@@ -73,10 +74,14 @@ export function createKnowledgeImporter(options: {
     active(storeId, bindingId)
     return repo.transaction(() =>
       files.map((file) => {
-        const asset = repo.addAsset(file.bytes, {
-          name: file.name,
-          mimeType: originalFileType(file.name).mimeType,
-        })
+        const asset = repo.addAsset(
+          file.bytes,
+          {
+            name: file.name,
+            mimeType: originalFileType(file.name).mimeType,
+          },
+          storeId,
+        )
         const old = repo
           .listSources({ storeId })
           .find(
@@ -166,10 +171,14 @@ export function createKnowledgeImporter(options: {
         const assetIds = [original.id]
         if (part.image)
           assetIds.push(
-            repo.addAsset(part.image.bytes, {
-              name: `${file.name}图像`,
-              mimeType: part.image.mimeType,
-            }).id,
+            repo.addAsset(
+              part.image.bytes,
+              {
+                name: `${file.name}图像`,
+                mimeType: part.image.mimeType,
+              },
+              storeId,
+            ).id,
           )
         let targets: (ProductBinding | undefined)[] = part.product
           ? [undefined]
@@ -333,9 +342,16 @@ export function createKnowledgeImporter(options: {
     const controller = new AbortController()
     workers.set(id, controller)
     setTimeout(() => {
-      void run(id, controller).finally(() => {
+      if (controller.signal.aborted) {
         if (workers.get(id) === controller) workers.delete(id)
+        return
+      }
+      const operation = run(id, controller).finally(() => {
+        if (workers.get(id) === controller) workers.delete(id)
+        runs.delete(id)
       })
+      runs.set(id, operation)
+      void operation
     }, 0)
   }
   async function run(id: string, controller: AbortController) {
@@ -493,6 +509,17 @@ export function createKnowledgeImporter(options: {
             !['succeeded', 'cancelled'].includes(j.status),
         ))
         stop(storeId, job.id, true)
+      for (const [id, controller] of workers)
+        if (repo.getJob(id)?.storeId === storeId) controller.abort()
+    },
+    async quiesceStore(storeId: string) {
+      for (const [id, controller] of workers)
+        if (repo.getJob(id)?.storeId === storeId) controller.abort()
+      await Promise.allSettled(
+        [...runs.entries()]
+          .filter(([id]) => repo.getJob(id)?.storeId === storeId)
+          .map(([, operation]) => operation),
+      )
     },
     dispose() {
       if (closed) return

@@ -260,6 +260,10 @@ export class MessageDiagnostics {
         ]
       : []
   }
+  removeStore(storeId: string) {
+    for (const [key, row] of this.rows) if (row.log.storeId === storeId) this.rows.delete(key)
+    this.evidence = this.evidence.filter((row) => row.storeId !== storeId)
+  }
   clear() {
     this.rows.clear()
     this.evidence = []

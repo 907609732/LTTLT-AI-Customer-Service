@@ -1,5 +1,11 @@
 # 架构决策
 
+## 2026-11-21：移除店铺的彻底清理只删可归属内容，默认保留原行为
+
+用户明确要求移除店铺弹窗默认不勾选“同时删除本店知识库和配置”，勾选后才是不可恢复的彻底清理。决定保留 `remove-store` 的原有保留备份行为作为默认路径；只有主进程同时收到 `confirmed:true` 和布尔 `purge:true` 才进入清理。渲染层不能自行删除，浏览器预览不写数据。清理先完成厂商店铺移除，再写入 `store-purges/<storeId 哈希>.json` 持久计划，按知识、平台学习、接待规则/调度、订单、尺码绑定、发送方式、AI 恢复偏好、浏览器分区和混合 JSON 逐项执行；失败保留 `failed` 状态并在下次启动重试，不返回成功。
+
+知识库复用 `clearKnowledgeCopy` 的共享作用域裁剪语义，再物理删除只属于本店的 binding、entry、source/source_version、无其他店引用的 asset、job/miss/legacy 行；共享 canonical 商品行和不被本店独占的跨店证据保留。厂商 `vendor/lingtu-runtime` 不修改：对 `store-handoff`、`welcome`、`vision`、`quality`、`work-orders`、`auxiliary` 等混合 JSON 由主进程校验后按 storeId 过滤，并在后续 backend 变更事件再次清扫，避免厂商内存把旧行写回；`removed-stores/id.json` 在勾选路径删除。报表匿名哈希、调度去重哈希、日志、全库/单店历史备份和跨店同步 journal 不可安全归属，明确保留，不因单店清理破坏其他店回滚点。
+
 ## 2026-11-19：托管学习须明确协议、来源和预算，并在真实队列边界记提交
 
 商品学习的 `candidates` 与客服正文具有不同响应契约，使用已有 typed `purpose=learning` 付费 chat、当前策略 revision 与受限 PDD 来源。旧服务缺少学习策略投影时在提交前报错；不包装成普通 reply、不走免费 summary、不伪造策略开启。只有在原 managed queue 取得执行机会、暂停/账号/来源/预算均有效时才写 submitted；已知计费前拒绝与未知结果分别记录，未知结果继续保留明确重试/跳过门。

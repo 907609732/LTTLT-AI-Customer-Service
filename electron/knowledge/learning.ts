@@ -81,7 +81,8 @@ export function createKnowledgeLearner(options: {
   ocrText?(assetId: string): { text: string } | undefined
 }) {
   const repo = options.repository,
-    workers = new Map<string, AbortController>()
+    workers = new Map<string, AbortController>(),
+    runs = new Map<string, Promise<void>>()
   let closed = false
   let nextCallAt = 0
   const active = () => {
@@ -330,10 +331,14 @@ export function createKnowledgeLearner(options: {
         const tiles = await imageParts(repo.readAsset(assetId), source.locator)
         active()
         for (const tile of tiles) {
-          const asset = repo.addAsset(tile.image!.bytes, {
-            name: '学习图片分块',
-            mimeType: 'image/png',
-          })
+          const asset = repo.addAsset(
+            tile.image!.bytes,
+            {
+              name: '学习图片分块',
+              mimeType: 'image/png',
+            },
+            storeId,
+          )
           const call: LearningCall = {
             sourceId: source.id,
             revision: source.revision,
@@ -424,9 +429,16 @@ export function createKnowledgeLearner(options: {
     const controller = new AbortController()
     workers.set(id, controller)
     setTimeout(() => {
-      void run(id, controller).finally(() => {
+      if (controller.signal.aborted) {
         if (workers.get(id) === controller) workers.delete(id)
+        return
+      }
+      const operation = run(id, controller).finally(() => {
+        if (workers.get(id) === controller) workers.delete(id)
+        runs.delete(id)
       })
+      runs.set(id, operation)
+      void operation
     }, 0)
   }
   async function run(id: string, controller: AbortController) {
@@ -740,6 +752,17 @@ export function createKnowledgeLearner(options: {
             !['succeeded', 'cancelled'].includes(j.status),
         ))
         stop(storeId, job.id, true)
+      for (const [id, controller] of workers)
+        if (repo.getJob(id)?.storeId === storeId) controller.abort()
+    },
+    async quiesceStore(storeId: string) {
+      for (const [id, controller] of workers)
+        if (repo.getJob(id)?.storeId === storeId) controller.abort()
+      await Promise.allSettled(
+        [...runs.entries()]
+          .filter(([id]) => repo.getJob(id)?.storeId === storeId)
+          .map(([, operation]) => operation),
+      )
     },
     dispose() {
       if (closed) return

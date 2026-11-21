@@ -67,7 +67,8 @@ export function createKnowledgeCollector(
   const scopes = new Map<string, Scope>(),
     cursors = new Map<string, { scope: string; native: string }>()
   const controllers = new Map<string, AbortController>(),
-    timers = new Map<string, ReturnType<typeof setTimeout>>()
+    timers = new Map<string, ReturnType<typeof setTimeout>>(),
+    runs = new Map<string, { storeId: string; promise: Promise<void> }>()
   const removed = new Set<string>()
   let closed = false
   const thumbnailAssets = new Map<string, string>()
@@ -310,10 +311,14 @@ export function createKnowledgeCollector(
       const asset = repo.transaction(() => {
         valid()
         controller.signal.throwIfAborted()
-        return repo.addAsset(image.bytes, {
-          name: `目录缩略图-${input.productId}`,
-          mimeType: image.mimeType,
-        })
+        return repo.addAsset(
+          image.bytes,
+          {
+            name: `目录缩略图-${input.productId}`,
+            mimeType: image.mimeType,
+          },
+          input.storeId,
+        )
       })
       thumbnailAssets.set(key, asset.id)
       if (thumbnailAssets.size > 512) thumbnailAssets.delete(thumbnailAssets.keys().next().value!)
@@ -330,11 +335,15 @@ export function createKnowledgeCollector(
     if (timers.has(job.id) || controllers.has(job.id)) throw Error('采集任务仍在停止，请稍后恢复')
     const timer = setTimeout(() => {
       timers.delete(job.id)
+      if (removed.has(job.storeId)) return
       const controller = new AbortController()
       controllers.set(job.id, controller)
-      void run(job.id, controller).finally(() => {
+      const operation = run(job.id, controller).finally(() => {
         if (controllers.get(job.id) === controller) controllers.delete(job.id)
+        runs.delete(job.id)
       })
+      runs.set(job.id, { storeId: job.storeId, promise: operation })
+      void operation
     }, 0)
     timers.set(job.id, timer)
   }
@@ -435,10 +444,14 @@ export function createKnowledgeCollector(
           currentJob(id, controller)
           assertSelectionLease(job, payload)
           for (const asset of assets) {
-            const registered = repo.addAsset(asset.bytes, {
-              name: `平台商品-${item.id}`,
-              mimeType: asset.mimeType,
-            })
+            const registered = repo.addAsset(
+              asset.bytes,
+              {
+                name: `平台商品-${item.id}`,
+                mimeType: asset.mimeType,
+              },
+              job.storeId,
+            )
             images.push({ url: asset.url, assetId: registered.id })
           }
           let binding: ProductBinding = materials.writeList(
@@ -686,6 +699,15 @@ export function createKnowledgeCollector(
       for (const [token, scope] of scopes)
         if (scope.identity.storeId === storeId) scopes.delete(token)
       removed.add(storeId)
+    },
+    async quiesceStore(storeId) {
+      for (const [id, controller] of controllers)
+        if (repo.getJob(id)?.storeId === storeId) controller.abort()
+      await Promise.allSettled(
+        [...runs.entries()]
+          .filter(([, item]) => item.storeId === storeId)
+          .map(([, item]) => item.promise),
+      )
     },
     dispose() {
       if (closed) return

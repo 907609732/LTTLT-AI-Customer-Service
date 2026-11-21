@@ -38,6 +38,7 @@ export interface KnowledgePipelinePort {
     input: T,
   ): Promise<KnowledgePipelineResults[T['action']]>
   removeStore(storeId: string): void
+  quiesceStore?(storeId: string): Promise<void>
   dispose(): void
 }
 
@@ -987,6 +988,36 @@ export function createKnowledgeRuntime(options: {
         repo.removeStore(storeId)
         options.changed()
       }
+    },
+    async purgeStore(storeId: string) {
+      active()
+      const errors: unknown[] = []
+      try {
+        pipeline?.removeStore(storeId)
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        await pipeline?.quiesceStore?.(storeId)
+      } catch (error) {
+        errors.push(error)
+      }
+      // In-memory staged images and citations are also store data; keep other stores'
+      // pending edits and traces intact.
+      productProfile.removeStore(storeId)
+      for (const map of [resolutions, traces])
+        for (const [id, citations] of map)
+          if (citations.some((citation) => citation.context.storeId === storeId)) map.delete(id)
+      // The repository transaction refuses late writes via the purged-store tombstone.
+      // Only after all cancellable workers have stopped do we delete attributable rows.
+      const summary = repo.purgeStore(storeId)
+      options.changed()
+      if (errors.length)
+        throw new AggregateError(
+          errors,
+          `本店数据已删除，但任务停止未完全确认：${summary.entries}条知识、${summary.jobs}个任务已清理`,
+        )
+      return summary
     },
     dispose() {
       closed = true

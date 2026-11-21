@@ -610,6 +610,22 @@ export function createPlatformLearningService({
       reviewing.delete(candidate.id)
     }
   }
+  function removeStore(storeId: string) {
+    if (closed) return
+    const taskIds = new Set(
+      state.tasks.filter((task) => task.identity.storeId === storeId).map((task) => task.id),
+    )
+    if (!taskIds.size && !state.candidates.some((c) => taskIds.has(c.taskId))) return
+    for (const id of taskIds) {
+      running.get(id)?.abort()
+      running.delete(id)
+    }
+    commit({
+      ...state,
+      tasks: state.tasks.filter((task) => !taskIds.has(task.id)),
+      candidates: state.candidates.filter((candidate) => !taskIds.has(candidate.taskId)),
+    })
+  }
   function dispose() {
     if (closed) return
     closed = true
@@ -632,6 +648,7 @@ export function createPlatformLearningService({
     resume,
     cancel,
     review,
+    removeStore,
     dispose,
     subscribe(listener: () => void) {
       listeners.add(listener)

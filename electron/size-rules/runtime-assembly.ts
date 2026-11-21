@@ -14,6 +14,7 @@ export interface SizeRulesAssembly {
     action: string,
     payload: unknown,
   ): Promise<{ message: string; data: Record<string, unknown> }>
+  removeStore(storeId: string): number
 }
 
 /**
@@ -39,6 +40,10 @@ export function createSizeRulesAssembly(createService: () => SizeRulesService): 
     async execute(action, payload) {
       if (!service) throw new Error(`尺码规则不可用：${error}`)
       return service.execute(action, payload)
+    },
+    removeStore(storeId) {
+      if (!service) return 0
+      return service.removeStore(storeId)
     },
   }
 }

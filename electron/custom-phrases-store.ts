@@ -24,6 +24,13 @@ export class CustomPhraseStore {
     const key = createHash('sha256').update(value.storeId).digest('hex')
     return path.join(this.root, `${key}.json`)
   }
+  removeStore(storeId: string): void {
+    const file = path.join(
+      this.root,
+      `${createHash('sha256').update(phraseScopeSchema.shape.storeId.parse(storeId)).digest('hex')}.json`,
+    )
+    if (fs.existsSync(file)) fs.unlinkSync(file)
+  }
   list(scope: PhraseScope): PhraseLibrary {
     const file = this.file(scope)
     try {

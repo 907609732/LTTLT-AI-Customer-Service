@@ -126,13 +126,30 @@ it('连接过程中工作区改变，不把旧店铺写入新工作区或跳走'
   wrapper.unmount()
 })
 
-it('取消移除不执行命令，刷新失败在页面可见', async () => {
+it('移除弹窗默认不勾选；取消和浏览器预览都不执行命令', async () => {
   const { wrapper, runtime } = await fixture()
   const run = vi.spyOn(runtime, 'run')
-  vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel')
   await wrapper.get('.shop-card__del').trigger('click')
   await flushPromises()
+  const dialog = wrapper.get('.remove-shop-dialog')
+  const checkbox = dialog.get('input[type="checkbox"]').element as HTMLInputElement
+  expect(checkbox.checked).toBe(false)
+  expect(dialog.text()).toContain('保留移除备份')
+  const cancel = dialog.findAll('button').find((button) => button.text() === '取消')!
+  await cancel.trigger('click')
+  await flushPromises()
   expect(run).not.toHaveBeenCalled()
+  expect(wrapper.find('.remove-shop-dialog').exists()).toBe(false)
+
+  runtime.available = false
+  await wrapper.get('.shop-card__del').trigger('click')
+  await flushPromises()
+  expect(wrapper.get('.remove-shop-dialog').text()).toContain('浏览器仅提供界面预览')
+  const blocked = wrapper
+    .get('.remove-shop-dialog')
+    .findAll('button')
+    .find((button) => button.text() === '移除店铺')!
+  expect(blocked.attributes('disabled')).toBeDefined()
   vi.spyOn(runtime, 'refresh').mockImplementation(async () => {
     runtime.error = '快照读取失败'
   })
@@ -142,9 +159,82 @@ it('取消移除不执行命令，刷新失败在页面可见', async () => {
   wrapper.unmount()
 })
 
+it('勾选彻底删除时先做最终确认，再发送 purge=true；取消最终确认不发送', async () => {
+  const { wrapper, runtime } = await fixture()
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '已移除', data: {} })
+  const confirm = vi.spyOn(ElMessageBox, 'confirm').mockRejectedValueOnce('cancel')
+  await wrapper.get('.shop-card__del').trigger('click')
+  await flushPromises()
+  const dialog = wrapper.get('.remove-shop-dialog')
+  await dialog.get('input[type="checkbox"]').setValue(true)
+  expect(dialog.text()).toContain('不可恢复')
+  const danger = dialog.findAll('button').find((button) => button.text() === '彻底删除并移除')!
+  await danger.trigger('click')
+  await flushPromises()
+  expect(confirm).toHaveBeenCalled()
+  expect(run).not.toHaveBeenCalled()
+
+  confirm.mockResolvedValueOnce({ value: '', action: 'confirm' } as never)
+  await danger.trigger('click')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'remove-store',
+    storeId: 's0',
+    values: { confirmed: true, purge: true },
+  })
+  expect(wrapper.find('.remove-shop-dialog').exists()).toBe(false)
+  wrapper.unmount()
+})
+
+it('不勾选时沿用原移除命令并明确 purge=false', async () => {
+  const { wrapper, runtime } = await fixture()
+  const run = vi
+    .spyOn(runtime, 'run')
+    .mockResolvedValue({ status: 'ok', message: '店铺账号已从本机移除。', data: {} })
+  await wrapper.get('.shop-card__del').trigger('click')
+  await flushPromises()
+  const button = wrapper
+    .get('.remove-shop-dialog')
+    .findAll('button')
+    .find((item) => item.text() === '移除店铺')!
+  await button.trigger('click')
+  await flushPromises()
+  expect(run).toHaveBeenCalledWith({
+    action: 'remove-store',
+    storeId: 's0',
+    values: { confirmed: true, purge: false },
+  })
+  wrapper.unmount()
+})
+
 it('店铺列表不再提供跨店同步入口', async () => {
   const { wrapper } = await fixture()
   expect(wrapper.find('button[title="预览并确认跨店同步"]').exists()).toBe(false)
   expect(wrapper.text()).not.toContain('同步他店')
+  wrapper.unmount()
+})
+
+it('最终确认期间切换工作区时取消删除', async () => {
+  const { wrapper, runtime } = await fixture()
+  const run = vi.spyOn(runtime, 'run').mockResolvedValue({ status: 'ok', message: '', data: {} })
+  let finish!: () => void
+  vi.spyOn(ElMessageBox, 'confirm').mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve({ value: '', action: 'confirm' } as never)
+      }),
+  )
+  await wrapper.get('.shop-card__del').trigger('click')
+  await flushPromises()
+  const dialog = wrapper.get('.remove-shop-dialog')
+  await dialog.get('input[type="checkbox"]').setValue(true)
+  await dialog.get('.remove-shop-danger').trigger('click')
+  runtime.snapshot.workspaceId = 'another-workspace'
+  await flushPromises()
+  finish()
+  await flushPromises()
+  expect(run).not.toHaveBeenCalled()
   wrapper.unmount()
 })

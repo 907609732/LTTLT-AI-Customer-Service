@@ -22,6 +22,10 @@
 
 修改前阅读根目录 AGENTS.md 和 docs/CONSTRAINTS.md。修改后运行相关类型、构建、单元与桌面检查，并更新 docs/HANDOFF.md。
 
+## 2026-11-21 移除店铺可选彻底清理
+
+`ShopsListPanel` 的“移除”打开 `RemoveShopDialog`，默认不勾选“同时彻底删除本店知识库和配置”，不勾选时继续发送原 `remove-store`（保留移除备份、撤销知识应用）。勾选后弹窗列出不可恢复范围，提交前再做一次独立最终确认，并向主进程发送 `purge:true`。浏览器预览禁用写入；实际删除、跨店保护和失败重试由主进程 `store-purge` 与 knowledge repository 负责，组件不直接访问文件或 IPC。详见 `docs/DECISIONS.md` 与 `docs/HANDOFF.md`。
+
 ## 2026-11-14 店铺列表排版恢复
 
 配置中心 shops 入口恢复 ShopsListPanel 横向店铺卡片，使用 runtime 真实快照，不再引用 demo。接通状态/平台/分组搜索与分页、添加、打开登录、分组保存、确认移除及按店导航至现有接待与商品功能。商品页新增返回列表入口，原编辑、CSV 预览导入/导出与服务接口保留。连接与登录认证分开显示，自动操作注明全局范围；平台自动学习与跨店同步缺少现有契约，明确未接入。

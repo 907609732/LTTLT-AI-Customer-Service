@@ -78,6 +78,10 @@ export class ReceptionOperationsService {
     })
     return this.reading
   }
+  removeStore(storeId: string) {
+    this.executor.invalidateStore(storeId, '店铺已彻底移除，旧事项失效')
+    this.facts.delete(storeId)
+  }
   async snapshot(): Promise<ReceptionSnapshot> {
     this.requireCurrent()
     await this.refreshFacts()

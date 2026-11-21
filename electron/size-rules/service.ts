@@ -122,6 +122,10 @@ export function createSizeRulesService(options: SizeRulesServiceOptions) {
       }
       throw new Error('不支持的尺码规则操作')
     },
+    removeStore(storeId: string): number {
+      options.assertActive()
+      return store.removeStoreBindings(storeId)
+    },
     resolve(
       storeId: string,
       productId: string,

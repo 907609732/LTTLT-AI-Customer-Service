@@ -94,10 +94,14 @@ export function createKnowledgeImageOcr(options: {
             check()
             for (const tile of tiles) {
               if (items.length >= 1000) throw Error('单次识别分块过多，请按商品分批')
-              const asset = repo.addAsset(tile.image!.bytes, {
-                name: 'OCR图片分块',
-                mimeType: 'image/png',
-              })
+              const asset = repo.addAsset(
+                tile.image!.bytes,
+                {
+                  name: 'OCR图片分块',
+                  mimeType: 'image/png',
+                },
+                storeId,
+              )
               let result = read(asset.id)
               if (!result) {
                 result = await (options.recognize ?? recognizeWindowsImage)(

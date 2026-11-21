@@ -130,6 +130,19 @@ export class ReviewConsole {
   snapshot() {
     return { logs: this.logs, traces: this.traces, replies: this.replies }
   }
+  removeStore(storeId: string) {
+    const traceIds = new Set(
+      this.traces.filter((row) => row.storeId === storeId).map((row) => row.id),
+    )
+    for (const id of traceIds) this.traceStarted.delete(id)
+    this.logs = this.logs.filter((row) => row.storeId !== storeId)
+    this.traces = this.traces.filter((row) => row.storeId !== storeId)
+    this.replies = this.replies.filter((row) => row.storeId !== storeId)
+    for (const [key, row] of this.pending) if (row.row.storeId === storeId) this.pending.delete(key)
+    this.seen = new Set([...this.seen].filter((key) => !key.startsWith(`${storeId}:`)))
+    this.messageDiagnostics.removeStore(storeId)
+    this.changed()
+  }
   clearLogs() {
     const before = {
       logs: this.logs.length,

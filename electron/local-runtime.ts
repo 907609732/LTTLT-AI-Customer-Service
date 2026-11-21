@@ -15,6 +15,7 @@ import {
 import { AiStateRestore, type AiRestoreStore } from './ai-state-restore'
 import { StoreAiPreferences } from './store-ai-preferences'
 import { StoreSendModes } from './store-send-modes'
+import { CustomPhraseStore } from './custom-phrases-store'
 import { SendModeAuthorizations } from './send-mode-authorizations'
 import { createRequire } from 'node:module'
 import { ReplyPacingStore, createUidIntervalResolver } from './reply-pacing'
@@ -37,6 +38,7 @@ import {
   safeStorage,
   shell,
   dialog,
+  session,
   type IpcMainInvokeEvent,
   type WebContents,
 } from 'electron'
@@ -99,6 +101,16 @@ import { createPddLearningProvider } from './pdd-learning-provider'
 import { createPddOperationsProvider } from './pdd-operations-provider'
 import { platformLearningOpenSourceSchema } from '../src/shared/contracts/platform-learning'
 import { RuntimeResourceDisposer } from './runtime-disposal'
+import {
+  executeStorePurge,
+  parseRemoveStoreValues,
+  resumeStorePurges,
+  sanitizeVendorStoreData,
+  storeRegistered,
+  StorePurgeJournal,
+  type StorePurgePorts,
+  type StorePurgeReport,
+} from './store-purge'
 import { PlatformWriteCoordinator } from './platform-write-coordinator'
 import {
   type OpenAssistPlatformItemInput,
@@ -257,6 +269,44 @@ export function createLocalRuntime(options: {
   )
   managedContextRef.current = managedContext
   const dataDir = managed.dataDir
+  // A store purge is a durable tombstone: completed journals are harmless metadata,
+  // failed journals are retried before the next workspace operation. Sanitize mixed
+  // vendor JSON before those modules load so stale per-store rows never re-enter memory.
+  const purgedStoreIds = new Set<string>()
+  let purgeSanitizeTimer: ReturnType<typeof setTimeout> | undefined
+  const initialPurgeJournals = StorePurgeJournal.all(dataDir)
+  for (const journal of initialPurgeJournals) {
+    try {
+      // A restored/re-imported store may reuse the old id. The live registry wins:
+      // never strip a store that is present, even if an old completed journal exists.
+      if (storeRegistered(dataDir, journal.storeId)) {
+        journal.abort()
+        continue
+      }
+    } catch {
+      continue
+    }
+    try {
+      sanitizeVendorStoreData(dataDir, journal.storeId)
+    } catch {
+      // Retry is recorded in the journal; the app must still be able to open.
+    }
+    if (journal.state !== 'completed') purgedStoreIds.add(journal.storeId)
+  }
+  const schedulePurgedFileSweep = () => {
+    if (!purgedStoreIds.size || purgeSanitizeTimer) return
+    purgeSanitizeTimer = setTimeout(() => {
+      purgeSanitizeTimer = undefined
+      for (const storeId of purgedStoreIds) {
+        try {
+          sanitizeVendorStoreData(dataDir, storeId)
+        } catch {
+          // The next backend change retries; no other store is blocked.
+        }
+      }
+    }, 0)
+    purgeSanitizeTimer.unref?.()
+  }
   const { Config } = loadFactory<{
     Config: new (options: { file: string }) => {
       all(): { reply: { perUidMinIntervalMs: number } }
@@ -408,17 +458,43 @@ export function createLocalRuntime(options: {
       workspaceId,
       managed: managed.snapshot(),
     })
+    const visibleStore = (storeId: string) => !purgedStoreIds.has(storeId)
+    const visibleRows = <T extends { storeId: string }>(rows: T[]) =>
+      rows.filter((row) => visibleStore(row.storeId))
+    const visibleRecord = <T>(record: Record<string, T>) =>
+      Object.fromEntries(Object.entries(record).filter(([storeId]) => visibleStore(storeId)))
     return {
       ...snapshot,
       capabilities: {
         ...snapshot.capabilities,
         visionModel: visionAssemblyRef.current?.snapshot() ?? defaultVisionModelSnapshot(),
       },
-      stores: snapshot.stores.map((store) => ({
-        ...store,
-        sendMode: sendModes.read(store.id).mode,
-        aiRestore: aiRestoreRef.current?.state(store.id),
-      })),
+      stores: snapshot.stores
+        .filter((store) => visibleStore(store.id))
+        .map((store) => ({
+          ...store,
+          sendMode: sendModes.read(store.id).mode,
+          aiRestore: aiRestoreRef.current?.state(store.id),
+        })),
+      ...(purgedStoreIds.size
+        ? {
+            conversations: visibleRows(snapshot.conversations),
+            quality: visibleRows(snapshot.quality),
+            workOrders: visibleRows(snapshot.workOrders),
+            welcomeByStore: visibleRecord(snapshot.welcomeByStore),
+            visionByStore: visibleRecord(snapshot.visionByStore),
+            handoffByStore: visibleRecord(snapshot.handoffByStore),
+            engine: visibleRecord(snapshot.engine),
+            products: {
+              ...snapshot.products,
+              byStore: visibleRecord(snapshot.products.byStore),
+            },
+            auxiliary: {
+              ...snapshot.auxiliary,
+              drafts: visibleRows(snapshot.auxiliary.drafts),
+            },
+          }
+        : {}),
     }
   }
   const assistStores = () => {
@@ -885,6 +961,7 @@ export function createLocalRuntime(options: {
       }
       if (backendRef.current) review.sync()
       scheduleReporting()
+      schedulePurgedFileSweep()
       for (const listener of listeners) listener(safeEvent)
     },
   })
@@ -967,8 +1044,9 @@ export function createLocalRuntime(options: {
       }
     })
   }
+  const aiPreferences = new StoreAiPreferences(dataDir)
   const aiRestore = new AiStateRestore({
-    preferences: new StoreAiPreferences(dataDir),
+    preferences: aiPreferences,
     stores: () => {
       const raw = localBackend.snapshot() as { stores?: AiRestoreStore[] }
       return raw.stores ?? []
@@ -1223,6 +1301,27 @@ export function createLocalRuntime(options: {
     port: operationsProvider,
     isCurrent: () => !closed && managed.canAccessWorkspace(),
   })
+  const purgePorts: StorePurgePorts = {
+    dataDir,
+    knowledge,
+    platformLearning: learning,
+    scheduler,
+    automation,
+    operations,
+    orders,
+    sizeRules: sizeRulesAssembly,
+    aiPreferences,
+    sendModes,
+    customPhrases: new CustomPhraseStore(path.join(dataDir, 'custom-phrases')),
+    clearBrowserSession: async (storeId) => {
+      // PDD assist reuses the main store partition; non-PDD assist uses its own prefix.
+      for (const partition of new Set([
+        `persist:lingtu-${managed.partitionNamespace}-${storeId}`,
+        `persist:lingtu-assist-${managed.partitionNamespace}-${storeId}`,
+      ]))
+        await session.fromPartition(partition).clearStorageData()
+    },
+  }
   syncScheduler = () => {
     if (!runtimeStarted || closed) return
     try {
@@ -1238,6 +1337,10 @@ export function createLocalRuntime(options: {
   review.sync()
   scheduleReporting()
   const disposer = new RuntimeResourceDisposer([
+    () => {
+      if (purgeSanitizeTimer) clearTimeout(purgeSanitizeTimer)
+      purgeSanitizeTimer = undefined
+    },
     () => managedContext.clear(),
     () => knowledgeDaily.dispose(),
     () => storeSync.dispose(),
@@ -1274,6 +1377,12 @@ export function createLocalRuntime(options: {
     start: async (startOptions: { restoreAi?: boolean } = {}) => {
       await managed.init()
       if (closed) return
+      await resumeStorePurges(purgePorts)
+      for (const journal of StorePurgeJournal.all(dataDir))
+        if (journal.state !== 'completed') {
+          purgedStoreIds.add(journal.storeId)
+          sendAuthorizations.removeStore(journal.storeId)
+        }
       scheduleReporting()
       await host.start()
       if (closed) return
@@ -1463,38 +1572,85 @@ export function createLocalRuntime(options: {
       }
       const { workspaceId: _workspaceId, ...raw } = command
       void _workspaceId
+      const removeValues =
+        command.action === 'remove-store' ? parseRemoveStoreValues(command.values) : undefined
+      let purgeJournal: StorePurgeJournal | undefined
+      if (removeValues?.purge && command.storeId) {
+        if (!read().stores.some((store) => store.id === command.storeId))
+          throw new Error('店铺不存在，请刷新后重试')
+        purgeJournal = StorePurgeJournal.begin(dataDir, command.storeId)
+      }
       let result: BackendResult
-      if (command.action === 'start-training') {
-        let evidence: ReturnType<typeof capturedSizeEvidence>
-        let canonical: string | undefined
-        result = resultSchema.parse(
-          await withSizeRequest(async () => {
-            const value = await aiRestore.userExecute(raw)
-            evidence = capturedSizeEvidence()
-            canonical = capturedSizeCanonicalReply()
-            return value
-          }),
-        )
-        if (evidence) {
-          const reason =
-            sizeRulesRef.current?.candidateCurrent(evidence) ||
-            (sizeRulesRef.current ? '' : '尺码规则服务不可用，旧结论已失效。')
-          result = {
-            ...result,
-            data: applySizeTrainingOutput(evidence, result.data, reason, {
-              canonical,
-              bannedWords: read().bannedWords,
+      try {
+        if (command.action === 'start-training') {
+          let evidence: ReturnType<typeof capturedSizeEvidence>
+          let canonical: string | undefined
+          result = resultSchema.parse(
+            await withSizeRequest(async () => {
+              const value = await aiRestore.userExecute(raw)
+              evidence = capturedSizeEvidence()
+              canonical = capturedSizeCanonicalReply()
+              return value
             }),
+          )
+          if (evidence) {
+            const reason =
+              sizeRulesRef.current?.candidateCurrent(evidence) ||
+              (sizeRulesRef.current ? '' : '尺码规则服务不可用，旧结论已失效。')
+            result = {
+              ...result,
+              data: applySizeTrainingOutput(evidence, result.data, reason, {
+                canonical,
+                bannedWords: read().bannedWords,
+              }),
+            }
           }
-        }
-      } else result = resultSchema.parse(await aiRestore.userExecute(raw))
+        } else result = resultSchema.parse(await aiRestore.userExecute(raw))
+      } catch (error) {
+        // Abort a planned purge only when the store still exists. If the vendor removed
+        // the store but its result was malformed, the journal remains for startup retry.
+        if (
+          purgeJournal &&
+          command.storeId &&
+          read().stores.some((store) => store.id === command.storeId)
+        )
+          purgeJournal.abort()
+        throw error
+      }
       if (command.action === 'open-store' && command.storeId)
         developerDebug?.syncPopupPolicy(command.storeId)
       // 删除店铺时同步清空本机模拟数据，避免残留顾客被下一次同名店铺复用。
       if (command.action === 'remove-store' && command.storeId) {
-        knowledge.removeStore(command.storeId)
-        simHub.forget(command.storeId)
-        assist.closeStore(command.storeId)
+        if (removeValues?.purge && purgeJournal) {
+          purgeJournal.confirmRemoval()
+          purgedStoreIds.add(command.storeId)
+          sendAuthorizations.removeStore(command.storeId)
+          const storeId = command.storeId
+          let report: StorePurgeReport
+          try {
+            report = await executeStorePurge(purgeJournal, purgePorts)
+          } catch (error) {
+            // The store is already absent. Keep the failed journal and report the
+            // incomplete cleanup instead of showing a successful destructive action.
+            simHub.forget(storeId)
+            assist.closeStore(storeId)
+            review.removeStore(storeId)
+            throw error
+          }
+          simHub.forget(storeId)
+          assist.closeStore(storeId)
+          review.removeStore(storeId)
+          result = {
+            ...result,
+            message:
+              '店铺已从本机移除，勾选的本店专属数据已删除。共享商品、其他店铺、全局规则、账号计费数据及历史备份保留。',
+            data: { ...result.data, purge: report },
+          }
+        } else {
+          knowledge.removeStore(command.storeId)
+          simHub.forget(command.storeId)
+          assist.closeStore(command.storeId)
+        }
       }
       return result
     },

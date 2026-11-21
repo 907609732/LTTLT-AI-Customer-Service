@@ -28,12 +28,15 @@ export class StoreSendModes {
   read(storeId: string): StoreSendModeState {
     return { mode: this.modes.get(storeId) ?? 'review', revision: this.revisions.get(storeId) ?? 0 }
   }
-  set(storeId: string, mode: unknown): StoreSendModeState {
-    const id = storeIdSchema.parse(storeId),
-      value = storeSendModeSchema.parse(mode)
-    if (this.read(id).mode === value) return this.read(id)
+  remove(storeId: string): void {
+    const id = storeIdSchema.parse(storeId)
+    if (!this.modes.has(id)) return
     const next = new Map(this.modes)
-    next.set(id, value)
+    next.delete(id)
+    this.write(next)
+    this.revisions.delete(id)
+  }
+  private write(next: Map<string, 'review' | 'auto'>) {
     fs.mkdirSync(path.dirname(this.file), { recursive: true })
     const temporary = `${this.file}.${randomUUID()}.tmp`
     try {
@@ -50,6 +53,14 @@ export class StoreSendModes {
       if (fs.existsSync(temporary)) fs.unlinkSync(temporary)
     }
     this.modes = next
+  }
+  set(storeId: string, mode: unknown): StoreSendModeState {
+    const id = storeIdSchema.parse(storeId),
+      value = storeSendModeSchema.parse(mode)
+    if (this.read(id).mode === value) return this.read(id)
+    const next = new Map(this.modes)
+    next.set(id, value)
+    this.write(next)
     this.revisions.set(id, this.read(id).revision + 1)
     return this.read(id)
   }

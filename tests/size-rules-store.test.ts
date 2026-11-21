@@ -116,6 +116,28 @@ describe('size rules atomic store and CAS', () => {
     expect((await f.service.execute('list-size-rules', {})).data).toMatchObject({ total: 0 })
   })
 
+  it('removes a store-only rule but keeps a shared rule for the other store', async () => {
+    const f = fixture(new Set(['a:g', 'a:h', 'b:g']))
+    await save(f.service, { name: 'A only' })
+    await save(f.service, {
+      name: 'Shared',
+      bindings: [
+        { storeId: 'a', productId: 'h' },
+        { storeId: 'b', productId: 'g' },
+      ],
+    })
+    expect(f.service.removeStore('a')).toBe(2)
+    const list = sizeRuleListResultSchema.parse(
+      (await f.service.execute('list-size-rules', {})).data,
+    )
+    expect(list.rules).toHaveLength(1)
+    expect(list.rules[0]).toMatchObject({
+      name: 'Shared',
+      bindings: [{ storeId: 'b', productId: 'g' }],
+    })
+    expect(f.service.removeStore('a')).toBe(0)
+  })
+
   it('rejects duplicate store/product ownership even when the existing rule is disabled', async () => {
     const f = fixture()
     await save(f.service, { enabled: false, name: '停用占位' })

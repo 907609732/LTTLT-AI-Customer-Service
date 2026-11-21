@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
 import { useRuntimeStore } from '@/shared/state/runtime'
 import { useTask } from '@/shared/ui/use-task'
 import type { LocalStore } from '@/shared/contracts/backend'
 import { openKnowledgeManager } from '@/modules/knowledge'
 import AddShopDialog from './AddShopDialog.vue'
+import RemoveShopDialog from './RemoveShopDialog.vue'
 import { useShopSetupStore } from '../setup-store'
 import pddIcon from '@/assets/figma-add-img00.png'
 import qianniuIcon from '@/assets/figma-add-img3.png'
@@ -32,7 +32,8 @@ const platform = ref(''),
   status = ref('')
 const page = ref(1),
   size = ref(10),
-  adding = ref(false)
+  adding = ref(false),
+  removing = ref<LocalStore | null>(null)
 const drafts = reactive<Record<string, string>>({})
 const saved = ref('')
 const savingStore = ref('')
@@ -139,23 +140,13 @@ async function connect(shop: LocalStore) {
     await router.push('/')
   })
 }
-async function remove(shop: LocalStore) {
-  const workspace = runtime.snapshot.workspaceId
-  try {
-    await ElMessageBox.confirm(
-      `从本机移除“${shop.storeName || '待识别店铺'}”？本机会保留移除备份，平台店铺不会被删除。`,
-      '移除店铺',
-      { type: 'warning' },
-    )
-  } catch {
-    return
-  }
-  await task.run(async () => {
-    if (workspace !== runtime.snapshot.workspaceId) throw new Error('工作区已切换，请重新操作')
-    await runtime.run({ action: 'remove-store', storeId: shop.id, values: { confirmed: true } })
-    if (workspace === runtime.snapshot.workspaceId && runtime.platformStoreId === shop.id)
-      runtime.platformStoreId = ''
-  })
+function closeRemove(visible: boolean) {
+  if (!visible) removing.value = null
+}
+function removed(storeId: string, message: string) {
+  if (runtime.platformStoreId === storeId) runtime.platformStoreId = ''
+  task.message.value = message
+  removing.value = null
 }
 function reset() {
   platform.value = ''
@@ -319,7 +310,7 @@ const reception = [
               </button>
             </div>
           </div>
-          <button class="shop-card__del" :disabled="task.pending.value" @click="remove(shop)">
+          <button class="shop-card__del" :disabled="task.pending.value" @click="removing = shop">
             移除
           </button>
         </article>
@@ -346,6 +337,12 @@ const reception = [
       </div>
     </div>
     <AddShopDialog v-model="adding" />
+    <RemoveShopDialog
+      :model-value="Boolean(removing)"
+      :shop="removing"
+      @update:model-value="closeRemove"
+      @done="removed"
+    />
   </section>
 </template>
 

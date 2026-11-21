@@ -51,6 +51,14 @@ describe('自定义快捷话术', () => {
     expect(edited.rows[0]?.reply).toBe('已修改')
     expect(store.remove(scope, { revision: edited.revision, id: row.id }).rows).toEqual([])
   })
+  it('移除店铺只删除该店话术文件，其他店铺不受影响', () => {
+    const { root, store } = setup()
+    store.save(scope, { revision: 0, draft })
+    store.save({ ...scope, storeId: 'shop-b' }, { revision: 0, draft })
+    store.removeStore('shop-a')
+    expect(new CustomPhraseStore(root).list(scope).rows).toEqual([])
+    expect(new CustomPhraseStore(root).list({ ...scope, storeId: 'shop-b' }).rows).toHaveLength(1)
+  })
   it('拒绝过期写入、未知 ID、越界输入及损坏文件，不静默覆盖', () => {
     const { root, store } = setup()
     const saved = store.save(scope, { revision: 0, draft })

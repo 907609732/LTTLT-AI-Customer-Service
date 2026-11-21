@@ -175,6 +175,16 @@ export function createKnowledgeSourcePipeline(options: {
       importer.removeStore(storeId)
       learner.removeStore(storeId)
     },
+    async quiesceStore(storeId) {
+      const results = await Promise.allSettled([
+        importer.quiesceStore(storeId),
+        learner.quiesceStore(storeId),
+      ])
+      const errors = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : [],
+      )
+      if (errors.length) throw new AggregateError(errors, '资料任务未能完全停止')
+    },
     dispose() {
       options.imageOcr?.dispose()
       importer.dispose()

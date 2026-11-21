@@ -111,6 +111,12 @@ export class PlatformOrderService {
     }
     this.states.set(storeId, state)
   }
+  removeStore(storeId: string): void {
+    this.controllers.get(storeId)?.abort()
+    this.controllers.delete(storeId)
+    this.states.delete(storeId)
+    fs.rmSync(this.file(storeId), { force: true })
+  }
   snapshot(workspaceId: string, storeId: string): PlatformOrderSnapshot {
     this.assert(workspaceId)
     const state = this.load(storeId)

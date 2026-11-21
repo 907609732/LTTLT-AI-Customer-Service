@@ -329,6 +329,15 @@ export class ReceptionScheduler {
     }
     if (changed) this.commit(next)
   }
+  removeStore(storeId: string) {
+    if (this.closed) return
+    const next = structuredClone(this.state)
+    next.tasks = next.tasks.filter((task) => task.storeId !== storeId)
+    next.runs = next.runs.filter((run) => run.storeId !== storeId)
+    // Receipts are one-way hashes and cannot be attributed to a store without deleting
+    // other stores' dedupe records; they expire automatically and carry no content.
+    this.commit(next)
+  }
   invalidateOperation(id: string, reason: string) {
     if (this.closed) return
     const next = structuredClone(this.state)

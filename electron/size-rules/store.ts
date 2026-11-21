@@ -211,6 +211,28 @@ export function createSizeRuleStore(options: SizeRuleStoreOptions) {
       commit(next)
       return { revision: next.revision }
     },
+    removeStoreBindings(storeId: string): number {
+      options.assertActive()
+      let removed = 0
+      const rules = state.rules.flatMap((rule) => {
+        const bindings = rule.bindings.filter((binding) => binding.storeId !== storeId)
+        if (bindings.length === rule.bindings.length) return [rule]
+        removed += rule.bindings.length - bindings.length
+        // A rule that only ever bound this store contains store-specific size data;
+        // a rule with other-store bindings remains and only loses this store.
+        if (!bindings.length) return []
+        return [{ ...rule, bindings, version: rule.version + 1, updatedAt: now() }]
+      })
+      if (!removed) return 0
+      commit(
+        sizeRuleFileSchema.parse({
+          version: 1,
+          revision: state.revision + 1,
+          rules,
+        }),
+      )
+      return removed
+    },
     has(binding: SizeRuleBinding): boolean {
       const key = bindingKey(binding)
       return state.rules.some((rule) => rule.bindings.some((item) => bindingKey(item) === key))

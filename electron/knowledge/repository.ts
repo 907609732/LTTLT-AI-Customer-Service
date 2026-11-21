@@ -1,7 +1,7 @@
 import { isRecoverableKnowledgeJob } from '../../src/shared/knowledge-progress'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { join, dirname, toNamespacedPath } from 'node:path'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
+import { basename, join, dirname, toNamespacedPath } from 'node:path'
 import { z } from 'zod'
 import {
   knowledgeDraftSchema,
@@ -52,6 +52,7 @@ import { pruneToStore } from './backup-store-scope'
 import { questionConflictKey, repairAutomaticConflictKeys } from './conflict-keys'
 import { assertNoInterruptedKnowledgeRestore } from './restore-intent'
 import { clearKnowledgeCopy } from './clear'
+import { isStorePurged, purgeStoreKnowledge } from './purge'
 import type { KnowledgeClearScope } from '../../src/shared/contracts/knowledge-client'
 const { DatabaseSync } = knowledgeRequire('node:sqlite') as typeof import('node:sqlite')
 type Table =
@@ -169,6 +170,24 @@ export class KnowledgeRepository {
     this.assertOpen()
     if (this.readOnly) throw Error('知识迁移失败，旧数据只读，请恢复备份后重试')
   }
+  /** Late workers must fail closed after the store's data has been purged. */
+  private assertStoreWritable(storeId: string) {
+    if (isStorePurged(this.db, storeId)) throw Error('店铺已彻底移除，晚到数据未写入')
+  }
+  private assertScopeWritable(scope: {
+    kind: string
+    storeId?: string
+    bindingId?: string
+    storeIds?: string[]
+  }) {
+    if (scope.kind === 'store' && scope.storeId) this.assertStoreWritable(scope.storeId)
+    if (scope.kind === 'binding' && scope.bindingId) {
+      const binding = this.getBinding(scope.bindingId)
+      if (binding) this.assertStoreWritable(binding.storeId)
+    }
+    if (scope.kind === 'template')
+      for (const storeId of scope.storeIds ?? []) this.assertStoreWritable(storeId)
+  }
   transaction<T>(run: () => T): T {
     this.assertWritable()
     if (this.depth) return run()
@@ -242,6 +261,7 @@ export class KnowledgeRepository {
   }
   bindProduct(input: z.input<typeof productBindingInputSchema>): ProductBinding {
     const value = productBindingInputSchema.parse(input)
+    this.assertStoreWritable(value.storeId)
     return this.transaction(() => {
       if (!this.getCanonical(value.canonicalId)) throw Error('共享商品不存在')
       if (this.getMetadata(`removed-canonical:${value.canonicalId}`) === '1')
@@ -339,6 +359,7 @@ export class KnowledgeRepository {
     return this.transaction(() => {
       const old = this.getBinding(id)
       this.expectRevision(old, expectedRevision, id)
+      this.assertStoreWritable(old!.storeId)
       const targets = old!.skuId
         ? [old!]
         : [
@@ -365,6 +386,28 @@ export class KnowledgeRepository {
       }
       return result
     })
+  }
+  purgeStore(storeId: string) {
+    const result = this.transaction(() =>
+      purgeStoreKnowledge(this.db, this.options.directory, storeId, this.now()),
+    )
+    const errors: unknown[] = []
+    for (const file of result.assetFiles) {
+      const sha256 = basename(file)
+      try {
+        if (existsSync(file)) unlinkSync(file)
+        // The digest tombstone is removed only after the file is gone, so a failed
+        // unlink is retried without touching other stores' unreferenced uploads.
+        this.db.prepare('DELETE FROM metadata WHERE key=?').run(`purged-asset:${storeId}:${sha256}`)
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length)
+      throw new AggregateError(errors, '知识库数据已从索引删除，但部分附件文件未能删除')
+    const { assetFiles: _assetFiles, ...summary } = result
+    void _assetFiles
+    return summary
   }
   removeStore(storeId: string) {
     return this.transaction(() => {
@@ -418,6 +461,7 @@ export class KnowledgeRepository {
   }
   saveSource(input: KnowledgeSourceInput): KnowledgeSource {
     const value = knowledgeSourceInputSchema.parse(input)
+    this.assertStoreWritable(value.storeId)
     return this.transaction(() => {
       const old = value.id ? this.getSource(value.id) : null
       this.expectRevision(old, value.expectedRevision, value.id)
@@ -489,9 +533,14 @@ export class KnowledgeRepository {
       .all(id)
       .map((row) => JSON.parse((row as { body: string }).body) as KnowledgeSource)
   }
-  addAsset(bytes: Uint8Array, input: { name: string; mimeType: string }): KnowledgeAsset {
+  addAsset(
+    bytes: Uint8Array,
+    input: { name: string; mimeType: string },
+    storeId?: string,
+  ): KnowledgeAsset {
     z.string().max(1000).parse(input.name)
     z.string().max(200).parse(input.mimeType)
+    if (storeId) this.assertStoreWritable(storeId)
     if (bytes.byteLength > 100 * 1024 * 1024) throw Error('附件超出100MB')
     return this.transaction(() => {
       const digest = hash(bytes)
@@ -518,6 +567,7 @@ export class KnowledgeRepository {
       const old = parsed.id ? this.getEntry(parsed.id) : null
       this.expectRevision(old, parsed.expectedRevision, parsed.id)
       const scope = knowledgeScopeSchema.parse(parsed.scope)
+      this.assertScopeWritable(scope)
       if (scope.kind === 'canonical' && !this.getCanonical(scope.canonicalId))
         throw Error('共享商品不存在')
       if (
@@ -590,6 +640,7 @@ export class KnowledgeRepository {
     return this.transaction(() => {
       const entry = this.getEntry(value.entryId)
       if (!entry) throw Error('知识不存在')
+      this.assertScopeWritable(entry.draft.scope)
       for (const ref of entry.draft.sourceRefs)
         if (
           value.expectedSourceRevisions[ref.sourceId] !== ref.revision ||
@@ -637,6 +688,7 @@ export class KnowledgeRepository {
     return this.transaction(() => {
       const old = this.getEntry(id)
       this.expectRevision(old, expectedRevision, id)
+      this.assertScopeWritable(old!.draft.scope)
       const next = {
         ...old!,
         revision: old!.revision + 1,
@@ -1057,6 +1109,7 @@ export class KnowledgeRepository {
         })
         .strict()
         .parse(input)
+      this.assertStoreWritable(parsed.storeId)
       return this.put('jobs', {
         ...parsed,
         id: randomUUID(),
@@ -1086,6 +1139,7 @@ export class KnowledgeRepository {
     return this.transaction(() => {
       const old = this.getJob(id)
       this.expectRevision(old, input.expectedRevision, id)
+      this.assertStoreWritable(old!.storeId)
       const changes = z
         .object({
           expectedRevision: z.number().int().positive(),
@@ -1166,6 +1220,7 @@ export class KnowledgeRepository {
         })
         .strict()
         .parse(input)
+      this.assertStoreWritable(parsed.storeId)
       const id = hash(
         JSON.stringify([
           parsed.storeId,

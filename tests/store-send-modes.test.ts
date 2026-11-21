@@ -22,6 +22,16 @@ describe('按店铺保存发送模式', () => {
     expect(new StoreSendModes(dir).read('a').mode).toBe('auto')
     expect(new StoreSendModes(path.join(dir, 'other-account')).read('a').mode).toBe('review')
   })
+  it('移除店铺只删除该店模式，其他店模式和审核默认保留', () => {
+    const { dir, modes } = setup()
+    modes.set('a', 'auto')
+    modes.set('b', 'auto')
+    modes.remove('a')
+    expect(modes.read('a')).toEqual({ mode: 'review', revision: 0 })
+    expect(modes.read('b').mode).toBe('auto')
+    expect(new StoreSendModes(dir).read('a').mode).toBe('review')
+    expect(new StoreSendModes(dir).read('b').mode).toBe('auto')
+  })
   it('只有成功保存的模式变化递增版本，自动切审核再切自动保留变化证据', () => {
     const { modes } = setup()
     modes.set('a', 'auto')

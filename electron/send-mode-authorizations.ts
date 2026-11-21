@@ -91,6 +91,11 @@ export class SendModeAuthorizations {
       if (permit.storeId === storeId && permit.uid === uid) this.permits.delete(key)
   }
 
+  removeStore(storeId: string) {
+    for (const [key, permit] of this.permits)
+      if (permit.storeId === storeId) this.permits.delete(key)
+  }
+
   dispose() {
     this.closed = true
     this.permits.clear()

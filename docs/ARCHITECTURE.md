@@ -92,6 +92,12 @@ E:\~1awucheng\Plastic SCM\AI电商客服软件\client 是当前工作区的独�
 
 跨模块只经公开入口导入组件。账户聚合依赖账号与设置属于现有界面组合；后续新增业务逻辑应放回各自模块，避免将 billing 扩展为全局业务中心。
 
+## 移除店铺与按店彻底清理（2026-11-21）
+
+`ShopsListPanel → RemoveShopDialog → remove-store` 保留原默认行为；只有用户勾选并最终确认后才附加 `purge:true`，主进程仍要求 `confirmed:true`。local-runtime 先调用厂商店铺移除，再以 `store-purges/<hash>.json` 持久计划执行知识库物理清理和本店自有存储清理；计划含 `removalConfirmed`，厂商移除未提交时不得按计划删除。失败状态跨启动保留并在 `start()` 前重试，操作向渲染层返回失败。
+
+knowledge repository 先复用 `clearKnowledgeCopy` 裁剪本店 scope（共享 canonical、模板他店部分和跨店证据不被误删），再删除仅属本店的 binding、entry/version、source/version、无剩余引用的 asset 文件及 job/miss/legacy 行，并写入 `purged-store:<id>` 墓碑阻止晚到写入。其余集合由各领域提供 `removeStore`；厂商混合 JSON 由 `store-purge` 按 storeId 过滤并在后续 backend 事件重清扫。匿名报表、调度去重哈希、日志、历史/全库备份及跨店同步 journal 无法安全归属单店，明确保留。详见 [DECISIONS](DECISIONS.md)。
+
 ## 数据与接口
 
 六步店铺助手见SHOP_SETUP_WIZARD.md：shops/setup-rules复用已有模型方案命令，克隆保留原规则后仅绑定本店，不新增持久化格式、IPC或第三方依赖；助手字段以有版本的自有区块存入提示规则，完整校验及关闭条件清理后才保存。新增真实店铺通过setup-store.queueAfterLogin等认证结果，不能以open-store成功代替登录成功。MainLayout只对右侧内容设inert并隐藏原生页，保留左侧店铺栏/顶部导航交互；助手与原生页同为x300/y72内容范围。
