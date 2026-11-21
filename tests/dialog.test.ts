@@ -17,8 +17,10 @@ describe('本地二维码交互', () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(document.body.querySelector('.el-dialog')).not.toBeNull()
     expect(document.body.textContent).toContain('灵兔AI电商客服 · 联系方式')
-    expect(document.body.textContent).toContain('灵兔AI电商客服 联系方式暂未配置。')
-    expect(document.body.querySelector('img[alt="客服二维码"]')).toBeNull()
+    expect(document.body.textContent).toContain('用微信扫码添加客服')
+    expect(
+      document.body.querySelector('img[alt="企业微信客服二维码"]')?.getAttribute('src'),
+    ).toContain('support-wecom.png')
     expect(document.body.querySelector('.el-message')).toBeNull()
     wrapper.unmount()
   })
